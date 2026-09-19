@@ -1,0 +1,19 @@
+{
+    "name": "Drift.SaveSystem",
+    "rootNamespace": "Drift.SaveSystem",
+    "references": [
+        "Drift.Core",
+        "Drift.Tectonics",
+        "Drift.Life",
+        "Drift.Islands"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}
