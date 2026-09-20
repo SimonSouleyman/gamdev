@@ -26,6 +26,8 @@ Shader "Drift/IslandTerrain"
             #pragma vertex vert
             #pragma fragment frag
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Lighting.hlsl"
+            #include "DriftClouds.hlsl"
+            #include "DriftCurve.hlsl"
 
             struct Attributes
             {
@@ -51,7 +53,7 @@ Shader "Drift/IslandTerrain"
             {
                 Varyings OUT;
                 VertexPositionInputs vpi = GetVertexPositionInputs(IN.positionOS.xyz);
-                OUT.positionHCS = vpi.positionCS;
+                OUT.positionHCS = DriftCurveHClip(vpi.positionWS);
                 OUT.positionWS = vpi.positionWS;
                 OUT.normalWS = TransformObjectToWorldNormal(IN.normalOS);
                 OUT.color = IN.color;
@@ -61,6 +63,7 @@ Shader "Drift/IslandTerrain"
             float4 frag(Varyings IN) : SV_Target
             {
                 float y = IN.positionWS.y;
+                clip(y + 0.45);
                 float3 n = normalize(IN.normalWS);
 
                 float3 col = lerp(_Wet.rgb, _Sand.rgb, smoothstep(-0.05, 0.12, y));
@@ -75,7 +78,8 @@ Shader "Drift/IslandTerrain"
                 Light mainLight = GetMainLight();
                 float nd = saturate(dot(n, mainLight.direction));
                 float lit = _Ambient + (1.0 - _Ambient) * nd;
-                return float4(col * lit * mainLight.color, 1);
+                lit *= CloudShadow(IN.positionWS.xz);
+                return float4(DriftFog(col * lit * mainLight.color, IN.positionWS), 1);
             }
             ENDHLSL
         }

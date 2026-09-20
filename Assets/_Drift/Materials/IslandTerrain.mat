@@ -27,9 +27,10 @@ Material:
     m_Floats:
     - _Ambient: 0.4
     - _GrassStart: 0.28
-    - _RockStart: 1.7
+    - _RockStart: 2
     - _SnowStart: 3.4
     m_Colors:
+    - _Ash: {r: 0.15999997, g: 0.10999996, b: 0.079999976, a: 1}
     - _Grass: {r: 0.35999998, g: 0.62, b: 0.27999997, a: 1}
     - _Rock: {r: 0.5, g: 0.4699999, b: 0.43999997, a: 1}
     - _Sand: {r: 0.9, g: 0.82, b: 0.54999995, a: 1}

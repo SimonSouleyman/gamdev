@@ -81,6 +81,32 @@ explicitly rather than claiming a feel-based change is verified from this sessio
 - No code comments unless they capture a genuinely non-obvious constraint or a past bug (the two
   points above are exactly that kind of thing) — don't narrate what the code already says.
 
+## Working with several agents on this project
+
+Five parallel agents built audio/visuals/UI/gameplay/persistence in one pass; it worked because each
+agent owned a disjoint set of files and never touched the scene or Play Mode — the coordinator did
+all `attach_script`/`set_component_properties`/`save_scene`/screenshots afterwards from the agents'
+"Scene wiring needed" sections. Keep that split: agents write code + `eval` verification + a wiring
+list; one session integrates. Cross-file needs go through public API additions made *before*
+dispatch (e.g. `Island.InputProvider`, `Island.Merged`, `IslandKind`) or "Integration requests" in
+the report. Note `FindObjectsByType` in `eval` can miss `DontSave` children — walk the transform.
+
+## CLI gotchas learned the hard way
+
+- `editor_play` / `editor_stop` take no arguments (`--action` makes the call fail silently — the
+  Editor then simply isn't playing).
+- Under Git Bash, hierarchy paths like `/Visuals` get rewritten to `C:/Program Files/Git/Visuals`;
+  pass `//Visuals`, set `MSYS_NO_PATHCONV=1`, or set fields through `eval` with
+  `Undo.RecordObject` + `EditorUtility.SetDirty`.
+- UI built by `[ExecuteAlways]` components (`SessionScreens`, `WorldHud`) only updates on an editor
+  tick; before an edit-mode `capture_game_view`, invoke their private `Update` via reflection from
+  `eval` (and `SessionScreens.Preview.RenderNow(player)` for the island picture).
+- Exiting Play Mode (no domain/scene reload) leaves seeds/streamed islands changed; restore with
+  `WorldStreamer.ResetWorld()` + `StreamAround(true)` and `IslandChaseCamera.SnapToTarget()`.
+
+- `eval` has a ~5 s main-thread budget — long benches (e.g. `PerfBaseline.PerIsland()` over 32
+  islands) time out; bench subsets or fewer iterations instead.
+
 ## Workflow preferences
 
 - Only commit when explicitly asked — changes are staged/left as working-tree edits otherwise.

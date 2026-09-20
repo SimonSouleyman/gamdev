@@ -8,7 +8,7 @@ Material:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_Name: PlateBorder
-  m_Shader: {fileID: 4800000, guid: f55389167affb0748889bfebc683df35, type: 3}
+  m_Shader: {fileID: 4800000, guid: babf3440b9c7cda49a0c51c772372093, type: 3}
   m_Parent: {fileID: 0}
   m_ModifiedSerializedProperties: 0
   m_ValidKeywords: []
@@ -26,9 +26,25 @@ Material:
     m_Ints: []
     m_Floats:
     - _Ambient: 0.45
+    - _ChevronAmount: 0.3
     - _Cull: 0
+    - _Flap: 0
+    - _FlapSpeed: 14
+    - _FoamAmount: 0.8
     - _LightAmount: 0
+    - _SeamOpacity: 0.85
+    - _Sway: 0
+    - _SwaySpeed: 2
+    - _TintAmount: 0.55
+    - _WarmAmount: 0.16
+    - _WindBend: 0.45
+    - _WindFlutter: 0.18
     m_Colors:
+    - _FoamColor: {r: 0.93, g: 0.96999997, b: 1, a: 1}
+    - _SeamFocus: {r: 0, g: 0, b: 80, a: 120}
     - _Tint: {r: 1, g: 1, b: 1, a: 1}
+    - _TroughColor: {r: 0.03, g: 0.14999998, b: 0.29999998, a: 1}
+    - _UpwellColor: {r: 0.35999998, g: 0.86, b: 0.8399999, a: 1}
+    - _WarmColor: {r: 1, g: 0.6, b: 0.31999996, a: 1}
   m_BuildTextureStacks: []
   m_AllowLocking: 1
