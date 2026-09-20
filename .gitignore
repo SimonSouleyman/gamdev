@@ -107,3 +107,6 @@ InitTestScene*.unity*
 
 # Auto-generated cache in Assets folder
 /[Aa]ssets/[Ss]ceneDependencyCache*
+
+# Agent-Kladde (liegt im Scratchpad ausserhalb des Projekts)
+/scratchpad/
