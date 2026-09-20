@@ -110,3 +110,7 @@ InitTestScene*.unity*
 
 # Agent-Kladde (liegt im Scratchpad ausserhalb des Projekts)
 /scratchpad/
+
+# Verifikations-Screenshots aus dem Editor (capture_game_view schreibt hierhin)
+/Assets/Temp/
+/Assets/Temp.meta
