@@ -241,7 +241,6 @@ namespace Drift.Bridge
         void Update()
         {
             if (_canvas == null) return;
-            if (_canvas.worldCamera == null && Camera.main != null) _canvas.worldCamera = Camera.main;
 
             if (!Application.isPlaying)
             {
@@ -598,7 +597,7 @@ namespace Drift.Bridge
         void Ripple(Vector2 screenPos, bool hit)
         {
             if (_ripple == null) return;
-            RectTransformUtility.ScreenPointToLocalPointInRectangle(_root, screenPos, _canvas.worldCamera, out var local);
+            RectTransformUtility.ScreenPointToLocalPointInRectangle(_root, screenPos, null, out var local);
             _ripple.anchoredPosition = local;
             _ripple.localScale = new Vector3(0.5f, 0.5f, 1f);
             _rippleImage.color = UiStyle.WithAlpha(hit ? UiStyle.Sand : UiStyle.Cream, 0.7f);
@@ -755,7 +754,7 @@ namespace Drift.Bridge
         float PlaceMarker(Vector3 screen, float bodyPixels, float alpha)
         {
             if (screen.z <= 0f) { _markerGroup.alpha = 0f; return 0f; }
-            RectTransformUtility.ScreenPointToLocalPointInRectangle(_root, screen, _canvas.worldCamera, out var local);
+            RectTransformUtility.ScreenPointToLocalPointInRectangle(_root, screen, null, out var local);
             float diameter = Mathf.Clamp(bodyPixels * 2.6f / CanvasScale, 46f, 240f);
             float pulse = 0.5f + 0.5f * Mathf.Sin(Time.unscaledTime * 4f);
             _marker.anchoredPosition = local;
@@ -767,7 +766,7 @@ namespace Drift.Bridge
         void PlacePopup(Vector3 screen, float lift)
         {
             if (screen.z <= 0f) { _popupGroup.alpha = 0f; return; }
-            RectTransformUtility.ScreenPointToLocalPointInRectangle(_root, screen, _canvas.worldCamera, out var local);
+            RectTransformUtility.ScreenPointToLocalPointInRectangle(_root, screen, null, out var local);
             var rect = _root.rect;
             var size = _popupRect.sizeDelta;
             // While following, the return button and the herd chip own the top centre: the card then hangs below the animal.
@@ -1748,7 +1747,7 @@ namespace Drift.Bridge
         void Build()
         {
             UiStyle.DestroyChildrenNamed(transform, CanvasName);
-            _canvas = UiStyle.Canvas(transform, CanvasName, sortingOrder, true, false, out _root);
+            _canvas = UiStyle.Canvas(transform, CanvasName, sortingOrder, true, out _root);
 
             _bookButton = BuildBookButton(_root);
             _cameraButton = BuildCameraButton(_root);

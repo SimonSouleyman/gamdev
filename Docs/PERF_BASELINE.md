@@ -234,3 +234,26 @@ Items that already break the budget and belong to Phase 1: `ApplyTint` on big is
 the shoreline band or amortise), herd/vegetation meshes on merged islands (enforce the caps, then move
 animation to the vertex shader so rebuilds only happen on position changes), flocks rebuilt every
 frame, and the 94 %-sea terrain rectangle of a sprawling merge.
+
+## 2026-09-21 — real Play Mode, scripted driver, and the first optimisation pass
+
+Method: `editor_play`, `Application.runInBackground = true` (the Editor then ticks without focus), a steering
+lambda on `Island.InputProvider` that drives to the nearest island, `ProfilerDriver` frames read back through
+`HierarchyFrameDataView` (2000-frame windows). Desktop Editor numbers, big player island (area 700-1200).
+
+| Item | before | after |
+|---|---:|---:|
+| Autosave every 20 s (70 changed islands, 0.6-1.4 MB JSON) | 20-25 ms stall | ~1 ms capture; JSON + write on a worker |
+| `Island.Update`, all islands, avg / worst (merge ridge rising most of the time) | 0.55 / 3.0 ms | 0.06 / 0.65 ms |
+| Sink refresh, 42k-vertex terrain (every 0.5 s while sinking) | 2.06 ms | 0.76 ms |
+| Ground tint, 42k vertices (`ApplyGroundTint`) | 3.5 ms | 1.1 ms |
+| Island streaming, worst frame | 25 ms | 2-5 ms typical (one 18 ms outlier: a saved island re-entering) |
+| All scripts (`BehaviourUpdate`), avg | 0.87-0.89 ms | 0.35-0.73 ms |
+| Steady per-frame garbage while driving | ~900 B + autosave 3 MB | ~100-300 B (merges, plant growth, HUD text) |
+
+Other findings: no `Application.targetFrameRate` was set (phones default to 30 fps) - now 60 via
+`Drift.Core.PlatformSetup`; the Mobile URP asset rendered with HDR and allocated a shadow map that nothing
+draws into - both off. Remaining known spikes: a merge (`MergeFrom` + first ridge frame) 3.5-5.6 ms, a saved
+island streaming back in (restores shape and life in one frame) up to 18 ms, the incremental GC slice in the
+Editor 8-10 ms (the Editor heap is ~10x a player's). Phone numbers still need the owner's device with a
+development build and the Profiler attached.

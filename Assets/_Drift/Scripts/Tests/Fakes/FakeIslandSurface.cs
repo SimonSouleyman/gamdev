@@ -36,10 +36,9 @@ namespace Drift.Tests
             return Mathf.Lerp(height, 0f, (r - (radius - beach)) / beach);
         }
 
-        public void ApplyGroundTint(Func<Vector2, Color> tintAtLocal)
+        public void ApplyGroundTint(Color[] cellColors, int cellsX, int cellsZ, Vector2 gridOrigin, float gridCell)
         {
             tintCalls++;
-            tintAtLocal(Vector2.zero);
         }
     }
 }

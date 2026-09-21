@@ -23,6 +23,9 @@ namespace Drift.Islands
 
         // JsonUtility writes a null array/object as an empty one, so presence is tested by length.
         public bool HasShape => heights != null && heights.Length > 0 && nx > 0 && nz > 0;
+
+        // Shares the arrays: for re-basing the position of an entry that other code may still be reading.
+        public IslandSaveData ShallowCopy() => (IslandSaveData)MemberwiseClone();
         public bool HasLife => life != null && life.stage != null && life.stage.Length > 0 && life.nx > 0 && life.nz > 0;
     }
 

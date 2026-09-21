@@ -221,7 +221,7 @@ namespace Drift.UI
         void Build()
         {
             UiStyle.DestroyChildrenNamed(transform, CanvasName);
-            _canvas = UiStyle.Canvas(transform, CanvasName, sortingOrder, false, true, out _);
+            _canvas = UiStyle.Canvas(transform, CanvasName, sortingOrder, false, out _);
             _canvasRect = (RectTransform)_canvas.transform;
 
             _base = Disc(_canvas.transform, "StickBase", stickRadius * 2f, baseColor, 1.3f, 0.5f);

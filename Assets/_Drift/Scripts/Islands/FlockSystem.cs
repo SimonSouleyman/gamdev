@@ -49,7 +49,9 @@ namespace Drift.Islands
         public float seabirdOrbitMax = 40f;
         public float cliffHeight = 1.7f;
 
-        class Bird
+        // A struct: a flock re-spawns every time it falls behind a fast island, and a class allocated one object
+        // per bird per re-spawn (the largest steady source of garbage while driving).
+        struct Bird
         {
             public Vector2 offset;
             public float phase, scale;

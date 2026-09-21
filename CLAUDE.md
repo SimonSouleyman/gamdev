@@ -41,16 +41,15 @@ Typical loop for a code change:
    don't assume. Check `unity command console --level error` for runtime/shader errors.
 5. Delete debug/verification assets afterward (`delete_asset`) so they don't pollute the repo.
 
-**Known limitation — Play Mode doesn't advance frames under this automation.** `editor_play`
-enters Play Mode but `Time.frameCount` can stay stuck at 1 indefinitely (confirmed with
-`set_autotick` and `editor_focus`, no effect) — the Player Loop seems to need real OS window
-focus this headless session doesn't have. Don't waste time sleeping-and-recapturing waiting for
-animation/physics to progress. Instead use `unity command eval` to directly call gameplay
-methods and assert on the result (e.g. call `island.Tick(input, dt)` in a loop to simulate
-movement, or manually compute+apply a camera's target transform for a one-shot verification
-screenshot). Real interactive testing — especially anything about *feel* (input response, camera
-smoothing, touch controls) — has to happen in the user's own focused Editor window; say so
-explicitly rather than claiming a feel-based change is verified from this session.
+**Play Mode frames advance once `Application.runInBackground = true` is set** (from `eval`, right
+after `editor_play`; it is a runtime flag and is not saved). Without it the unfocused Editor never
+ticks the Player Loop and `Time.frameCount` stays at 1. With it the game really runs: drive it by
+replacing `Island.InputProvider` with a steering lambda (index the `Island.All` list, a `foreach`
+over the interface allocates), sample state from `eval`, take screenshots *including the overlay
+UI* with `ScreenCapture.CaptureScreenshot(path)` (`capture_game_view` renders the camera only), and
+profile with `ProfilerDriver` + `HierarchyFrameDataView` (enable `ProfilerDriver.enabled`, sleep,
+read the frames back in chunks - `eval` has a 5 s budget). Anything about *feel* (input response,
+camera smoothing, touch) still needs the owner's own hands-on test.
 
 ## Code conventions established so far
 
@@ -103,6 +102,11 @@ the report. Note `FindObjectsByType` in `eval` can miss `DontSave` children — 
   `eval` (and `SessionScreens.Preview.RenderNow(player)` for the island picture).
 - Exiting Play Mode (no domain/scene reload) leaves seeds/streamed islands changed; restore with
   `WorldStreamer.ResetWorld()` + `StreamAround(true)` and `IslandChaseCamera.SnapToTarget()`.
+- `run_tests` can leave an untitled scene open; reopen `Assets/_Drift/Scenes/Planet.unity` before `editor_play`.
+- Playing a run overwrites the owner's `drift_save.json` (persistentDataPath): back it up first and copy it
+  back after `editor_stop`.
+- The Mobile quality level is hidden in the Editor while the build target is Standalone; to look at the
+  phone pipeline set `QualitySettings.renderPipeline` to `Assets/Settings/Mobile_RPAsset.asset` at runtime.
 
 - `eval` has a ~5 s main-thread budget — long benches (e.g. `PerfBaseline.PerIsland()` over 32
   islands) time out; bench subsets or fewer iterations instead.
@@ -111,13 +115,13 @@ the report. Note `FindObjectsByType` in `eval` can miss `DontSave` children — 
 
 - Only commit when explicitly asked — changes are staged/left as working-tree edits otherwise.
 - Prefer the live-Editor CLI workflow above over asking the user to click through the Editor
-  manually, except for anything about *feel* (see the Play Mode limitation above) — that always
+  manually, except for anything about *feel* (see the Play Mode note above) — that always
   needs the user's own hands-on test.
 
 ## Testing gameplay headlessly
 
-Because Play Mode frames do not advance under this automation, gameplay systems expose public
-step methods you can drive from `unity command eval`: `PlateSystem.Step(dt)`, `Island.Tick(input,
+Besides real Play Mode (see above), gameplay systems expose public step methods you can drive
+deterministically from `unity command eval`: `PlateSystem.Step(dt)`, `Island.Tick(input,
 dt)`, `Island.AdvanceUplift/FinishUplift()`, `IslandWorld.Step()`, `IslandLifeSystem.Step(dt)` /
 `Simulate(lifeSeconds)` / `GetStageCounts`, `WorldStreamer.StreamAround(true)`. Careful: any script
 edit on disk triggers an automatic recompile, and a domain reload regenerates every island (a merge

@@ -75,7 +75,6 @@ namespace Drift.Bridge
                 if (chaseCamera == null) chaseCamera = FindAnyObjectByType<IslandChaseCamera>();
             }
             if (_canvas == null || player == null) return;
-            if (_canvas.worldCamera == null && Camera.main != null) _canvas.worldCamera = Camera.main;
 
             bool show = (!Application.isPlaying || session == null
                 || session.Current == GameSession.State.Playing || session.Current == GameSession.State.Paused) && !WatchTools.HudHidden;
@@ -179,7 +178,7 @@ namespace Drift.Bridge
         {
             UiStyle.DestroyChildrenNamed(transform, CanvasName);
             // Order 1, not 0: world renderers share order 0 and the fish (queue Transparent+5) would draw over the HUD.
-            _canvas = UiStyle.Canvas(transform, CanvasName, 1, false, false, out _root);
+            _canvas = UiStyle.Canvas(transform, CanvasName, 1, false, out _root);
             var root = _root;
 
             // Left-anchored and 820 wide so the round buttons of SessionScreens / WatchTools (top right, 120 wide) stay clear in portrait.

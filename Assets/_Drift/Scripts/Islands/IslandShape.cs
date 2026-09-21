@@ -16,7 +16,9 @@ namespace Drift.Islands
         public float sink;
 
         Vector3[] _verts;
+        float[] _hNow;
         readonly List<int> _tris = new();
+        Mesh _filled;
 
         public IslandShape(float cell, int nx, int nz, Vector2 origin)
         {
@@ -46,6 +48,10 @@ namespace Drift.Islands
 
         public float Sample(Vector2 p) => SampleInternal(p, sink);
 
+        // The plane of the triangle the point falls in, matching FillMesh's a-c-b / b-c-d split exactly.
+        // Bilinear interpolation would be smoother but sits up to (b+c-a-d)/4 away from the surface that is
+        // actually drawn, and everything that stands on the ground (animals, settlers, plants, the camera
+        // clamp) reads its height from here: on a twisted quad that buried half an animal in the terrain.
         float SampleInternal(Vector2 p, float sinkOffset)
         {
             float fx = (p.x - origin.x) / cell;
@@ -56,7 +62,10 @@ namespace Drift.Islands
             float tx = fx - i;
             float tz = fz - j;
             float a = HeightRaw(i, j), b = HeightRaw(i + 1, j), c = HeightRaw(i, j + 1), d = HeightRaw(i + 1, j + 1);
-            return Mathf.Lerp(Mathf.Lerp(a, b, tx), Mathf.Lerp(c, d, tx), tz) - sinkOffset;
+            float h = tx + tz <= 1f
+                ? a + (b - a) * tx + (c - a) * tz
+                : d + (c - d) * (1f - tx) + (b - d) * (1f - tz);
+            return h - sinkOffset;
         }
 
         // Folds the sink offset into the heights so the displayed surface stays put while sink becomes 0.
@@ -269,29 +278,80 @@ namespace Drift.Islands
 
         public void FillMesh(Mesh m)
         {
-            int count = nx * nz;
-            if (_verts == null || _verts.Length != count) _verts = new Vector3[count];
-            for (int j = 0; j < nz; j++)
-                for (int i = 0; i < nx; i++)
-                    _verts[j * nx + i] = new Vector3(origin.x + i * cell, Mathf.Max(Height(i, j), Sea), origin.y + j * cell);
-
-            _tris.Clear();
-            for (int j = 0; j < nz - 1; j++)
-                for (int i = 0; i < nx - 1; i++)
-                {
-                    float hMax = Mathf.Max(Mathf.Max(Height(i, j), Height(i + 1, j)), Mathf.Max(Height(i, j + 1), Height(i + 1, j + 1)));
-                    if (hMax < -0.55f) continue;
-                    int a = j * nx + i, b = a + 1, c = a + nx, d = c + 1;
-                    _tris.Add(a); _tris.Add(c); _tris.Add(b);
-                    _tris.Add(b); _tris.Add(c); _tris.Add(d);
-                }
-
+            FillHeights(true);
+            BuildQuads();
             m.Clear();
-            if (count > 65000) m.indexFormat = UnityEngine.Rendering.IndexFormat.UInt32;
+            if (_verts.Length > 65000) m.indexFormat = UnityEngine.Rendering.IndexFormat.UInt32;
             m.SetVertices(_verts);
             m.SetTriangles(_tris, 0);
             m.RecalculateNormals();
             m.RecalculateBounds();
+            _filled = m;
+        }
+
+        // Heights changed but the grid did not (sinking, emerging, a ridge rising after a merge): re-uploads the
+        // positions, the index buffer only when a vertex crossed the quad-culling depth, and keeps the vertex
+        // colours. A full FillMesh clears the mesh, so every such step also paid for re-sending the colours.
+        // Sinking and emerging move every vertex by the same amount, so the normals of the last full build stay
+        // right (they only differ at the sea-floor clamp, deep under water) and recalcNormals can be false; that
+        // turned a 2 ms desktop / ~10 ms phone rebuild every 0.5 s on a big sinking island into a third of it.
+        public void RefreshHeights(Mesh m, bool recalcNormals)
+        {
+            if (m != _filled || _verts == null || _verts.Length != nx * nz || m.vertexCount != nx * nz)
+            {
+                FillMesh(m);
+                return;
+            }
+            if (FillHeights(false))
+            {
+                BuildQuads();
+                m.SetTriangles(_tris, 0, false);
+            }
+            m.SetVertices(_verts);
+            if (recalcNormals) m.RecalculateNormals();
+            m.RecalculateBounds();
+        }
+
+        const float CullDepth = -0.55f;
+
+        // Returns whether any vertex crossed CullDepth, i.e. whether the set of drawn quads can have changed.
+        bool FillHeights(bool full)
+        {
+            int count = nx * nz;
+            if (_verts == null || _verts.Length != count) { _verts = new Vector3[count]; full = true; }
+            if (_hNow == null || _hNow.Length != count) { _hNow = new float[count]; full = true; }
+            bool crossed = full;
+            var up = uplift;
+            float w = upliftWeight, s = sink;
+            for (int j = 0, k = 0; j < nz; j++)
+            {
+                float z = origin.y + j * cell;
+                for (int i = 0; i < nx; i++, k++)
+                {
+                    // Same order as Height(): raw first, then the sink, so the mesh and Sample agree to the bit.
+                    float y = h[k];
+                    if (up != null) y += up[k] * w;
+                    y -= s;
+                    if (!full && (_hNow[k] < CullDepth) != (y < CullDepth)) crossed = true;
+                    _hNow[k] = y;
+                    if (full) _verts[k] = new Vector3(origin.x + i * cell, y > Sea ? y : Sea, z);
+                    else _verts[k].y = y > Sea ? y : Sea;
+                }
+            }
+            return crossed;
+        }
+
+        void BuildQuads()
+        {
+            _tris.Clear();
+            for (int j = 0; j < nz - 1; j++)
+                for (int i = 0; i < nx - 1; i++)
+                {
+                    int a = j * nx + i, b = a + 1, c = a + nx, d = c + 1;
+                    if (_hNow[a] < CullDepth && _hNow[b] < CullDepth && _hNow[c] < CullDepth && _hNow[d] < CullDepth) continue;
+                    _tris.Add(a); _tris.Add(c); _tris.Add(b);
+                    _tris.Add(b); _tris.Add(c); _tris.Add(d);
+                }
         }
     }
 

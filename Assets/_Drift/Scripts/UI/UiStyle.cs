@@ -253,7 +253,7 @@ namespace Drift.UI
 
         // ---------------------------------------------------------------- canvas and placement
 
-        public static Canvas Canvas(Transform parent, string name, int sortingOrder, bool raycaster, bool overlay, out RectTransform safeRoot)
+        public static Canvas Canvas(Transform parent, string name, int sortingOrder, bool raycaster, out RectTransform safeRoot)
         {
             var go = raycaster
                 ? new GameObject(name, typeof(Canvas), typeof(CanvasScaler), typeof(GraphicRaycaster))
@@ -261,13 +261,9 @@ namespace Drift.UI
             go.hideFlags = HideFlags.DontSaveInEditor | HideFlags.DontSaveInBuild;
             go.transform.SetParent(parent, false);
             var canvas = go.GetComponent<Canvas>();
-            if (overlay) canvas.renderMode = RenderMode.ScreenSpaceOverlay;
-            else
-            {
-                canvas.renderMode = RenderMode.ScreenSpaceCamera;
-                canvas.worldCamera = Camera.main;
-                canvas.planeDistance = 1f;
-            }
+            // Always overlay, never ScreenSpaceCamera: a camera canvas is drawn INTO the camera colour, so any
+            // full-screen effect (post-processing, a filter feature) runs over the text as well and mangles it.
+            canvas.renderMode = RenderMode.ScreenSpaceOverlay;
             canvas.sortingOrder = sortingOrder;
             var scaler = go.GetComponent<CanvasScaler>();
             scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;

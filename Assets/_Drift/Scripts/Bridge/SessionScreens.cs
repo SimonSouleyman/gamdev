@@ -175,7 +175,6 @@ namespace Drift.Bridge
         void Update()
         {
             if (_canvas == null) return;
-            if (_canvas.worldCamera == null && Camera.main != null) _canvas.worldCamera = Camera.main;
 
             if (!Application.isPlaying)
             {
@@ -256,6 +255,11 @@ namespace Drift.Bridge
 
             // The journal, the album and photo mode lie over the menus; Tilda steps aside for them.
             bool covered = photo || journal || album;
+            // Hidden, not just dimmed: through the translucent journal card the pause buttons read as a
+            // blurred second menu and make the small journal text look out of focus.
+            SetPanelActive(_title, !covered && s == GameSession.State.Title);
+            SetPanelActive(_pause, !covered && s == GameSession.State.Paused);
+            SetPanelActive(_over, !covered && s == GameSession.State.GameOver);
             UpdatePresenter(covered ? Stage.None : _help.IsOpen ? Stage.Help
                 : s == GameSession.State.Title ? Stage.Title : s == GameSession.State.Paused ? Stage.Pause
                 : s == GameSession.State.GameOver ? Stage.GameOver : Stage.None, session.RestartCountdown);
@@ -414,6 +418,11 @@ namespace Drift.Bridge
             if (_titleExtras != null) _titleExtras.anchoredPosition = new Vector2(0f, on ? TitleHelpY : TitleContinueY);
         }
 
+        static void SetPanelActive(GameObject panel, bool on)
+        {
+            if (panel != null && panel.activeSelf != on) panel.SetActive(on);
+        }
+
         void ShowPanels(bool title, bool pause, bool over, bool pauseButton)
         {
             if (_title != null) _title.SetActive(title);
@@ -516,7 +525,7 @@ namespace Drift.Bridge
             _preview?.Dispose();
             _preview = null;
 
-            _canvas = UiStyle.Canvas(transform, CanvasName, sortingOrder, true, false, out var root);
+            _canvas = UiStyle.Canvas(transform, CanvasName, sortingOrder, true, out var root);
             _root = root;
             _title = BuildTitle(root);
             _pause = BuildPause(root);

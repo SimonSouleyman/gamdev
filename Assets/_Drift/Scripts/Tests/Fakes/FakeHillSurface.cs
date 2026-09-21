@@ -28,6 +28,6 @@ namespace Drift.Tests
 
         public float SampleHeight(Vector2 localXZ) => peak * (1f - localXZ.magnitude / radius);
 
-        public void ApplyGroundTint(Func<Vector2, Color> tintAtLocal) => tintAtLocal(Vector2.zero);
+        public void ApplyGroundTint(Color[] cellColors, int cellsX, int cellsZ, Vector2 gridOrigin, float gridCell) { }
     }
 }

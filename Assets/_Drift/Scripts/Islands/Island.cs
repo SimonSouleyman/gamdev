@@ -76,8 +76,10 @@ namespace Drift.Islands
         public Vector2 startPlanarPosition = Vector2.zero;
         public float stormSinkMultiplier = 1.6f;
         public float elongatedSinkMultiplier = 1.6f;
-        public float barrenHeightScale = 0.55f;
-        public float barrenRadiusScale = 0.8f;
+        public const float DefaultBarrenHeightScale = 0.55f;
+        public const float DefaultBarrenRadiusScale = 0.8f;
+        public float barrenHeightScale = DefaultBarrenHeightScale;
+        public float barrenRadiusScale = DefaultBarrenRadiusScale;
         public float startleDuration = 3f;
 
         IslandShape _shape;
@@ -101,6 +103,7 @@ namespace Drift.Islands
         [NonSerialized] bool _hypsoDirty = true;
         [NonSerialized] float _buoy = 1f;
         float _upliftT = 1f;
+        float _upliftMeshTimer, _upliftHypsoTimer;
         float _upliftDur = 1.5f;
         float _bobPhase;
         int _version;
@@ -616,12 +619,45 @@ namespace Drift.Islands
         [ContextMenu("Regenerate Shape")]
         public void RegenerateShape() => GenerateShape();
 
+        // A heightfield built ahead of time off the main thread (WorldStreamer). GenerateShape takes it only when
+        // it was built from exactly the parameters it would use itself, otherwise it generates as always.
+        public sealed class PrebuiltShape
+        {
+            public IslandArchetype archetype;
+            public float radius, cell, heightScale;
+            public int seed;
+            public IslandShape shape;
+
+            public bool Matches(IslandArchetype a, float r, int s, float c, float hs) =>
+                shape != null && a == archetype && s == seed && r == radius && c == cell && hs == heightScale;
+
+            // Thread-safe: pure arithmetic and Mathf.PerlinNoise, no UnityEngine.Object.
+            public static PrebuiltShape Build(IslandArchetype a, float r, int s, float c, float hs) => new PrebuiltShape
+            {
+                archetype = a, radius = r, seed = s, cell = c, heightScale = hs,
+                shape = IslandArchetypes.Create(a, r, s, c, hs),
+            };
+
+            // The parameters GenerateShape uses for a streamed (non-player, non-volcano) island with default fields.
+            public static PrebuiltShape BuildForStreamed(IslandArchetype a, float landRadius, int s, float c)
+            {
+                bool barren = KindForSeed(s) == IslandKind.Barren;
+                return Build(a, barren ? landRadius * DefaultBarrenRadiusScale : landRadius, s, c, barren ? DefaultBarrenHeightScale : 1f);
+            }
+        }
+
+        [NonSerialized] public PrebuiltShape Prebuilt;
+
         void GenerateShape()
         {
             kind = DeriveKind();
             bool barren = kind == IslandKind.Barren;
+            float radius = barren ? landRadius * barrenRadiusScale : landRadius;
+            float heightScale = barren ? barrenHeightScale : 1f;
             if (isVolcano) _shape = IslandShape.CreateVolcano(landRadius, shapeSeed, cellSize);
-            else _shape = IslandArchetypes.Create(archetype, barren ? landRadius * barrenRadiusScale : landRadius, shapeSeed, cellSize, barren ? barrenHeightScale : 1f);
+            else if (Prebuilt != null && Prebuilt.Matches(archetype, radius, shapeSeed, cellSize, heightScale)) _shape = Prebuilt.shape;
+            else _shape = IslandArchetypes.Create(archetype, radius, shapeSeed, cellSize, heightScale);
+            Prebuilt = null;
             _emergeTime = 0f;
             _upliftT = 1f;
             _carry = Vector2.zero;
@@ -637,16 +673,18 @@ namespace Drift.Islands
 
         // Exactly once per generated shape (Repopulate is idempotent per Version, so the life systems'
         // own OnEnable calls that follow become no-ops instead of building everything twice).
+        // A disabled component is skipped: WorldStreamer switches the life systems of a fresh island on one per
+        // frame, and each populates itself from its own OnEnable then.
         void NotifyShapeGenerated()
         {
             var life = GetComponent<IslandLifeSystem>();
-            if (life != null) life.Repopulate();
+            if (life != null && life.enabled) life.Repopulate();
             var herds = GetComponent<IslandHerdSystem>();
-            if (herds != null) herds.Repopulate();
+            if (herds != null && herds.enabled) herds.Repopulate();
             var critters = GetComponent<IslandCrittersSystem>();
-            if (critters != null) critters.Repopulate();
+            if (critters != null && critters.enabled) critters.Repopulate();
             var settlement = GetComponent<IslandSettlementSystem>();
-            if (settlement != null) settlement.Repopulate();
+            if (settlement != null && settlement.enabled) settlement.Repopulate();
         }
 
         void RecomputeStats()
@@ -686,14 +724,32 @@ namespace Drift.Islands
             mf.sharedMesh = _mesh;
         }
 
-        public void ApplyGroundTint(Func<Vector2, Color> tintAtLocal)
+        // The filter of IslandLifeSystem.GroundTintAt, written out per channel: no delegate, no Color.Lerp calls.
+        public void ApplyGroundTint(Color[] cells, int gx, int gz, Vector2 gridOrigin, float gridCell)
         {
-            if (_mesh == null || _shape == null) return;
-            int n = _shape.nx * _shape.nz;
+            if (_mesh == null || _shape == null || cells == null || gx <= 0 || gz <= 0 || cells.Length < gx * gz) return;
+            int nx = _shape.nx, nz = _shape.nz;
+            int n = nx * nz;
             if (_colors == null || _colors.Length != n) _colors = new Color[n];
-            for (int j = 0; j < _shape.nz; j++)
-                for (int i = 0; i < _shape.nx; i++)
-                    _colors[j * _shape.nx + i] = tintAtLocal(_shape.CellPos(i, j));
+            float inv = 1f / gridCell;
+            for (int j = 0, k = 0; j < nz; j++)
+            {
+                float fz = (_shape.origin.y + j * _shape.cell - gridOrigin.y) * inv - 0.5f;
+                int j0 = Mathf.FloorToInt(fz);
+                float tz = fz - j0;
+                int r0 = Mathf.Clamp(j0, 0, gz - 1) * gx, r1 = Mathf.Clamp(j0 + 1, 0, gz - 1) * gx;
+                for (int i = 0; i < nx; i++, k++)
+                {
+                    float fx = (_shape.origin.x + i * _shape.cell - gridOrigin.x) * inv - 0.5f;
+                    int i0 = Mathf.FloorToInt(fx);
+                    float tx = fx - i0;
+                    int c0 = Mathf.Clamp(i0, 0, gx - 1), c1 = Mathf.Clamp(i0 + 1, 0, gx - 1);
+                    Color a = cells[r0 + c0], b = cells[r0 + c1], c = cells[r1 + c0], d = cells[r1 + c1];
+                    float abr = a.r + (b.r - a.r) * tx, abg = a.g + (b.g - a.g) * tx, abb = a.b + (b.b - a.b) * tx, aba = a.a + (b.a - a.a) * tx;
+                    float cdr = c.r + (d.r - c.r) * tx, cdg = c.g + (d.g - c.g) * tx, cdb = c.b + (d.b - c.b) * tx, cda = c.a + (d.a - c.a) * tx;
+                    _colors[k] = new Color(abr + (cdr - abr) * tz, abg + (cdg - abg) * tz, abb + (cdb - abb) * tz, aba + (cda - aba) * tz);
+                }
+            }
             _mesh.SetColors(_colors);
         }
 
@@ -780,7 +836,8 @@ namespace Drift.Islands
 
             _sinkMeshTimer = 0f;
             RecomputeStats();
-            RebuildMesh();
+            if (_mesh != null) _shape.RefreshHeights(_mesh, false);
+            else RebuildMesh();
             if (_sinkVersionAccum >= 0.02f)
             {
                 _sinkVersionAccum = 0f;
@@ -816,21 +873,43 @@ namespace Drift.Islands
             ApplyTransform();
         }
 
+        // The ridge of a merge rises over a few seconds, and with a merge every few seconds that is most of the
+        // time on a big island. Rebuilding the whole terrain mesh and the hypsometric curve every frame cost 1 ms
+        // on desktop (~4 ms on a phone): the ridge is now redrawn at 30 Hz and the depth that keeps the player's
+        // buoyancy constant is re-derived at 10 Hz. The last step is always a full, exact rebuild.
+        const float UpliftMeshInterval = 1f / 30f;
+        const float UpliftHypsoInterval = 0.1f;
+
         public void AdvanceUplift(float dt)
         {
             if (_upliftT >= 1f) return;
             if (useKeyboardInput) SyncBuoyancy();
             _upliftT = _upliftDur <= 0f ? 1f : Mathf.Min(1f, _upliftT + dt / _upliftDur);
             _shape.upliftWeight = _upliftT * (2f - _upliftT);
-            _hypsoDirty = true;
-            if (useKeyboardInput) RebuildHypsometry(true);
-            if (_upliftT >= 1f)
+            bool done = _upliftT >= 1f;
+            _upliftHypsoTimer += dt;
+            _upliftMeshTimer += dt;
+            if (done || _upliftHypsoTimer >= UpliftHypsoInterval)
+            {
+                _upliftHypsoTimer = 0f;
+                // Only flagged when it is rebuilt right here: a dirty flag left standing makes the next
+                // SyncBuoyancy rebuild it the other way round (buoyancy from depth) and the rise costs buoyancy.
+                _hypsoDirty = true;
+                if (useKeyboardInput) RebuildHypsometry(true);
+            }
+            if (done)
             {
                 _shape.Bake();
                 RecomputeStats();
                 _version++;
+                _upliftMeshTimer = 0f;
+                RebuildMesh();
+                return;
             }
-            RebuildMesh();
+            if (_upliftMeshTimer < UpliftMeshInterval) return;
+            _upliftMeshTimer = 0f;
+            if (_mesh != null) _shape.RefreshHeights(_mesh, true);
+            else RebuildMesh();
         }
 
         public void FinishUplift() => AdvanceUplift(_upliftDur + 1f);

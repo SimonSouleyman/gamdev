@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using Unity.Profiling;
 using UnityEngine;
 
 namespace Drift.Islands
@@ -55,6 +56,8 @@ namespace Drift.Islands
             public float baseArea;
             public float baseMaxHeight;
             public int baseVersion;
+            // The heightfield, generated on a worker as soon as the chunk is planned; Spawn waits for it.
+            public System.Threading.Tasks.Task<Island.PrebuiltShape> prebuild;
         }
 
         class Chunk
@@ -303,7 +306,13 @@ namespace Drift.Islands
                 for (int dz = -loadRadius; dz <= loadRadius; dz++)
                 {
                     var c = new Vector2Int(pc.x + dx, pc.y + dz);
-                    if (!_chunks.ContainsKey(c)) _chunks[c] = Plan(c);
+                    if (!_chunks.ContainsKey(c))
+                        using (PlanMarker.Auto())
+                        {
+                            var chunk = Plan(c);
+                            _chunks[c] = chunk;
+                            if (!immediate) Prebuild(chunk);
+                        }
                 }
 
             _toRemove.Clear();
@@ -312,11 +321,17 @@ namespace Drift.Islands
                 var c = kv.Key;
                 if (Mathf.Max(Mathf.Abs(c.x - pc.x), Mathf.Abs(c.y - pc.y)) > loadRadius + unloadMargin)
                 {
-                    Unload(kv.Value);
+                    using (UnloadMarker.Auto()) Unload(kv.Value);
                     _toRemove.Add(c);
                 }
             }
             foreach (var c in _toRemove) _chunks.Remove(c);
+
+            // One unit of work per frame: either the next life system of a freshly spawned island, or a spawn.
+            if (immediate) FlushStaging();
+            else
+                using (StageMarker.Auto())
+                    if (StageNext()) return;
 
             int budget = immediate ? int.MaxValue : spawnsPerFrame;
             foreach (var chunk in _chunks.Values)
@@ -329,9 +344,76 @@ namespace Drift.Islands
                     }
                     if (budget <= 0) return;
                     if (_consumed.Contains(Key(chunk.coord, slot.index))) { slot.spawned = true; continue; }
-                    Spawn(chunk, slot);
+                    if (!immediate && slot.prebuild != null && !slot.prebuild.IsCompleted) continue;
+                    using (SpawnMarker.Auto()) Spawn(chunk, slot, immediate);
                     budget--;
                 }
+        }
+
+        // Island generation was the largest single cost of streaming (up to 4 ms for a big island, more with the
+        // mesh), so the heightfields of a newly planned chunk are built on workers while the player is still
+        // a chunk away; Spawn then only has to take the finished shape.
+        void Prebuild(Chunk chunk)
+        {
+            foreach (var slot in chunk.slots)
+            {
+                if (slot.spawned || _consumed.Contains(Key(chunk.coord, slot.index))) continue;
+                var type = slot.archetype;
+                float radius = slot.radius, cell = IslandArchetypes.CellSize(slot.radius);
+                int seed = slot.shapeSeed;
+                slot.prebuild = System.Threading.Tasks.Task.Run(() => Island.PrebuiltShape.BuildForStreamed(type, radius, seed, cell));
+            }
+        }
+
+        // A fresh island used to be generated, planted, stocked with herds, critters and a settlement in one
+        // frame: up to 6 ms on desktop, a dropped frame or two on a phone every time an island streamed in
+        // while driving. The life systems now start disabled and are switched on one per frame.
+        readonly List<Island> _staging = new();
+
+        static readonly ProfilerMarker PlanMarker = new("WorldStreamer.Plan");
+        static readonly ProfilerMarker UnloadMarker = new("WorldStreamer.Unload");
+        static readonly ProfilerMarker SpawnMarker = new("WorldStreamer.Spawn");
+        static readonly ProfilerMarker StageMarker = new("WorldStreamer.Stage");
+
+        bool StageNext()
+        {
+            while (_staging.Count > 0)
+            {
+                var island = _staging[0];
+                var next = island != null && island.isActiveAndEnabled ? NextDisabledLife(island) : null;
+                if (next == null)
+                {
+                    _staging.RemoveAt(0);
+                    continue;
+                }
+                next.enabled = true;
+                return true;
+            }
+            return false;
+        }
+
+        void FlushStaging()
+        {
+            foreach (var island in _staging)
+            {
+                if (island == null) continue;
+                for (var next = NextDisabledLife(island); next != null; next = NextDisabledLife(island)) next.enabled = true;
+            }
+            _staging.Clear();
+        }
+
+        // In dependency order: herds and critters read the plant grid, the settlement reads both.
+        static Behaviour NextDisabledLife(Island island)
+        {
+            Behaviour b = island.GetComponent<Drift.Life.IslandLifeSystem>();
+            if (b != null && !b.enabled) return b;
+            b = island.GetComponent<Drift.Life.IslandHerdSystem>();
+            if (b != null && !b.enabled) return b;
+            b = island.GetComponent<Drift.Life.IslandCrittersSystem>();
+            if (b != null && !b.enabled) return b;
+            b = island.GetComponent<Drift.Life.IslandSettlementSystem>();
+            if (b != null && !b.enabled) return b;
+            return null;
         }
 
         // Archetype weights per size class, in IslandArchetype order from Blob on
@@ -442,7 +524,7 @@ namespace Drift.Islands
             }
         }
 
-        void Spawn(Chunk chunk, Slot slot)
+        void Spawn(Chunk chunk, Slot slot, bool immediate)
         {
             long key = Key(chunk.coord, slot.index);
             _overrides.TryGetValue(key, out var saved);
@@ -460,13 +542,21 @@ namespace Drift.Islands
             island.archetype = slot.archetype;
             island.cellSize = IslandArchetypes.CellSize(slot.radius);
             island.shapeSeed = slot.shapeSeed;
-            go.AddComponent<Drift.Life.IslandLifeSystem>().seed = slot.shapeSeed;
-            go.AddComponent<Drift.Life.IslandHerdSystem>().seed = slot.shapeSeed;
-            go.AddComponent<Drift.Life.IslandCrittersSystem>().seed = slot.shapeSeed;
-            go.AddComponent<Drift.Life.IslandSettlementSystem>().seed = slot.shapeSeed;
+            if (slot.prebuild != null && slot.prebuild.Status == System.Threading.Tasks.TaskStatus.RanToCompletion)
+                island.Prebuilt = slot.prebuild.Result;
+            slot.prebuild = null;
+            var life = go.AddComponent<Drift.Life.IslandLifeSystem>();
+            var herds = go.AddComponent<Drift.Life.IslandHerdSystem>();
+            var critters = go.AddComponent<Drift.Life.IslandCrittersSystem>();
+            var settlement = go.AddComponent<Drift.Life.IslandSettlementSystem>();
+            life.seed = herds.seed = critters.seed = settlement.seed = slot.shapeSeed;
+            // A saved island restores its life right below, so only a fresh one is staged.
+            bool staged = !immediate && saved == null;
+            if (staged) life.enabled = herds.enabled = critters.enabled = settlement.enabled = false;
             go.AddComponent<MeshFilter>();
             go.AddComponent<MeshRenderer>().sharedMaterial = islandMaterial;
             go.SetActive(true);
+            if (staged) _staging.Add(island);
 
             slot.baseArea = island.LandArea;
             slot.baseMaxHeight = island.MaxHeight;
@@ -476,7 +566,9 @@ namespace Drift.Islands
 
             if (saved != null)
             {
-                // The override is keyed by wrapped chunk, so its position is re-based onto this copy of the world.
+                // The override is keyed by wrapped chunk, so its position is re-based onto this copy of the world -
+                // on a copy: the entry may still sit in a SaveGame that a background save is writing out.
+                saved = saved.ShallowCopy();
                 Vector2 delta = WrapDelta(new Vector2(saved.posX, saved.posZ), slot.pos);
                 Vector2 p = slot.pos + delta;
                 saved.posX = p.x;

@@ -173,7 +173,6 @@ namespace Drift.Bridge
         void Update()
         {
             if (_canvas == null) return;
-            if (_canvas.worldCamera == null && Camera.main != null) _canvas.worldCamera = Camera.main;
             Resolve();
 
             if (!Application.isPlaying)
@@ -487,7 +486,7 @@ namespace Drift.Bridge
 
             Vector2 p = _arrowTarget.PlanarPosition;
             Vector3 screen = cam.WorldToScreenPoint(new Vector3(p.x, 0f, p.y));
-            RectTransformUtility.ScreenPointToLocalPointInRectangle(_root, screen, _canvas.worldCamera, out var local);
+            RectTransformUtility.ScreenPointToLocalPointInRectangle(_root, screen, null, out var local);
             if (screen.z < 0f) local = -local;
 
             var rect = _root.rect;
@@ -572,7 +571,7 @@ namespace Drift.Bridge
         void Build()
         {
             UiStyle.DestroyChildrenNamed(transform, CanvasName);
-            _canvas = UiStyle.Canvas(transform, CanvasName, sortingOrder, true, false, out _root);
+            _canvas = UiStyle.Canvas(transform, CanvasName, sortingOrder, true, out _root);
 
             _ring = BuildRing(_root);
             _arrow = BuildArrow(_root);

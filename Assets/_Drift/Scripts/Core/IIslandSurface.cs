@@ -1,4 +1,3 @@
-using System;
 using UnityEngine;
 
 namespace Drift.Core
@@ -20,6 +19,9 @@ namespace Drift.Core
         // keep a carried island "moving fast" forever); Phase 4 crabs dive above IslandCrittersSystem.diveSpeed.
         float Speed { get; }
         float SampleHeight(Vector2 localXZ);
-        void ApplyGroundTint(Func<Vector2, Color> tintAtLocal);
+        // Colours the ground from a cell grid (row-major, cellsX * cellsZ, cell centres at gridOrigin + (i + 0.5,
+        // j + 0.5) * gridCell), bilinearly filtered and clamped at the edges. A grid instead of a per-vertex
+        // callback: the delegate call and colour lerps per terrain vertex cost 3 ms on a big island.
+        void ApplyGroundTint(Color[] cellColors, int cellsX, int cellsZ, Vector2 gridOrigin, float gridCell);
     }
 }

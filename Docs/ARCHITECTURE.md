@@ -149,7 +149,9 @@ finite island supply is the goal: the player wins the map by absorbing everythin
    (`Vegetation` child, rebuilt at ~7 Hz only when dirty and only near the camera; far islands
    simulate at 1/8 rate and hide beyond `hideDistance`), with wind sway done in the vertex
    shader. The ground colour follows the stage through per-vertex colours written to the island
-   mesh (`IIslandSurface.ApplyGroundTint`).
+   mesh (`IIslandSurface.ApplyGroundTint(cellColors, cellsX, cellsZ, gridOrigin, gridCell)`: the life
+   grid is handed over and bilinearly filtered per terrain vertex inside `Island`; it used to be a
+   per-vertex callback, 3 ms per tint on a big island).
    **Animals (peaceful only):** `IslandHerdSystem` keeps herds per island — hares (many, small,
    fast hops), sheep, mountain goats (only on islands with highland) and oxen (few, large, slow) —
    unlocked by island area, with the herd count growing with area. A herd has a leader that wanders
@@ -163,7 +165,10 @@ finite island supply is the goal: the player wins the map by absorbing everythin
 5. **Save/load + offline catch-up (`Drift.SaveSystem.SaveManager`, v2).** Saves on
    `OnApplicationPause(true)`, `OnApplicationQuit` and every 20 s (only while Playing/Paused —
    `GameSession.SavingAllowed`), as JSON in `persistentDataPath/drift_save.json` (temp file +
-   `File.Replace`). Persisted: the player island (heightfield, pose, momentum, sink), its
+   `File.Replace`). Since 2026-09-21 only the capture runs on the main thread; `JsonUtility.ToJson` and
+   the file write run on a worker (`SaveManager.Save`), except on pause/quit (`SaveBlocking`). `Load`,
+   `DeleteSave` and `HasValidSave` wait for a write in flight. Rule for anything added to the save: its
+   `Capture()` must hand out fresh arrays/objects, and nothing may mutate captured data afterwards. Persisted: the player island (heightfield, pose, momentum, sink), its
    vegetation grid, plate time and pushed-plate offsets, the streamer start position and absorbed
    slot keys, **plus every streamed AI island that differs from its chunk plan and every live
    volcano**. `SaveGame.worldGenVersion` stores `WorldStreamer.WorldGenVersion` (currently 2, bumped whenever
@@ -998,7 +1003,7 @@ portrait preview sets `(1080, 1920)` first (and back to zero afterwards); `Tutor
 
 **Watch tools (Phase 7, reworked 2026-09-20 after the owner's play test; `Drift.Bridge.WatchTools`, light interaction
 only).** One `[ExecuteAlways]` component next to `SessionScreens` on `SessionUI` with its own procedural canvas
-(`WatchToolsCanvas`, ScreenSpaceCamera, sorting 15: above the session screens, below the touch stick) built from the
+(`WatchToolsCanvas`, ScreenSpaceOverlay like every game canvas since 2026-09-21, sorting 15: above the session screens, below the touch stick) built from the
 shared `UiStyle` builders, one small `Build*` method per panel. It reads the simulation and writes only the camera and
 the session's watch holds (`GameSession.PhotoInputHold/FollowInputHold`, `PhotoSinkHold/FollowSinkHold`; it never
 writes `Island.InputLocked` itself). `editorPreview` (None / Popup / Journal /
@@ -1855,3 +1860,26 @@ entering Play Mode. Statics (`Island.All`, `Island.InputProvider/InputLocked`, `
 `StormSystem.Instance`, static events) therefore survive between Play sessions and must be reset in
 `OnDisable`/`OnEnable`; `[ExecuteAlways]` `OnEnable` does not re-run on Play entry, so per-play wiring
 (`SessionScreens`) self-heals from `Update`.
+
+## Performance pass for 60 fps on mid-range phones (2026-09-21)
+
+Measured in real Play Mode with a scripted driver (see `Docs/PERF_BASELINE.md`, section 2026-09-21).
+Structural rules that new content has to follow:
+
+- **Frame rate:** `Drift.Core.PlatformSetup` sets `Application.targetFrameRate = 60` on phones (the platform
+  default is 30). Android uses Optimized Frame Pacing. The Mobile URP asset has HDR, main-light shadows (nothing
+  casts any), light cookies/layers, lens flares, reflection-probe blending/box projection, terrain holes and LOD
+  cross-fade off. A new effect that needs one of them has to switch it back on deliberately.
+- **Streaming:** a chunk's island heightfields are generated on worker threads as soon as the chunk is planned
+  (`Island.PrebuiltShape`, pure math + `Mathf.PerlinNoise`); `WorldStreamer.Spawn` takes the finished shape and
+  waits for it otherwise. A fresh island's life components start **disabled** and are switched on one per frame
+  (`WorldStreamer.StageNext`, order life → herds → critters → settlement). A new per-island system therefore has to
+  (a) be added to `NextDisabledLife` in dependency order, (b) populate itself from `OnEnable`, and (c) cope with
+  its siblings still being disabled for a few frames. Saved islands (overrides) still spawn in one frame.
+- **Terrain mesh:** height-only changes go through `IslandShape.RefreshHeights` (positions, and the index buffer
+  only when a vertex crossed the culling depth; colours are kept). Sinking skips the normals, the merge ridge
+  recomputes them and is redrawn at 30 Hz with the hypsometry at 10 Hz. `FillMesh` stays the full rebuild.
+- **Garbage:** per-frame code allocates nothing (structs for per-bird data, no `foreach` over interfaces in hot
+  paths, strings only when a label changes). Allocation is fine for discrete events (spawn, merge, save capture).
+- **UI:** every game canvas is `ScreenSpaceOverlay` (`UiStyle.Canvas`), drawn after the camera, so a future
+  full-screen effect never touches text; pass `null` as the camera to `RectTransformUtility`.

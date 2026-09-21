@@ -221,7 +221,7 @@ namespace Drift.Life
         MeshFilter _vegFilter;
         MeshRenderer _vegRenderer;
         Mesh _vegMesh;
-        Func<Vector2, Color> _tintFunc;
+        static readonly Color[] WhiteCell = { Color.white };
 
         float _tickTimer, _meshTimer, _tintTimer, _bloomTimer;
         bool _dirty, _tintDirty;
@@ -536,7 +536,6 @@ namespace Drift.Life
         void OnEnable()
         {
             _surface = GetComponent<IIslandSurface>();
-            _tintFunc = TintAt;
             RecountBiomes();
             if (_surface != null && _surface.LandArea > 0f) Repopulate();
         }
@@ -587,7 +586,6 @@ namespace Drift.Life
         {
             if (_surface == null) _surface = GetComponent<IIslandSurface>();
             if (_surface == null) return;
-            _tintFunc ??= TintAt;
             if (_hasGrid && _gridVersion == _surface.Version) return;
 
             _rnd = new System.Random(seed);
@@ -1525,7 +1523,8 @@ namespace Drift.Life
                 for (int i = 0; i < _cellColor.Length; i++) _cellColor[i] = CellColor(i);
                 BlendBiomeBorders();
             }
-            _surface.ApplyGroundTint(_tintFunc);
+            if (_hasGrid) _surface.ApplyGroundTint(_cellColor, _nx, _nz, _origin, cellSize);
+            else _surface.ApplyGroundTint(WhiteCell, 1, 1, Vector2.zero, 1f);
             _tintDirty = false;
             _tintTimer = 0f;
         }
@@ -1874,7 +1873,6 @@ namespace Drift.Life
             SyncPlants(true, 0f);
             EvaluateBloom();
             RebuildVegetationMesh();
-            _tintFunc ??= TintAt;
             ApplyTint();
             _dirty = false;
 
