@@ -11,6 +11,8 @@ namespace Drift.Tectonics
     public class PlateSaveData
     {
         public float time;
+        // Absent in older saves: JsonUtility keeps the initialiser, and -1 means "derive it from time".
+        public float waveClock = -1f;
         public List<PlateOffsetData> offsets = new();
         public uint eventRng;
         public List<PlateEventData> events = new();
@@ -31,8 +33,9 @@ namespace Drift.Tectonics
             public Vector2Int id;
             public Vector2 home;
             public Vector2 dir;
-            public float amp;
-            public float omega;
+            // Per-plate factors on waveAmplitude / waveSpeed, applied every frame so the Inspector sliders act live.
+            public float ampK;
+            public float omegaK;
             public float phase;
             public Vector2 offset;
             public Vector2 pushVel;
@@ -109,19 +112,48 @@ namespace Drift.Tectonics
 
         public static void Unregister(IPlateRider rider) => Riders.Remove(rider);
 
+        [Header("Plattenraster")]
         public float cellSize = 110f;
         public int gridPeriod = 6;
         public float jitter = 0.25f;
         public int seed = 4242;
-        public float waveAmplitude = 14f;
-        public float waveSpeed = 0.28f;
-        public float timeScale = 1f;
-        public float plateMass = 1500f;
-        public float riderPush = 25f;
-        public float pushDamping = 1.5f;
-        public float springBack = 0.25f;
+
+        [Header("Plattenbewegung")]
+        [Tooltip("Wie weit jede Platte hin und her wandert. Mehr = Grenzen verschieben sich stärker, Platten fahren tiefer ineinander.")]
+        [Range(0f, 45f)] public float waveAmplitude = 14f;
+        [Tooltip("Tempo dieser Pendelbewegung. Spitzengeschwindigkeit einer Platte ≈ Weite × Tempo.")]
+        [Range(0f, 1f)] public float waveSpeed = 0.28f;
+        [Range(0f, 4f)] public float timeScale = 1f;
+
+        [Header("Schub durch Inseln und Ereignisse")]
+        [Tooltip("Trägheit der Platten gegenüber Inseln: kleiner = die Insel schiebt ihre Platte leichter mit.")]
+        [Range(100f, 5000f)] public float plateMass = 1500f;
+        [Tooltip("Wie stark eine fahrende Insel ihre Platte mitschiebt.")]
+        [Range(0f, 150f)] public float riderPush = 25f;
+        [Tooltip("Obergrenze für das Mitschieben (Einheiten/s). Ohne sie zieht eine große Insel ihre Platte ein Vielfaches ihres eigenen Tempos hinter sich her - samt aller Inseln darauf.")]
+        [Range(0f, 20f)] public float maxRiderPlateSpeed = 3f;
+        [Tooltip("Wie schnell ein Schub abklingt.")]
+        [Range(0.1f, 5f)] public float pushDamping = 1.5f;
+        [Tooltip("Wie schnell eine verschobene Platte an ihren Platz zurückfedert. Kleiner = Verschiebungen bleiben länger.")]
+        [Range(0f, 2f)] public float springBack = 0.25f;
         public float transformThreshold = 0.25f;
         public float convergenceInfluence = 14f;
+
+        [Header("Surfen an Plattengrenzen (Spielerinsel)")]
+        [Tooltip("Extra-Tempo entlang einer Grenze, wenn die Insel an ihr entlang fährt.")]
+        [Range(0f, 30f)] public float surfSpeed = 6f;
+        [Tooltip("Zusätzlich × die Geschwindigkeit, mit der die beiden Platten aneinander vorbeigleiten.")]
+        [Range(0f, 4f)] public float surfPlateGain = 1f;
+        [Tooltip("Halbe Breite des Surf-Streifens um die Grenze.")]
+        [Range(1f, 40f)] public float surfWidth = 8f;
+        [Tooltip("Anteil des Inselradius, der zur Streifenbreite dazukommt: große Inseln erwischen die Welle von weiter weg.")]
+        [Range(0f, 1f)] public float surfRadiusShare = 0.35f;
+        [Tooltip("Ab welchem Winkel zur Grenze es losgeht (|cos|). 0 = auch quer, 1 = nur exakt parallel.")]
+        [Range(0f, 0.95f)] public float surfMinAlign = 0.35f;
+        [Tooltip("Zug zur Grenzmitte, solange man surft - hält die Insel auf der Welle.")]
+        [Range(0f, 3f)] public float surfPull = 0.5f;
+        [Tooltip("Stärke an aufeinander zu- oder auseinanderlaufenden Grenzen (an Gleitgrenzen immer 1).")]
+        [Range(0f, 2f)] public float surfOtherKinds = 0.75f;
         public Transform focus;
         public float viewRadius = 130f;
         public bool showBorders = true;
@@ -145,6 +177,9 @@ namespace Drift.Tectonics
         readonly List<Plate> _active = new();
         readonly List<PlateCore> _dynamicScratch = new();
         float _time;
+        // Integral of waveSpeed over time: the plates' pendulum phase. Integrated rather than waveSpeed * _time so
+        // moving the slider changes the pace instead of jumping every plate to another point of its swing.
+        float _waveClock;
         float _borderTimer;
         Mesh _borderMesh;
         GameObject _borderGo;
@@ -168,7 +203,7 @@ namespace Drift.Tectonics
 
         public PlateSaveData Capture()
         {
-            var d = new PlateSaveData { time = _time };
+            var d = new PlateSaveData { time = _time, waveClock = _waveClock };
             foreach (var c in _cores.Values)
             {
                 if (c.offset.sqrMagnitude < 1e-6f && c.pushVel.sqrMagnitude < 1e-6f) continue;
@@ -185,6 +220,7 @@ namespace Drift.Tectonics
             _cores.Clear();
             _dynamic.Clear();
             _time = d.time;
+            _waveClock = d.waveClock >= 0f ? d.waveClock : d.time * waveSpeed;
             foreach (var o in d.offsets)
             {
                 var core = GetCore(o.cx, o.cz);
@@ -204,6 +240,7 @@ namespace Drift.Tectonics
             _cores.Clear();
             _dynamic.Clear();
             _time = 0f;
+            _waveClock = 0f;
             ResetEvents();
             ComputeBorders();
             RebuildBorderMesh();
@@ -254,8 +291,8 @@ namespace Drift.Tectonics
                     id = key,
                     home = new Vector2(wx + 0.5f + Rand(rnd, -jitter, jitter), wz + 0.5f + Rand(rnd, -jitter, jitter)) * cellSize,
                     dir = new Vector2(Mathf.Cos(ang), Mathf.Sin(ang)),
-                    amp = waveAmplitude * Rand(rnd, 0.6f, 1.4f),
-                    omega = waveSpeed * Rand(rnd, 0.7f, 1.3f),
+                    ampK = Rand(rnd, 0.6f, 1.4f),
+                    omegaK = Rand(rnd, 0.7f, 1.3f),
                     phase = Rand(rnd, 0f, Mathf.PI * 2f)
                 };
                 _cores[key] = c;
@@ -286,10 +323,12 @@ namespace Drift.Tectonics
         void Refresh(Plate p)
         {
             var c = p.core;
-            float s = Mathf.Sin(c.omega * _time + c.phase);
-            float co = Mathf.Cos(c.omega * _time + c.phase);
-            p.position = c.home + p.shift + c.dir * (c.amp * s) + c.offset;
-            p.velocity = (c.dir * (c.amp * c.omega * co) + c.pushVel) * timeScale;
+            float angle = c.omegaK * _waveClock + c.phase;
+            float s = Mathf.Sin(angle);
+            float co = Mathf.Cos(angle);
+            float amp = waveAmplitude * c.ampK;
+            p.position = c.home + p.shift + c.dir * (amp * s) + c.offset;
+            p.velocity = (c.dir * (amp * c.omegaK * waveSpeed * co) + c.pushVel) * timeScale;
         }
 
         public Plate NearestPlate(Vector2 pos)
@@ -317,6 +356,31 @@ namespace Drift.Tectonics
             _dynamic.Add(p.core);
         }
 
+        // The wave a plate boundary throws: extra velocity along the seam in the direction the rider faces, strongest
+        // on the seam and when driving parallel to it, plus a pull back onto the seam. drive (0..1) is how much the
+        // rider is actually under way, so a parked island is not dragged along. strength = 0..1 for feedback.
+        public Vector2 SurfVelocity(Vector2 pos, Vector2 heading, float radius, float drive, out float strength)
+        {
+            strength = 0f;
+            if (drive <= 0f || (surfSpeed <= 0f && surfPlateGain <= 0f)) return Vector2.zero;
+            float width = Mathf.Max(0.5f, surfWidth + surfRadiusShare * Mathf.Max(0f, radius));
+            if (!NearestSeam(pos, width, out var b, out float t, out Vector2 q)) return Vector2.zero;
+            Vector2 tan = SeamTangent(b, t);
+            float cos = Vector2.Dot(heading, tan);
+            float align = Mathf.InverseLerp(surfMinAlign, 1f, Mathf.Abs(cos));
+            align = align * align * (3f - 2f * align);
+            Vector2 toSeam = q - pos;
+            float d = toSeam.magnitude;
+            float x = d / width;
+            float falloff = 1f - x * x;
+            float kind = b.kind == BoundaryKind.Transform ? 1f : surfOtherKinds;
+            strength = Mathf.Clamp01(align * falloff * kind * Mathf.Clamp01(drive));
+            if (strength <= 0f) return Vector2.zero;
+            float slide = Mathf.Abs(Vector2.Dot(b.a.velocity - b.b.velocity, tan));
+            Vector2 along = tan * (Mathf.Sign(cos) * (surfSpeed + surfPlateGain * slide));
+            return (along + toSeam * surfPull) * strength;
+        }
+
         public float ConvergenceAt(Vector2 pos)
         {
             var self = NearestPlate(pos);
@@ -341,12 +405,20 @@ namespace Drift.Tectonics
         {
             float gdt = dt * timeScale;
             _time += gdt;
+            _waveClock += waveSpeed * gdt;
 
             foreach (var rider in Riders)
             {
                 var p = NearestPlate(rider.PlanarPosition);
                 float k = rider.Mass / (rider.Mass + plateMass);
-                p.core.pushVel += rider.SelfVelocity * (k * riderPush * gdt);
+                Vector2 v = rider.SelfVelocity;
+                float speed = v.magnitude;
+                if (speed < 1e-3f) continue;
+                Vector2 dir = v / speed;
+                // Only up to maxRiderPlateSpeed along the rider's heading; event kicks are not capped here.
+                float room = maxRiderPlateSpeed - Vector2.Dot(p.core.pushVel, dir);
+                if (room <= 0f) continue;
+                p.core.pushVel += dir * Mathf.Min(room, speed * k * riderPush * gdt);
                 _dynamic.Add(p.core);
             }
 

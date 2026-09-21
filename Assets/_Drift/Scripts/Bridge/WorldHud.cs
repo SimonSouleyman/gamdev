@@ -142,6 +142,13 @@ namespace Drift.Bridge
             for (int i = 0; i < _pixels.Length; i++) _pixels[i] = MapBg;
 
             float w = streamer.WorldSize;
+            // Storms first, under the islands: a dark patch that is seen coming long before the clouds are.
+            for (int k = 0; k < Drift.Visuals.StormVisuals.StormCount; k++)
+            {
+                var st = Drift.Visuals.StormVisuals.StormAt(k);
+                int sr = Mathf.Clamp(Mathf.RoundToInt(st.z / w * n * 1.4f), 5, n / 3);
+                Blend(new Vector2(st.x, st.y), w, n, sr, MapStorm, 0.9f * Mathf.Clamp01(st.w));
+            }
             var slots = streamer.WorldSlots();
             for (int k = 0; k < slots.Count; k++)
             {
@@ -158,6 +165,22 @@ namespace Drift.Bridge
         }
 
         static float Mod(float a, float m) => ((a % m) + m) % m;
+
+        static readonly Color32 MapStorm = new Color32(176, 180, 200, 255);
+
+        void Blend(Vector2 world, float w, int n, int radius, Color32 c, float amount)
+        {
+            int cx = Mathf.Clamp(Mathf.FloorToInt(Mod(world.x, w) / w * n), 0, n - 1);
+            int cy = Mathf.Clamp(Mathf.FloorToInt(Mod(world.y, w) / w * n), 0, n - 1);
+            for (int dy = -radius; dy <= radius; dy++)
+                for (int dx = -radius; dx <= radius; dx++)
+                {
+                    float d2 = (dx * dx + dy * dy) / (float)(radius * radius);
+                    if (d2 > 1f) continue;
+                    int x = (cx + dx + n) % n, y = (cy + dy + n) % n;
+                    _pixels[y * n + x] = Color32.Lerp(_pixels[y * n + x], c, amount * (1f - d2 * d2));
+                }
+        }
 
         void Plot(Vector2 world, float w, int n, int radius, Color32 c)
         {

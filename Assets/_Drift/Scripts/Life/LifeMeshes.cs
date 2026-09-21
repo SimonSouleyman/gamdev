@@ -21,6 +21,9 @@ namespace Drift.Life
         public int[] triangles;
         public float[] sway;
         public float[] wing;
+        // Plant templates only: PlantModels.Part* per vertex, written to UV0.w by TemplateBatch.AddPlant for
+        // Drift/Vegetation (filled lazily by IslandLifeSystem; null = flat).
+        public float[] part;
         // Detail animal templates only (AnimalModels), in template units; null on everything else, where
         // TemplateBatch.AddAnimal falls back to lever = z, up = y, no leg lift.
         public float[] lever;

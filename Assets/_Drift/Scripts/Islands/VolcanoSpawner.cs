@@ -27,6 +27,9 @@ namespace Drift.Islands
         public float seamReturnSpeed = 6f;
         public bool holdAfterEmergence = true;
         public int seed = 31337;
+        [Header("Bergbildung")]
+        [Tooltip("Steilste Neigung der Vulkankegel in Grad (kleiner = flachere, breitere Kegel).")]
+        [Range(10f, 70f)] public float volcanoMaxSlope = Island.DefaultVolcanoMaxSlope;
 
         struct SeamAnchor
         {
@@ -267,6 +270,7 @@ namespace Drift.Islands
             var island = go.AddComponent<Island>();
             island.useKeyboardInput = false;
             island.isVolcano = true;
+            island.volcanoMaxSlope = volcanoMaxSlope;
             island.landRadius = radius;
             island.shapeSeed = shapeSeed;
             go.AddComponent<Drift.Life.IslandLifeSystem>().seed = shapeSeed;

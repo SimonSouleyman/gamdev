@@ -47,6 +47,9 @@ namespace Drift.Visuals
         // Storm tint multiplies onto whatever time of day produced, so a night storm is darker than
         // either alone instead of the two fighting over the light.
         [Range(0f, 1f)] public float stormDim = 0.35f;
+        [Tooltip("Wie stark ein Blitz Sonne und Umgebungslicht kurz aufhellt.")]
+        [Range(0f, 3f)] public float flashSunBoost = 1.2f;
+        public Color flashAmbient = new Color(0.55f, 0.6f, 0.75f);
         [Range(0f, 1f)] public float stormDesaturate = 0.4f;
         public Color stormAmbientTint = new Color(0.72f, 0.75f, 0.82f);
         public Color stormSkyTint = new Color(0.6f, 0.62f, 0.68f);
@@ -221,16 +224,18 @@ namespace Drift.Visuals
             WaterSky = sky.horizon;
             WaterDeep = sky.waterDeep;
 
+            // A lightning flash lights the whole scene for a moment (StormVisuals.Flash, 0 without a strike).
+            float flash = StormVisuals.Flash;
             if (sun != null)
             {
                 sun.transform.rotation = Quaternion.LookRotation(-SunDirection, Vector3.up);
-                sun.color = SunColor;
-                sun.intensity = SunIntensity;
+                sun.color = flash > 0f ? Color.Lerp(SunColor, new Color(0.85f, 0.9f, 1f), flash) : SunColor;
+                sun.intensity = SunIntensity + flash * flashSunBoost;
             }
             if (driveAmbient)
             {
                 RenderSettings.ambientMode = AmbientMode.Flat;
-                RenderSettings.ambientLight = AmbientColor;
+                RenderSettings.ambientLight = AmbientColor + flashAmbient * flash;
             }
             if (driveWater && water != null) water.SetSky(WaterSky, WaterDeep);
         }

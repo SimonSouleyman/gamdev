@@ -1,0 +1,16 @@
+Plant texture sources - all from Poly Haven (https://polyhaven.com), licence CC0 1.0 (public domain).
+Downloaded 2026-09-22 as 1k JPG from dl.polyhaven.org: diffuse + normal (OpenGL).
+This folder ends in "~" so Unity does not import it; it only keeps the originals.
+
+Array layer   Poly Haven asset      Author                              Used on (PlantModels.Part*)
+0 Bark        pine_bark             Dimitrios Savva                     tree/jungle/spruce/acacia/baobab trunks, thorn twigs
+1 Palm bark   palm_bark             Charlotte Baglioni                  palm trunks, birch trunks (horizontal ridges)
+2 Foliage     leafy_grass           Charlotte Baglioni                  crowns, bushes, fronds, fern/banana leaves, juniper, heather, lichen
+3 Blade       thatch_roof_angled    Rob Tuytel, Dimitrios Savva         grass, reeds, dry grass, bamboo, aloe, flower stems
+
+VegetationDetail_Array.jpg / VegetationNormal_Array.jpg (one level up) stack the 4 layers vertically, layer 0 at the
+top, imported as Texture2DArray flipbooks (1 column x 4 rows, linear, mipmaps, ASTC 6x6 on Android/iOS). Like the
+terrain arrays, the detail array holds each diffuse divided by its own mean linear colour (stored x0.3, linear), so
+Drift/Vegetation multiplies it onto the plant's vertex colour without shifting it; the normal array is the unmodified
+nor_gl maps. build_arrays_eval.cs.txt rebuilds both (run it through `unity command eval` with __MODE__ = albedo / normal).
+The material that uses them is Resources/DriftVegetation.mat (loaded by IslandLifeSystem.VegetationMaterial).

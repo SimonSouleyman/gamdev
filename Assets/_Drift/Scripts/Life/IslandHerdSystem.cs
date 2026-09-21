@@ -13,12 +13,16 @@ namespace Drift.Life
     public enum AnimalActivity
     {
         None, Drink, Wade, Wallow, Lookout, Spar, Race, Binky, Dig, Burrowed, Line, Shade, Watch, Huddle, Flee,
-        Slide, Parade, OneLeg, Browse, Stampede, Soak, Tuck, Circle, Sentry, Pounce, HopChain, Shake
+        Slide, Parade, OneLeg, Browse, Stampede, Soak, Tuck, Circle, Sentry, Pounce, HopChain, Shake,
+        // Patterns every species knows (2026-09-21).
+        Stroll, Visit, Spread,
+        // Signature moves: one per species, no other species has it (IslandHerdSystem.Signature.cs).
+        Zigzag, Carousel, Rear, Scratch, Snuggle, StampDance, NeckDuel, SkyCall, Crater, TailChase, WarDance, Groom, Necking
     }
 
     [ExecuteAlways]
     [DisallowMultipleComponent]
-    public class IslandHerdSystem : MonoBehaviour
+    public partial class IslandHerdSystem : MonoBehaviour
     {
         const string ObjName = "Herds";
         // Ground below this is under water: a member standing there is gone.
@@ -41,7 +45,12 @@ namespace Drift.Life
             "rutscht auf dem Bauch zum Wasser", "marschiert im Gleichschritt", "steht auf einem Bein",
             "zupft Blätter aus der Baumkrone", "galoppiert mit der Herde", "badet – nur der Kopf schaut heraus",
             "hat sich in den Panzer zurückgezogen", "bildet einen Schutzkreis um die Jungen", "hält Wache auf den Hinterbeinen",
-            "macht einen Mäusesprung", "springt über den Hügel – eins nach dem anderen", "schüttelt sich trocken"
+            "macht einen Mäusesprung", "springt über den Hügel – eins nach dem anderen", "schüttelt sich trocken",
+            "bummelt am Ufer entlang", "besucht die Nachbarherde", "schwärmt zum Grasen aus",
+            "macht Männchen und schlägt Haken", "läuft mit der Herde im Kreis", "stellt sich auf die Hinterbeine",
+            "scheuert sich am Baum", "kuschelt im Stern – ein Vogel sitzt obenauf", "trippelt im Kreis und seiht den Schlamm",
+            "reckt den Hals im Kräftemessen", "reckt den Schnabel zum Himmel und ruft", "scharrt nach Flechten",
+            "jagt den eigenen Schwanz", "hüpft im Kriegstanz", "krault einem anderen Zebra das Fell", "schwingt den Hals im Halskampf"
         };
 
         // Steps of the choreographies as ActivityStep reports them.
@@ -54,7 +63,7 @@ namespace Drift.Life
         public const int CircleWalk = 0, CircleGuard = 1;
         public const int PounceStalk = 0, PounceLeap = 1, PounceHeadIn = 2, PounceShake = 3;
 
-        enum Errand { None, Drink, Wade, Shade, Watch, Slide, Parade, Browse, Soak, Circle }
+        enum Errand { None, Drink, Wade, Shade, Watch, Slide, Parade, Browse, Soak, Circle, Stroll, Visit, Spread, Signature }
         enum PlayKind { Chase, Spar, Race }
 
         public int seed = 1;
@@ -130,6 +139,27 @@ namespace Drift.Life
         public float youngModelGrowth = 0.6f;
         // Behaviours (see Think): every rate below is multiplied by behaviourRate, 0 switches them all off.
         public float behaviourRate = 1f;
+        [Header("Bewegungsmuster aller Arten (Chance pro Denk-Takt, nur tagsüber und ohne andere Besorgung)")]
+        [Tooltip("Uferbummel: die Herde zieht in Zweierreihe mehrere Etappen am Ufer entlang.")]
+        [Range(0f, 0.2f)] public float strollRate = 0.012f;
+        [Tooltip("Nachbarbesuch: die Herde läuft zu einer anderen Herde, ein Teil mischt sich darunter.")]
+        [Range(0f, 0.2f)] public float visitRate = 0.012f;
+        [Tooltip("Ausschwärmen: die Herde fächert sich weit auf, grast verteilt und sammelt sich wieder.")]
+        [Range(0f, 0.2f)] public float spreadRate = 0.02f;
+        [Range(2f, 20f)] public float visitRange = 10f;
+        [Header("Eigene Bewegung jeder Art")]
+        [Tooltip("Chance pro Denk-Takt, dass eine stehende Herde tagsüber ihre arteigene Bewegung zeigt (Hakenschlagen, Schafkreisel, Aufrichten, Scheuern, Kuschelstern, Schlammtanz, Halsrecken, Himmelsruf, Kraterscharren, Schwanzjagd, Kriegstanz, Fellpflege, Halskampf).")]
+        [Range(0f, 0.2f)] public float signatureRate = 0.02f;
+        [Header("Flucht vor dem Wasser (sinkende Insel)")]
+        [Tooltip("Mindesthöhe über dem Wasser, die eine Herde bei steigendem Wasser hält. Liegt ihr Boden tiefer, zieht sie zum nächsten sicheren Fleck ihres Landstücks – nicht gleich auf den Gipfel.")]
+        [Range(0.05f, 1.5f)] public float refugeStart = 0.45f;
+        [Tooltip("Vorlauf in Sekunden: so viele Sekunden des aktuellen Sinktempos hält eine Herde zusätzlich Abstand zum Wasser (schnelles Sinken = größerer Abstand).")]
+        [Range(0f, 120f)] public float refugeLead = 30f;
+        [Tooltip("Wie stark fliehende Herden Abstand zu anderen Herden halten (in Einheiten Umweg, 0 = alle zum nächsten sicheren Fleck). Erst wenn der sichere Streifen voll ist, rücken sie zusammen.")]
+        [Range(0f, 6f)] public float refugeSpread = 3f;
+        [Tooltip("Tempo der Flucht (× normales Wandertempo).")]
+        [Range(1f, 4f)] public float refugeSpeed = 2.2f;
+        [Range(1f, 5f)] public float strollLeg = 2.4f;
         public float thinkInterval = 1f;
         public float shoreSearch = 7f;
         public float shoreWalk = 3f;
@@ -226,7 +256,11 @@ namespace Drift.Life
             public int step;
             public bool dived, stands;
             public float pitch, lift, baseYaw, lineTravel;
-            public Vector2 from;
+            // from = a position (pounce take-off, parade place, the centre a signature move turns about); dir = a
+            // heading the signature moves keep (dash direction, the flank to the tree).
+            public Vector2 from, dir;
+            // Timer / angle of a signature move.
+            public float sigT;
         }
 
         class Herd
@@ -254,6 +288,20 @@ namespace Drift.Life
             public int choreoStep;
             public float choreoT, stampR, stampDist, stampDir, stampT, tuckT, hopAt;
             public bool circled;
+            // Stroll: legs still to walk, side of the shore (+1/-1). Visit: the herd being visited.
+            public int legs, side;
+            public Herd visit;
+            // Seconds until the refuge (highest ground of its land piece) is looked up again while water rises.
+            public float refugeT;
+            public bool refuging;
+            // Signature moves: the one or two animals at the centre of it (the capybara with the bird, the digger,
+            // the pair), turns left, and a herd-level phase (carousel angle, bird timer, pair rotation).
+            public Animal sigA, sigB;
+            public int sigTurns;
+            public float sigPhase, sigR;
+            // A herd that has just come into being (spawn, merge, load) settles for this long before it shows its
+            // signature move, so a fresh island first reads as calm grazing clusters.
+            public float settleT = 30f;
         }
 
         readonly List<Herd> _herds = new();
@@ -437,6 +485,8 @@ namespace Drift.Life
         public int Races { get; private set; }
         public int Spars { get; private set; }
         public int ErrandsStarted { get; private set; }
+        public int Drowned { get; private set; }
+        public int RefugeMoves { get; private set; }
         public int Dives { get; private set; }
         public int Births { get; private set; }
         public LifeTier Tier { get; private set; }
@@ -507,6 +557,8 @@ namespace Drift.Life
         }
         public int AnimalPose(int herd, int member) => PoseOf(_herds[herd], _herds[herd].members[member]);
         public float AnimalBakedPitch(int herd, int member) => _herds[herd].members[member].pitch;
+        public float AnimalBakedRoll(int herd, int member) => _herds[herd].members[member].roll;
+        public float AnimalLift(int herd, int member) => _herds[herd].members[member].lift;
         public bool IsDetailed(int herd, int member) => _herds[herd].members[member].detailed;
         public bool AnimalArrived(int herd, int member) => _herds[herd].members[member].hasGoal && _herds[herd].members[member].arrived;
         public AnimalActivity ActivityOf(int herd, int member) => Activity(_herds[herd], _herds[herd].members[member]);
@@ -1190,6 +1242,7 @@ namespace Drift.Life
         // to half a body, hold the clash, and again for three to five rounds; they face each other throughout.
         void StepSpar(Herd herd, Animal a, Animal b, float dt)
         {
+            if (herd.spec.kind == LifeKind.Reindeer) { StepWrestle(herd, a, b, dt); return; }
             var s = herd.spec;
             float body = s.body * animalScale;
             bool charge = herd.sparPhase == 1;
@@ -1211,6 +1264,50 @@ namespace Drift.Life
             if (charge && --herd.sparRounds <= 0) { EndPlay(herd); return; }
             herd.sparPhase = charge ? 0 : 1;
             herd.sparT = charge ? 0.6f : 0.35f;
+        }
+
+        // Reindeer do not charge like goats: they lock antlers, then shove each other to and fro while the locked
+        // pair slowly twists round, legs working, for six to nine seconds.
+        void StepWrestle(Herd herd, Animal a, Animal b, float dt)
+        {
+            var s = herd.spec;
+            float body = s.body * animalScale;
+            float gap = body * 0.5f;
+            if (herd.sparPhase == 0)
+            {
+                float v = s.speed * 1.1f * dt;
+                bool ra = StepTo(s, a, herd.sparMid - herd.sparAxis * gap, v, out bool blockedA);
+                bool rb = StepTo(s, b, herd.sparMid + herd.sparAxis * gap, v, out bool blockedB);
+                if (blockedA || blockedB) { EndPlay(herd); return; }
+                a.yaw = Mathf.Atan2(herd.sparAxis.x, herd.sparAxis.y) * Mathf.Rad2Deg;
+                b.yaw = Mathf.Repeat(a.yaw + 180f, 360f);
+                SetState(a, AnimalState.Play, 0f, ButtPitch, false);
+                SetState(b, AnimalState.Play, 0f, ButtPitch, false);
+                SetMoving(a, !ra);
+                SetMoving(b, !rb);
+                if (!ra || !rb) return;
+                herd.sparPhase = 1;
+                herd.sparT = Rand(6f, 9f);
+                herd.playAng = 0f;
+                return;
+            }
+            herd.sparT -= dt;
+            if (herd.sparT <= 0f) { EndPlay(herd); return; }
+            herd.playAng += dt;
+            float twist = herd.playAng * 0.35f * ((herd.sparRounds & 1) == 0 ? 1f : -1f);
+            float cs = Mathf.Cos(twist), sn = Mathf.Sin(twist);
+            Vector2 axis = new Vector2(herd.sparAxis.x * cs - herd.sparAxis.y * sn, herd.sparAxis.x * sn + herd.sparAxis.y * cs);
+            Vector2 mid = herd.sparMid + axis * (Mathf.Sin(herd.playAng * 1.9f) * body * 0.3f);
+            Vector2 pa = mid - axis * gap, pb = mid + axis * gap;
+            if (!CanStep(s, _surface.SampleHeight(pa), _surface.SampleHeight(a.pos)) || !CanStep(s, _surface.SampleHeight(pb), _surface.SampleHeight(b.pos))) { EndPlay(herd); return; }
+            a.pos = pa;
+            b.pos = pb;
+            a.yaw = Mathf.Atan2(axis.x, axis.y) * Mathf.Rad2Deg;
+            b.yaw = Mathf.Repeat(a.yaw + 180f, 360f);
+            SetState(a, AnimalState.Play, 0f, ButtPitch + 6f, false);
+            SetState(b, AnimalState.Play, 0f, ButtPitch + 6f, false);
+            SetMoving(a, true);
+            SetMoving(b, true);
         }
 
         // Moves without turning; true once the goal is reached.
@@ -1307,14 +1404,16 @@ namespace Drift.Life
         static bool ErrandAct(AnimalActivity act) =>
             act == AnimalActivity.Drink || act == AnimalActivity.Wade || act == AnimalActivity.Shade || act == AnimalActivity.Watch
             || act == AnimalActivity.Slide || act == AnimalActivity.Parade || act == AnimalActivity.OneLeg || act == AnimalActivity.Browse
-            || act == AnimalActivity.Soak || act == AnimalActivity.Circle;
+            || act == AnimalActivity.Soak || act == AnimalActivity.Circle
+            || act == AnimalActivity.Stroll || act == AnimalActivity.Visit || act == AnimalActivity.Spread
+            || IsSignature(act);
 
         static void ClearGoal(Animal a)
         {
             a.hasGoal = a.arrived = a.dived = false;
             a.blocked = 0f;
             a.step = 0;
-            a.pitch = a.lift = 0f;
+            a.pitch = a.lift = a.roll = 0f;
             a.act = AnimalActivity.None;
             if (a.timer > 100f) a.timer = 1f;
         }
@@ -1335,6 +1434,8 @@ namespace Drift.Life
             else herd.errandCool = Rand(40f, 70f);
             herd.errand = Errand.None;
             herd.errandStage = 0;
+            herd.visit = null;
+            herd.sigA = herd.sigB = null;
             foreach (var a in herd.members) if (ErrandAct(a.act)) ClearGoal(a);
         }
 
@@ -1360,6 +1461,8 @@ namespace Drift.Life
             herd.errandStage = 0;
             herd.diving = herd.walking = false;
             herd.lookout = herd.digger = null;
+            herd.visit = null;
+            herd.sigA = herd.sigB = null;
             herd.choreoStep = 0;
             herd.choreoT = herd.stampT = herd.tuckT = 0f;
             foreach (var a in herd.members)
@@ -1472,7 +1575,7 @@ namespace Drift.Life
             }
             Vector2 away = herd.center - tree;
             Vector2 spot = tree + (away.sqrMagnitude > 1e-4f ? away.normalized : new Vector2(1f, 0f)) * 0.15f;
-            if (!ValidTarget(s, _surface.SampleHeight(spot)) || Burning(spot))
+            if (!OkSpot(s, spot))
             {
                 herd.errandCool = Rand(10f, 20f);
                 return false;
@@ -1522,8 +1625,264 @@ namespace Drift.Life
                     herd.wait = Rand(22f, 35f);
                     AssignBrowse(herd);
                     break;
+                case Errand.Stroll:
+                    // Each arrival is the start of the next leg; the last one ends in a short rest.
+                    if (NextStrollLeg(herd))
+                    {
+                        herd.errandStage = 0;
+                        herd.wait = Rand(0.2f, 1f);
+                    }
+                    else herd.wait = Rand(4f, 8f);
+                    break;
+                case Errand.Visit:
+                    herd.wait = Rand(18f, 28f);
+                    AssignVisit(herd);
+                    break;
+                case Errand.Signature:
+                    ArriveSignature(herd);
+                    break;
             }
         }
+
+        // ---------------------------------------------------------- patterns of every species
+
+        // Along the shore in legs of strollLeg: from a point that far along the coast and a little inland, the
+        // last ground the herd may stand on towards the water is the next stop, so the walk follows the coastline.
+        bool StartStroll(Herd herd)
+        {
+            if (herd.members.Count < 2 || !TryFindCoast(herd, out Vector2 dry, out Vector2 dir))
+            {
+                herd.errandCool = Rand(15f, 30f);
+                return false;
+            }
+            herd.errand = Errand.Stroll;
+            herd.errandStage = 0;
+            herd.errandDir = dir;
+            herd.target = dry;
+            herd.wait = 0f;
+            herd.legs = 3 + _rnd.Next(3);
+            herd.side = Rand() < 0.5f ? -1 : 1;
+            ErrandsStarted++;
+            return true;
+        }
+
+        // The nearest edge of the herd's own ground towards lower land - the coast, not a mountain side - in eight
+        // directions out to twice shoreSearch. dir points from the herd's ground towards the water.
+        bool TryFindCoast(Herd herd, out Vector2 dry, out Vector2 dir)
+        {
+            var sp = herd.spec;
+            dry = dir = default;
+            float best = float.MaxValue;
+            float phase = Rand(0f, 6.28f);
+            for (int k = 0; k < 8; k++)
+            {
+                float ang = phase + k * (Mathf.PI * 0.25f);
+                Vector2 d = new Vector2(Mathf.Cos(ang), Mathf.Sin(ang));
+                Vector2 last = herd.center;
+                for (float t = 0.3f; t <= shoreSearch * 2f && t < best; t += 0.3f)
+                {
+                    Vector2 c = herd.center + d * t;
+                    float h = _surface.SampleHeight(c);
+                    if (ValidTarget(sp, h) && !Burning(c)) { last = c; continue; }
+                    if (h < sp.minH + Margin(sp))
+                    {
+                        best = t;
+                        dry = last;
+                        dir = d;
+                    }
+                    break;
+                }
+            }
+            return best < float.MaxValue;
+        }
+
+        bool NextStrollLeg(Herd herd)
+        {
+            if (herd.legs <= 0) return false;
+            var sp = herd.spec;
+            for (int attempt = 0; attempt < 2; attempt++)
+            {
+                Vector2 along = new Vector2(-herd.errandDir.y, herd.errandDir.x) * herd.side;
+                Vector2 probe = herd.center + along * strollLeg - herd.errandDir * 1.2f;
+                if (ValidTarget(sp, _surface.SampleHeight(probe)) && !Burning(probe))
+                {
+                    Vector2 lastDry = probe;
+                    for (float t = 0.3f; t <= shoreSearch; t += 0.3f)
+                    {
+                        Vector2 c = probe + herd.errandDir * t;
+                        float h = _surface.SampleHeight(c);
+                        if (!ValidTarget(sp, h) || Burning(c)) break;
+                        lastDry = c;
+                    }
+                    Vector2 step = lastDry - herd.center;
+                    if (step.sqrMagnitude > 0.25f)
+                    {
+                        // The coast turns: the water now lies across the direction just walked.
+                        Vector2 toWater = lastDry - probe;
+                        if (toWater.sqrMagnitude > 0.04f) herd.errandDir = Vector2.Lerp(herd.errandDir, toWater.normalized, 0.5f).normalized;
+                        herd.target = lastDry;
+                        herd.legs--;
+                        return true;
+                    }
+                }
+                herd.side = -herd.side;
+            }
+            return false;
+        }
+
+        // To a neighbouring herd within visitRange (any species), stopping at the edge of it.
+        bool StartVisit(Herd herd)
+        {
+            if (herd.members.Count < 2 || _herds.Count < 2) { herd.errandCool = Rand(20f, 40f); return false; }
+            Herd best = null;
+            float bestD = visitRange * visitRange;
+            foreach (var other in _herds)
+            {
+                if (other == herd || other.members.Count == 0 || other.fleeing || other.errand == Errand.Visit) continue;
+                float d = (other.center - herd.center).sqrMagnitude;
+                if (d >= bestD) continue;
+                bestD = d;
+                best = other;
+            }
+            if (best == null) { herd.errandCool = Rand(20f, 40f); return false; }
+            Vector2 away = herd.center - best.center;
+            float dist = away.magnitude;
+            Vector2 dir = dist > 1e-3f ? away / dist : new Vector2(1f, 0f);
+            float edge = RadiusOf(best) + RadiusOf(herd) * 0.6f + 0.3f;
+            Vector2 spot = best.center + dir * Mathf.Min(edge, Mathf.Max(0.5f, dist));
+            if (!OkSpot(herd.spec, spot)) { herd.errandCool = Rand(15f, 30f); return false; }
+            herd.errand = Errand.Visit;
+            herd.errandStage = 0;
+            herd.visit = best;
+            herd.errandDir = -dir;
+            herd.errandPos = best.center;
+            herd.target = spot;
+            herd.wait = 0f;
+            ErrandsStarted++;
+            return true;
+        }
+
+        // About half of the grown-ups walk in among the visited herd; everyone faces it. The host waits as long.
+        void AssignVisit(Herd herd)
+        {
+            var host = herd.visit;
+            if (host == null || !_herds.Contains(host) || host.members.Count == 0) { herd.wait = Rand(2f, 4f); return; }
+            host.wait = Mathf.Max(host.wait, herd.wait);
+            herd.errandPos = host.center;
+            float r = RadiusOf(host);
+            int k = 0;
+            foreach (var a in herd.members)
+            {
+                if (a.hidden) continue;
+                if (!Young(a) && (k++ & 1) == 0)
+                {
+                    for (int tries = 0; tries < 4; tries++)
+                    {
+                        float ang = Rand(0f, Mathf.PI * 2f);
+                        Vector2 g = host.center + new Vector2(Mathf.Cos(ang), Mathf.Sin(ang)) * (r * Rand(0.2f, 0.85f));
+                        if (!OkSpot(herd.spec, g)) continue;
+                        SetGoal(a, g, AnimalActivity.Visit);
+                        break;
+                    }
+                }
+                if (!a.hasGoal && !Young(a))
+                {
+                    a.act = AnimalActivity.Visit;
+                    Vector2 to = host.center - a.pos;
+                    if (to.sqrMagnitude > 1e-4f) a.yaw = Mathf.Atan2(to.x, to.y) * Mathf.Rad2Deg;
+                }
+            }
+            YoungFollow(herd, AnimalActivity.Visit);
+        }
+
+        // Fan out in an arc ahead of the herd, each grown-up to its own patch, and graze there a while.
+        bool StartSpread(Herd herd)
+        {
+            int n = herd.members.Count;
+            if (n < 3) return false;
+            var sp = herd.spec;
+            float reach = RadiusOf(herd) * 2.4f + 1f;
+            float baseAng = Rand(0f, Mathf.PI * 2f);
+            int placed = 0, adults = 0;
+            foreach (var a in herd.members) if (!a.hidden && !Young(a)) adults++;
+            if (adults < 3) return false;
+            int k = 0;
+            foreach (var a in herd.members)
+            {
+                if (a.hidden || Young(a)) continue;
+                float f = adults > 1 ? k++ / (float)(adults - 1) - 0.5f : 0f;
+                float ang = baseAng + f * 2.6f;
+                for (int tries = 0; tries < 4; tries++)
+                {
+                    Vector2 g = herd.center + new Vector2(Mathf.Cos(ang), Mathf.Sin(ang)) * (reach * Rand(0.65f, 1.05f) * (1f - 0.2f * tries));
+                    if (!OkSpot(sp, g)) continue;
+                    SetGoal(a, g, AnimalActivity.Spread);
+                    placed++;
+                    break;
+                }
+            }
+            YoungFollow(herd, AnimalActivity.Spread);
+            if (placed < 2)
+            {
+                foreach (var a in herd.members) if (a.act == AnimalActivity.Spread) ClearGoal(a);
+                herd.errandCool = Rand(15f, 30f);
+                return false;
+            }
+            herd.errand = Errand.Spread;
+            herd.errandStage = 1;
+            herd.errandDir = new Vector2(Mathf.Cos(baseAng), Mathf.Sin(baseAng));
+            herd.target = herd.center;
+            herd.wait = Rand(20f, 32f);
+            ErrandsStarted++;
+            return true;
+        }
+
+        // Errands at the waterline depend on exactly where the water is, so any reshape ends them; the others go on
+        // while every spot they use is still ground the species may stand on.
+        bool SurvivesReshape(Herd herd)
+        {
+            switch (herd.errand)
+            {
+                case Errand.None:
+                    return true;
+                case Errand.Signature:
+                    return SignatureSurvivesReshape(herd);
+                case Errand.Stroll:
+                case Errand.Visit:
+                case Errand.Spread:
+                case Errand.Shade:
+                case Errand.Browse:
+                case Errand.Circle:
+                    var sp = herd.spec;
+                    if (!ValidTarget(sp, _surface.SampleHeight(herd.target))) return false;
+                    foreach (var a in herd.members)
+                        if (a.hasGoal && !ValidTarget(sp, _surface.SampleHeight(a.goal))) return false;
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
+        // A young never stays behind when its parent walks off on a pattern: it gets a spot at the parent's side.
+        void YoungFollow(Herd herd, AnimalActivity act)
+        {
+            foreach (var a in herd.members)
+            {
+                if (a.hidden || !Young(a) || a.parent == null || a.hasGoal || !a.parent.hasGoal || a.parent.act != act) continue;
+                float body = herd.spec.body * animalScale;
+                for (int tries = 0; tries < 4; tries++)
+                {
+                    float ang = Rand(0f, Mathf.PI * 2f);
+                    Vector2 g = a.parent.goal + new Vector2(Mathf.Cos(ang), Mathf.Sin(ang)) * (body * 0.7f);
+                    if (!OkSpot(herd.spec, g)) continue;
+                    SetGoal(a, g, act);
+                    break;
+                }
+            }
+        }
+
+        float RadiusOf(Herd herd) =>
+            herd.spec.body * animalScale * formationSpacing * Mathf.Sqrt(Mathf.Max(1, herd.members.Count));
 
         // Side by side along the water: each member walks from its place in the row straight down to the band.
         void AssignShoreGoals(Herd herd, float lo, float hi, AnimalActivity act, bool youngToo, float spacing = 1.4f)
@@ -1805,6 +2164,20 @@ namespace Drift.Life
                     return true;
                 case AnimalActivity.OneLeg:
                     return false;
+                case AnimalActivity.Visit:
+                case AnimalActivity.Spread:
+                    if (first)
+                    {
+                        Vector2 look = a.act == AnimalActivity.Visit ? herd.errandPos - a.pos : a.pos - herd.center;
+                        if (look.sqrMagnitude > 1e-4f) a.yaw = Mathf.Atan2(look.x, look.y) * Mathf.Rad2Deg + Rand(-35f, 35f);
+                        SetState(a, AnimalState.Graze, Rand(3f, 7f), GrazePitch, false);
+                        return true;
+                    }
+                    a.timer -= dt;
+                    if (a.timer > 0f) return false;
+                    if (a.state == AnimalState.Graze) return SetState(a, AnimalState.Look, Rand(1.5f, 3.5f), LookPitch, true);
+                    a.yaw = Mathf.Repeat(a.yaw + Rand(-40f, 40f), 360f);
+                    return SetState(a, AnimalState.Graze, Rand(4f, 8f), GrazePitch, false);
                 case AnimalActivity.Browse:
                     return BrowseStep(herd, a, dt, first);
                 case AnimalActivity.Circle:
@@ -1844,10 +2217,13 @@ namespace Drift.Life
         {
             var s = herd.spec;
             float rate = behaviourRate;
+            // While the water rises nobody walks down to it: the errands at the waterline wait, the rest only use
+            // ground in the safe band (OkSpot).
+            bool shoreOk = !Rising;
             if (herd.dawnDrink)
             {
                 herd.dawnDrink = false;
-                if (StartShoreErrand(herd, Errand.Drink)) return true;
+                if (shoreOk && StartShoreErrand(herd, Errand.Drink)) return true;
             }
             if (herd.errandCool <= 0f)
             {
@@ -1855,24 +2231,30 @@ namespace Drift.Life
                 if (s.kind == LifeKind.Ox)
                 {
                     float chance = Noon ? 0.25f : LifeEnvironment.TimeOfDay < 0f ? 0.03f : 0.008f;
-                    if (Rand() < chance * rate && StartShoreErrand(herd, Errand.Wade)) return true;
+                    if (shoreOk && Rand() < chance * rate && StartShoreErrand(herd, Errand.Wade)) return true;
                     if (!herd.circled && _night > duskThreshold && CanCircle(herd) && StartCircle(herd)) return true;
                 }
-                switch (s.kind)
-                {
-                    case LifeKind.Capybara:
-                        if (Rand() < (Noon ? 0.3f : 0.035f) * rate && StartShoreErrand(herd, Errand.Soak)) return true;
-                        break;
-                    case LifeKind.Penguin:
-                        if (Rand() < 0.05f * rate && StartShoreErrand(herd, Errand.Slide)) return true;
-                        break;
-                    case LifeKind.Flamingo:
-                        if (Rand() < 0.04f * rate && StartShoreErrand(herd, Errand.Parade)) return true;
-                        break;
-                    case LifeKind.Giraffe:
-                        if (Rand() < 0.06f * rate && StartBrowse(herd)) return true;
-                        break;
-                }
+                if (shoreOk)
+                    switch (s.kind)
+                    {
+                        case LifeKind.Capybara:
+                            if (Rand() < (Noon ? 0.3f : 0.035f) * rate && StartShoreErrand(herd, Errand.Soak)) return true;
+                            break;
+                        case LifeKind.Penguin:
+                            if (Rand() < 0.05f * rate && StartShoreErrand(herd, Errand.Slide)) return true;
+                            break;
+                        case LifeKind.Flamingo:
+                            if (Rand() < 0.04f * rate && StartShoreErrand(herd, Errand.Parade)) return true;
+                            break;
+                    }
+                if (s.kind == LifeKind.Giraffe && Rand() < 0.06f * rate && StartBrowse(herd)) return true;
+                // The species' own move: only by full day, from a herd that stands a while.
+                if (standing && herd.wait > 4f && _night < 0.1f && herd.settleT <= 0f && Rand() < signatureRate * rate && StartSignature(herd)) return true;
+                float roll = Rand();
+                float stroll = shoreOk ? strollRate * rate : 0f, visit = stroll + visitRate * rate, spread = visit + spreadRate * rate;
+                if (roll < stroll) { if (StartStroll(herd)) return true; }
+                else if (roll < visit) { if (StartVisit(herd)) return true; }
+                else if (roll < spread && standing) { if (StartSpread(herd)) return true; }
             }
             if (!standing || herd.wait < 4f) return false;
             if (_hasPoi && herd.watchCool <= 0f && Rand() < 0.35f * rate && StartWatch(herd)) return true;
@@ -1919,7 +2301,9 @@ namespace Drift.Life
                 case LifeKind.Tortoise: return a.act == AnimalActivity.Tuck && a.step == TuckHide ? 1 : 0;
                 // Meerkats get up on their hind legs for every look around, the sentry for as long as it stands.
                 case LifeKind.Meerkat: return (a.act == AnimalActivity.Sentry && a.arrived) || (a.state == AnimalState.Look && !a.moving && a.pitch == 0f) ? 1 : 0;
-                case LifeKind.Penguin: return a.act == AnimalActivity.Slide && (a.step == SlideFlop || a.step == SlideGlide) ? 1 : 0;
+                case LifeKind.Penguin:
+                    if (a.act == AnimalActivity.SkyCall && a.step == MovePerform) return AnimalModels.PoseCall;
+                    return a.act == AnimalActivity.Slide && (a.step == SlideFlop || a.step == SlideGlide) ? 1 : 0;
                 default: return 0;
             }
         }
@@ -1995,8 +2379,10 @@ namespace Drift.Life
                     a.baseYaw = a.yaw;
                     return true;
                 default:
+                    // A penguin shakes the water off by wobbling from flipper to flipper (a roll), not with the
+                    // capybara's twist about its own axis.
                     a.actT -= dt;
-                    a.yaw = a.baseYaw + 24f * Mathf.Sin(_clock * 22f);
+                    a.roll = 16f * Mathf.Sin(_clock * 15f);
                     if (a.actT <= 0f)
                     {
                         a.yaw = a.baseYaw;
@@ -2081,7 +2467,7 @@ namespace Drift.Life
             }
             Vector2 away = herd.center - tree;
             Vector2 spot = tree + (away.sqrMagnitude > 1e-4f ? away.normalized : new Vector2(1f, 0f)) * 0.3f;
-            if (!ValidTarget(s, _surface.SampleHeight(spot)) || Burning(spot))
+            if (!OkSpot(s, spot))
             {
                 herd.errandCool = Rand(10f, 20f);
                 return false;
@@ -2173,7 +2559,7 @@ namespace Drift.Life
                 {
                     float t = i * (Mathf.PI / 6f);
                     Vector2 p = c + new Vector2(Mathf.Cos(t), Mathf.Sin(t)) * radius;
-                    ok = ValidTarget(s, _surface.SampleHeight(p)) && !Burning(p);
+                    ok = OkSpot(s, p);
                 }
                 if (!ok) { radius *= 0.8f; continue; }
                 EndPlay(herd, false);
@@ -2335,10 +2721,12 @@ namespace Drift.Life
                     SetState(a, AnimalState.Look, 2f, StretchPitch, true);
                     return true;
                 default:
-                    a.yaw = a.baseYaw + 20f * Mathf.Sin(_clock * 24f);
+                    // The fox shakes the snow off its face by nodding (a pitch), unlike the capybara's twist.
+                    a.pitch = 13f * Mathf.Sin(_clock * 17f);
                     if (a.actT <= 0f)
                     {
                         a.yaw = a.baseYaw;
+                        a.pitch = 0f;
                         a.step = 0;
                         a.act = AnimalActivity.None;
                     }
@@ -2429,11 +2817,15 @@ namespace Drift.Life
                 case AnimalActivity.Circle: return CanCircle(herd) && StartCircle(herd);
                 case AnimalActivity.Sentry: return herd.lookout == null && StartLookout(herd);
                 case AnimalActivity.Tuck: Tuck(herd, 3f); return true;
+                case AnimalActivity.Stroll: return StartStroll(herd);
+                case AnimalActivity.Visit: return StartVisit(herd);
+                case AnimalActivity.Spread: return StartSpread(herd);
                 case AnimalActivity.Pounce:
                     foreach (var a in herd.members)
                         if (!Young(a) && a.act == AnimalActivity.None && IsAwake(a)) { StartPounce(a); return true; }
                     return false;
-                default: return false;
+                default:
+                    return IsSignature(which) && SignatureOf(herd.spec.kind) == which && StartSignature(herd);
             }
         }
 
@@ -2445,6 +2837,27 @@ namespace Drift.Life
             if (_surface == null || _rnd == null) return;
 
             _stepClock += dt;
+            _refAge += dt;
+            float sinkDepth = _surface.SinkDepth;
+            if (sinkDepth > _lastSink + 1e-4f)
+            {
+                // The pace comes from the rises themselves (the island reports its sink in half-second steps).
+                float span = _stepClock - _sinkChangeAt;
+                if (_sinkChangeAt >= 0f && span > 0.05f)
+                {
+                    float rate = (sinkDepth - _sinkAtChange) / span;
+                    _sinkRate = _sinkRate > 0f ? Mathf.Lerp(_sinkRate, rate, 0.3f) : rate;
+                }
+                _sinkChangeAt = _stepClock;
+                _sinkAtChange = sinkDepth;
+                _risingT = 6f;
+            }
+            else
+            {
+                _risingT -= dt;
+                if (_risingT <= 0f) { _sinkRate = 0f; _sinkChangeAt = -1f; }
+            }
+            _lastSink = sinkDepth;
             if (_stepClock > _clock)
             {
                 _clock = _stepClock;
@@ -2470,12 +2883,15 @@ namespace Drift.Life
             if (_surface.Version != _version)
             {
                 _version = _surface.Version;
+                Relocate();
+                // A sinking player island reports a new shape every half second. Cancelling every errand on each of
+                // those meant that on the player's own island hardly any errand ever reached its end; now only an
+                // errand that the new shape actually spoils is dropped.
                 foreach (var h in _herds)
                 {
-                    CancelErrand(h);
+                    if (!SurvivesReshape(h)) CancelErrand(h);
                     ReleaseLookout(h);
                 }
-                Relocate();
                 PruneBurrows();
                 if (_surface.LandArea > _peakArea + 0.5f)
                 {
@@ -2519,7 +2935,9 @@ namespace Drift.Life
             }
             else
             {
-                if (Tier == LifeTier.Near || _stepTimer >= midStepInterval)
+                // No behaviour step without time: Step(0) runs every frame while the game is paused, and members
+                // catching up with their slot used to drop from walk to graze in that frozen frame.
+                if (Tier == LifeTier.Near ? dt > 0f : _stepTimer >= midStepInterval)
                 {
                     float stepDt = Tier == LifeTier.Near ? dt : _stepTimer;
                     _stepTimer = 0f;
@@ -2626,6 +3044,235 @@ namespace Drift.Life
             return herd.center;
         }
 
+        // ---------------------------------------------------------- refuge from rising water
+
+        // The island's land, cut into connected pieces, with the highest spot of each. Rebuilt at most once a second
+        // while the shape keeps changing (a sinking island reports a new shape every half second). A herd in danger
+        // walks to the nearest ground of its own piece that lies safely above the water (a grid BFS over the piece,
+        // so the way is dry), preferring spots away from other herds; only when that band is full or gone does it
+        // climb to the top. Herds on a piece that has been cut off stay on its top until it is gone too.
+        float[] _refH;
+        int[] _refComp, _refQueue, _refDist, _refMark;
+        readonly List<Vector2> _refTop = new();
+        readonly List<float> _refTopH = new();
+        int _refNx, _refNz, _refVersion = -1, _refGen;
+        float _refCell, _refAge = 99f, _refSink;
+        Vector2 _refOrigin;
+
+        // Seconds of "the water is rising": set whenever the island's sink depth grows. Only then do herds flee -
+        // a herd walking down to drink or wade is not in danger. _sinkRate = the current pace in units/s.
+        float _risingT, _lastSink, _sinkRate, _sinkChangeAt = -1f, _sinkAtChange;
+        bool Rising => _risingT > 0f;
+        public bool WaterRising => Rising;
+
+        // Ground at least this high above the water is safe for now: the fixed margin plus refugeLead seconds of
+        // the current sinking pace, so a fast-sinking island keeps its herds further up.
+        public float SafeHeight => DrownHeight + refugeStart + (Rising ? Mathf.Min(_sinkRate * refugeLead, 1.5f) : 0f);
+        bool SafeGround(float h) => !Rising || h >= SafeHeight;
+        // Somewhere a herd or a member may be sent: the species' own ground, no fire or houses, and while the water
+        // rises only inside the safe band.
+        bool OkSpot(Species s, Vector2 p)
+        {
+            float h = _surface.SampleHeight(p);
+            return ValidTarget(s, h) && SafeGround(h) && !Burning(p);
+        }
+
+        bool Refuge(Herd herd, float hc, float dt)
+        {
+            if (!Rising && !herd.refuging) return false;
+            float safe = SafeHeight;
+            if (hc >= safe && !herd.refuging) return false;
+            herd.refugeT -= dt;
+            if (herd.refuging && hc >= safe && (herd.target - herd.center).sqrMagnitude < 0.09f)
+            {
+                herd.refuging = false;
+                return false;
+            }
+            if (herd.refugeT > 0f) return herd.refuging;
+            herd.refugeT = 1f;
+            // A herd on its way keeps its spot while the spot stays safe; re-planning every second would make the
+            // herds that flee together swap places back and forth.
+            if (herd.refuging && _surface.SampleHeight(herd.target) >= safe + 0.02f) return true;
+            if (!TryRefugeSpot(herd, hc, safe, out Vector2 spot))
+            {
+                herd.refuging = false;
+                return false;
+            }
+            if (!herd.refuging) RefugeMoves++;
+            herd.refuging = true;
+            CancelErrand(herd);
+            EndStampede(herd, false);
+            herd.target = spot;
+            herd.wait = 0f;
+            return true;
+        }
+
+        bool TryRefugeSpot(Herd herd, float hc, float safe, out Vector2 spot)
+        {
+            spot = default;
+            if (_refH == null || (_refVersion != _surface.Version && _refAge >= 1f)) BuildRefugeMap();
+            if (_refH == null) return false;
+            int start = RefugeCell(herd.center);
+            if (start < 0) return false;
+            var s = herd.spec;
+            // The map may be up to a second old; sinking lowers every cell alike.
+            float drop = _surface.SinkDepth - _refSink;
+            float need = Mathf.Max(safe + 0.08f, s.minH + Margin(s));
+            if (++_refGen == int.MaxValue)
+            {
+                System.Array.Clear(_refMark, 0, _refMark.Length);
+                _refGen = 1;
+            }
+            int head = 0, tail = 0, best = -1;
+            float bestScore = float.MaxValue;
+            _refQueue[tail++] = start;
+            _refMark[start] = _refGen;
+            _refDist[start] = 0;
+            while (head < tail)
+            {
+                int c = _refQueue[head++];
+                float d = _refDist[c] * _refCell;
+                // Breadth first, so the distance only grows: nothing further on can beat the best score.
+                if (d >= bestScore) break;
+                float h = _refH[c] - drop;
+                if (h >= need && h <= s.maxH)
+                {
+                    Vector2 p = _refOrigin + new Vector2(c % _refNx, c / _refNx) * _refCell;
+                    float score = d + Crowd(herd, p);
+                    if (score < bestScore && !Burning(p)) { bestScore = score; best = c; }
+                }
+                int i = c % _refNx, j = c / _refNx, dn = _refDist[c] + 1;
+                if (i > 0) RefugeVisit(c - 1, dn, ref tail);
+                if (i < _refNx - 1) RefugeVisit(c + 1, dn, ref tail);
+                if (j > 0) RefugeVisit(c - _refNx, dn, ref tail);
+                if (j < _refNz - 1) RefugeVisit(c + _refNx, dn, ref tail);
+            }
+            if (best >= 0)
+            {
+                spot = _refOrigin + new Vector2(best % _refNx, best / _refNx) * _refCell;
+                return true;
+            }
+            // No room left in the safe band: up to the top of the piece, as close together as it takes.
+            if (!TryRefugeTop(herd, out Vector2 top, out float topH) || topH <= hc + 0.02f) return false;
+            spot = top;
+            return true;
+        }
+
+        void RefugeVisit(int c, int dist, ref int tail)
+        {
+            if (_refComp[c] < 0 || _refMark[c] == _refGen) return;
+            _refMark[c] = _refGen;
+            _refDist[c] = dist;
+            _refQueue[tail++] = c;
+        }
+
+        // Detour (in units) a spot costs for lying on or near another herd - where it stands or where it is going.
+        float Crowd(Herd herd, Vector2 p)
+        {
+            if (refugeSpread <= 0f) return 0f;
+            float pen = 0f, own = RadiusOf(herd);
+            foreach (var h in _herds)
+            {
+                if (h == herd || h.members.Count == 0) continue;
+                float r = herdSpacing + own + RadiusOf(h);
+                float d = Mathf.Min((h.center - p).magnitude, (h.target - p).magnitude);
+                if (d < r) pen += refugeSpread * (1f - d / r);
+            }
+            return pen;
+        }
+
+        bool TryRefugeTop(Herd herd, out Vector2 top, out float topH)
+        {
+            top = default;
+            topH = 0f;
+            if (_refH == null || (_refVersion != _surface.Version && _refAge >= 1f)) BuildRefugeMap();
+            if (_refH == null) return false;
+            int cell = RefugeCell(herd.center);
+            if (cell < 0) return false;
+            int comp = _refComp[cell];
+            top = _refTop[comp];
+            topH = _refTopH[comp];
+            // Herds share a hill without standing inside each other: each gets its own spot on the top ring.
+            int k = _herds.IndexOf(herd);
+            float r = RadiusOf(herd) + 0.3f;
+            for (int t = 0; t < 6; t++)
+            {
+                float ang = (k * 2.39996f) + t * 1.05f;
+                Vector2 q = top + new Vector2(Mathf.Cos(ang), Mathf.Sin(ang)) * r * Mathf.Min(1f, 0.35f * (k % 5));
+                float hq = _surface.SampleHeight(q);
+                if (hq >= topH - 0.25f && hq > DrownHeight + 0.05f) { top = q; break; }
+            }
+            topH = _surface.SampleHeight(top);
+            return true;
+        }
+
+        int RefugeCell(Vector2 p)
+        {
+            int ci = Mathf.RoundToInt((p.x - _refOrigin.x) / _refCell), cj = Mathf.RoundToInt((p.y - _refOrigin.y) / _refCell);
+            for (int r = 0; r <= 3; r++)
+                for (int dj = -r; dj <= r; dj++)
+                    for (int di = -r; di <= r; di++)
+                    {
+                        if (Mathf.Max(Mathf.Abs(di), Mathf.Abs(dj)) != r) continue;
+                        int i = ci + di, j = cj + dj;
+                        if (i < 0 || j < 0 || i >= _refNx || j >= _refNz) continue;
+                        int c = j * _refNx + i;
+                        if (_refComp[c] >= 0) return c;
+                    }
+            return -1;
+        }
+
+        void BuildRefugeMap()
+        {
+            _refVersion = _surface.Version;
+            _refAge = 0f;
+            Rect b = _surface.LocalBounds;
+            _refCell = Mathf.Max(0.4f, Mathf.Max(b.width, b.height) / 90f);
+            _refNx = Mathf.Max(2, Mathf.CeilToInt(b.width / _refCell) + 1);
+            _refNz = Mathf.Max(2, Mathf.CeilToInt(b.height / _refCell) + 1);
+            _refOrigin = b.min;
+            int n = _refNx * _refNz;
+            if (_refH == null || _refH.Length != n)
+            {
+                _refH = new float[n];
+                _refComp = new int[n];
+                _refQueue = new int[n];
+                _refDist = new int[n];
+                _refMark = new int[n];
+                _refGen = 0;
+            }
+            _refSink = _surface.SinkDepth;
+            float land = DrownHeight + 0.02f;
+            for (int j = 0, c = 0; j < _refNz; j++)
+                for (int i = 0; i < _refNx; i++, c++)
+                {
+                    _refH[c] = _surface.SampleHeight(_refOrigin + new Vector2(i, j) * _refCell);
+                    _refComp[c] = _refH[c] > land ? int.MaxValue : -1;
+                }
+            _refTop.Clear();
+            _refTopH.Clear();
+            for (int start = 0; start < n; start++)
+            {
+                if (_refComp[start] != int.MaxValue) continue;
+                int id = _refTop.Count;
+                int head = 0, tail = 0, best = start;
+                _refQueue[tail++] = start;
+                _refComp[start] = id;
+                while (head < tail)
+                {
+                    int c = _refQueue[head++];
+                    if (_refH[c] > _refH[best]) best = c;
+                    int i = c % _refNx, j = c / _refNx;
+                    if (i > 0 && _refComp[c - 1] == int.MaxValue) { _refComp[c - 1] = id; _refQueue[tail++] = c - 1; }
+                    if (i < _refNx - 1 && _refComp[c + 1] == int.MaxValue) { _refComp[c + 1] = id; _refQueue[tail++] = c + 1; }
+                    if (j > 0 && _refComp[c - _refNx] == int.MaxValue) { _refComp[c - _refNx] = id; _refQueue[tail++] = c - _refNx; }
+                    if (j < _refNz - 1 && _refComp[c + _refNx] == int.MaxValue) { _refComp[c + _refNx] = id; _refQueue[tail++] = c + _refNx; }
+                }
+                _refTop.Add(_refOrigin + new Vector2(best % _refNx, best / _refNx) * _refCell);
+                _refTopH.Add(_refH[best]);
+            }
+        }
+
         // Shape changed: drop drowned members, re-centre herds whose centre went under, keep everything else.
         void Relocate()
         {
@@ -2651,9 +3298,32 @@ namespace Drift.Life
             for (int m = herd.members.Count - 1; m >= 0; m--)
             {
                 var a = herd.members[m];
-                if (_surface.SampleHeight(a.pos) < (a.shore ? WadeFloor : DrownHeight)) herd.members.RemoveAt(m);
+                if (_surface.SampleHeight(a.pos) >= (a.shore ? WadeFloor : DrownHeight)) continue;
+                // The water came faster than the animal walked: it scrambles onto the nearest dry ground. Only an
+                // animal whose own patch of land is gone (nothing dry within reach) is lost.
+                if (TryAshore(a.pos, out var dry)) { a.pos = dry; Scrambled++; continue; }
+                herd.members.RemoveAt(m);
+                Drowned++;
             }
             if (herd.members.Count != before) Orphans(herd);
+        }
+
+        public int Scrambled { get; private set; }
+
+        bool TryAshore(Vector2 p, out Vector2 dry)
+        {
+            for (int ring = 1; ring <= 10; ring++)
+            {
+                float r = ring * 0.2f;
+                for (int k = 0; k < 12; k++)
+                {
+                    float a = (k + (ring & 1) * 0.5f) * (Mathf.PI / 6f);
+                    Vector2 q = p + new Vector2(Mathf.Cos(a), Mathf.Sin(a)) * r;
+                    if (_surface.SampleHeight(q) >= DrownHeight + 0.05f) { dry = q; return true; }
+                }
+            }
+            dry = p;
+            return false;
         }
 
         // Wander range shrinks with the island so herds on small islands still move.
@@ -2662,12 +3332,15 @@ namespace Drift.Life
         Vector2 NewTarget(Herd herd)
         {
             float far = WanderRange;
+            // While the water rises a herd wanders only inside the safe band - or, below it, never further down.
+            float floor = Rising ? Mathf.Min(SafeHeight, _surface.SampleHeight(herd.center)) : float.MinValue;
             for (int i = 0; i < 14; i++)
             {
                 float ang = Rand(0f, Mathf.PI * 2f);
                 float dist = Rand(Mathf.Min(1f, far * 0.5f), far) * (1f - 0.5f * i / 13f);
                 Vector2 c = herd.center + new Vector2(Mathf.Cos(ang), Mathf.Sin(ang)) * dist;
-                if (ValidTarget(herd.spec, _surface.SampleHeight(c)) && !Burning(c) && (i >= 9 || !NearOtherHerd(c, herd)) && (i >= 10 || CoastOk(herd.spec, c))) return c;
+                float h = _surface.SampleHeight(c);
+                if (ValidTarget(herd.spec, h) && !Burning(c) && (i >= 9 || !NearOtherHerd(c, herd)) && (i >= 10 || CoastOk(herd.spec, c)) && (i >= 11 || h >= floor)) return c;
             }
             return herd.center;
         }
@@ -2696,8 +3369,9 @@ namespace Drift.Life
         {
             var s = herd.spec;
             int before = herd.members.Count;
+            int scrambled = Scrambled;
             Drown(herd);
-            bool changed = herd.members.Count != before;
+            bool changed = herd.members.Count != before || Scrambled != scrambled;
             if (herd.members.Count == 0) return changed;
 
             float mul = 1f;
@@ -2723,7 +3397,8 @@ namespace Drift.Life
             else herd.fleeing = false;
 
             float hc = _surface.SampleHeight(herd.center);
-            bool shore = hc < s.minH + Margin(s);
+            if (!startled && !herd.fleeing && Refuge(herd, hc, dt)) mul = Mathf.Max(mul, refugeSpeed);
+            bool shore = hc < s.minH + Margin(s) && !herd.refuging;
             if (shore && !startled && _surface.SampleHeight(herd.target) < s.minH + Margin(s))
             {
                 herd.target = UphillTarget(herd);
@@ -2752,8 +3427,10 @@ namespace Drift.Life
                 else if (StepTuck(herd, dt)) changed = true;
             }
             bool galloping = herd.stampT > 0f && StepStampede(herd, dt);
-            if (galloping) mul = Mathf.Max(mul, 3.2f);
+            // Zebras gallop in a bunch; reindeer trot in a wedge (see the member loop), a little slower.
+            if (galloping) mul = Mathf.Max(mul, s.kind == LifeKind.Reindeer ? 2.4f : 3.2f);
             if (herd.errand == Errand.Parade && herd.errandStage == 1 && ParadeStep(herd, dt)) changed = true;
+            if (herd.errand == Errand.Signature && herd.errandStage == 1 && StepSignature(herd, dt)) changed = true;
             if (herd.diving && safe && herd.wait < 1f) herd.wait = 1f;
             if (herd.errand == Errand.Shade && herd.errandStage == 1 && herd.wait < 2f && (Raining || Noon)) herd.wait = 2f;
             if (herd.errand == Errand.Watch)
@@ -2762,10 +3439,11 @@ namespace Drift.Life
                 if (herd.errandT <= 0f || !_hasPoi) CancelErrand(herd);
             }
             herd.errandCool = Mathf.Max(0f, herd.errandCool - dt);
+            herd.settleT -= dt;
             herd.watchCool = Mathf.Max(0f, herd.watchCool - dt);
             herd.lookoutCool = Mathf.Max(0f, herd.lookoutCool - dt);
             bool standing = herd.wait > 0f;
-            if (behaviourRate > 0f && safe && !night && herd.errand == Errand.None && !herd.diving && herd.playT <= 0f && herd.stampT <= 0f && herd.tuckT <= 0f)
+            if (behaviourRate > 0f && safe && !night && !herd.refuging && herd.errand == Errand.None && !herd.diving && herd.playT <= 0f && herd.stampT <= 0f && herd.tuckT <= 0f)
             {
                 herd.thinkT -= dt;
                 if (herd.thinkT <= 0f)
@@ -2839,7 +3517,7 @@ namespace Drift.Life
                 else StepPlay(herd, dt);
                 changed = true;
             }
-            else if (calm && !huddle && !moving && herd.wait > 3f && _night < sleepThreshold && herd.members.Count >= 3 && s.play > 0f)
+            else if (calm && !huddle && !moving && herd.wait > 3f && _night < sleepThreshold && herd.members.Count >= 3 && s.play > 0f && herd.errand != Errand.Signature)
             {
                 float rate = s.play * playRate * (_night > 0.1f ? 3f : 1f) * (HasAwakeYoung(herd) ? youngPlayRate : 1f);
                 if (Rand() < rate * dt)
@@ -2856,7 +3534,10 @@ namespace Drift.Life
             float body = s.body * animalScale;
             float gather = huddle ? 1f - 0.45f * Mathf.Clamp01(Agitation) : herd.errand == Errand.Shade && herd.errandStage == 1 ? 0.55f : galloping ? 0.75f : 1f;
             float turn = 1f - Mathf.Exp(-4f * dt);
-            bool lineWalk = moving && safe && !galloping && (s.kind == LifeKind.Sheep || s.kind == LifeKind.Reindeer) && behaviourRate > 0f;
+            bool strolling = herd.errand == Errand.Stroll;
+            // Single file is the sheep's own way of walking; a stroll along the shore goes two abreast (any species).
+            bool lineWalk = moving && safe && !galloping && (s.kind == LifeKind.Sheep || strolling) && behaviourRate > 0f;
+            bool wedge = galloping && s.kind == LifeKind.Reindeer;
             Vector2 linePerp = new Vector2(-heading.y, heading.x);
             bool burrowBound = false;
             for (int i = 0; i < herd.members.Count; i++)
@@ -2873,6 +3554,11 @@ namespace Drift.Life
                     if (herd.playT > 0f) continue;
                     SetState(a, AnimalState.Look, Rand(1f, 2f), LookPitch, true);
                     changed = true;
+                }
+                if (IsSignature(a.act))
+                {
+                    if (SignatureStep(herd, a, dt)) changed = true;
+                    continue;
                 }
                 if (a.act == AnimalActivity.Burrowed) burrowBound = true;
                 if (a.act == AnimalActivity.Binky || a.act == AnimalActivity.Wallow)
@@ -2926,10 +3612,12 @@ namespace Drift.Life
                 else if (lineWalk)
                 {
                     int rank = a.parent != null ? Mathf.Max(0, herd.members.IndexOf(a.parent)) : i;
-                    float back = rank * body * lineSpacing;
+                    bool pairs = strolling;
+                    float back = (pairs ? rank >> 1 : rank) * body * lineSpacing;
                     if (herd.lineDist >= back)
                     {
                         desired = herd.center - heading * back;
+                        if (pairs) desired += linePerp * (body * ((rank & 1) == 0 ? -0.45f : 0.45f));
                         if (a.parent != null) desired += linePerp * (body * 0.6f);
                         // Counting sheep: everyone jumps at the same spot of the path as the line passes it.
                         float travel = herd.lineDist - back;
@@ -2941,7 +3629,7 @@ namespace Drift.Life
                             changed = true;
                         }
                         a.lineTravel = travel;
-                        if (a.act != AnimalActivity.HopChain) a.act = AnimalActivity.Line;
+                        if (a.act != AnimalActivity.HopChain) a.act = strolling ? AnimalActivity.Stroll : AnimalActivity.Line;
                     }
                     else
                     {
@@ -2949,8 +3637,15 @@ namespace Drift.Life
                         waiting = true;
                     }
                 }
+                else if (wedge)
+                {
+                    // A wedge behind the leader, like geese: rank r trots r bodies back and r bodies to its side.
+                    int rank = (i + 1) >> 1;
+                    float side = (i & 1) == 1 ? 1f : -1f;
+                    desired = herd.center - heading * (rank * body * 1.3f) + linePerp * (side * rank * body * 1.05f);
+                }
                 else desired = Slot(herd, a, gather);
-                if (!lineWalk && a.act == AnimalActivity.Line) a.act = AnimalActivity.None;
+                if (!lineWalk && (a.act == AnimalActivity.Line || (a.act == AnimalActivity.Stroll && !strolling))) a.act = AnimalActivity.None;
 
                 Vector2 toD = desired - a.pos;
                 float d = toD.magnitude;
@@ -3002,7 +3697,7 @@ namespace Drift.Life
                 }
                 if (SetMoving(a, memberMoving)) changed = true;
                 if (a.hasGoal && !memberMoving && d <= stop * 1.5f) { if (GoalStep(herd, a, dt)) changed = true; }
-                else if (memberMoving || (moving && !waiting && !a.hasGoal)) { if (SetState(a, AnimalState.Walk, 0f, WalkPitch, false)) changed = true; }
+                else if (memberMoving || (moving && !waiting && !a.hasGoal)) { if (SetState(a, AnimalState.Walk, 0f, wedge ? LookPitch : WalkPitch, false)) changed = true; }
                 else if (a.hasGoal || a.act == AnimalActivity.Dig) { }
                 else if (!safe) { if (SetState(a, AnimalState.Look, 0f, LookPitch, true)) changed = true; }
                 else if (IdleStep(herd, a, i, dt)) changed = true;
@@ -3079,17 +3774,29 @@ namespace Drift.Life
                     float scale = a.scale * animalScale * size;
                     bool binky = a.act == AnimalActivity.Binky;
                     bool jump = a.act == AnimalActivity.HopChain;
-                    float hopMul = binky ? 6f : jump ? 9f : a.act == AnimalActivity.Stampede && a.moving ? 3f : 1f;
+                    bool dance = a.act == AnimalActivity.WarDance && a.step == MovePerform;
+                    float hopMul = binky ? 6f : jump ? 9f : dance ? 7f : a.act == AnimalActivity.Zigzag && a.moving ? 2.5f
+                        : a.act == AnimalActivity.Stampede && a.moving ? (s.kind == LifeKind.Reindeer ? 1.4f : 3f) : 1f;
                     var pose = new AnimalPose
                     {
-                        phase = a.phase, hopAmplitude = (jump ? Mathf.Max(hop, 0.02f * animalScale) : hop) * size * hopMul,
+                        // The war dance bounces the whole group in step: one shared phase.
+                        phase = dance ? herd.sigPhase : a.phase, hopAmplitude = (jump || dance ? Mathf.Max(hop, 0.02f * animalScale) : hop) * size * hopMul,
                         moving = a.moving || binky || jump ? 1f : 0f, alert = a.alert ? 1f : 0f,
                         sleep = a.state == AnimalState.Sleep || (a.stands && a.state == AnimalState.Rest) ? 1f : 0f, t0 = a.t0,
                         pitchFrom = a.pitchFrom, pitchTo = a.pitchTo, restFrom = a.restFrom, restTo = a.restTo
                     };
                     var pos = new Vector3(a.pos.x, h + a.lift, a.pos.y);
                     float roll = 0f, pitch = a.pitch;
-                    if (special != 0 && s.kind == LifeKind.Penguin)
+                    if (pitch < 0f && RearPivot(s.kind, a.act, out float pivotZ))
+                    {
+                        // Rearing up (a sitting-up hare, a goat on its hind legs) turns about the hind feet, not the
+                        // middle of the body, so they stay on the ground.
+                        float pr = pitch * Mathf.Deg2Rad, yr = a.yaw * Mathf.Deg2Rad;
+                        float dz = pivotZ * (1f - Mathf.Cos(pr)), dy = pivotZ * Mathf.Sin(pr);
+                        pos += new Vector3(Mathf.Sin(yr) * dz * scale, dy * scale, Mathf.Cos(yr) * dz * scale);
+                    }
+                    if (special == AnimalModels.PoseCall && !a.detailed) pitch = -18f;
+                    if (special == 1 && s.kind == LifeKind.Penguin)
                     {
                         // Belly slide: the detail pose is a template of its own, the simple box is tipped over.
                         if (!a.detailed) { pitch = BellyPitch; pos.y += 0.1f * scale; }
@@ -3098,6 +3805,7 @@ namespace Drift.Life
                     }
                     else if (special != 0 && s.kind == LifeKind.Meerkat && !a.detailed) { pitch = UprightPitch; pos.y += 0.12f * scale; }
                     else if (a.detailed && a.moving && s.kind == LifeKind.Penguin) roll = 11f * Mathf.Sin(_clock * 9f + a.phase);
+                    if (a.roll != 0f && a.act != AnimalActivity.Wallow) roll = a.roll;
                     if (pitch != 0f) { pose.pitchFrom = pose.pitchTo = 0f; pose.moving = 0f; }
                     if (a.act == AnimalActivity.Wallow && a.detailed && tpl.lever != null)
                     {
@@ -3115,7 +3823,16 @@ namespace Drift.Life
                         pose.moving = pose.alert = 0f;
                         pose.sleep = 1f;
                     }
-                    _batch.AddAnimal(tpl, pos, a.yaw, scale, pose, youngTint, youngTintAmount * (1f - a.growth), roll, pitch);
+                    _batch.AddAnimal(tpl, pos, a.yaw, scale, pose, youngTint, youngTintAmount * (1f - a.growth), roll, pitch,
+                        Markings.For(s.kind, a.variant, tpl), Markings.Seed(a.scale * 97.3f));
+                    if (a == herd.sigA && a.act == AnimalActivity.Snuggle && a.step == MovePerform && a.sigT >= 1f)
+                    {
+                        // The capybara's passenger: a little egret on the back of the one in the middle of the star.
+                        float back = a.detailed ? 0.23f : 0.19f;
+                        float yr = a.yaw * Mathf.Deg2Rad;
+                        var birdPos = new Vector3(a.pos.x - Mathf.Sin(yr) * 0.05f * scale, h + back * scale, a.pos.y - Mathf.Cos(yr) * 0.05f * scale);
+                        _batch.Add(AnimalModels.Egret, birdPos, a.yaw, scale);
+                    }
                 }
             }
             _batch.Apply(_mesh);
@@ -3129,10 +3846,13 @@ namespace Drift.Life
                 h.target += delta;
                 h.burrow += delta;
                 h.sparMid += delta;
+                h.errandPos += delta;
+                h.stampC += delta;
                 foreach (var a in h.members)
                 {
                     a.pos += delta;
                     a.goal += delta;
+                    a.from += delta;
                 }
             }
             for (int i = 0; i < _burrows.Count; i++) _burrows[i] += delta;

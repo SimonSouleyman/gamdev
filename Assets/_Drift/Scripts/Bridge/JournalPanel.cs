@@ -39,8 +39,10 @@ namespace Drift.Bridge
         {
             public RectTransform root;
             public Image body, swatch, glyph, chip;
-            public GameObject badge;
+            public GameObject badge, go;
             public Text name, state, when, detail;
+            public Button button;
+            public int entry = -1;
         }
 
         RectTransform _screen, _fit, _panel, _pager, _islandA, _islandB;
@@ -73,8 +75,12 @@ namespace Drift.Bridge
 
         // ---------------------------------------------------------------- build
 
-        public GameObject Build(RectTransform root, Action onClose)
+        Action<int> _onWatch;
+
+        // onWatch gets the catalog index of a card the player tapped (only cards of seen or collected entries).
+        public GameObject Build(RectTransform root, Action onClose, Action<int> onWatch = null)
         {
+            _onWatch = onWatch;
             _screen = UiStyle.Scrim(root, "JournalScreen", UiStyle.Dim);
             // The fade-in animates the panel's own scale, so the fit-to-screen scale sits one level above it.
             _fit = UiStyle.Rect(_screen, "Fit").Center(Vector2.zero, Vector2.zero);
@@ -104,7 +110,15 @@ namespace Drift.Bridge
             _sectionCount = UiStyle.FitWidth(UiStyle.Label(_panel, "", 28, UiStyle.CreamSoft, TextAnchor.MiddleRight));
             _sectionBar = UiStyle.Bar(_panel, "SectionProgress", new Vector2(860f, 16f), UiStyle.Sky);
 
-            for (int i = 0; i < Pool; i++) _cards[i] = BuildCard(_panel, i);
+            for (int i = 0; i < Pool; i++)
+            {
+                var card = BuildCard(_panel, i);
+                _cards[i] = card;
+                card.button.onClick.AddListener(() =>
+                {
+                    if (card.entry >= 0) _onWatch?.Invoke(card.entry);
+                });
+            }
 
             _islandA = UiStyle.Card(_panel, "Islanders", new Vector2(860f, 330f));
             _islandAText = IslandCard(_islandA, "Insulaner");
@@ -158,7 +172,19 @@ namespace Drift.Bridge
             c.badge = badge.gameObject;
 
             c.name = UiStyle.FitWidth(UiStyle.Label(c.root, "", 32, UiStyle.Cream, TextAnchor.MiddleLeft, true));
-            c.name.rectTransform.Place(new Vector2(0f, 1f), new Vector2(0f, 0.5f), new Vector2(128f, -32f), new Vector2(282f, 42f));
+            c.name.rectTransform.Place(new Vector2(0f, 1f), new Vector2(0f, 0.5f), new Vector2(128f, -32f), new Vector2(236f, 42f));
+
+            // The whole card is the button ("Ansehen"); the eye in the corner says so on every known entry.
+            c.body.raycastTarget = true;
+            c.button = c.root.gameObject.AddComponent<Button>();
+            c.button.targetGraphic = c.body;
+            c.button.transition = Selectable.Transition.None;
+            c.button.navigation = new Navigation { mode = Navigation.Mode.None };
+            c.root.gameObject.AddComponent<UiPressFeedback>().pressedScale = 0.96f;
+            var eye = UiStyle.Dot(c.root, "Watch", 44f, UiStyle.WithAlpha(UiStyle.Sand, 0.22f));
+            eye.rectTransform.Place(new Vector2(1f, 1f), new Vector2(0.5f, 0.5f), new Vector2(-34f, -32f), new Vector2(44f, 44f));
+            UiStyle.Icon(eye.rectTransform, "Icon", UiIcon.Camera, 26f, UiStyle.Sand).rectTransform.Center(Vector2.zero, new Vector2(26f, 26f));
+            c.go = eye.gameObject;
             c.chip = UiStyle.Pill(c.root, "State", new Vector2(148f, 32f), UiStyle.Ghost);
             c.chip.rectTransform.Place(new Vector2(0f, 1f), new Vector2(0f, 0.5f), new Vector2(128f, -70f), new Vector2(148f, 32f));
             c.state = UiStyle.Label(c.chip.transform, "", 22, UiStyle.Cream, TextAnchor.MiddleCenter, true);
@@ -343,6 +369,9 @@ namespace Drift.Bridge
             var e = CollectionCatalog.At(index);
             var state = j.StateOf(index);
             bool known = state != CollectState.Unknown, collected = state == CollectState.Collected;
+            c.entry = known ? index : -1;
+            c.button.interactable = known && _onWatch != null;
+            SetActive(c.go, known && _onWatch != null);
             Color sw = SwatchOf(e);
             c.body.color = known ? UiStyle.Veil : UiStyle.WithAlpha(UiStyle.Veil, 0.06f);
             c.swatch.color = known ? sw : UiStyle.WithAlpha(UiStyle.Track, 0.6f);

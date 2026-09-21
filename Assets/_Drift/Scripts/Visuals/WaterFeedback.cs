@@ -285,7 +285,10 @@ namespace Drift.Visuals
                 // Island._carry only tracks the plate current inside Tick (Play Mode); in edit mode it
                 // is zero, so subtracting the current there would fake a wake on a resting island.
                 if (!Application.isPlaying) PlayerVel = p.SelfVelocity;
-                else PlayerVel = wakeRelativeToCurrent ? p.PlanarVelocity - RawCurrent : p.PlanarVelocity;
+                // Not PlanarVelocity - RawCurrent: the island only follows the current with a lag, so where the
+                // current jumps (crossing into another plate, or a plate the island itself shoves along) that
+                // difference pointed sideways for a second and the wake swung out of the stern as a wedge.
+                else PlayerVel = wakeRelativeToCurrent ? p.WaterVelocity : p.PlanarVelocity;
                 PlayerRadius = p.BoundingRadius;
                 Vector3 bf = p.BodyForward;
                 BodyYawRad = Mathf.Atan2(bf.x, bf.z);

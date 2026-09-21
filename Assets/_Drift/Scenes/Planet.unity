@@ -387,6 +387,7 @@ GameObject:
   - component: {fileID: 479351225}
   - component: {fileID: 479351224}
   - component: {fileID: 479351223}
+  - component: {fileID: 479351226}
   m_Layer: 0
   m_Name: Visuals
   m_TagString: Untagged
@@ -626,6 +627,8 @@ MonoBehaviour:
   driveAmbient: 1
   driveWater: 1
   stormDim: 0.35
+  flashSunBoost: 1.2
+  flashAmbient: {r: 0.55, g: 0.6, b: 0.75, a: 1}
   stormDesaturate: 0.4
   stormAmbientTint: {r: 0.72, g: 0.75, b: 0.82, a: 1}
   stormSkyTint: {r: 0.6, g: 0.62, b: 0.68, a: 1}
@@ -701,11 +704,15 @@ MonoBehaviour:
   variationPeriod: 170
   stormCover: 0.55
   shadowStrength: 0.3
-  cloudSize: 70
   driftSpeed: 1.2
   minDrift: 0.25
   coverSmoothing: 0.6
   coverOverride: -1
+  cloudMaterial: {fileID: 2100000, guid: 55c5f08edd7352b4daffd5ff5643022b, type: 2}
+  clumpSpacing: 18
+  heightFactor: 0.42
+  heightRange: {x: 3.5, y: 14}
+  sunShift: 1
 --- !u!114 &479351223
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -891,6 +898,37 @@ MonoBehaviour:
   cloudShading: 1.1
   cullTop: 14
   cullBottom: -4
+--- !u!114 &479351226
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 479351216}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 1e1861402caff6d4ab18cc3ed8f29756, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Drift.Visuals::Drift.Visuals.StormVisuals
+  stormMaterial: {fileID: 2100000, guid: 30de4b7d546498e4c80df80108c7bbb8, type: 2}
+  boltMaterial: {fileID: 2100000, guid: 760cadcc130aeca4eb22b50a8d884aca, type: 2}
+  cloudHeight: 13
+  cloudRadius: 1.05
+  cloudColor: {r: 0.24, g: 0.26, b: 0.31, a: 1}
+  cloudAlpha: 0.88
+  cloudSpin: 0.06
+  clumpsPerStorm: 14
+  clumpSize: 0.22
+  rainColor: {r: 0.62, g: 0.68, b: 0.78, a: 1}
+  rainAlpha: 0.55
+  rainShare: 0.7
+  eyeMargin: 8
+  lightningRate: 0.7
+  boltLife: 0.5
+  boltWidth: 0.35
+  boltColor: {r: 0.8, g: 0.87, b: 1, a: 1}
+  flashStrength: 0.8
+  flashRange: 160
 --- !u!1 &628067327
 GameObject:
   m_ObjectHideFlags: 0
@@ -1239,6 +1277,8 @@ MonoBehaviour:
   lifeDuckImpactSeconds: 3
   impactHearingRange: 70
   oneShotHearingRange: 45
+  thunderRange: 260
+  thunderSpeed: 90
   grindFromContact: 1
   grindPollInterval: 0.1
   grumbleDuckDepth: 0.15
@@ -1375,7 +1415,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: Drift.Islands::Drift.Islands.Island
   landRadius: 3
   cellSize: 0.5
-  moveSpeed: 8
+  moveSpeed: 9.5
   acceleration: 3.6
   dragBase: 0.45
   turnRateDegPerSec: 90
@@ -1399,7 +1439,7 @@ MonoBehaviour:
   heightOffset: 0
   bobAmplitude: 0.05
   carryResponse: 2.5
-  upliftDuration: 1.5
+  surfResponse: 2
   isVolcano: 0
   kind: 0
   archetype: 0
@@ -1419,6 +1459,11 @@ MonoBehaviour:
   barrenHeightScale: 0.55
   barrenRadiusScale: 0.8
   startleDuration: 3
+  upliftDuration: 7
+  mountainHeight: 1
+  upliftSpread: 2.5
+  maxSlope: 30
+  volcanoMaxSlope: 45
 --- !u!114 &1204434041
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -1502,8 +1547,8 @@ MonoBehaviour:
   animalScale: 0.175
   areaPerHerd: 7
   minHerdArea: 4
-  maxHerds: 40
-  maxAnimals: 120
+  maxHerds: 60
+  maxAnimals: 200
   herdSpacing: 1.6
   formationSpacing: 2.2
   shoreMargin: 0.2
@@ -1531,6 +1576,16 @@ MonoBehaviour:
   detailCheckInterval: 0.25
   youngModelGrowth: 0.6
   behaviourRate: 1
+  strollRate: 0.012
+  visitRate: 0.012
+  spreadRate: 0.02
+  visitRange: 10
+  signatureRate: 0.02
+  refugeStart: 0.45
+  refugeLead: 30
+  refugeSpread: 3
+  refugeSpeed: 2.2
+  strollLeg: 2.4
   thinkInterval: 1
   shoreSearch: 7
   shoreWalk: 3
@@ -1614,6 +1669,20 @@ MonoBehaviour:
   fadeTime: 1.5
   spawnInterval: 1.5
   spawnsPerInterval: 2
+  crabWaveChance: 0.12
+  crabWaveMin: 3
+  crabWaveMax: 6
+  turtleNestChance: 0.2
+  turtleNestDig: 10
+  nestMoundTime: 150
+  maxNests: 3
+  butterflySpiralChance: 0.2
+  butterflySpiralTime: 5
+  spiralPartnerRange: 1.5
+  spiralRadius: 0.16
+  spiralRise: 0.55
+  fireflyWavesPerMinute: 1.2
+  fireflyWaveTime: 7
   critterMaterial: {fileID: 0}
   glowMaterial: {fileID: 0}
 --- !u!114 &1204434044
@@ -1657,6 +1726,9 @@ MonoBehaviour:
   beachMargin: 0.35
   beachHeight: 0.25
   drownHeight: 0.05
+  moveUpMargin: 0.2
+  regroupRest: 25
+  moveUpRange: 20
   sinkTime: 5
   dissolveArea: 8
   clearReach: 1
@@ -1728,12 +1800,12 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Drift.Tectonics::Drift.Tectonics.PlateSystem
   enableEvents: 1
-  eventRate: 1
+  eventRate: 3
   upliftRate: 0.03
   earthquakeRate: 0.015
   riftRate: 0.03
   slipRate: 0.02
-  eventKick: 2
+  eventKick: 5
   eventInfluence: 16
   maxActiveEvents: 48
   showEventCues: 1
@@ -1741,15 +1813,23 @@ MonoBehaviour:
   gridPeriod: 6
   jitter: 0.25
   seed: 4242
-  waveAmplitude: 14
-  waveSpeed: 0.28
+  waveAmplitude: 22
+  waveSpeed: 0.3
   timeScale: 1
-  plateMass: 1500
-  riderPush: 25
+  plateMass: 1000
+  riderPush: 75
+  maxRiderPlateSpeed: 3
   pushDamping: 1.5
-  springBack: 0.25
+  springBack: 0.15
   transformThreshold: 0.25
   convergenceInfluence: 14
+  surfSpeed: 6
+  surfPlateGain: 1
+  surfWidth: 8
+  surfRadiusShare: 0.35
+  surfMinAlign: 0.35
+  surfPull: 0.5
+  surfOtherKinds: 0.75
   focus: {fileID: 1204434037}
   viewRadius: 130
   showBorders: 1
@@ -1964,6 +2044,12 @@ MonoBehaviour:
   seabirdOrbitMin: 20
   seabirdOrbitMax: 40
   cliffHeight: 1.7
+  seabirdDivesPerMinute: 2
+  diveTime: 2.8
+  murmurChance: 0.35
+  murmurTime: 12
+  murmurSize: 3
+  seabirdChainSpacing: 26
 --- !u!1 &1602446008
 GameObject:
   m_ObjectHideFlags: 0
@@ -2230,6 +2316,7 @@ MonoBehaviour:
   seamReturnSpeed: 6
   holdAfterEmergence: 1
   seed: 31337
+  volcanoMaxSlope: 45
 --- !u!1 &2011694575
 GameObject:
   m_ObjectHideFlags: 0

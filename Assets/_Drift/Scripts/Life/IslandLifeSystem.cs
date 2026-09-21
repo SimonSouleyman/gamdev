@@ -170,7 +170,7 @@ namespace Drift.Life
         static readonly float[] SwayFactor = { 1f, 1f, 0.5f, 0.35f, 0.85f, 1f };
         static readonly int[] KindScratch = new int[LifeMeshes.KindCount];
 
-        // Global wind for Drift/VertexColor (xy = wind * (1 + 1.5 storm), z = storm), pushed once per frame by
+        // Global wind for Drift/VertexColor and Drift/Vegetation (xy = wind * (1 + 1.5 storm), z = storm), pushed once per frame by
         // whichever island steps first; force re-pushes inside one editor frame (eval screenshots).
         static readonly int LifeWindId = Shader.PropertyToID("_LifeWind");
         static int _windFrame = -1;
@@ -365,6 +365,7 @@ namespace Drift.Life
         }
 
         public LifeKind PlantKindOf(int i) => _plants[i].kind;
+        public bool PlantIsTall(int i) => _plants[i].slot == SlotTree || _plants[i].slot == SlotPalm;
         public Vector2 PlantPositionOf(int i) => _plants[i].pos;
         public int PlantVariantOf(int i) => _plants[i].variant;
         public float PlantMaturityOf(int i) => _plants[i].maturity;
@@ -1030,6 +1031,11 @@ namespace Drift.Life
             StrikeCount++;
             _strikePos = CellCenter(idx % _nx, idx / _nx) + new Vector2(Rand(-0.4f, 0.4f), Rand(-0.4f, 0.4f)) * cellSize;
             _strikeT = strikeDuration;
+            if (Application.isPlaying)
+            {
+                Vector3 w = transform.TransformPoint(_strikePos.x, Mathf.Max(0f, _surface.SampleHeight(_strikePos)), _strikePos.y);
+                LifeEnvironment.ReportLightning(w, 1f);
+            }
             if (_fireT[idx] <= 0f && _stage[idx] > 0.3f) { Ignite(idx); IgnitionCount++; }
             _dirty = true;
             _meshTimer = meshInterval;
@@ -1411,11 +1417,33 @@ namespace Drift.Life
             }
             _vegFilter = _vegGo.GetComponent<MeshFilter>();
             _vegRenderer = _vegGo.GetComponent<MeshRenderer>();
-            _vegRenderer.sharedMaterial = LifeMeshes.Material;
+            _vegRenderer.sharedMaterial = VegetationMaterial;
             // After a domain reload the child still references the previous mesh; reuse it rather than leak it.
             if (_vegMesh == null) _vegMesh = _vegFilter.sharedMesh;
             if (_vegMesh == null) _vegMesh = new Mesh { name = "Vegetation", hideFlags = HideFlags.DontSave };
             _vegFilter.sharedMesh = _vegMesh;
+        }
+
+        // Drift/Vegetation with the Poly Haven detail arrays (Textures/Plants/Resources/DriftVegetation.mat, loaded
+        // from Resources because streamed islands get this component at runtime); the flat Drift/VertexColor
+        // material if it is missing.
+        const string VegetationMaterialPath = "DriftVegetation";
+        static Material _vegetationMaterial;
+        public static Material VegetationMaterial
+        {
+            get
+            {
+                if (_vegetationMaterial == null)
+                {
+                    _vegetationMaterial = Resources.Load<Material>(VegetationMaterialPath);
+                    if (_vegetationMaterial == null)
+                    {
+                        Debug.LogWarning("IslandLifeSystem: Resources/" + VegetationMaterialPath + " not found, vegetation is drawn flat.");
+                        _vegetationMaterial = LifeMeshes.Material;
+                    }
+                }
+                return _vegetationMaterial;
+            }
         }
 
         static readonly Color Char = new Color(0.07f, 0.06f, 0.05f).linear;
@@ -1502,6 +1530,7 @@ namespace Drift.Life
                 }
                 if (scale < 0.005f) continue;
                 var tpl = LifeMeshes.GetTemplate(p.kind, p.variant);
+                if (tpl.part == null) tpl.part = PlantModels.Parts(p.kind, tpl);
                 float h = _surface.SampleHeight(p.pos);
                 if (p.slot == SlotReed) h = Mathf.Max(h, 0f);
                 Batch.AddPlant(tpl, new Vector3(p.pos.x, h, p.pos.y), p.yaw, scale, SwayFactor[p.slot], p.phase, cs, Char, p.burnT);

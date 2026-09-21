@@ -10,6 +10,12 @@ namespace Drift.Core
     {
         public static readonly Vector2 DefaultWind = new Vector2(0.6f, 0.2f);
 
+        // Every lightning strike, wherever it comes from (a storm over the sea, IslandLifeSystem hitting an island):
+        // world position of the impact and 0..1 strength. StormVisuals draws the bolt and the flash, AudioDirector the
+        // thunder, without either knowing who struck.
+        public static event Action<Vector3, float> LightningStruck;
+        public static void ReportLightning(Vector3 world, float strength) => LightningStruck?.Invoke(world, strength);
+
         public static Func<float> NightProvider;
         // Planar wind in world units/s (direction * speed).
         public static Func<Vector2> WindProvider;

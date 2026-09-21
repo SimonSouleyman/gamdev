@@ -5,6 +5,8 @@ namespace Drift.SaveSystem
         public string text;
         // A new species on the island; false for the quiet "seen for the first time" line.
         public bool strong;
+        // Catalog index of the first entry the toast names and how many it covers (0 = not about an entry).
+        public int first, count;
     }
 
     // Turns journal news into at most one toast at a time. News that arrives while a toast is up (or in the same
@@ -48,6 +50,15 @@ namespace Drift.SaveSystem
             _seenTotal++;
         }
 
+        // Takes the toast on screen away now (it was tapped); what is queued still follows after the gap.
+        public void Dismiss()
+        {
+            if (!Showing) return;
+            Current = default;
+            _timer = 0f;
+            _gap = gapSeconds;
+        }
+
         public void Clear()
         {
             _collectedCount = _seenCount = _collectedTotal = _seenTotal = 0;
@@ -73,14 +84,22 @@ namespace Drift.SaveSystem
             }
             if (_collectedTotal > 0)
             {
-                Current = new CollectionToast { text = CollectedText(_collected, _collectedCount, _collectedTotal), strong = true };
+                Current = new CollectionToast
+                {
+                    text = CollectedText(_collected, _collectedCount, _collectedTotal), strong = true,
+                    first = _collectedCount > 0 ? _collected[0] : 0, count = _collectedCount > 0 ? _collectedTotal : 0,
+                };
                 _collectedCount = _collectedTotal = 0;
                 _timer = strongSeconds;
                 return true;
             }
             if (_seenTotal > 0)
             {
-                Current = new CollectionToast { text = SeenText(_seen, _seenCount, _seenTotal), strong = false };
+                Current = new CollectionToast
+                {
+                    text = SeenText(_seen, _seenCount, _seenTotal), strong = false,
+                    first = _seenCount > 0 ? _seen[0] : 0, count = _seenCount > 0 ? _seenTotal : 0,
+                };
                 _seenCount = _seenTotal = 0;
                 _timer = subtleSeconds;
                 return true;

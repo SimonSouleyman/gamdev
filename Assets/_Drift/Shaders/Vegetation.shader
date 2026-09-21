@@ -1,0 +1,162 @@
+Shader "Drift/Vegetation"
+{
+    // The island vegetation mesh (IslandLifeSystem): the Drift/VertexColor look and wind sway plus Poly Haven
+    // material detail. The vertex colour stays the whole colour (species, season, biome, bloom, burn/char, snow
+    // caps); the detail only modulates it, because each array layer is stored divided by its own mean colour
+    // (x0.3, linear): its mip average is 1, so far away and at the distance fade it is exactly the flat look.
+    //   UV0 = (sway weight, phase, vertex height above ground, part) from TemplateBatch.AddPlant; part is
+    //   PlantModels.Part* (0 = flat, 1 bark, 2 palm/birch bark, 3 foliage, 4 blade fibres) = array layer + 1.
+    // No texture coordinates are stored: the templates are flat-shaded (every triangle has its own three
+    // vertices and one normal), so each triangle is projected onto the island-local plane its normal faces most
+    // (one sample per map instead of three for triplanar); the plane changes only where the facet edge already is.
+    // Island-local, pre-sway positions keep the pattern fixed on the plant while the island turns and the wind bends.
+    Properties
+    {
+        _Tint ("Tint", Color) = (1,1,1,1)
+        _LightAmount ("Light Amount", Range(0,1)) = 1
+        _Ambient ("Ambient", Range(0,1)) = 0.45
+        _WindBend ("Wind Bend", Float) = 0.45
+        _WindFlutter ("Wind Flutter", Float) = 0.18
+        [Enum(UnityEngine.Rendering.CullMode)] _Cull ("Cull", Float) = 2
+
+        [NoScaleOffset] _DetailArray ("Detail Array (Bark, Palm Bark, Foliage, Blade)", 2DArray) = "" {}
+        [NoScaleOffset] _NormalArray ("Normal Array (same layers)", 2DArray) = "" {}
+        _Tile ("Tile Size Bark/Palm/Foliage/Blade (world units)", Vector) = (0.6,0.7,3,1.2)
+        _Strength ("Detail Bark/Palm/Foliage/Blade", Vector) = (1,1,1,0.8)
+        _Bump ("Normal Bark/Palm/Foliage/Blade", Vector) = (1,1,1.2,0.6)
+        _DetailAmount ("Detail Amount (0 = flat look)", Range(0,1)) = 1
+        _DetailHue ("Detail Hue", Range(0,1)) = 0.3
+        _MipBias ("Mip Bias", Range(0,2)) = 0.25
+        _FadeStart ("Detail Fade Start (camera distance)", Float) = 35
+        _FadeEnd ("Detail Fade End", Float) = 70
+    }
+    SubShader
+    {
+        Tags { "RenderType"="Opaque" "RenderPipeline"="UniversalPipeline" "Queue"="Geometry" }
+
+        Pass
+        {
+            Name "ForwardLit"
+            Tags { "LightMode"="UniversalForward" }
+            Cull [_Cull]
+
+            HLSLPROGRAM
+            #pragma vertex vert
+            #pragma fragment frag
+            #pragma require 2darray
+            #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Lighting.hlsl"
+            #include "DriftClouds.hlsl"
+            #include "DriftCurve.hlsl"
+
+            struct Attributes
+            {
+                float4 positionOS : POSITION;
+                float3 normalOS   : NORMAL;
+                float4 color      : COLOR;
+                float4 sway       : TEXCOORD0;
+            };
+
+            struct Varyings
+            {
+                float4 positionHCS : SV_POSITION;
+                float3 positionWS  : TEXCOORD0;
+                float3 normalOS    : TEXCOORD1;
+                float3 uvl         : TEXCOORD2;
+                float4 color       : COLOR;
+            };
+
+            TEXTURE2D_ARRAY(_DetailArray); SAMPLER(sampler_DetailArray);
+            TEXTURE2D_ARRAY(_NormalArray); SAMPLER(sampler_NormalArray);
+
+            CBUFFER_START(UnityPerMaterial)
+                float4 _Tint;
+                float _LightAmount;
+                float _Ambient;
+                float _WindBend;
+                float _WindFlutter;
+                float4 _Tile, _Strength, _Bump;
+                float _DetailAmount, _DetailHue, _MipBias, _FadeStart, _FadeEnd;
+            CBUFFER_END
+
+            float4 _LifeWind;
+
+            float PerLayer(float4 v, float layer)
+            {
+                return dot(v, float4(layer < 0.5, abs(layer - 1.0) < 0.5, abs(layer - 2.0) < 0.5, layer > 2.5));
+            }
+
+            // Projection plane of an island-local normal: the axes u/v run along (t, b); side faces keep v on island y.
+            void Plane(float3 n, out float3 t, out float3 b)
+            {
+                float3 a = abs(n);
+                if (a.y >= a.x && a.y >= a.z) { t = float3(sign(n.y), 0, 0); b = float3(0, 0, 1); }
+                else if (a.x >= a.z)          { t = float3(0, 0, -sign(n.x)); b = float3(0, 1, 0); }
+                else                          { t = float3(sign(n.z), 0, 0); b = float3(0, 1, 0); }
+            }
+
+            Varyings vert(Attributes IN)
+            {
+                Varyings OUT;
+                float3 posWS = TransformObjectToWorld(IN.positionOS.xyz);
+                float t = _Time.y;
+
+                float w = saturate(IN.sway.x);
+                float phase = IN.sway.y;
+                float storm = saturate(_LifeWind.z);
+                float2 wind = _LifeWind.xy;
+                float gust = 0.55 + 0.45 * sin(t * 0.6 + posWS.x * 0.12 + posWS.z * 0.09 + phase * 0.5);
+                float flutter = sin(t * (3.2 + 3.0 * storm) + phase + posWS.x * 1.7 + posWS.z * 1.1) * (_WindFlutter + 0.5 * storm);
+                float bend = w * w * IN.sway.z * _WindBend;
+                float2 lean = wind * (gust + flutter) + float2(-wind.y, wind.x) * flutter * 0.35;
+                posWS.xz += lean * bend;
+                posWS.y -= length(lean) * bend * w * 0.25;
+
+                float3 tA, bA;
+                Plane(IN.normalOS, tA, bA);
+                float layer = IN.sway.w - 1.0;
+                float s = 1.0 / max(PerLayer(_Tile, layer), 0.01);
+                // Bark and blade fibres need their grain along the plant, i.e. the texture's v along island y on side
+                // faces (Plane's b); the offset keeps neighbouring layers from starting on the same texel.
+                OUT.uvl = float3(float2(dot(IN.positionOS.xyz, tA), dot(IN.positionOS.xyz, bA)) * s + layer * float2(0.37, 0.61), layer);
+
+                OUT.positionHCS = DriftCurveHClip(posWS);
+                OUT.positionWS = posWS;
+                OUT.normalOS = IN.normalOS;
+                OUT.color = IN.color;
+                return OUT;
+            }
+
+            float4 frag(Varyings IN) : SV_Target
+            {
+                float layer = IN.uvl.z;
+                float has = layer > -0.5 ? 1.0 : 0.0;
+                float li = max(layer, 0.0);
+                float dist = distance(IN.positionWS, GetCameraPositionWS());
+                float k = has * _DetailAmount * (1.0 - saturate((dist - _FadeStart) / max(_FadeEnd - _FadeStart, 0.01)));
+
+                float2 uv = IN.uvl.xy;
+                float bias = exp2(_MipBias);
+                float2 dx = ddx(uv) * bias, dy = ddy(uv) * bias;
+                float3 d = SAMPLE_TEXTURE2D_ARRAY_GRAD(_DetailArray, sampler_DetailArray, uv, li, dx, dy).rgb * 3.3333;
+                float2 tn = SAMPLE_TEXTURE2D_ARRAY_GRAD(_NormalArray, sampler_NormalArray, uv, li, dx, dy).rg * 2.0 - 1.0;
+
+                float dl = dot(d, float3(0.2126, 0.7152, 0.0722));
+                d = lerp(dl.xxx, d, _DetailHue);
+                d = lerp(1.0.xxx, d, PerLayer(_Strength, li) * k);
+                tn *= PerLayer(_Bump, li) * k;
+
+                float3 nOS = normalize(IN.normalOS);
+                float3 tA, bA;
+                Plane(nOS, tA, bA);
+                float3 n = normalize(TransformObjectToWorldNormal(normalize(nOS + tA * tn.x + bA * tn.y)));
+
+                Light mainLight = GetMainLight();
+                float nd = saturate(dot(n, mainLight.direction));
+                float lit = lerp(1.0, (_Ambient + (1.0 - _Ambient) * nd) * CloudShadow(IN.positionWS.xz), _LightAmount);
+                float3 lightCol = lerp(float3(1,1,1), mainLight.color, _LightAmount);
+                return float4(DriftFog(IN.color.rgb * d * _Tint.rgb * lit * lightCol, IN.positionWS), 1);
+            }
+            ENDHLSL
+        }
+    }
+}

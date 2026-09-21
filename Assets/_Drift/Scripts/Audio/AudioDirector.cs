@@ -21,6 +21,10 @@ namespace Drift.Audio
         public float lifeDuckImpactSeconds = 3f;
         public float impactHearingRange = 70f;
         public float oneShotHearingRange = 45f;
+        [Tooltip("Bis zu dieser Entfernung (Einheiten) ist Donner zu hören.")]
+        public float thunderRange = 260f;
+        [Tooltip("So viele Einheiten legt der Schall pro Sekunde zurück: ferne Blitze donnern später.")]
+        public float thunderSpeed = 90f;
         public bool grindFromContact = true;
         public float grindPollInterval = 0.1f;
         // New name on purpose: the 0.35 that scenes serialised for the spoken voice must not survive; a grumble ducks gently.
@@ -70,6 +74,7 @@ namespace Drift.Audio
             {
                 Island.Impact += OnImpact;
                 Island.Merged += OnMerged;
+                LifeEnvironment.LightningStruck += OnLightning;
                 _subscribed = true;
             }
         }
@@ -80,6 +85,7 @@ namespace Drift.Audio
             {
                 Island.Impact -= OnImpact;
                 Island.Merged -= OnMerged;
+                LifeEnvironment.LightningStruck -= OnLightning;
                 _subscribed = false;
             }
             if (Instance == this) Instance = null;
@@ -248,6 +254,16 @@ namespace Drift.Audio
             if (Audibility(planarPosition, oneShotHearingRange) > 0.25f) TriggerWhaleBlow();
         }
 
+        void OnLightning(Vector3 at, float strength)
+        {
+            if (Sfx == null) return;
+            var player = FindPlayer();
+            float d = player != null ? Mathf.Max(0f, Vector2.Distance(new Vector2(at.x, at.z), player.PlanarPosition) - player.BoundingRadius) : 30f;
+            float heard = strength * LifeSoundMix.Proximity(d, 12f, thunderRange);
+            if (heard < 0.03f) return;
+            Sfx.Thunder(heard, d < 45f, Mathf.Min(3f, d / Mathf.Max(1f, thunderSpeed)));
+        }
+
         // 1 on the player's own shore, 0 beyond `range` units of open water.
         public float Audibility(Vector2 planarPosition, float range)
         {
@@ -259,7 +275,7 @@ namespace Drift.Audio
 
         public static float EstimateMergeSeconds(Island host, float energy, float intensity)
         {
-            float uplift = host != null ? host.upliftDuration : 1.5f;
+            float uplift = host != null ? Mathf.Min(host.upliftDuration, 2.5f) : 1.5f;
             float ridge = Mathf.Clamp(0.2f * Mathf.Sqrt(Mathf.Max(0f, energy)), 0.4f, 3f);
             return uplift + 0.2f * ridge + 0.8f * Mathf.Clamp01(intensity);
         }

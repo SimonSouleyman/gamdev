@@ -43,6 +43,53 @@ namespace Drift.Life
             }
         }
 
+        // Surface material of a template vertex for Drift/Vegetation (UV0.w; the shader's array layer + 1).
+        public const byte PartFlat = 0, PartBark = 1, PartPalmBark = 2, PartFoliage = 3, PartBlade = 4;
+
+        // Per kind: the part of its green triangles and of everything else. Petals, flower heads, mushroom caps,
+        // earth mounds, snow caps and the birch's dark marks stay flat.
+        static void PartsOf(LifeKind kind, out byte green, out byte other)
+        {
+            switch (kind)
+            {
+                case LifeKind.Grass: case LifeKind.Reed: case LifeKind.DryGrass: case LifeKind.Bamboo:
+                    green = other = PartBlade; return;
+                case LifeKind.Flower: case LifeKind.Aloe:
+                    green = PartBlade; other = PartFlat; return;
+                case LifeKind.Hibiscus:
+                    green = PartFoliage; other = PartFlat; return;
+                case LifeKind.Bush: case LifeKind.Fern: case LifeKind.Banana: case LifeKind.Lichen: case LifeKind.Heather:
+                case LifeKind.Juniper:
+                    green = other = PartFoliage; return;
+                case LifeKind.Palm: case LifeKind.Birch:
+                    green = PartFoliage; other = PartPalmBark; return;
+                case LifeKind.Tree: case LifeKind.JungleTree: case LifeKind.Spruce: case LifeKind.ThornBush:
+                case LifeKind.Acacia: case LifeKind.Baobab:
+                    green = PartFoliage; other = PartBark; return;
+                default:
+                    green = other = PartFlat; return;
+            }
+        }
+
+        // Template colours are the authored ones (linear), before any season/biome/burn tint, so the green test is
+        // stable; built once per cached template, never per plant.
+        public static byte Part(LifeKind kind, Color c)
+        {
+            PartsOf(kind, out byte green, out byte other);
+            if (c.g > c.r * 1.02f && c.g > c.b) return green;
+            float max = Mathf.Max(c.r, Mathf.Max(c.g, c.b));
+            if (max < 0.05f || (c.b >= c.r && c.b > 0.5f)) return PartFlat;
+            return other;
+        }
+
+        public static float[] Parts(LifeKind kind, PlantTemplate tpl)
+        {
+            var cols = tpl.colors;
+            var parts = new float[cols.Length];
+            for (int i = 0; i < cols.Length; i++) parts[i] = Part(kind, cols[i]);
+            return parts;
+        }
+
         static Color Hsv(float h, float s, float v) => Color.HSVToRGB(Mathf.Repeat(h, 1f), s, v);
 
         static void Blob(ShapeBuilder b, Vector3 center, float radius, float up, float down, int segments, Color c)

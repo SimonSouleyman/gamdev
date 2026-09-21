@@ -41,6 +41,8 @@ namespace Drift.Audio
         public int BeachingsPlayed { get; private set; }
         public int SplashesPlayed { get; private set; }
         public int BlowsPlayed { get; private set; }
+        public int ThundersPlayed { get; private set; }
+        public float ThunderGain = 1f;
         public int ActiveGrains => _liveGrains;
         public bool BusActive => _busActive;
         public float LastImpactSeconds { get; private set; }
@@ -51,7 +53,7 @@ namespace Drift.Audio
         const int MaxNoise = 6;
         const int MaxPlops = 6;
         const int MaxSched = 24;
-        const int KindCrack = 1, KindPlop = 2, KindSplash = 3, KindCreak = 4, KindSprinkle = 5;
+        const int KindCrack = 1, KindPlop = 2, KindSplash = 3, KindCreak = 4, KindSprinkle = 5, KindThunderNear = 6, KindThunderFar = 7, KindThunderRoll = 8;
 
         // Two-pole resonator rung by a 0.3-1.5 ms noise burst: a decaying, slightly noisy ping.
         struct Grain
@@ -96,6 +98,8 @@ namespace Drift.Audio
 
         float _pendingImpact, _pendingDuration, _pendingBeach, _pendingSplash;
         bool _pendingBlow;
+        float _pendingThunder, _pendingThunderDelay;
+        bool _pendingThunderClose;
 
         readonly Grain[] _grains = new Grain[MaxGrains];
         readonly NoiseVoice[] _noise = new NoiseVoice[MaxNoise];
@@ -209,6 +213,17 @@ namespace Drift.Audio
             _pendingBlow = true;
         }
 
+        // A lightning strike: a sharp crack only when it was close, then a long rolling rumble. delay = the time
+        // the sound needs to arrive (the flash is instant). Main thread: only the pending fields are written here.
+        public void Thunder(float intensity, bool close, float delay)
+        {
+            intensity = SynthMath.Clamp01(intensity);
+            if (intensity <= _pendingThunder) return;
+            _pendingThunderClose = close;
+            _pendingThunderDelay = delay < 0f ? 0f : delay;
+            _pendingThunder = intensity;
+        }
+
         public void TriggerWarningPulse()
         {
             _pendingWarn = true;
@@ -305,6 +320,12 @@ namespace Drift.Audio
             float splash = _pendingSplash;
             if (splash > 0f) { _pendingSplash = 0f; StartSplash(splash, true); SplashesPlayed++; }
             if (_pendingBlow) { _pendingBlow = false; StartBlow(); }
+            float thunder = _pendingThunder;
+            if (thunder > 0f)
+            {
+                _pendingThunder = 0f;
+                Schedule(_pendingThunderClose ? KindThunderNear : KindThunderFar, _pendingThunderDelay, thunder);
+            }
 
             float grindTarget = SynthMath.Clamp01(GrindAmount);
             if (grindTarget > 0f || _grindSm > 0f)
@@ -488,6 +509,9 @@ namespace Drift.Audio
                     case KindSplash: StartSplash(arg, false); break;
                     case KindCreak: StartCreak(0.45f + 0.3f * _rng.Next01(), 125f, 72f, 950f, arg); break;
                     case KindSprinkle: Sprinkle(0.9f, 34f, 1500f, 3200f, 0.006f, 0.014f, arg); break;
+                    case KindThunderNear: StartThunder(arg, true); break;
+                    case KindThunderFar: StartThunder(arg, false); break;
+                    case KindThunderRoll: StartNoise(78f + 30f * _rng.Next01(), 0.99975f, 40f, 0.5f, 1f, 0.25f, 0.4f, 1.8f + 1.2f * _rng.Next01(), arg, 0.5f * _rng.Next()); break;
                 }
             }
         }
@@ -567,6 +591,23 @@ namespace Drift.Audio
             int n = big ? 1 + (int)(3f * amount + _rng.Next01()) : 1;
             for (int k = 0; k < n; k++) Schedule(KindPlop, 0.08f + 0.6f * _rng.Next01(), 0.4f + 0.6f * amount);
             if (big) Schedule(KindSprinkle, 0.2f, lvl * 0.4f);
+        }
+
+        void StartThunder(float I, bool close)
+        {
+            _busActive = true;
+            float lvl = OneShotLevel * ThunderGain * I;
+            float pan = 0.5f * _rng.Next();
+            if (close)
+            {
+                // The crack: a bright noise burst falling fast, then the body of the clap.
+                StartNoise(2800f + 600f * _rng.Next01(), 0.9965f, 600f, 0.7f, 0.25f, 0.002f, 0.015f, 0.14f, lvl * 0.55f, pan);
+                StartNoise(420f, 0.999f, 160f, 0.6f, 0.6f, 0.004f, 0.05f, 0.35f, lvl * 0.5f, -pan);
+            }
+            // The rumble, a low noise that swells and rolls away, and a later echo off the far clouds.
+            StartNoise(130f + 40f * _rng.Next01(), 0.9997f, 50f, 0.5f, 1f, close ? 0.03f : 0.15f, 0.3f + 0.4f * I, 1.6f + 1.4f * I, lvl * (close ? 0.8f : 0.65f), 0f);
+            Schedule(KindThunderRoll, 0.5f + 0.7f * _rng.Next01(), lvl * 0.45f);
+            ThundersPlayed++;
         }
 
         void StartBlow()

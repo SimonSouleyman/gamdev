@@ -238,6 +238,8 @@ namespace Drift.Tests
         {
             var herds = Make(8f, 50);
             herds.playRate = 6f;
+            // Fanning out and visiting loosen the formation on purpose; this checks that play pairs rejoin it.
+            herds.strollRate = herds.visitRate = herds.spreadRate = 0f;
             int plays = 0, maxPlaying = 0;
             int steps = Mathf.CeilToInt(300f / 0.05f);
             for (int i = 0; i < steps; i++)
@@ -356,6 +358,89 @@ namespace Drift.Tests
             Assert.IsTrue(grazing, "grazing animals bake a 10 degree head pitch and rest 0");
             // 120 simple animals stay under 10k; the detail LOD adds up to 40 detailed ones (camera at distance 0 here).
             Assert.LessOrEqual(herds.MeshVertexCount, 17000);
+        }
+
+        // ------------------------------------------------------------ patterns every species knows
+
+        static int HerdWith(IslandHerdSystem herds, int minSize)
+        {
+            for (int h = 0; h < herds.HerdCount; h++) if (herds.HerdSize(h) >= minSize) return h;
+            return -1;
+        }
+
+        static bool AnyDoing(IslandHerdSystem herds, int h, AnimalActivity act)
+        {
+            for (int m = 0; m < herds.HerdSize(h); m++) if (herds.ActivityOf(h, m) == act) return true;
+            return false;
+        }
+
+        [Test]
+        public void Herds_SpreadFansOutAndRegroups()
+        {
+            var herds = Make(8f, 61);
+            herds.strollRate = herds.visitRate = herds.spreadRate = 0f;
+            Run(herds, 2f);
+            int h = HerdWith(herds, 4);
+            Assume.That(h >= 0, "no herd of four");
+            float tight = herds.HerdRadius(h);
+            Assert.IsTrue(herds.StartChoreography(h, AnimalActivity.Spread));
+            Assert.IsTrue(AnyDoing(herds, h, AnimalActivity.Spread));
+            Run(herds, 8f);
+            Assert.Greater(herds.HerdRadius(h), tight * 1.5f, "the herd did not fan out");
+            Run(herds, 60f);
+            Assert.IsFalse(AnyDoing(herds, h, AnimalActivity.Spread), "the spread never ended");
+            Assert.Less(herds.HerdRadius(h), herds.BodyLength(h) * herds.formationSpacing * Mathf.Sqrt(herds.HerdSize(h) + 1) + herds.BodyLength(h) * 6f, "the herd did not regroup");
+        }
+
+        [Test]
+        public void Herds_VisitWalksToANeighbourAndBack()
+        {
+            var herds = Make(9f, 62);
+            herds.strollRate = herds.visitRate = herds.spreadRate = 0f;
+            herds.visitRange = 30f;
+            Run(herds, 2f);
+            Assume.That(herds.HerdCount >= 2, "one herd only");
+            int h = HerdWith(herds, 2);
+            float before = float.MaxValue;
+            for (int o = 0; o < herds.HerdCount; o++) if (o != h) before = Mathf.Min(before, Vector2.Distance(herds.HerdCenter(h), herds.HerdCenter(o)));
+            Assert.IsTrue(herds.StartChoreography(h, AnimalActivity.Visit));
+            bool visited = false;
+            float closest = float.MaxValue;
+            for (int i = 0; i < 1200 && !visited; i++)
+            {
+                herds.Step(0.05f);
+                for (int o = 0; o < herds.HerdCount; o++) if (o != h) closest = Mathf.Min(closest, Vector2.Distance(herds.HerdCenter(h), herds.HerdCenter(o)));
+                visited = AnyDoing(herds, h, AnimalActivity.Visit) && closest < before;
+            }
+            Assert.IsTrue(visited, "the herd never arrived at a neighbour");
+            Run(herds, 60f);
+            Assert.IsFalse(AnyDoing(herds, h, AnimalActivity.Visit), "the visit never ended");
+        }
+
+        [Test]
+        public void Herds_StrollFollowsTheShoreOnValidGround()
+        {
+            var herds = Make(8f, 63);
+            herds.strollRate = herds.visitRate = herds.spreadRate = 0f;
+            Run(herds, 2f);
+            int h = HerdWith(herds, 2);
+            Assume.That(h >= 0, "no herd of two");
+            Vector2 start = herds.HerdCenter(h);
+            Assert.IsTrue(herds.StartChoreography(h, AnimalActivity.Stroll));
+            var surface = herds.GetComponent<Drift.Core.IIslandSurface>();
+            bool strolled = false;
+            float travelled = 0f;
+            Vector2 prev = start;
+            for (int i = 0; i < 1600; i++)
+            {
+                herds.Step(0.05f);
+                if (AnyDoing(herds, h, AnimalActivity.Stroll)) strolled = true;
+                travelled += Vector2.Distance(prev, herds.HerdCenter(h));
+                prev = herds.HerdCenter(h);
+                for (int m = 0; m < herds.HerdSize(h); m++) Assert.Greater(surface.SampleHeight(herds.AnimalPosition(h, m)), 0f, "a member walked into the sea");
+            }
+            Assert.IsTrue(strolled, "nobody walked in the shore line");
+            Assert.Greater(travelled, 4f, "the stroll did not go anywhere");
         }
     }
 }

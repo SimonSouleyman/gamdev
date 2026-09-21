@@ -24,9 +24,11 @@ namespace Drift.Tests
         public int biome;
         public int Biome => biome;
         public float StormIntensity => storm;
+        public float sinkDepth;
+        public float SinkDepth => sinkDepth;
         public float Speed => speed;
 
-        public float SampleHeight(Vector2 localXZ) => peak * (1f - localXZ.magnitude / radius);
+        public float SampleHeight(Vector2 localXZ) => peak * (1f - localXZ.magnitude / radius) - sinkDepth;
 
         public void ApplyGroundTint(Color[] cellColors, int cellsX, int cellsZ, Vector2 gridOrigin, float gridCell) { }
     }

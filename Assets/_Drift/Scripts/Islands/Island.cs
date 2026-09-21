@@ -23,7 +23,8 @@ namespace Drift.Islands
 
         public float landRadius = 3f;
         public float cellSize = 0.5f;
-        public float moveSpeed = 8f;
+        [Tooltip("Höchsttempo der Insel aus eigener Kraft (kleine Insel; große sind etwas langsamer).")]
+        [Range(2f, 25f)] public float moveSpeed = 8f;
         public float acceleration = 3.6f;
         public float dragBase = 0.45f;
         public float turnRateDegPerSec = 90f;
@@ -50,7 +51,8 @@ namespace Drift.Islands
         public float heightOffset = 0f;
         public float bobAmplitude = 0.05f;
         public float carryResponse = 2.5f;
-        public float upliftDuration = 1.5f;
+        [Tooltip("Wie schnell die Insel den Surf-Schub an einer Plattengrenze aufnimmt und wieder verliert.")]
+        [Range(0.2f, 10f)] public float surfResponse = 2f;
         public bool isVolcano;
         public IslandKind kind = IslandKind.Regular;
         public IslandArchetype archetype = IslandArchetype.Classic;
@@ -82,12 +84,30 @@ namespace Drift.Islands
         public float barrenRadiusScale = DefaultBarrenRadiusScale;
         public float startleDuration = 3f;
 
+        [Header("Bergbildung")]
+        [Tooltip("Sekunden, in denen das neue Bergland nach einem Zusammenstoß aufsteigt (kleiner = schneller). Höhere Berge brauchen etwas länger.")]
+        [Range(0.5f, 30f)] public float upliftDuration = DefaultUpliftDuration;
+        [Tooltip("Wie stark ein Zusammenstoß das Land hebt (1 = normal, kleiner = flachere Berge).")]
+        [Range(0.2f, 2f)] public float mountainHeight = DefaultMountainHeight;
+        [Tooltip("Wie weit sich die Hebung über die Insel verteilt: 1 = schmaler Grat an der Nahtstelle, größer = breites, sanftes Hügelland über die ganze Insel.")]
+        [Range(1f, 4f)] public float upliftSpread = DefaultUpliftSpread;
+        [Tooltip("Steilste erlaubte Hangneigung in Grad. Steilere Hänge rutschen nach einem Zusammenstoß langsam ab; Strände und Küstenlinie bleiben unberührt.")]
+        [Range(10f, 70f)] public float maxSlope = DefaultMaxSlope;
+        [Tooltip("Steilste Neigung eines Vulkankegels in Grad; gilt auch für Gipfel oberhalb der Schneegrenze.")]
+        [Range(10f, 70f)] public float volcanoMaxSlope = DefaultVolcanoMaxSlope;
+        public const float DefaultUpliftDuration = 7f;
+        public const float DefaultMountainHeight = 1f;
+        public const float DefaultUpliftSpread = 2.5f;
+        public const float DefaultMaxSlope = 30f;
+        public const float DefaultVolcanoMaxSlope = 45f;
+
         IslandShape _shape;
         IslandHerdSystem _herds;
         Mesh _mesh;
         Color[] _colors;
         Vector2 _pos;
         Vector2 _carry;
+        Vector2 _surf;
         Vector2 _selfVel;
         float _turnVel;
         float _clock;
@@ -103,7 +123,7 @@ namespace Drift.Islands
         [NonSerialized] bool _hypsoDirty = true;
         [NonSerialized] float _buoy = 1f;
         float _upliftT = 1f;
-        float _upliftMeshTimer, _upliftHypsoTimer;
+        float _upliftMeshTimer, _upliftHypsoTimer, _upliftVersionTimer;
         float _upliftDur = 1.5f;
         float _bobPhase;
         int _version;
@@ -205,7 +225,12 @@ namespace Drift.Islands
             return KindForSeed(shapeSeed);
         }
 
-        public Vector2 PlanarVelocity => _selfVel + _carry;
+        public Vector2 PlanarVelocity => _selfVel + _carry + _surf;
+        // Motion against the water around it: its own drive plus the surf. The plate current moves island and water
+        // alike, so it is left out (the wake and the bow foam are drawn from this).
+        public Vector2 WaterVelocity => _selfVel + _surf;
+        // 0..1: how hard the player island is riding a plate boundary right now.
+        public float SurfStrength { get; private set; }
         public float CellArea => _shape != null ? _shape.cell * _shape.cell : 0.25f;
         public bool IsEmerging => _emergeTime > 0f;
         public float EmergeRemaining => Mathf.Max(0f, _emergeTime);
@@ -231,6 +256,7 @@ namespace Drift.Islands
         // IIslandSurface
         public Transform SurfaceTransform => transform;
         public Rect LocalBounds => _shape.Bounds;
+        public float SinkDepth => _shape != null ? _shape.sink : 0f;
         public float BoundingRadius => _boundRadius;
         public float LandArea => _area;
         public int Version => _version;
@@ -375,7 +401,18 @@ namespace Drift.Islands
             StormGust = gust;
 
             _carry = Vector2.Lerp(_carry, plateVel + gust, 1f - Mathf.Exp(-carryResponse * dt));
-            _pos += (_selfVel + _carry) * dt;
+
+            Vector2 surf = Vector2.zero;
+            float surfStrength = 0f;
+            if (useKeyboardInput && PlateSystem.Instance != null)
+            {
+                Vector2 f2 = Forward2;
+                float drive = Mathf.Clamp01(Vector2.Dot(_selfVel, f2) / Mathf.Max(0.1f, 0.35f * max));
+                surf = PlateSystem.Instance.SurfVelocity(_pos, f2, _boundRadius, drive, out surfStrength);
+            }
+            SurfStrength = surfStrength;
+            _surf = Vector2.Lerp(_surf, surf, 1f - Mathf.Exp(-surfResponse * dt));
+            _pos += (_selfVel + _carry + _surf) * dt;
 
             if (_herds == null) _herds = GetComponent<IslandHerdSystem>();
             if (_herds != null) _herds.Agitation = storm;
@@ -654,13 +691,18 @@ namespace Drift.Islands
             bool barren = kind == IslandKind.Barren;
             float radius = barren ? landRadius * barrenRadiusScale : landRadius;
             float heightScale = barren ? barrenHeightScale : 1f;
-            if (isVolcano) _shape = IslandShape.CreateVolcano(landRadius, shapeSeed, cellSize);
+            if (isVolcano)
+            {
+                _shape = IslandShape.CreateVolcano(landRadius, shapeSeed, cellSize);
+                _shape.LimitSlopes(IslandShape.SlopeRule.Degrees(volcanoMaxSlope, volcanoMaxSlope, 0f), VolcanoErosionSteps);
+            }
             else if (Prebuilt != null && Prebuilt.Matches(archetype, radius, shapeSeed, cellSize, heightScale)) _shape = Prebuilt.shape;
             else _shape = IslandArchetypes.Create(archetype, radius, shapeSeed, cellSize, heightScale);
             Prebuilt = null;
             _emergeTime = 0f;
             _upliftT = 1f;
             _carry = Vector2.zero;
+            _surf = Vector2.zero;
             _colors = null;
             _hypsoDirty = true;
             _buoy = 1f;
@@ -841,6 +883,7 @@ namespace Drift.Islands
             if (_sinkVersionAccum >= 0.02f)
             {
                 _sinkVersionAccum = 0f;
+                _upliftVersionTimer = 0f;
                 _version++;
             }
             if (checkSunk && _area <= sunkArea)
@@ -873,22 +916,28 @@ namespace Drift.Islands
             ApplyTransform();
         }
 
-        // The ridge of a merge rises over a few seconds, and with a merge every few seconds that is most of the
-        // time on a big island. Rebuilding the whole terrain mesh and the hypsometric curve every frame cost 1 ms
-        // on desktop (~4 ms on a phone): the ridge is now redrawn at 30 Hz and the depth that keeps the player's
-        // buoyancy constant is re-derived at 10 Hz. The last step is always a full, exact rebuild.
-        const float UpliftMeshInterval = 1f / 30f;
-        const float UpliftHypsoInterval = 0.1f;
+        // The highland of a merge rises over several seconds, and with a merge every few seconds that is most of
+        // the time on a big island. Rebuilding the whole terrain mesh and the hypsometric curve every frame cost
+        // 1 ms on desktop (~4 ms on a phone): the slow rise is redrawn at 15 Hz, the depth that keeps the player's
+        // buoyancy constant is re-derived at 4 Hz, and the life systems (which rebuild on every Version) hear of
+        // it on the same half-second cadence as sinking. The last step is always a full, exact rebuild.
+        const float UpliftMeshInterval = 1f / 15f;
+        const float UpliftHypsoInterval = 0.25f;
+        const float UpliftVersionInterval = 0.5f;
+        const int MergeErosionSteps = 12;
+        const int VolcanoErosionSteps = 0;
 
         public void AdvanceUplift(float dt)
         {
             if (_upliftT >= 1f) return;
             if (useKeyboardInput) SyncBuoyancy();
             _upliftT = _upliftDur <= 0f ? 1f : Mathf.Min(1f, _upliftT + dt / _upliftDur);
-            _shape.upliftWeight = _upliftT * (2f - _upliftT);
+            // Ease in and out: the land starts to rise without a jolt and settles softly.
+            _shape.upliftWeight = _upliftT * _upliftT * (3f - 2f * _upliftT);
             bool done = _upliftT >= 1f;
             _upliftHypsoTimer += dt;
             _upliftMeshTimer += dt;
+            _upliftVersionTimer += dt;
             if (done || _upliftHypsoTimer >= UpliftHypsoInterval)
             {
                 _upliftHypsoTimer = 0f;
@@ -903,8 +952,19 @@ namespace Drift.Islands
                 RecomputeStats();
                 _version++;
                 _upliftMeshTimer = 0f;
+                _upliftVersionTimer = 0f;
                 RebuildMesh();
                 return;
+            }
+            if (_upliftVersionTimer >= UpliftVersionInterval)
+            {
+                _upliftVersionTimer = 0f;
+                // Shares the sinking cadence instead of adding a second one on top of it (RefreshSink resets
+                // the uplift timer when it bumps).
+                _sinkVersionAccum = 0f;
+                RecomputeStats();
+                _version++;
+                _upliftMeshTimer = UpliftMeshInterval;
             }
             if (_upliftMeshTimer < UpliftMeshInterval) return;
             _upliftMeshTimer = 0f;
@@ -951,6 +1011,7 @@ namespace Drift.Islands
             _selfVel = new Vector2(d.velX, d.velZ);
             _turnVel = 0f;
             _carry = Vector2.zero;
+            _surf = Vector2.zero;
             _bodyYaw = Mathf.DeltaAngle(0f, d.bodyYaw);
             ClearBodyTurns();
             RefreshBodyBasis();
@@ -1005,10 +1066,73 @@ namespace Drift.Islands
             return cells > 0;
         }
 
+        const float MergeHeightPerRootEnergy = 0.13f;
+        const float MaxShave = 0.25f;
+
+        // The highland a merge raises, returned as the uplift to add to merged.h (the land as it is now) so that it
+        // ends at goal (where both bodies were heading) plus the new rise, slope-limited. The rise is a very broad
+        // Gaussian around the contact (upliftSpread times the old ridge widths) with rolling noise, faded in over a
+        // ramp from the beach band so the shore stays low. Its volume, minus the land hidden in the overlap, is
+        // taken from the whole island in proportion to each cell's height above the beach band: the highest ground
+        // gives most, so repeated merges do not pile up, and the beach band and the coastline are never touched.
+        float[] BroadUplift(IslandShape merged, float[] goal, Vector2 contact, Vector2 normal, Vector2 tang, float H, float minR,
+            float water, float overlap, int guestSeed)
+        {
+            int count = goal.Length;
+            var rule = IslandShape.SlopeRule.Degrees(maxSlope, volcanoMaxSlope, water);
+            float floor = rule.Floor;
+            float spread = Mathf.Max(0.5f, upliftSpread);
+            float w = spread * (0.7f * minR + 1f);
+            float L = spread * (1.6f * minR + 1.8f);
+            float coastFade = Mathf.Max(2f, 2.5f * H / rule.tan);
+            var dist = merged.DistanceToBelow(goal, floor);
+            float deepest = 0f;
+            for (int k = 0; k < count; k++) if (dist[k] > deepest) deepest = dist[k];
+            // The ramp reaches full height inside even a small island's heart.
+            coastFade = Mathf.Min(coastFade, Mathf.Max(1f, 0.7f * deepest));
+            Vector2 noiseOff = new Vector2((shapeSeed & 1023) * 0.37f, (guestSeed & 1023) * 0.11f);
+
+            var kernel = new float[count];
+            for (int j = 0; j < merged.nz; j++)
+                for (int i = 0; i < merged.nx; i++)
+                {
+                    int k = j * merged.nx + i;
+                    if (dist[k] <= 0f) continue;
+                    Vector2 p = merged.CellPos(i, j);
+                    Vector2 rel = p - contact;
+                    float s = Vector2.Dot(rel, normal) / w, u = Vector2.Dot(rel, tang) / L;
+                    float n1 = Mathf.PerlinNoise(noiseOff.x + p.x * 0.18f, noiseOff.y + p.y * 0.18f);
+                    float n2 = Mathf.PerlinNoise(noiseOff.x + 31f + p.x * 0.5f, noiseOff.y + 17f + p.y * 0.5f);
+                    float rolling = 0.7f + 0.4f * n1 + 0.2f * (n2 - 0.5f);
+                    kernel[k] = Mathf.Exp(-s * s - u * u) * rolling * IslandShape.Smooth(0f, coastFade, dist[k]);
+                }
+            // The distance to the shore has a sharp crest along the middle of every body, which read as tent roofs.
+            merged.BoxBlur(kernel, Mathf.Clamp(Mathf.RoundToInt(0.3f * coastFade / merged.cell), 1, 6), 2);
+            float sumK = 0f, sumV = 0f;
+            for (int k = 0; k < count; k++)
+            {
+                if (dist[k] <= 0f) { kernel[k] = 0f; continue; }
+                kernel[k] *= IslandShape.Smooth(0f, 1f, dist[k]);
+                sumK += kernel[k];
+                sumV += goal[k] - floor;
+            }
+
+            float amp = H;
+            if (sumK > 0f && overlap > amp * sumK) amp = Mathf.Min(overlap / sumK, 2f * H);
+            float shave = sumV > 0f ? Mathf.Clamp((amp * sumK - overlap) / sumV, 0f, MaxShave) : 0f;
+            var f = new float[count];
+            for (int k = 0; k < count; k++)
+                f[k] = dist[k] > 0f ? goal[k] + amp * kernel[k] - shave * (goal[k] - floor) : goal[k];
+            merged.LimitSlopes(f, rule, MergeErosionSteps);
+            for (int k = 0; k < count; k++) f[k] -= merged.h[k];
+            return f;
+        }
+
         public void MergeFrom(Island other, float closingSpeed, float convergence)
         {
-            _shape.Bake();
-            other._shape.Bake();
+            // Neither body is baked: a hit in the middle of a rising uplift builds on where the land is heading
+            // (SampleGoal) but starts the new rise from where it is now, so the rest of the first rise is
+            // neither lost nor popped in.
             var a = _shape;
             var b = other._shape;
 
@@ -1041,10 +1165,10 @@ namespace Drift.Islands
             float mu = mh * mg / (mh + mg);
             float vc = Mathf.Max(0.5f, closingSpeed);
             float energy = 0.5f * mu * vc * vc;
-            // Broad, low ridge: a typical hit now peaks ~1 unit above the plateau (rock-topped hill, never
-            // snow), so a merge reads as new usable land rather than a spike.
-            float H = Mathf.Clamp(0.2f * Mathf.Sqrt(energy) * (1f + 0.25f * convergence), 0.4f, 0.8f + 0.25f * minR);
-            _upliftDur = upliftDuration + 0.2f * H;
+            // Low, broad highland instead of a ridge at the seam: amplitude H, spread over the whole island.
+            float H = Mathf.Clamp(MergeHeightPerRootEnergy * mountainHeight * Mathf.Sqrt(energy) * (1f + 0.25f * convergence),
+                0.15f * mountainHeight, mountainHeight * (0.45f + 0.12f * minR));
+            _upliftDur = upliftDuration * (1f + 0.25f * H);
             Vector2 momentum = (_selfVel * mh + other._selfVel * mg) / (mh + mg) * impactRetention;
 
             Rect ra = a.ShelfBounds();
@@ -1067,59 +1191,38 @@ namespace Drift.Islands
             int nx = Mathf.CeilToInt((max.x - origin.x) / a.cell) + 1;
             int nz = Mathf.CeilToInt((max.y - origin.y) / a.cell) + 1;
             var merged = new IslandShape(a.cell, nx, nz, origin);
-            var up = new float[nx * nz];
-
-            float w = 0.7f * minR + 1.0f;
-            float L = 1.6f * minR + 1.8f;
-            Vector2 noiseOff = new Vector2(shapeSeed * 0.37f, other.shapeSeed * 0.11f);
+            var goal = new float[nx * nz];
+            bool aRising = a.uplift != null, bRising = b.uplift != null;
+            float overlap = 0f;
 
             for (int j = 0; j < nz; j++)
                 for (int i = 0; i < nx; i++)
                 {
                     int k = j * nx + i;
                     Vector2 p = merged.CellPos(i, j);
-                    float hA = a.SampleRaw(p);
-                    float hB = b.SampleRaw(other.ToLocal(ToWorld(p)));
+                    Vector2 pb = other.ToLocal(ToWorld(p));
+                    float hA = a.SampleRaw(p), gA = aRising ? a.SampleGoal(p) : hA;
+                    float hB = b.SampleRaw(pb), gB = bRising ? b.SampleGoal(pb) : hB;
                     // Only the guest's shelf/land is re-based; its flat sea floor must stay the Sea
                     // sentinel or a deep-sunk host turns the guest's whole grid into a plateau.
                     hB = hB > IslandShape.Sea + 1e-3f ? hB + mergedSink : IslandShape.Sea;
-                    // Volume is conserved: where the two bodies overlap (the drive-in phase guarantees
-                    // ~10 % of the smaller island) the overlapped land stacks instead of being dropped.
-                    // No bridge fill — a merge never invents land beyond the two inputs.
-                    float hh = Mathf.Max(hA, hB) + Mathf.Max(0f, Mathf.Min(hA, hB));
-
-                    Vector2 rel = p - contact;
-                    float s = Vector2.Dot(rel, n);
-                    float u = Vector2.Dot(rel, tang);
-                    merged.h[k] = hh;
-                    float g = Mathf.Exp(-(s / w) * (s / w)) * Mathf.Exp(-(u / L) * (u / L));
-                    float sf = s / (2.2f * w), uf = u / (1.5f * L);
-                    float flank = 0.25f * Mathf.Exp(-sf * sf) * Mathf.Exp(-uf * uf);
-                    float ridged = 1f - Mathf.Abs(2f * Mathf.PerlinNoise(noiseOff.x + p.x * 0.8f, noiseOff.y + p.y * 0.8f) - 1f);
-                    float landMask = IslandShape.Smooth(-0.2f, 0.3f, hh);
-                    up[k] = H * (g * (0.8f + 0.2f * ridged) + flank) * landMask;
+                    gB = gB > IslandShape.Sea + 1e-3f ? gB + mergedSink : IslandShape.Sea;
+                    // No bridge fill: a merge never invents land beyond the two inputs. Where the bodies overlap
+                    // (the drive-in phase guarantees ~10 % of the smaller island) the hidden land is not stacked
+                    // into a cliff on the spot; its volume goes into the broad uplift below.
+                    merged.h[k] = Mathf.Max(hA, hB);
+                    goal[k] = Mathf.Max(gA, gB);
+                    overlap += Mathf.Max(0f, Mathf.Min(gA, gB));
                 }
 
-            // The ridge takes its volume from the rest of the island: the same volume is shaved off
-            // every land cell, so the shore creeps inward — higher means less wide.
-            float upVolume = 0f, landArea = 0f;
-            for (int k = 0; k < up.Length; k++)
-            {
-                upVolume += up[k];
-                if (merged.h[k] > 0f) landArea += 1f;
-            }
-            if (landArea > 0f)
-            {
-                float erode = upVolume / landArea;
-                for (int k = 0; k < up.Length; k++)
-                    up[k] -= erode * IslandShape.Smooth(-0.3f, 0.2f, merged.h[k]);
-            }
+            float[] up = BroadUplift(merged, goal, contact, n, tang, H, minR, mergedSink, overlap, other.shapeSeed);
 
             merged.uplift = up;
             merged.upliftWeight = 0f;
             merged.sink = mergedSink;
             _shape = merged;
             _upliftT = _upliftDur <= 0f ? 1f : 0f;
+            _upliftVersionTimer = 0f;
 
             Vector2 c = _shape.LandCentroid();
             _pos = ToWorld(c);

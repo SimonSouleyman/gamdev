@@ -15,7 +15,9 @@ namespace Drift.Life
         public float[] m;
     }
 
-    public enum CritterState { Idle, Move, Dig, Hidden, Rest }
+    // Wave (crab claw courtship), Nest (turtle digging a nest) and Spiral (butterfly pair dance) are the
+    // species' special moves; they are never saved (Capture writes them as Idle / Rest).
+    public enum CritterState { Idle, Move, Dig, Hidden, Rest, Wave, Nest, Spiral }
 
     // Phase 4 small life per island in one mesh (Drift/Critter): beach crabs and turtles are residents seeded
     // from the island seed and saved; butterflies (by day, over flowers) are transient and only exist while the
@@ -114,6 +116,28 @@ namespace Drift.Life
         public float fadeTime = 1.5f;
         public float spawnInterval = 1.5f;
         public int spawnsPerInterval = 2;
+
+        [Header("Besondere Bewegungen (jede Art hat ihre eigene)")]
+        [Tooltip("Winkertanz: Chance je Pause, dass eine Krabbe stehen bleibt und abwechselnd mit den Scheren winkt (nur tagsüber, bei ruhiger Insel, ohne Sturm).")]
+        [Range(0f, 1f)] public float crabWaveChance = 0.12f;
+        [Range(1f, 12f)] public float crabWaveMin = 3f;
+        [Range(1f, 12f)] public float crabWaveMax = 6f;
+        [Tooltip("Nestbau: Chance je Ruhepause, dass eine Schildkröte oben am Strand ein Nest gräbt (die Flossen schaufeln Sand) und danach ans Wasser zurückkriecht.")]
+        [Range(0f, 1f)] public float turtleNestChance = 0.2f;
+        [Tooltip("So lange gräbt eine Schildkröte an ihrem Nest (Sekunden).")]
+        [Range(3f, 30f)] public float turtleNestDig = 10f;
+        [Tooltip("So lange bleibt der Sandhügel über einem Nest sichtbar (Sekunden).")]
+        [Range(10f, 600f)] public float nestMoundTime = 150f;
+        public int maxNests = 3;
+        [Tooltip("Spiraltanz: Chance je Blütenpause, dass ein Schmetterling mit einem Partner in der Nähe umeinander kreisend aufsteigt.")]
+        [Range(0f, 1f)] public float butterflySpiralChance = 0.2f;
+        [Range(1f, 12f)] public float butterflySpiralTime = 5f;
+        public float spiralPartnerRange = 1.5f;
+        public float spiralRadius = 0.16f;
+        public float spiralRise = 0.55f;
+        [Tooltip("Lichtwelle: so oft pro Minute (im Mittel) blitzt der Glühwürmchenschwarm einer Insel im Gleichtakt auf, als Welle von einer Stelle aus (nur nachts, ohne Sturm).")]
+        [Range(0f, 6f)] public float fireflyWavesPerMinute = 1.2f;
+        [Range(2f, 15f)] public float fireflyWaveTime = 7f;
         [SerializeField] Material critterMaterial;
         [SerializeField] Material glowMaterial;
 
@@ -126,6 +150,13 @@ namespace Drift.Life
             public CritterState state;
             public bool dying;
             public int slot = -1;
+            // Special moves: time in the move, the yaw to return to, the height above the normal flight level,
+            // the beat of a wiggle, whether a turtle's crawl ends at its nest, the spiral partner and centre.
+            public float moveT, baseYaw, lift;
+            public int beat;
+            public bool nesting;
+            public Critter partner;
+            public Vector2 centre;
         }
 
         readonly List<Critter> _critters = new();
@@ -142,7 +173,19 @@ namespace Drift.Life
         MeshFilter _filter;
         MeshRenderer _renderer;
         Mesh _mesh;
-        readonly TemplateBatch _batch = new();
+        readonly CritterBatch _batch = new();
+
+        // Nest mounds the turtles leave (not saved): local position and age.
+        Vector2[] _nestPos = new Vector2[0];
+        float[] _nestAge = new float[0];
+        int _nestCount;
+
+        // Firefly light wave: time left, start (shader time), origin (island local) and a serial the glow push
+        // compares against; the wait is in "per-minute" units so a changed rate applies at once.
+        [NonSerialized] float _waveLeft, _waveT0, _waveWait = -1f;
+        [NonSerialized] Vector2 _waveOrigin;
+        [NonSerialized] int _waveSerial, _pushedWave = -1;
+        static readonly int SyncWaveId = Shader.PropertyToID("_SyncWave");
 
         const string GlowObjName = "FireflyGlow";
         static readonly int FireflyAmountId = Shader.PropertyToID("_FireflyAmount");
@@ -239,6 +282,25 @@ namespace Drift.Life
             }
         }
 
+        public int CountIn(CritterState state)
+        {
+            int n = 0;
+            foreach (var c in _critters) if (c.state == state && !c.dying) n++;
+            return n;
+        }
+
+        public int CrabWaves { get; private set; }
+        public int NestsDug { get; private set; }
+        public int SpiralDances { get; private set; }
+        public int FireflyWaves { get; private set; }
+        public int NestMoundCount => _nestCount;
+        public Vector2 NestMoundOf(int i) => _nestPos[i];
+        public bool FireflyWaveActive => _waveLeft > 0f;
+        public Vector2 FireflyWaveOrigin => _waveOrigin;
+        public float LiftOf(int i) => _critters[i].lift;
+        public int PartnerOf(int i) => _critters[i].partner != null ? _critters.IndexOf(_critters[i].partner) : -1;
+        public bool NestingOf(int i) => _critters[i].nesting;
+
         public LifeKind KindOf(int i) => _critters[i].kind;
         public Vector2 PositionOf(int i) => _critters[i].pos;
         public Vector2 TargetOf(int i) => _critters[i].target;
@@ -301,6 +363,21 @@ namespace Drift.Life
         }
 
         // Bare islands (rock, fresh lava, a sandbank) have fireflies too: there any dry ground will do.
+        bool TryDryNear(Vector2 near, out Vector2 p)
+        {
+            Rect b = _surface.LocalBounds;
+            p = near;
+            float best = float.MaxValue;
+            for (int t = 0; t < 32; t++)
+            {
+                Vector2 q = new Vector2(b.xMin + Rand() * b.width, b.yMin + Rand() * b.height);
+                if (_surface.SampleHeight(q) < shoreMin) continue;
+                float d = (q - near).sqrMagnitude;
+                if (d < best) { best = d; p = q; }
+            }
+            return best < float.MaxValue;
+        }
+
         bool DryGround(Vector2 p)
         {
             float h = _surface.SampleHeight(p);
@@ -413,6 +490,7 @@ namespace Drift.Life
             if (_populated && _rnd != null && _version == _surface.Version) return;
             _rnd = new System.Random(CritterSeed);
             _critters.Clear();
+            _nestCount = 0;
             Array.Clear(_homeFly, 0, _homeFly.Length);
             _glowDirty = true;
             _version = _surface.Version;
@@ -480,8 +558,18 @@ namespace Drift.Life
                 if (c.kind == LifeKind.Butterfly || c.kind == LifeKind.Firefly) continue;
                 float h = _surface.SampleHeight(c.pos);
                 bool ok = c.kind == LifeKind.Crab ? h >= shoreMin && h <= shoreMax + 0.15f : TurtleGround(h);
+                // A nest whose sand the water took is given up; the turtle stays where it is if that is dry.
+                if (c.nesting && !TurtleGround(_surface.SampleHeight(c.target)))
+                {
+                    EndSpecial(c);
+                    if (ok) { c.state = CritterState.Rest; c.target = c.pos; c.timer = Rand(1f, 4f); }
+                }
                 if (ok) continue;
-                if (TryBand(shoreMin, c.kind == LifeKind.Crab ? shoreMax : 0.3f, out var p, c.pos, 3f))
+                EndSpecial(c);
+                // Nearby beach first, then any beach of the island, then any dry ground: residents move with the
+                // water instead of vanishing, and only go when no land is left for them at all.
+                float hi = c.kind == LifeKind.Crab ? shoreMax : 0.3f;
+                if (TryBand(shoreMin, hi, out var p, c.pos, 3f) || TryBand(shoreMin, hi, out p) || TryDryNear(c.pos, out p))
                 {
                     c.pos = c.target = p;
                     c.state = c.kind == LifeKind.Crab ? CritterState.Idle : CritterState.Rest;
@@ -490,6 +578,78 @@ namespace Drift.Life
                 else _critters.RemoveAt(i);
                 _meshDirty = true;
             }
+            for (int i = _nestCount - 1; i >= 0; i--)
+            {
+                if (_surface.SampleHeight(_nestPos[i]) >= shoreMin) continue;
+                RemoveNest(i);
+                _meshDirty = true;
+            }
+        }
+
+        // Leaves a special move without touching the position: a waving crab turns back, a nesting turtle
+        // forgets its nest, a spiralling butterfly lets go of its partner and floats back down.
+        void EndSpecial(Critter c)
+        {
+            if (c.state == CritterState.Wave) c.yaw = c.baseYaw;
+            c.nesting = false;
+            c.lift = 0f;
+            c.moveT = 0f;
+            var p = c.partner;
+            c.partner = null;
+            if (p != null && p.partner == c) p.partner = null;
+            if (c.state == CritterState.Wave || c.state == CritterState.Nest)
+                c.state = c.kind == LifeKind.Crab ? CritterState.Idle : CritterState.Rest;
+        }
+
+        void RemoveNest(int i)
+        {
+            _nestCount--;
+            _nestPos[i] = _nestPos[_nestCount];
+            _nestAge[i] = _nestAge[_nestCount];
+        }
+
+        void AddNest(Vector2 p)
+        {
+            if (maxNests <= 0) return;
+            if (_nestPos.Length < maxNests) { Array.Resize(ref _nestPos, maxNests); Array.Resize(ref _nestAge, maxNests); }
+            if (_nestCount >= maxNests)
+            {
+                int oldest = 0;
+                for (int i = 1; i < _nestCount; i++) if (_nestAge[i] > _nestAge[oldest]) oldest = i;
+                RemoveNest(oldest);
+            }
+            _nestPos[_nestCount] = p;
+            _nestAge[_nestCount] = 0f;
+            _nestCount++;
+            _meshDirty = true;
+        }
+
+        bool Calm => _surface.StormIntensity < 0.3f && _surface.Speed < diveSpeed * 0.5f;
+        bool Day => _night < dayThreshold;
+
+        // Starts the species' special move now if its conditions hold (tests, the coordinator's screenshots).
+        public bool TryStartSpecialMove(int i)
+        {
+            if (i < 0 || i >= _critters.Count || _rnd == null) return false;
+            var c = _critters[i];
+            if (c.dying) return false;
+            _night = LifeEnvironment.NightAmount;
+            switch (c.kind)
+            {
+                case LifeKind.Crab:
+                    if (c.state == CritterState.Hidden || c.state == CritterState.Wave || !Calm || !Day) return false;
+                    StartWave(c);
+                    return true;
+                case LifeKind.Turtle:
+                    if (c.state == CritterState.Nest || c.nesting || !Calm || _night >= nightThreshold) return false;
+                    return StartNestTrip(c);
+                case LifeKind.Butterfly:
+                    if (c.state == CritterState.Spiral || c.fade < 1f || _surface.StormIntensity >= 0.3f) return false;
+                    return TryStartSpiral(c);
+                case LifeKind.Firefly:
+                    return TriggerFireflyWave();
+            }
+            return false;
         }
 
         // ---------------------------------------------------------------- stepping
@@ -581,6 +741,7 @@ namespace Drift.Life
             _amount = ComputeAmount();
             _homeTimer += dt;
             _glowTimer += dt;
+            StepFireflyWave(dt, visible && _homeVersion >= 0);
             if (!visible || _amount <= 0.001f)
             {
                 if (_glowRenderer != null) _glowRenderer.enabled = false;
@@ -605,11 +766,16 @@ namespace Drift.Life
             }
 
             if (_glowRenderer == null) return;
-            if (Mathf.Abs(_amount - _pushedAmount) > 0.01f || (_amount >= 0.9f) != (_pushedAmount >= 0.9f))
+            if (Mathf.Abs(_amount - _pushedAmount) > 0.01f || (_amount >= 0.9f) != (_pushedAmount >= 0.9f) || _pushedWave != _waveSerial)
             {
                 _pushedAmount = _amount;
+                _pushedWave = _waveSerial;
                 _block ??= new MaterialPropertyBlock();
                 _block.SetFloat(FireflyAmountId, _amount);
+                // The block is shared by every island: the wave is written on every push, "off" included.
+                _block.SetVector(SyncWaveId, _waveLeft > 0f
+                    ? new Vector4(_waveOrigin.x, _waveOrigin.y, _waveT0, fireflyWaveTime)
+                    : new Vector4(0f, 0f, -1000f, 0f));
                 _glowRenderer.SetPropertyBlock(_block);
             }
             _glowRenderer.enabled = _glowMesh != null && _glowMesh.vertexCount > 0;
@@ -816,6 +982,105 @@ namespace Drift.Life
                 if (c.kind == LifeKind.Crab) { if (StepCrab(c, dt, fast)) _meshDirty = true; }
                 else if (c.kind == LifeKind.Turtle) { if (StepTurtle(c, dt)) _meshDirty = true; }
             }
+            // A mound stays, then sinks back into the beach over its last 5 s.
+            for (int i = _nestCount - 1; i >= 0; i--)
+            {
+                _nestAge[i] += dt;
+                if (_nestAge[i] >= nestMoundTime) { RemoveNest(i); _meshDirty = true; }
+                else if (_nestAge[i] > nestMoundTime - 5f && dt > 0f) _meshDirty = true;
+            }
+        }
+
+        void StartWave(Critter c)
+        {
+            c.state = CritterState.Wave;
+            c.baseYaw = c.yaw;
+            c.timer = Rand(crabWaveMin, Mathf.Max(crabWaveMin, crabWaveMax));
+            c.moveT = 0f;
+            c.beat = 0;
+            CrabWaves++;
+            _meshDirty = true;
+        }
+
+        // Up the beach to a nest spot (dry sand between the turtles' shore band and their inland limit).
+        bool StartNestTrip(Critter c)
+        {
+            if (!TryBand(0.3f, turtleInland, out var spot, c.pos, 3f) && !TryBand(0.3f, turtleInland, out spot)) return false;
+            c.nesting = true;
+            c.target = spot;
+            c.state = CritterState.Move;
+            c.timer = (spot - c.pos).magnitude / Mathf.Max(0.01f, turtleSpeed) + 5f;
+            _meshDirty = true;
+            return true;
+        }
+
+        // A turtle on her way to a nest digs where she is once she stands on dry sand above the shore band (her
+        // spot, or wherever the crawl got stuck on the way up).
+        bool NestHere(Critter c)
+        {
+            if (!c.nesting || _surface.SampleHeight(c.pos) < 0.28f) return false;
+            c.state = CritterState.Nest;
+            c.timer = turtleNestDig;
+            c.moveT = 0f;
+            return true;
+        }
+
+        // A partner: another settled butterfly within spiralPartnerRange that is not dancing already.
+        bool TryStartSpiral(Critter c)
+        {
+            Critter best = null;
+            float bestD = spiralPartnerRange * spiralPartnerRange;
+            foreach (var o in _critters)
+            {
+                if (o == c || o.kind != LifeKind.Butterfly || o.dying || o.fade < 1f || o.state == CritterState.Spiral) continue;
+                float d = (o.pos - c.pos).sqrMagnitude;
+                if (d <= bestD) { bestD = d; best = o; }
+            }
+            if (best == null) return false;
+            Vector2 mid = (c.pos + best.pos) * 0.5f;
+            float time = butterflySpiralTime * Rand(0.85f, 1.15f);
+            for (int k = 0; k < 2; k++)
+            {
+                var b = k == 0 ? c : best;
+                b.state = CritterState.Spiral;
+                b.partner = k == 0 ? best : c;
+                b.centre = mid;
+                b.moveT = 0f;
+                b.timer = time;
+                b.beat = k;
+                b.lift = 0f;
+            }
+            SpiralDances++;
+            _meshDirty = true;
+            return true;
+        }
+
+        public bool TriggerFireflyWave()
+        {
+            if (_homeVersion < 0 || _blobCount <= 0 || _amount < 0.3f || _surface.StormIntensity >= 0.3f) return false;
+            _waveOrigin = _blobPos[_rnd.Next(_blobCount)];
+            _waveLeft = fireflyWaveTime;
+            _waveT0 = Time.timeSinceLevelLoad;
+            _waveSerial++;
+            FireflyWaves++;
+            return true;
+        }
+
+        void StepFireflyWave(float dt, bool visible)
+        {
+            if (_waveWait < 0f) _waveWait = -Mathf.Log(Mathf.Max(1e-4f, Rand())) * 60f;
+            if (_waveLeft > 0f)
+            {
+                _waveLeft -= dt;
+                if (_surface.StormIntensity >= 0.3f) _waveLeft = 0f;
+                if (_waveLeft <= 0f) { _waveLeft = 0f; _waveSerial++; }
+                return;
+            }
+            if (!visible || fireflyWavesPerMinute <= 0f || _amount < 0.5f || _surface.StormIntensity >= 0.3f) return;
+            _waveWait -= dt * fireflyWavesPerMinute;
+            if (_waveWait > 0f) return;
+            _waveWait = -1f;
+            TriggerFireflyWave();
         }
 
         bool StepCrab(Critter c, float dt, bool fast)
@@ -833,6 +1098,7 @@ namespace Drift.Life
             {
                 c.alarm += dt;
                 if (c.alarm < c.react) return false;
+                if (c.state == CritterState.Wave) c.yaw = c.baseYaw;
                 c.state = CritterState.Hidden;
                 c.timer = Rand(hiddenMin, hiddenMax);
                 c.alarm = 0f;
@@ -862,8 +1128,27 @@ namespace Drift.Life
                     c.state = CritterState.Idle;
                     c.timer = Rand(1f, 4f);
                     return true;
+                case CritterState.Wave:
+                {
+                    // Claws beat in the shader; the body shuffles left and right every 0.45 s. A storm or dusk
+                    // ends the dance early.
+                    if (c.timer <= 0f || !Calm || !Day)
+                    {
+                        c.yaw = c.baseYaw;
+                        c.state = CritterState.Idle;
+                        c.timer = Rand(1f, 3f);
+                        return true;
+                    }
+                    c.moveT += dt;
+                    int beat = (int)(c.moveT / 0.45f);
+                    if (beat == c.beat) return false;
+                    c.beat = beat;
+                    c.yaw = c.baseYaw + ((beat & 1) == 0 ? 16f : -16f);
+                    return true;
+                }
                 default:
                     if (c.timer > 0f) return false;
+                    if (Day && Calm && Rand() < crabWaveChance) { StartWave(c); return true; }
                     if (Rand() < 0.3f) { c.state = CritterState.Dig; c.timer = Rand(2f, 4f); return true; }
                     if (TryShoreTarget(c.pos, out var t))
                     {
@@ -884,15 +1169,45 @@ namespace Drift.Life
             {
                 Vector2 to = c.target - c.pos;
                 float d = to.magnitude;
-                if (d < 0.03f || c.timer <= 0f) { c.state = CritterState.Rest; c.timer = Rand(turtleRestMin, turtleRestMax); return true; }
+                if (d < 0.03f || c.timer <= 0f)
+                {
+                    if (NestHere(c)) return true;
+                    c.nesting = false;
+                    c.state = CritterState.Rest; c.timer = Rand(turtleRestMin, turtleRestMax); return true;
+                }
                 Vector2 next = c.pos + to / d * Mathf.Min(turtleSpeed * dt, d);
                 if (next == c.pos) return false;
-                if (!TurtleGround(_surface.SampleHeight(next))) { c.state = CritterState.Rest; c.timer = Rand(turtleRestMin, turtleRestMax) * 0.5f; return true; }
+                if (!TurtleGround(_surface.SampleHeight(next)))
+                {
+                    if (NestHere(c)) return true;
+                    c.nesting = false; c.state = CritterState.Rest; c.timer = Rand(turtleRestMin, turtleRestMax) * 0.5f; return true;
+                }
                 c.pos = next;
                 c.yaw = Mathf.LerpAngle(c.yaw, Mathf.Atan2(to.x, to.y) * Mathf.Rad2Deg, 1f - Mathf.Exp(-2f * dt));
                 return true;
             }
+            if (c.state == CritterState.Nest)
+            {
+                // Digging: the flippers sweep in the shader, the body settles into the pit and the mound grows
+                // (both baked, so the mesh follows at meshInterval). A storm sends her back half done.
+                if (_surface.StormIntensity >= 0.3f) { EndSpecial(c); c.timer = Rand(5f, 10f); return true; }
+                c.moveT += dt;
+                if (c.moveT < turtleNestDig) return dt > 0f;
+                AddNest(c.pos);
+                NestsDug++;
+                c.nesting = false;
+                c.moveT = 0f;
+                if (TryBand(shoreMin + 0.03f, 0.3f, out var back, c.pos, 4f) || TryBand(shoreMin + 0.03f, 0.3f, out back))
+                {
+                    c.target = back;
+                    c.state = CritterState.Move;
+                    c.timer = (back - c.pos).magnitude / Mathf.Max(0.01f, turtleSpeed) + 5f;
+                }
+                else { c.state = CritterState.Rest; c.timer = Rand(turtleRestMin, turtleRestMax); }
+                return true;
+            }
             if (c.timer > 0f || _night >= nightThreshold) return false;
+            if (Calm && Rand() < turtleNestChance && StartNestTrip(c)) return true;
             float h = _surface.SampleHeight(c.pos);
             bool found = h < 0.3f
                 ? TryBand(0.3f, turtleInland, out var t, c.pos, 3f)
@@ -937,6 +1252,37 @@ namespace Drift.Life
 
         void StepButterfly(Critter c, float dt)
         {
+            if (c.state == CritterState.Spiral)
+            {
+                // Two butterflies circle a shared centre on opposite sides, rising and sinking once; when the
+                // partner leaves (fades, is dropped) the dance ends early. Afterwards each flies on to a flower.
+                var p = c.partner;
+                bool together = p != null && p.partner == c && p.state == CritterState.Spiral && !p.dying && _critters.Contains(p);
+                c.moveT += dt;
+                if (!together || c.moveT >= c.timer)
+                {
+                    EndSpecial(c);
+                    c.state = CritterState.Idle;
+                    c.timer = 0f;
+                    _meshDirty = true;
+                    if (_life != null && _life.TryRandomPlant(LifeKind.Flower, _rnd, c.pos, butterflyRange, out var flower))
+                    {
+                        c.target = flower;
+                        c.state = CritterState.Move;
+                    }
+                    else c.dying = true;
+                    return;
+                }
+                float u = Mathf.Clamp01(c.moveT / Mathf.Max(0.01f, c.timer));
+                float ang = c.moveT * 5.5f + c.beat * Mathf.PI;
+                float r = spiralRadius * (0.6f + 0.4f * Mathf.Sin(u * Mathf.PI));
+                Vector2 dir = new Vector2(Mathf.Cos(ang), Mathf.Sin(ang));
+                c.pos = c.centre + dir * r;
+                c.lift = spiralRise * Mathf.Sin(u * Mathf.PI);
+                c.yaw = Mathf.Atan2(-dir.y, dir.x) * Mathf.Rad2Deg;
+                _meshDirty = true;
+                return;
+            }
             if (c.state == CritterState.Move)
             {
                 Vector2 to = c.target - c.pos;
@@ -949,6 +1295,7 @@ namespace Drift.Life
             }
             c.timer -= dt;
             if (c.timer > 0f) return;
+            if (_surface.StormIntensity < 0.3f && Rand() < butterflySpiralChance && TryStartSpiral(c)) return;
             if (_life != null && _life.TryRandomPlant(LifeKind.Flower, _rnd, c.pos, butterflyRange, out var next))
             {
                 c.target = next;
@@ -1049,38 +1396,84 @@ namespace Drift.Life
                 if (c.state == CritterState.Hidden || c.fade <= 0f || c.kind == LifeKind.Firefly) continue;
                 float h = _surface.SampleHeight(c.pos);
                 float x = c.pos.x, z = c.pos.y, y = Mathf.Max(h, 0f);
-                float size, flutter = 0f, bob = 0f;
+                float size, flutter = 0f, bob = 0f, flap = 1f, amp = 0f;
+                int move = 0;
                 switch (c.kind)
                 {
                     case LifeKind.Crab:
                         size = crabScale * c.scale;
                         if (c.state == CritterState.Dig) y -= size * 0.4f;
+                        if (c.state == CritterState.Wave) { move = CritterBatch.MoveClawWave; amp = size * 0.25f; }
                         break;
                     case LifeKind.Turtle:
                         size = turtleScale * c.scale;
+                        if (c.state == CritterState.Nest)
+                        {
+                            float dug = Mathf.Clamp01(c.moveT / Mathf.Max(0.01f, turtleNestDig));
+                            // The dug sand spreads round her as a flat disc just above the ground; the shell settles
+                            // into it, the flippers stay on top.
+                            _batch.AddDisc(_surface, c.pos, size * (0.5f + 0.6f * dug), 0f, PitSand, 0.004f);
+                            AddFlippers(new Vector3(x, y + 0.003f, z), c.yaw, size, c.phase, size * 0.06f);
+                            y -= size * 0.12f * Mathf.Min(1f, dug * 4f);
+                            move = CritterBatch.MoveFlipperSweep;
+                            amp = size * 0.06f;
+                        }
                         break;
                     case LifeKind.Butterfly:
                         size = butterflyScale * c.scale * Mathf.Clamp01(c.fade);
-                        y += butterflyHeight;
-                        x += Mathf.Sin(_clock * 2.3f + c.phase) * 0.05f;
-                        z += Mathf.Cos(_clock * 1.9f + c.phase) * 0.05f;
+                        y += butterflyHeight + c.lift;
+                        if (c.state != CritterState.Spiral)
+                        {
+                            x += Mathf.Sin(_clock * 2.3f + c.phase) * 0.05f;
+                            z += Mathf.Cos(_clock * 1.9f + c.phase) * 0.05f;
+                        }
                         flutter = 1f;
                         bob = 0.03f;
+                        // Sitting on a flower the wings open and close slowly; in the courtship spiral they whirr.
+                        flap = c.state == CritterState.Idle ? 0.3f : c.state == CritterState.Spiral ? 1.35f : 1f;
                         break;
                     default:
                         continue;
                 }
                 if (size < 0.001f) continue;
-                _batch.AddCritter(LifeMeshes.GetTemplate(c.kind, c.variant), new Vector3(x, y, z), c.yaw, size, flutter, bob, c.phase, 0f);
+                _batch.Add(LifeMeshes.GetTemplate(c.kind, c.variant), new Vector3(x, y, z), c.yaw, size, flutter, bob, c.phase, 0f, flap, move, amp,
+                    Markings.CritterMarks(c.kind, c.variant), Markings.Seed(c.scale * 97.3f));
+            }
+            for (int i = 0; i < _nestCount; i++)
+            {
+                float left = nestMoundTime - _nestAge[i];
+                float k = Mathf.Clamp01(left / 5f);
+                float r = turtleScale * 1.1f * (0.4f + 0.6f * k);
+                _batch.AddDisc(_surface, _nestPos[i], r, turtleScale * 0.35f * k, MoundSand, 0.01f);
             }
             _batch.Apply(_mesh);
+        }
+
+        static readonly Color PitSand = new Color(0.56f, 0.45f, 0.3f);
+        static readonly Color MoundSand = new Color(0.72f, 0.6f, 0.4f);
+        static readonly Color FlipperColor = new Color(0.36f, 0.44f, 0.24f);
+
+        // Four flat flippers (turtle template units, pivot at the root) that only a digging turtle shows; the
+        // shader sweeps them about their roots, front and rear pairs half a beat apart.
+        void AddFlippers(Vector3 pos, float yaw, float size, float phase, float amp)
+        {
+            for (int s = -1; s <= 1; s += 2)
+            {
+                _batch.AddFin(pos, yaw, size, new Vector3(0.36f * s, 0.05f, 0.22f), new Vector3(0.85f * s, 0.04f, 0.4f), new Vector3(0.72f * s, 0.04f, 0.04f),
+                    FlipperColor, s, phase, CritterBatch.MoveFlipperSweep, amp);
+                _batch.AddFin(pos, yaw, size, new Vector3(0.3f * s, 0.05f, -0.3f), new Vector3(0.62f * s, 0.04f, -0.56f), new Vector3(0.36f * s, 0.04f, -0.66f),
+                    FlipperColor * 0.9f, s * 2f, phase, CritterBatch.MoveFlipperSweep, amp);
+            }
         }
 
         // ---------------------------------------------------------------- merging
 
         public void ShiftLocal(Vector2 delta)
         {
-            foreach (var c in _critters) { c.pos += delta; c.target += delta; }
+            foreach (var c in _critters) { c.pos += delta; c.target += delta; c.centre += delta; }
+            for (int i = 0; i < _nestCount; i++) _nestPos[i] += delta;
+            _waveOrigin += delta;
+            _waveSerial++;
             for (int i = 0; i < _homeCount; i++) _homePos[i] += delta;
             for (int i = 0; i < _blobCount; i++) _blobPos[i] += delta;
             _glowVersion = -2;
@@ -1095,6 +1488,7 @@ namespace Drift.Life
                 if (c.kind == LifeKind.Butterfly || c.kind == LifeKind.Firefly) continue;
                 c.pos = Convert(other.transform, c.pos);
                 c.target = c.pos;
+                other.EndSpecial(c);
                 if (c.state == CritterState.Move) c.state = c.kind == LifeKind.Crab ? CritterState.Idle : CritterState.Rest;
                 _critters.Add(c);
             }
@@ -1136,7 +1530,7 @@ namespace Drift.Life
                 if (c.kind != LifeKind.Crab && c.kind != LifeKind.Turtle) continue;
                 d.kind[k] = (int)c.kind;
                 d.variant[k] = c.variant;
-                d.state[k] = (int)c.state;
+                d.state[k] = c.state == CritterState.Wave ? (int)CritterState.Idle : c.state == CritterState.Nest ? (int)CritterState.Rest : (int)c.state;
                 int o = k * CritterSaveData.Stride;
                 d.m[o] = c.pos.x; d.m[o + 1] = c.pos.y; d.m[o + 2] = c.yaw; d.m[o + 3] = c.scale;
                 d.m[o + 4] = c.timer; d.m[o + 5] = c.target.x; d.m[o + 6] = c.target.y;
@@ -1153,6 +1547,7 @@ namespace Drift.Life
             _rnd ??= new System.Random(CritterSeed);
             _night = LifeEnvironment.NightAmount;
             _critters.Clear();
+            _nestCount = 0;
             Array.Clear(_homeFly, 0, _homeFly.Length);
             _glowDirty = true;
             int n = Mathf.Min(d.kind.Length, d.m.Length / CritterSaveData.Stride);
@@ -1182,6 +1577,183 @@ namespace Drift.Life
             RebuildMesh();
             _meshTimer = 0f;
             _meshDirty = false;
+        }
+    }
+
+    // Mesh writer for the lit critter mesh (Drift/Critter, see the shader header): TemplateBatch.AddCritter plus
+    // the special-move channels and a few loose parts (flippers, sand discs). Arrays are reused.
+    //   UV0 = (wing tip offset from the midline in xz, phase, glow)
+    //   UV1 = (bob amplitude, move id, move amplitude in world units, flap rate)
+    //   UV2 = (offset from the part's pivot in xz, side (+-1, rear pair +-2), part weight 0/1)
+    //   UV3 = procedural markings (Markings.CritterMarks + the critter's seed; 0 = plain)
+    public class CritterBatch
+    {
+        public const int MoveNone = 0, MoveClawWave = 1, MoveFlipperSweep = 2;
+        const int DiscRing = 6;
+
+        Vector3[] _v = new Vector3[256];
+        Vector3[] _n = new Vector3[256];
+        Color[] _c = new Color[256];
+        Vector4[] _uv0 = new Vector4[256];
+        Vector4[] _uv1 = new Vector4[256];
+        Vector4[] _uv2 = new Vector4[256];
+        Vector4[] _uv3 = new Vector4[256];
+        int[] _t = new int[512];
+        int _vc, _tc;
+
+        public int VertexCount => _vc;
+
+        public void Begin()
+        {
+            _vc = 0;
+            _tc = 0;
+        }
+
+        void Reserve(int verts, int tris)
+        {
+            if (_vc + verts > _v.Length)
+            {
+                int cap = Mathf.Max(_vc + verts, _v.Length * 2);
+                Array.Resize(ref _v, cap);
+                Array.Resize(ref _n, cap);
+                Array.Resize(ref _c, cap);
+                Array.Resize(ref _uv0, cap);
+                Array.Resize(ref _uv1, cap);
+                Array.Resize(ref _uv2, cap);
+                Array.Resize(ref _uv3, cap);
+            }
+            if (_tc + tris > _t.Length) Array.Resize(ref _t, Mathf.Max(_tc + tris, _t.Length * 2));
+        }
+
+        public void Add(PlantTemplate tpl, Vector3 pos, float yaw, float scale, float flutter, float bob, float phase, float glow,
+                        float flapRate, int move, float moveAmp) =>
+            Add(tpl, pos, yaw, scale, flutter, bob, phase, glow, flapRate, move, moveAmp, null, 0f);
+
+        // A template critter. flapRate scales the shader's wing beat (1 = normal); with MoveClawWave the template's
+        // claw tips (z beyond 0.55) become parts pivoting at the claw root.
+        public void Add(PlantTemplate tpl, Vector3 pos, float yaw, float scale, float flutter, float bob, float phase, float glow,
+                        float flapRate, int move, float moveAmp, Vector4[] marks, float seed)
+        {
+            var verts = tpl.vertices;
+            var norms = tpl.normals;
+            var cols = tpl.colors;
+            var tris = tpl.triangles;
+            var wing = tpl.wing;
+            Reserve(verts.Length, tris.Length);
+            float rad = yaw * Mathf.Deg2Rad;
+            float cs = Mathf.Cos(rad), sn = Mathf.Sin(rad);
+            float fc = cs * scale * flutter, fs = -sn * scale * flutter;
+            var u1 = new Vector4(bob, move, moveAmp, flapRate);
+            int b = _vc;
+            if (marks != null && marks.Length == verts.Length)
+            {
+                float sc = Markings.SeedCode(seed);
+                for (int i = 0; i < verts.Length; i++)
+                {
+                    Vector4 m = marks[i];
+                    if (m.w > 0f) m.w += sc;
+                    _uv3[b + i] = m;
+                }
+            }
+            else Array.Clear(_uv3, b, verts.Length);
+            for (int i = 0; i < verts.Length; i++)
+            {
+                Vector3 p = verts[i];
+                _v[b + i] = new Vector3(pos.x + (cs * p.x + sn * p.z) * scale, pos.y + p.y * scale, pos.z + (-sn * p.x + cs * p.z) * scale);
+                Vector3 nn = norms[i];
+                _n[b + i] = new Vector3(cs * nn.x + sn * nn.z, nn.y, -sn * nn.x + cs * nn.z);
+                Color col = cols[i];
+                col.a = 0f;
+                _c[b + i] = col;
+                float w = wing != null ? wing[i] * p.x : 0f;
+                _uv0[b + i] = new Vector4(fc * w, fs * w, phase, glow);
+                _uv1[b + i] = u1;
+                Vector4 part = default;
+                if (move == MoveClawWave && p.z > 0.55f)
+                {
+                    float side = p.x >= 0f ? 1f : -1f;
+                    float ox = p.x - 0.22f * side, oz = p.z - 0.35f;
+                    part = new Vector4((cs * ox + sn * oz) * scale, (-sn * ox + cs * oz) * scale, side, 1f);
+                }
+                _uv2[b + i] = part;
+            }
+            for (int i = 0; i < tris.Length; i++) _t[_tc + i] = b + tris[i];
+            _tc += tris.Length;
+            _vc += verts.Length;
+        }
+
+        // One flat triangle in the critter's own frame (template units) whose tips pivot about root.
+        public void AddFin(Vector3 pos, float yaw, float scale, Vector3 root, Vector3 a, Vector3 c, Color col, float side, float phase,
+                           int move, float moveAmp)
+        {
+            Reserve(3, 3);
+            float rad = yaw * Mathf.Deg2Rad;
+            float cs = Mathf.Cos(rad), sn = Mathf.Sin(rad);
+            var u1 = new Vector4(0f, move, moveAmp, 1f);
+            int b = _vc;
+            for (int i = 0; i < 3; i++)
+            {
+                Vector3 p = i == 0 ? root : i == 1 ? a : c;
+                _v[b + i] = new Vector3(pos.x + (cs * p.x + sn * p.z) * scale, pos.y + p.y * scale, pos.z + (-sn * p.x + cs * p.z) * scale);
+                _n[b + i] = Vector3.up;
+                col.a = 0f;
+                _c[b + i] = col;
+                _uv0[b + i] = new Vector4(0f, 0f, phase, 0f);
+                _uv1[b + i] = u1;
+                float ox = p.x - root.x, oz = p.z - root.z;
+                _uv2[b + i] = new Vector4((cs * ox + sn * oz) * scale, (-sn * ox + cs * oz) * scale, side, i == 0 ? 0f : 1f);
+                _uv3[b + i] = default;
+            }
+            _t[_tc++] = b; _t[_tc++] = b + 1; _t[_tc++] = b + 2;
+            _vc += 3;
+        }
+
+        // A low sand disc hugging the ground (a nest mound or a dug pit): centre raised by height, rim on the terrain.
+        public void AddDisc(IIslandSurface surface, Vector2 centre, float radius, float height, Color col, float lift)
+        {
+            Reserve(1 + DiscRing, DiscRing * 3);
+            int b = _vc;
+            for (int i = 0; i <= DiscRing; i++)
+            {
+                Vector2 p = centre;
+                float up = height;
+                if (i > 0)
+                {
+                    float a = (i - 1) * Mathf.PI * 2f / DiscRing;
+                    p += new Vector2(Mathf.Cos(a), Mathf.Sin(a)) * radius;
+                    up = 0f;
+                }
+                _v[b + i] = new Vector3(p.x, Mathf.Max(surface.SampleHeight(p), 0f) + lift + up, p.y);
+                _n[b + i] = Vector3.up;
+                Color c = i == 0 ? col : col * 0.92f;
+                c.a = 0f;
+                _c[b + i] = c;
+                _uv0[b + i] = default;
+                _uv1[b + i] = default;
+                _uv2[b + i] = default;
+                _uv3[b + i] = default;
+            }
+            for (int k = 0; k < DiscRing; k++)
+            {
+                _t[_tc++] = b;
+                _t[_tc++] = b + 1 + (k + 1) % DiscRing;
+                _t[_tc++] = b + 1 + k;
+            }
+            _vc += 1 + DiscRing;
+        }
+
+        public void Apply(Mesh m)
+        {
+            m.Clear();
+            m.SetVertices(_v, 0, _vc);
+            m.SetNormals(_n, 0, _vc);
+            m.SetColors(_c, 0, _vc);
+            m.SetUVs(0, _uv0, 0, _vc);
+            m.SetUVs(1, _uv1, 0, _vc);
+            m.SetUVs(2, _uv2, 0, _vc);
+            m.SetUVs(3, _uv3, 0, _vc);
+            m.SetTriangles(_t, 0, _tc, 0, false);
+            m.RecalculateBounds();
         }
     }
 

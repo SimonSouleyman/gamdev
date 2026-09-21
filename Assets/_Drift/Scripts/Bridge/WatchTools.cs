@@ -67,7 +67,7 @@ namespace Drift.Bridge
         public float returnEaseSeconds = 0.6f;
 
         static readonly string[] Moods = { "grast", "schaut auf", "wandert", "ruht", "schläft", "spielt" };
-        static readonly string[] CritterMoods = { "schaut sich um", "ist unterwegs", "gräbt sich ein", "versteckt sich", "ruht" };
+        static readonly string[] CritterMoods = { "schaut sich um", "ist unterwegs", "gräbt sich ein", "versteckt sich", "ruht", "winkt mit den Scheren", "gräbt ein Nest", "tanzt im Spiralflug" };
 
         public static bool HudHidden { get; private set; }
 
@@ -93,6 +93,8 @@ namespace Drift.Bridge
         GameObject _followButton, _followChip;
         Text _followChipText;
         IslandHerdSystem _followHerds;
+        // Anything else being watched (a plant, a critter, a flock, a whale, a boat); null while a herd is followed.
+        WatchSubject _observe;
         Island _followIsland;
         int _followHerd = -1, _followHerdCount;
         LifeKind _followKind;
@@ -163,7 +165,8 @@ namespace Drift.Bridge
 
         public bool PhotoActive => _photoActive;
         public bool JournalOpen => _journalOpen;
-        public bool Following => _followHerds != null;
+        public bool Following => _followHerds != null || _observe != null;
+        public bool Observing => _observe != null;
         public bool AlbumOpen => _album.IsOpen;
         public bool Capturing => _capturing;
         public PhotoAlbum Album => _album;
@@ -331,8 +334,31 @@ namespace Drift.Bridge
         const float NewsTop = -364f;
 
         // Collection toasts wait while photo mode, the journal or the album is up and never outlive their run.
+        float _noticeTimer;
+
+        void OnNewsTapped()
+        {
+            var t = _toasts.Current;
+            if (_noticeTimer > 0f || !_toasts.Showing || t.count <= 0) return;
+            _toasts.Dismiss();
+            SetActive(_newsChip, false);
+            if (t.count == 1) Watch(t.first);
+            else
+            {
+                OpenJournal();
+                ShowJournalTab((int)CollectionCatalog.At(t.first).section);
+            }
+        }
+
         void UpdateNews(bool visible, float dt)
         {
+            if (_noticeTimer > 0f)
+            {
+                _noticeTimer -= dt;
+                SetActive(_newsChip, visible || Following);
+                if (_noticeTimer > 0f) return;
+                SetActive(_newsChip, false);
+            }
             var state = session != null ? session.Current : GameSession.State.Playing;
             if (state == GameSession.State.Title || state == GameSession.State.GameOver)
             {
@@ -350,9 +376,12 @@ namespace Drift.Bridge
             if (_toasts.Showing) _newsRect.anchoredPosition = new Vector2(0f, Following ? -FollowUiBottom - 24f : NewsTop);
         }
 
+        Image _newsGo;
+
         void ShowNews(CollectionToast toast)
         {
             if (_newsText == null) return;
+            if (_newsGo != null) _newsGo.gameObject.SetActive(toast.count > 0);
             _newsText.text = toast.text ?? "";
             _newsText.fontSize = toast.strong ? 34 : 30;
             _newsText.color = toast.strong ? UiStyle.Sand : UiStyle.CreamSoft;
@@ -818,9 +847,66 @@ namespace Drift.Bridge
             if (touch != null) touch.Release();
         }
 
+        // Watch the nearest example of a journal entry (a herd is followed with its herd chip). Closes the journal and
+        // the pause menu. False when there is none in reach right now; the news chip then says so.
+        public bool Watch(int catalogIndex)
+        {
+            if (catalogIndex < 0 || catalogIndex >= CollectionCatalog.Count) return false;
+            Resolve();
+            if (player == null || chaseCamera == null) return false;
+            var e = CollectionCatalog.At(catalogIndex);
+            var subject = WatchSubjects.Find(e, player, player.PlanarPosition, flocks, fish, seaLife, ships);
+            if (subject == null)
+            {
+                ShowNotice(e.name + " ist gerade nicht in der Nähe");
+                return false;
+            }
+            if (_journalOpen) CloseJournal();
+            if (_album.IsOpen) _album.Close();
+            if (_photoActive) ExitPhotoMode();
+            if (session != null && session.Current == GameSession.State.Paused) session.Resume();
+            if (Following) ReturnToIsland();
+            HidePopup();
+            if (subject.herds != null)
+            {
+                FollowHerd(subject.ground, subject.herds, subject.herd);
+                return Following;
+            }
+            if (subject.focus == null || !subject.focus(out Vector3 focus)) return false;
+            _observe = subject;
+            _followIsland = subject.ground;
+            _followFocus = focus;
+            _followRadius = subject.radius;
+            if (_followChipText != null) _followChipText.text = subject.label;
+            if (!BeginDrive())
+            {
+                ReturnToIsland();
+                return false;
+            }
+            SetFollowHome();
+            _rig.GoHome();
+            if (session != null)
+            {
+                session.FollowInputHold = true;
+                session.FollowSinkHold = true;
+            }
+            if (touch != null) touch.Release();
+            return true;
+        }
+
+        // A one-line message in the news chip, outside the collection queue.
+        void ShowNotice(string text)
+        {
+            _toasts.Dismiss();
+            _noticeTimer = 2.6f;
+            ShowNews(new CollectionToast { text = text, strong = false });
+            SetActive(_newsChip, true);
+        }
+
         public void ReturnToIsland()
         {
             if (!Following) return;
+            _observe = null;
             _followHerds = null;
             _followIsland = null;
             _followHerd = -1;
@@ -842,7 +928,9 @@ namespace Drift.Bridge
         void SetFollowHome()
         {
             float zoom = Mathf.Max(chaseCamera.zoomMin, followZoomLevel);
-            IslandChaseCamera.FollowPose(Vector3.zero, Vector3.up, -_followIsland.Forward, _followRadius, chaseCamera.referenceRadius,
+            var basis = _followIsland != null ? _followIsland : player;
+            Vector3 back = basis != null ? -basis.Forward : Vector3.back;
+            IslandChaseCamera.FollowPose(Vector3.zero, Vector3.up, back, _followRadius, chaseCamera.referenceRadius,
                 chaseCamera.zoomExponent, chaseCamera.height, chaseCamera.distanceBehind, zoom, out Vector3 pos, out _, out _);
             float yaw = 0f, pitch = 40f, dist = 4f;
             PhotoRig.OrbitOf(-pos, ref yaw, ref pitch, ref dist);
@@ -889,6 +977,22 @@ namespace Drift.Bridge
         void UpdateFollow()
         {
             if (!Following) return;
+            if (_observe != null)
+            {
+                if (!_observe.focus(out Vector3 f))
+                {
+                    // Sea life is recycled beyond its range from the player and critters leave: say so instead
+                    // of silently cutting back to the island.
+                    string gone = _observe.label + " ist weitergezogen";
+                    ReturnToIsland();
+                    ShowNotice(gone);
+                    return;
+                }
+                _followFocus = f;
+                float odt = Application.isPlaying ? Time.unscaledDeltaTime : 0f;
+                _followRadius = Mathf.Lerp(_followRadius, _observe.radius, 1f - Mathf.Exp(-1.5f * odt));
+                return;
+            }
             if (!ResolveFollowHerd()) { ReturnToIsland(); return; }
             _followFocus = HerdFocus();
             // The framing radius (zoom limits) is eased so a herd that spreads out or huddles does not pump the camera.
@@ -909,6 +1013,11 @@ namespace Drift.Bridge
         // Asked again in LateUpdate, after the islands have moved this frame.
         Vector3 FollowFocusOf()
         {
+            if (_observe != null)
+            {
+                if (_observe.focus(out Vector3 f)) _followFocus = f;
+                return _followFocus;
+            }
             if (_followHerds != null && _followIsland != null && _followHerd >= 0 && _followHerd < _followHerds.HerdCount) _followFocus = HerdFocus();
             return _followFocus;
         }
@@ -1756,7 +1865,7 @@ namespace Drift.Bridge
             _popup = BuildPopup(_root);
             _followButton = BuildFollowButton(_root);
             _followChip = BuildFollowChip(_root);
-            _journal = _journalPanel.Build(_root, CloseJournal);
+            _journal = _journalPanel.Build(_root, CloseJournal, index => Watch(index));
             _photo = BuildPhoto(_root);
             _newsChip = BuildNews(_root);
             _hintChip = BuildHint(_root);
@@ -1857,9 +1966,21 @@ namespace Drift.Bridge
             _newsText.rectTransform.Stretch(84f, 0f, UiStyle.Gap + 8f, 2f);
             _newsIcon = UiStyle.Icon(_newsRect, "Icon", UiIcon.Book, 42f, UiStyle.Sand);
             _newsIcon.rectTransform.Place(new Vector2(0f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(50f, 0f), new Vector2(42f, 42f));
-            var group = _newsRect.gameObject.AddComponent<CanvasGroup>();
-            group.blocksRaycasts = false;
-            group.interactable = false;
+            // Tapping a toast shows what it is about: one entry is watched right away, several open the journal
+            // on their tab. The chevron says it can be tapped.
+            var body = _newsRect.Find("Body");
+            var bodyImage = body != null ? body.GetComponent<Image>() : null;
+            if (bodyImage != null) bodyImage.raycastTarget = true;
+            var button = _newsRect.gameObject.AddComponent<Button>();
+            button.targetGraphic = bodyImage;
+            button.transition = Selectable.Transition.None;
+            button.navigation = new Navigation { mode = Navigation.Mode.None };
+            button.onClick.AddListener(OnNewsTapped);
+            _newsRect.gameObject.AddComponent<UiPressFeedback>().pressedScale = 0.96f;
+            _newsGo = UiStyle.Icon(_newsRect, "Go", UiIcon.Back, 30f, UiStyle.Sand);
+            _newsGo.rectTransform.Place(new Vector2(1f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(-40f, 0f), new Vector2(30f, 30f));
+            _newsGo.rectTransform.localRotation = Quaternion.Euler(0f, 0f, 180f);
+            _newsText.rectTransform.Stretch(84f, 0f, 70f, 2f);
             UiStyle.FadeIn(_newsRect.gameObject, null);
             return _newsRect.gameObject;
         }

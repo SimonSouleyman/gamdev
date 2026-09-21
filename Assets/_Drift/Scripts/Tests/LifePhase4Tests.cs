@@ -359,6 +359,9 @@ namespace Drift.Tests
         public void Critters_SaveRoundTripKeepsCrabsAndTurtlesAndDropsTransients()
         {
             var a = Make(8f, 96, "A", 8f);
+            // Special moves are saved as the plain state they return to (CritterMovesTests); keep them out here so
+            // the live states compare one to one.
+            a.crabWaveChance = a.turtleNestChance = 0f;
             Run(a, 45f);
             Assert.Greater(a.ButterflyCount, 0);
             var lifeA = a.GetComponent<IslandLifeSystem>();

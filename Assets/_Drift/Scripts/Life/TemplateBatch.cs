@@ -18,9 +18,11 @@ namespace Drift.Life
         Vector4[] _uv0 = new Vector4[1024];
         Vector4[] _uv1 = new Vector4[1024];
         Vector4[] _uv2 = new Vector4[1024];
+        // Marking channel (UV3, see Markings), only grown by batches that hold animals: plant batches stay small.
+        Vector4[] _uv3 = System.Array.Empty<Vector4>();
         int[] _t = new int[2048];
         int _vc, _tc;
-        // Number of UV channels this batch writes (0 none, 1 plants, 3 animals/critters); Apply uploads only those.
+        // Number of UV channels this batch writes (0 none, 1 plants, 3 critters, 4 animals); Apply uploads only those.
         int _uvChannels;
         bool _hasUv => _uvChannels > 0;
 
@@ -40,6 +42,11 @@ namespace Drift.Life
             if (_uvChannels < 1) System.Array.Clear(_uv0, 0, baseIndex);
             if (_uvChannels < 2 && channels >= 2) System.Array.Clear(_uv1, 0, baseIndex);
             if (_uvChannels < 3 && channels >= 3) System.Array.Clear(_uv2, 0, baseIndex);
+            if (_uvChannels < 4 && channels >= 4)
+            {
+                if (_uv3.Length < _v.Length) _uv3 = new Vector4[_v.Length];
+                System.Array.Clear(_uv3, 0, baseIndex);
+            }
             _uvChannels = channels;
         }
 
@@ -55,6 +62,7 @@ namespace Drift.Life
                 System.Array.Resize(ref _uv0, cap);
                 System.Array.Resize(ref _uv1, cap);
                 System.Array.Resize(ref _uv2, cap);
+                if (_uv3.Length > 0) System.Array.Resize(ref _uv3, cap);
             }
             int nt = _tc + tris;
             if (nt > _t.Length) System.Array.Resize(ref _t, Mathf.Max(nt, _t.Length * 2));
@@ -75,12 +83,13 @@ namespace Drift.Life
                 System.Array.Clear(_uv0, baseIndex, n);
                 if (_uvChannels >= 2) System.Array.Clear(_uv1, baseIndex, n);
                 if (_uvChannels >= 3) System.Array.Clear(_uv2, baseIndex, n);
+                if (_uvChannels >= 4) System.Array.Clear(_uv3, baseIndex, n);
             }
         }
 
         // Plant with wind sway for Drift/VertexColor (Phase 5):
         //   UV0 = (sway weight 0..1 from the template height * swayScale, phase, vertex height above the ground
-        //   in world units, 0)   UV1 = UV2 = 0
+        //   in world units, surface part tpl.part for Drift/Vegetation or 0)   UV1 = UV2 = 0
         // The shader bends a vertex along the global _LifeWind by weight^2 * height, so a zero weight (herds,
         // flocks, borders, the bolt) stays rigid. colorScale multiplies the vertex colours (bloom brightness,
         // seasons, fresh shoots) after the tint blend.
@@ -92,11 +101,12 @@ namespace Drift.Life
             int n = tpl.vertices.Length;
             if (_uvChannels >= 2) System.Array.Clear(_uv1, baseIndex, n);
             if (_uvChannels >= 3) System.Array.Clear(_uv2, baseIndex, n);
+            if (_uvChannels >= 4) System.Array.Clear(_uv3, baseIndex, n);
         }
 
         // Animal with shader-side animation (Drift/Animal):
         //   UV0 = (pitch lever: local forward * scale, up: local height * scale, phase, hop amplitude)
-        //   UV1 = (moving, alert, sleep, t0)   UV2 = (pitchFrom, pitchTo, restFrom, restTo)
+        //   UV1 = (moving, alert, sleep, t0)   UV2 = (pitchFrom, pitchTo, restFrom, restTo)   UV3 = markings (Markings)
         // A batch that uses this writes UV channels for every vertex it holds, so plain Add calls in the
         // same batch get zeroed UVs. scale is the whole animal (a young one is simply baked smaller, the
         // lever/up channels scale with it); tint/tintAmount blend the vertex colours like Add.
@@ -114,11 +124,29 @@ namespace Drift.Life
 
         // pitch (degrees about the animal's side axis, positive = nose down) is baked like roll: a fox's nose-dive,
         // a simple penguin tipped onto its belly.
-        public void AddAnimal(PlantTemplate tpl, Vector3 pos, float yaw, float scale, in AnimalPose pose, Color tint, float tintAmount, float roll, float pitch)
+        public void AddAnimal(PlantTemplate tpl, Vector3 pos, float yaw, float scale, in AnimalPose pose, Color tint, float tintAmount, float roll, float pitch) =>
+            AddAnimal(tpl, pos, yaw, scale, pose, tint, tintAmount, roll, pitch, Markings.Of(tpl), 0f);
+
+        // marks (per template vertex, Markings.Of / Markings.SimpleMarks, may be null = unmarked) go to UV3 with the
+        // individual's seed 0..1 added to the code, so a herd is not a row of clones.
+        public void AddAnimal(PlantTemplate tpl, Vector3 pos, float yaw, float scale, in AnimalPose pose, Color tint, float tintAmount, float roll, float pitch,
+                              Vector4[] marks, float seed)
         {
             int baseIndex = AddTransformed(tpl, pos, yaw, scale, roll, pitch, null, 1f, tint, tintAmount);
-            UseUv(3, baseIndex);
+            UseUv(4, baseIndex);
             var verts = tpl.vertices;
+            if (marks != null && marks.Length == verts.Length)
+            {
+                var uv3 = _uv3;
+                float s = Markings.SeedCode(seed);
+                for (int i = 0; i < verts.Length; i++)
+                {
+                    Vector4 m = marks[i];
+                    m.w += s;
+                    uv3[baseIndex + i] = m;
+                }
+            }
+            else System.Array.Clear(_uv3, baseIndex, verts.Length);
             var uv0 = _uv0; var uv1 = _uv1; var uv2 = _uv2;
             var gait = new Vector4(pose.moving, pose.alert, pose.sleep, pose.t0);
             var blend = new Vector4(pose.pitchFrom, pose.pitchTo, pose.restFrom, pose.restTo);
@@ -167,6 +195,7 @@ namespace Drift.Life
                 uv1[baseIndex + i] = bobV;
                 uv2[baseIndex + i] = default;
             }
+            if (_uvChannels >= 4) System.Array.Clear(_uv3, baseIndex, verts.Length);
         }
 
         int AddTransformed(PlantTemplate tpl, Vector3 pos, float yaw, float scale, float roll, float pitch,
@@ -183,6 +212,7 @@ namespace Drift.Life
             var norms = tpl.normals;
             var cols = tpl.colors;
             var tris = tpl.triangles;
+            var part = sway != null ? tpl.part : null;
             Reserve(verts.Length, tris.Length);
             bool doScale = colorScale.r != 1f || colorScale.g != 1f || colorScale.b != 1f;
             var uv0 = _uv0;
@@ -233,7 +263,7 @@ namespace Drift.Life
                 }
                 col.a = alpha != null ? alpha[i] * alphaScale : 0f;
                 c[baseIndex + i] = col;
-                if (sway != null) uv0[baseIndex + i] = new Vector4(sway[i] * swayScale, phase, p.y * scale, 0f);
+                if (sway != null) uv0[baseIndex + i] = new Vector4(sway[i] * swayScale, phase, p.y * scale, part != null ? part[i] : 0f);
             }
             _vc += verts.Length;
 
@@ -254,6 +284,7 @@ namespace Drift.Life
             if (_uvChannels >= 1) m.SetUVs(0, _uv0, 0, _vc);
             if (_uvChannels >= 2) m.SetUVs(1, _uv1, 0, _vc);
             if (_uvChannels >= 3) m.SetUVs(2, _uv2, 0, _vc);
+            if (_uvChannels >= 4) m.SetUVs(3, _uv3, 0, _vc);
             m.SetTriangles(_t, 0, _tc, 0, false);
             m.RecalculateBounds();
         }

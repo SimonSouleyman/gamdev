@@ -11,7 +11,7 @@ namespace Drift.Islands
     {
         const string ObjName = "Flocks";
 
-        public enum FlockState { Cruise, Orbit, Descend, Perched, TakeOff }
+        public enum FlockState { Cruise, Orbit, Descend, Perched, TakeOff, Murmur }
 
         public Island player;
         public int flockCount = 6;
@@ -49,6 +49,17 @@ namespace Drift.Islands
         public float seabirdOrbitMax = 40f;
         public float cliffHeight = 1.7f;
 
+        [Header("Besondere Bewegungen der Vögel")]
+        [Tooltip("Stoßtauchen: so oft pro Minute (im Mittel) stürzt sich ein Seevogel eines kreisenden Schwarms steil ins Meer neben der Insel (Spritzring) und steigt wieder zu den anderen auf. Nur über Wasser, nicht im Sturm.")]
+        [Range(0f, 10f)] public float seabirdDivesPerMinute = 2f;
+        [Range(1.5f, 6f)] public float diveTime = 2.8f;
+        [Tooltip("Schwarmtanz: Chance, dass ein Singvogelschwarm nach dem Kreisen über der Insel stehen bleibt und als wogende Achterwolke durcheinanderwirbelt, bevor er landet oder weiterzieht (nur tagsüber, ohne Sturm).")]
+        [Range(0f, 1f)] public float murmurChance = 0.35f;
+        [Range(4f, 30f)] public float murmurTime = 12f;
+        [Range(1f, 6f)] public float murmurSize = 3f;
+        [Tooltip("Seevögel kreisen im Uhrzeigersinn einzeln hintereinander auf einer Kette um die Klippe (die Singvögel als dichter Pulk gegen den Uhrzeigersinn): Abstand zweier Seevögel auf dem Kreis in Grad.")]
+        [Range(5f, 60f)] public float seabirdChainSpacing = 26f;
+
         // A struct: a flock re-spawns every time it falls behind a fast island, and a class allocated one object
         // per bird per re-spawn (the largest steady source of garbage while driving).
         struct Bird
@@ -56,6 +67,9 @@ namespace Drift.Islands
             public Vector2 offset;
             public float phase, scale;
             public int variant;
+            // Plunge-dive: seconds since it started (0 = not diving) and the spot in the target island's frame.
+            public float dive;
+            public Vector2 diveLocal;
         }
 
         class Flock
@@ -66,6 +80,11 @@ namespace Drift.Islands
             public Island target;
             public Vector2 perchLocal;
             public bool seabird;
+            // orbitR: last orbit radius; form: 0..1 blend from the loose pulk into the seabird chain or the murmur
+            // figure; murmurT: time in the murmur; diveWait: "per-minute" units to the next dive; murmured: this
+            // visit had its murmur already.
+            public float orbitR, form, murmurT, diveWait = -1f;
+            public bool murmured;
             public readonly List<Bird> birds = new();
         }
 
@@ -133,6 +152,29 @@ namespace Drift.Islands
         }
 
         public FlockState StateOf(int index) => _flocks[index].state;
+        public int Dives { get; private set; }
+        public int Murmurs { get; private set; }
+        public bool IsDiving(int index, int bird) => _flocks[index].birds[bird].dive > 0f;
+        public float OrbitDirection(int index) => _flocks[index].seabird ? -1f : 1f;
+        public float FormationOf(int index) => _flocks[index].form;
+
+        public int DivingBirds
+        {
+            get
+            {
+                int n = 0;
+                foreach (var f in _flocks) foreach (var b in f.birds) if (b.dive > 0f) n++;
+                return n;
+            }
+        }
+
+        // World position of one bird as it is drawn (formation, dive and perch included), y = height.
+        public Vector3 BirdPosition(int index, int bird)
+        {
+            var f = _flocks[index];
+            BirdPose(f, f.birds[bird], bird, out var pos, out _, out _, out _, out _);
+            return pos;
+        }
         public float HeightOf(int index) => _flocks[index].height;
         public Vector2 PositionOf(int index) => _flocks[index].pos;
         public Island TargetOf(int index) => _flocks[index].target;
@@ -205,6 +247,8 @@ namespace Drift.Islands
             f.height = altitude * Rand(0.8f, 1.3f);
             f.target = null;
             f.state = FlockState.Cruise;
+            f.form = 0f;
+            f.murmured = false;
             f.birds.Clear();
             int n = f.seabird ? _rnd.Next(seabirdMinBirds, seabirdMaxBirds + 1) : _rnd.Next(minBirds, maxBirds + 1);
             for (int i = 0; i < n; i++)
@@ -298,6 +342,73 @@ namespace Drift.Islands
         {
             f.target = PickTarget(f);
             f.state = FlockState.Cruise;
+            f.murmured = false;
+        }
+
+        static bool Daylight => LifeEnvironment.NightAmount < 0.5f;
+
+        // End of an orbit (or of the murmur that followed it): songbirds may dance once, then land or move on.
+        void EndOrbit(Flock f)
+        {
+            if (!f.seabird && !f.murmured && Daylight && Rand() < murmurChance)
+            {
+                StartMurmur(f);
+                return;
+            }
+            Vector2 local = default;
+            bool land = !f.seabird && f.target.LandArea > landingMinArea && !f.target.IsEmerging && Rand() < landChance
+                        && TryPerchSpot(f.target, out local);
+            if (land)
+            {
+                f.perchLocal = local;
+                f.state = FlockState.Descend;
+            }
+            else Leave(f);
+        }
+
+        void StartMurmur(Flock f)
+        {
+            f.state = FlockState.Murmur;
+            f.murmured = true;
+            f.murmurT = 0f;
+            f.orbitTime = murmurTime * Rand(0.8f, 1.2f);
+            Murmurs++;
+        }
+
+        // Starts the flock's special move now if it can (tests, screenshots): a murmur for songbirds circling or
+        // cruising to an island, a dive for a seabird flock over water.
+        public bool TryStartSpecialMove(int index)
+        {
+            var f = _flocks[index];
+            if (f.target == null || !f.target.isActiveAndEnabled) return false;
+            if (!f.seabird)
+            {
+                if (f.state != FlockState.Orbit && f.state != FlockState.Cruise) return false;
+                StartMurmur(f);
+                return true;
+            }
+            return TryStartDive(f);
+        }
+
+        bool TryStartDive(Flock f)
+        {
+            if (f.target == null || f.birds.Count == 0) return false;
+            int start = _rnd.Next(f.birds.Count);
+            for (int k = 0; k < f.birds.Count; k++)
+            {
+                int i = (start + k) % f.birds.Count;
+                var b = f.birds[i];
+                if (b.dive > 0f) continue;
+                BirdPose(f, b, i, out var pos, out _, out _, out _, out _);
+                Vector2 local = f.target.ToLocal(new Vector2(pos.x, pos.z));
+                if (f.target.SampleHeight(local) > -0.05f) continue;
+                b.dive = 1e-4f;
+                b.diveLocal = local;
+                f.birds[i] = b;
+                Dives++;
+                return true;
+            }
+            return false;
         }
 
         public void SetTarget(int index, Island island)
@@ -329,6 +440,7 @@ namespace Drift.Islands
                 StormData stormData = default;
                 bool avoiding = storm > stormAvoidance && storms.NearestStorm(f.pos, out stormData);
                 if (avoiding && (f.state == FlockState.Perched || f.state == FlockState.Descend)) f.state = FlockState.TakeOff;
+                if (avoiding && f.state == FlockState.Murmur) f.state = FlockState.Cruise;
 
                 Vector2 desired;
                 float targetHeight = altitude;
@@ -345,6 +457,7 @@ namespace Drift.Islands
                 {
                     Vector2 tp = f.target.PlanarPosition;
                     float orbitR = f.target.BoundingRadius + (f.seabird ? seabirdOrbitMargin : 4f);
+                    f.orbitR = orbitR;
                     if (f.seabird) targetHeight = Mathf.Max(altitude * 0.6f, f.target.transform.position.y + Peak(f.target) + seabirdAltitude);
                     switch (f.state)
                     {
@@ -359,21 +472,20 @@ namespace Drift.Islands
                             }
                             break;
                         case FlockState.Orbit:
-                            f.orbitAngle += speedOf * 0.8f / orbitR * dt;
+                            // Seabirds circle clockwise, songbirds counter-clockwise.
+                            f.orbitAngle += (f.seabird ? -1f : 1f) * speedOf * 0.8f / orbitR * dt;
                             desired = tp + new Vector2(Mathf.Cos(f.orbitAngle), Mathf.Sin(f.orbitAngle)) * orbitR;
                             f.orbitTime -= dt;
-                            if (f.orbitTime <= 0f)
-                            {
-                                Vector2 local = default;
-                                bool land = !f.seabird && f.target.LandArea > landingMinArea && !f.target.IsEmerging && Rand() < landChance
-                                            && TryPerchSpot(f.target, out local);
-                                if (land)
-                                {
-                                    f.perchLocal = local;
-                                    f.state = FlockState.Descend;
-                                }
-                                else Leave(f);
-                            }
+                            if (f.orbitTime <= 0f) EndOrbit(f);
+                            break;
+                        case FlockState.Murmur:
+                            // Hovering over the island's middle on a slow small circle while the birds swirl.
+                            f.murmurT += dt;
+                            f.orbitTime -= dt;
+                            desired = tp + new Vector2(Mathf.Cos(f.murmurT * 0.3f), Mathf.Sin(f.murmurT * 0.3f)) * 1.5f;
+                            targetHeight = altitude * 1.15f;
+                            speedOf *= 0.45f;
+                            if (f.orbitTime <= 0f) EndOrbit(f);
                             break;
                         case FlockState.Descend:
                         {
@@ -437,6 +549,10 @@ namespace Drift.Islands
                     f.yaw = Mathf.LerpAngle(f.yaw, newYaw, 1f - Mathf.Exp(-4f * dt));
                 }
                 else f.roll = Mathf.Lerp(f.roll, 0f, 1f - Mathf.Exp(-3f * dt));
+
+                bool formed = f.target != null && (f.seabird ? f.state == FlockState.Orbit : f.state == FlockState.Murmur && f.orbitTime > 1.5f);
+                f.form = Mathf.MoveTowards(f.form, formed ? 1f : 0f, dt / 1.5f);
+                if (f.seabird) StepDives(f, dt, !avoiding && f.state == FlockState.Orbit);
             }
 
             float nearest = float.MaxValue;
@@ -446,6 +562,155 @@ namespace Drift.Islands
             {
                 _meshTimer = 0f;
                 RebuildMesh();
+            }
+        }
+
+        void StepDives(Flock f, float dt, bool may)
+        {
+            for (int i = 0; i < f.birds.Count; i++)
+            {
+                var b = f.birds[i];
+                if (b.dive <= 0f) continue;
+                b.dive += dt;
+                if (b.dive >= diveTime || f.target == null) b.dive = 0f;
+                f.birds[i] = b;
+            }
+            if (!may || seabirdDivesPerMinute <= 0f) return;
+            if (f.diveWait < 0f) f.diveWait = -Mathf.Log(Mathf.Max(1e-4f, Rand())) * 60f;
+            f.diveWait -= dt * seabirdDivesPerMinute;
+            if (f.diveWait > 0f) return;
+            f.diveWait = -1f;
+            TryStartDive(f);
+        }
+
+        // Where one bird is drawn. Cruising and orbiting songbirds fly as a loose pulk round the flock position;
+        // an orbiting seabird flock strings out one behind the other on its circle; a murmuring flock swirls on a
+        // breathing, turning figure eight with a height wave rolling along it; a diving seabird plunges to the
+        // water, is under for a moment and climbs back to its place.
+        void BirdPose(Flock f, in Bird b, int index, out Vector3 pos, out float yaw, out float roll, out float pitch, out bool hidden)
+        {
+            float yawRad = f.yaw * Mathf.Deg2Rad;
+            float cs = Mathf.Cos(yawRad), sn = Mathf.Sin(yawRad);
+            bool perched = f.state == FlockState.Perched && f.target != null;
+            Vector2 o = b.offset * (perched ? 0.6f : 1f);
+            Vector2 world = f.pos + new Vector2(o.x * cs + o.y * sn, -o.x * sn + o.y * cs);
+            float y = f.height;
+            yaw = f.yaw;
+            roll = f.roll;
+            pitch = 0f;
+            hidden = false;
+            if (perched)
+            {
+                y = GroundY(f.target, f.target.ToLocal(world));
+                yaw += b.phase * 20f;
+                roll = 0f;
+                pos = new Vector3(world.x, y + 0.02f, world.y);
+                return;
+            }
+            if (f.seabird)
+            {
+                world += new Vector2(Mathf.Sin(_clock * 0.5f + b.phase), Mathf.Cos(_clock * 0.4f + b.phase)) * 0.3f;
+                y += Mathf.Sin(_clock * 0.6f + b.phase) * 0.5f;
+                yaw += Mathf.Sin(_clock * 0.7f + b.phase) * 5f;
+                roll += Mathf.Sin(_clock * 0.8f + b.phase) * 6f;
+                if (f.form > 0f && f.target != null)
+                {
+                    float a = f.orbitAngle + index * seabirdChainSpacing * Mathf.Deg2Rad;
+                    float r = f.orbitR * (1f + 0.1f * Mathf.Sin(_clock * 0.45f + b.phase));
+                    Vector2 ring = f.target.PlanarPosition + new Vector2(Mathf.Cos(a), Mathf.Sin(a)) * r;
+                    float ringYaw = Mathf.Atan2(Mathf.Sin(a), -Mathf.Cos(a)) * Mathf.Rad2Deg;
+                    float k = Mathf.SmoothStep(0f, 1f, f.form);
+                    world = Vector2.Lerp(world, ring, k);
+                    yaw = Mathf.LerpAngle(yaw, ringYaw, k);
+                    roll = Mathf.Lerp(roll, 14f, k);
+                }
+                if (b.dive > 0f && f.target != null)
+                {
+                    float u = b.dive / Mathf.Max(0.1f, diveTime);
+                    Vector2 spot = f.target.ToWorld(b.diveLocal);
+                    float water = f.target.transform.position.y;
+                    if (u < 0.35f)
+                    {
+                        float s = u / 0.35f;
+                        s *= s;
+                        world = Vector2.Lerp(world, spot, s);
+                        y = Mathf.Lerp(y, water, s);
+                        pitch = 70f * Mathf.Min(1f, u / 0.08f);
+                        roll = 0f;
+                    }
+                    else if (u < 0.55f)
+                    {
+                        world = spot;
+                        y = water - 0.3f;
+                        hidden = true;
+                    }
+                    else
+                    {
+                        float s = (u - 0.55f) / 0.45f;
+                        s = 1f - (1f - s) * (1f - s);
+                        world = Vector2.Lerp(spot, world, s);
+                        y = Mathf.Lerp(water, y, s);
+                        pitch = -35f * (1f - s);
+                    }
+                }
+                pos = new Vector3(world.x, y, world.y);
+                return;
+            }
+            world += new Vector2(Mathf.Sin(_clock * 0.9f + b.phase), Mathf.Cos(_clock * 0.7f + b.phase)) * 0.35f;
+            y += Mathf.Sin(_clock * 1.3f + b.phase) * 0.35f;
+            yaw += Mathf.Sin(_clock + b.phase) * 8f;
+            if (f.form > 0f)
+            {
+                float u = b.phase + _clock * 1.7f;
+                float turn = _clock * 0.35f;
+                float A = murmurSize * (1f + 0.35f * Mathf.Sin(_clock * 0.8f));
+                float B = murmurSize * 0.55f * (1f + 0.4f * Mathf.Cos(_clock * 0.63f));
+                float lx = A * Mathf.Cos(u), lz = B * Mathf.Sin(2f * u);
+                float dx = -A * Mathf.Sin(u), dz = 2f * B * Mathf.Cos(2f * u);
+                float ct = Mathf.Cos(turn), st = Mathf.Sin(turn);
+                Vector2 fig = f.pos + new Vector2(lx * ct - lz * st, lx * st + lz * ct);
+                Vector2 dir = new Vector2(dx * ct - dz * st, dx * st + dz * ct);
+                float k = Mathf.SmoothStep(0f, 1f, f.form);
+                world = Vector2.Lerp(world, fig, k);
+                y = Mathf.Lerp(y, f.height + 0.9f * Mathf.Sin(2f * u + _clock * 1.3f), k);
+                yaw = Mathf.LerpAngle(yaw, Mathf.Atan2(dir.x, dir.y) * Mathf.Rad2Deg, k);
+                roll = Mathf.Lerp(roll, 25f * Mathf.Sin(u), k);
+            }
+            pos = new Vector3(world.x, y, world.y);
+        }
+
+        static PlantTemplate _splash;
+
+        // A flat white ring (8 segments) with a small inner disc: the splash where a seabird went in.
+        static PlantTemplate Splash
+        {
+            get
+            {
+                if (_splash != null) return _splash;
+                const int seg = 8;
+                var v = new Vector3[1 + seg * 2];
+                var n = new Vector3[v.Length];
+                var c = new Color[v.Length];
+                var t = new int[seg * 9];
+                Color foam = new Color(0.95f, 0.97f, 1f);
+                v[0] = new Vector3(0f, 0.02f, 0f);
+                for (int i = 0; i < seg; i++)
+                {
+                    float a = i * Mathf.PI * 2f / seg;
+                    v[1 + i] = new Vector3(Mathf.Cos(a) * 0.6f, 0.01f, Mathf.Sin(a) * 0.6f);
+                    v[1 + seg + i] = new Vector3(Mathf.Cos(a), 0f, Mathf.Sin(a));
+                }
+                for (int i = 0; i < v.Length; i++) { n[i] = Vector3.up; c[i] = i == 0 ? foam * 0.9f : foam; }
+                int k = 0;
+                for (int i = 0; i < seg; i++)
+                {
+                    int i0 = 1 + i, i1 = 1 + (i + 1) % seg, o0 = 1 + seg + i, o1 = 1 + seg + (i + 1) % seg;
+                    t[k++] = 0; t[k++] = i1; t[k++] = i0;
+                    t[k++] = i0; t[k++] = i1; t[k++] = o1;
+                    t[k++] = i0; t[k++] = o1; t[k++] = o0;
+                }
+                _splash = new PlantTemplate { vertices = v, normals = n, colors = c, triangles = t };
+                return _splash;
             }
         }
 
@@ -471,39 +736,25 @@ namespace Drift.Islands
             _batch.Begin();
             foreach (var f in _flocks)
             {
-                float yawRad = f.yaw * Mathf.Deg2Rad;
-                float cs = Mathf.Cos(yawRad), sn = Mathf.Sin(yawRad);
-                bool perched = f.state == FlockState.Perched;
-                float spread = perched ? 0.6f : 1f;
-                foreach (var b in f.birds)
+                bool perched = f.state == FlockState.Perched && f.target != null;
+                for (int i = 0; i < f.birds.Count; i++)
                 {
-                    Vector2 o = b.offset * spread;
-                    Vector2 world = f.pos + new Vector2(o.x * cs + o.y * sn, -o.x * sn + o.y * cs);
-                    float y = f.height;
-                    float yaw = f.yaw;
-                    if (perched)
+                    var b = f.birds[i];
+                    BirdPose(f, b, i, out var pos, out float yaw, out float roll, out float pitch, out bool hidden);
+                    if (f.seabird && b.dive > 0f && f.target != null)
                     {
-                        // Sitting birds get their own ground height and no wing alpha, so the shader does not flap them.
-                        Vector2 local = f.target.ToLocal(world);
-                        y = GroundY(f.target, local);
-                        yaw += b.phase * 20f;
-                        _batch.Add(LifeMeshes.GetTemplate(LifeKind.Bird, b.variant), new Vector3(world.x, y + 0.02f, world.y), yaw, b.scale, 0f, 0f, false);
+                        float u = b.dive / Mathf.Max(0.1f, diveTime);
+                        if (u > 0.3f && u < 0.85f)
+                        {
+                            Vector2 spot = f.target.ToWorld(b.diveLocal);
+                            float r = 0.25f + 0.55f * Mathf.Sin((u - 0.3f) / 0.55f * Mathf.PI);
+                            _batch.Add(Splash, new Vector3(spot.x, f.target.transform.position.y + 0.03f, spot.y), b.phase * 40f, r);
+                        }
                     }
-                    else if (f.seabird)
-                    {
-                        // Gliders: no wing alpha (no flap), a slow soaring rise and fall and a gentle bank.
-                        world += new Vector2(Mathf.Sin(_clock * 0.5f + b.phase), Mathf.Cos(_clock * 0.4f + b.phase)) * 0.3f;
-                        y += Mathf.Sin(_clock * 0.6f + b.phase) * 0.5f;
-                        yaw += Mathf.Sin(_clock * 0.7f + b.phase) * 5f;
-                        _batch.Add(LifeMeshes.GetTemplate(LifeKind.Seabird, b.variant), new Vector3(world.x, y, world.y), yaw, b.scale, f.roll + Mathf.Sin(_clock * 0.8f + b.phase) * 6f, 0f, false);
-                    }
-                    else
-                    {
-                        world += new Vector2(Mathf.Sin(_clock * 0.9f + b.phase), Mathf.Cos(_clock * 0.7f + b.phase)) * 0.35f;
-                        y += Mathf.Sin(_clock * 1.3f + b.phase) * 0.35f;
-                        yaw += Mathf.Sin(_clock + b.phase) * 8f;
-                        _batch.Add(LifeMeshes.GetTemplate(LifeKind.Bird, b.variant), new Vector3(world.x, y, world.y), yaw, b.scale, f.roll, 0f, true);
-                    }
+                    if (hidden) continue;
+                    // Sitting birds and gliders get no wing alpha, so the shader does not flap them.
+                    var kind = f.seabird ? LifeKind.Seabird : LifeKind.Bird;
+                    _batch.Add(Markings.BirdTemplate(kind, b.variant), pos, yaw, b.scale, roll, pitch, !perched && !f.seabird);
                 }
             }
             _batch.Apply(_mesh);

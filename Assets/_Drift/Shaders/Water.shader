@@ -80,6 +80,9 @@ Shader "Drift/Water"
             float  _CurrentSpeed;
             float  _CurrentFoam;    // streak strength knob (WaterFeedback.currentStreakStrength)
             float  _Storm;          // 0..1 storm intensity at the player
+            // Every visible storm (Drift.Visuals.StormVisuals): xy centre, z radius, w intensity. Unset = no storms.
+            float4 _DriftStorms[4];
+            float  _DriftStormCount;
             float4 _WindDir;        // xy = normalized wind (current + global wind), z = wind speed
             float4 _SplashPos;      // xy = fish splash centre, z = age, w = strength
             // Nearest islands (xy = centre, z = bounding radius, w = 1 when used). The camera depth
@@ -280,6 +283,23 @@ Shader "Drift/Water"
                 return streak * mask * saturate(strength);
             }
 
+            // The profile of StormSystem.IntensityAt (full strength over the inner 55 %, easing out to the rim) with
+            // its rim pushed in and out by noise, so the rough sea is a ragged patch under the cloud cluster, not a disc.
+            float StormField(float2 wp)
+            {
+                float storm = 0.0;
+                for (int i = 0; i < 4; i++)
+                {
+                    if (i >= (int)_DriftStormCount) break;
+                    float4 s = _DriftStorms[i];
+                    float d = length(wp - s.xy) / max(s.z, 1e-3);
+                    d *= 0.82 + 0.36 * DriftNoise(wp * 0.05 + s.xy * 0.013);
+                    float k = 1.0 - smoothstep(0.55, 1.0, d);
+                    storm = max(storm, s.w * k);
+                }
+                return storm;
+            }
+
             float4 frag(Varyings IN) : SV_Target
             {
                 float2 uv = IN.screenPos.xy / IN.screenPos.w;
@@ -288,9 +308,10 @@ Shader "Drift/Water"
                 float diff = max(0, sceneDepth - surfDepth);
                 float shore = ShoreDistance(IN.positionWS.xz);
 
-                float storm = saturate(_Storm);
-                float t = _Time.y * _WaveSpeed;
                 float2 wp = IN.positionWS.xz;
+                // Rough dark water under every storm, not just the one the player is in, so a storm is seen coming.
+                float storm = saturate(max(_Storm, StormField(wp)));
+                float t = _Time.y * _WaveSpeed;
                 float2 wind = normalize(_WindDir.xy + float2(1e-4, 0));
 
                 float2 g;
@@ -324,10 +345,16 @@ Shader "Drift/Water"
                 float3 V = normalize(GetCameraPositionWS() - IN.positionWS);
                 Light l = GetMainLight();
                 float3 H = normalize(l.direction + V);
-                float nh = saturate(dot(n, H));
-                float spec = pow(nh, _SpecPower) * _Specular * 0.55 + pow(nh, 6.0) * 0.07 * _Specular;
+                // Glints from a calmed normal too: the broad lobe on the full wave normal lit every crest facing the sun
+                // and drew a lattice of white bands across the whole sea.
+                float3 nSpec = normalize(float3(-g.x * 0.35, 1.0, -g.y * 0.35));
+                float nh = saturate(dot(nSpec, H));
+                float spec = pow(nh, _SpecPower) * _Specular * 0.55 + pow(nh, 12.0) * 0.03 * _Specular;
                 spec *= saturate(l.direction.y * 4.0) * (1.0 - 0.5 * storm) * farLod * farLod;
-                float fres = pow(1.0 - saturate(dot(n, V)), 4.0);
+                // Sky reflection from a calmed normal: with the full wave normal every crest facing away from the camera
+                // turned into a long white streak across the sea, which read as stripy clouds.
+                float3 nSky = normalize(float3(-g.x * 0.25, 1.0, -g.y * 0.25));
+                float fres = pow(1.0 - saturate(dot(nSky, V)), 4.0);
                 col = lerp(col, _SkyColor.rgb, fres * _Fresnel);
                 col += l.color * spec;
 

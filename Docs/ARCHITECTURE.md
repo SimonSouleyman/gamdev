@@ -1883,3 +1883,62 @@ Structural rules that new content has to follow:
   paths, strings only when a label changes). Allocation is fine for discrete events (spawn, merge, save capture).
 - **UI:** every game canvas is `ScreenSpaceOverlay` (`UiStyle.Canvas`), drawn after the camera, so a future
   full-screen effect never touches text; pass `null` as the camera to `RectTransformUtility`.
+
+## Surfing, watching, herd patterns (2026-09-21, second pass)
+
+- **Surf:** `PlateSystem.SurfVelocity(pos, heading, radius, drive)` gives the player island extra velocity along the
+  nearest seam (`NearestSeam`), scaled by alignment, distance to the seam and boundary kind; `Island` keeps it as
+  `_surf` (smoothed by `surfResponse`), part of `PlanarVelocity`. `Island.WaterVelocity` (= self + surf) is what the
+  wake is drawn from - never "planar minus current", which is wrong for a second wherever the current jumps.
+  Rider push is capped by `maxRiderPlateSpeed`. Plate amplitude/speed are per-plate factors on the live
+  `waveAmplitude`/`waveSpeed`; the pendulum phase is the integrated `_waveClock` (saved as `PlateSaveData.waveClock`).
+- **Watching:** `Bridge/WatchSubjects.Find(entry, …)` turns a journal entry into a `WatchSubject` (a herd, or a
+  focus delegate asked every frame). `WatchTools.Watch(catalogIndex)` follows it with the herd-follow camera;
+  `Following` covers both. A new journal entry type needs a case in `WatchSubjects`.
+- **Herd patterns:** errands `Stroll`, `Visit`, `Spread` (AnimalActivity appended, moods appended in order) for every
+  species, chosen in `Think` after the species errands with `strollRate`/`visitRate`/`spreadRate`. On a surface
+  version change only errands that the new shape spoils are cancelled (`SurvivesReshape`); shore errands always are.
+
+
+## Rising water, visible storms (2026-09-21, third pass)
+
+- `IIslandSurface.SinkDepth` (Island: `_shape.sink`). Life systems treat a growing value as "the water is rising"
+  (herds: 6 s window) - only then do herds flee (`IslandHerdSystem.Refuge`, refuge map = grid BFS components of dry
+  land, each herd heads for a spot on its component's top; sliders `refugeStart`/`refugeSpeed`). Walking to the
+  shore to drink/wade never triggers it.
+- `Drown` no longer removes a wet animal outright: `TryAshore` moves it to dry ground within 2 units (`Scrambled`);
+  only an animal with no dry land in reach is lost (`Drowned`) - i.e. when its detached part has fully sunk.
+  Critters: `Relocate` falls back to `TryDryNear`.
+- Settlements: on rising water a low village moves its centre to the highest reachable site with room
+  (`MoveUp`, dry path, `moveUpRange`), folk gather there, `regroupRest` s pause (no building), `Village.keep` holds
+  the folk count while homes are missing. Buildings/plants never move; they sink.
+- `LifeEnvironment.LightningStruck(world, strength)` is the one lightning event: island strikes
+  (`IslandLifeSystem.Strike`, play mode) and sea strikes (`StormVisuals`, Poisson at `lightningRate` per storm)
+  both report it; `StormVisuals` draws bolts + global `_LightningFlash` (DayNightCycle adds it to sun/ambient),
+  `AudioDirector` plays `SfxSynth.Thunder` delayed by distance / `thunderSpeed`.
+- `StormVisuals` (`Shaders/Storm.shader`, one dynamic mesh: spiral cloud layers turned in the vertex shader, rain
+  lanes, additive bolts in `StormBolt.mat`) pushes `_DriftStorms[4]` for the water shader (rough sea inside storms)
+  and `_StormEye` (clear hole above the player). `StormVisuals.StormCount/StormAt` feed the minimap
+  (`WorldHud.DrawMap`, blended disc under the islands).
+- Player island scene values: `IslandHerdSystem.maxAnimals` 200, `maxHerds` 60.
+
+## Materials, mountains, clouds, signature moves (2026-09-22, parallel-agent round)
+
+- **Terrain** (`Shaders/IslandTerrain.shader`): two Texture2DArrays (7 layers: sand, grass, forest floor, dry, tundra, rock,
+  snow; `Textures/Terrain`), top-down projection in island-local space, layer picked from the existing tint colour + height
+  + slope, only the two strongest layers sampled (4 reads/pixel), textures normalised by their mean so tints keep working,
+  distance fade to flat colour.
+- **Vegetation** (`Shaders/Vegetation.shader`, `Textures/Plants/Resources/DriftVegetation.mat`, loaded via Resources):
+  per-vertex surface id in UV0.w (`PlantTemplate.part`, written by `TemplateBatch.AddPlant`), per-face planar projection.
+- **Mountains** (`Island.MergeFrom`, `IslandShape` slope relaxation): wide uplift bump, slope cap `maxSlope` 30° /
+  `volcanoMaxSlope` 45° applied at merge time, rise over `upliftDuration` 7 s with eased blend, Version bumps on the 0.5 s
+  sink cadence. `AudioDirector.EstimateMergeSeconds` caps the uplift at 2.5 s for the impact sound.
+- **Clouds** (`CloudShadows`, `CloudField` C# twin, `DriftClouds.hlsl`, `DriftCloudPuff.hlsl`, `Clouds.shader/.mat`): jittered
+  clump grid (18 u), one static puff mesh placed in the shader; shadows use the same field. Storm clumps in `StormVisuals`
+  (14 per storm, orbiting at different speeds, rain shafts under 70 %). Water: sky reflection and specular use a calmed
+  normal (the full normal drew white bands). Tests: `Scripts/Tests/Visuals` (own asmdef).
+- **Herds**: refuge = nearest safe ground (`SafeHeight` = 0.03 + `refugeStart` + sink pace × `refugeLead`) with a spread
+  penalty (`refugeSpread`); signature moves in `IslandHerdSystem.Signature.cs` (one per species, `signatureRate`, run as
+  errands, cancelled by startle/fire/water/storm/night). **Critters**: states Wave/Nest/Spiral, firefly `_SyncWave`,
+  flock dive + `Murmur`. **Markings** (`Life/Markings.cs`, `Shaders/DriftMarkings.hlsl`): marking id + body coords in UV3,
+  procedural patterns, no texture reads; after editing the .hlsl reimport Animal.shader and Critter.shader.

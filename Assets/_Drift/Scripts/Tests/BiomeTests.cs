@@ -577,6 +577,8 @@ namespace Drift.Tests
             herds.behaviourRate = 0f;
             Run(herds, 0.5f);
             herds.behaviourRate = 1f;
+            // The staged choreography is what is under test: no stroll, visit or spread may walk the herd off.
+            herds.strollRate = herds.visitRate = herds.spreadRate = 0f;
             return herds;
         }
 

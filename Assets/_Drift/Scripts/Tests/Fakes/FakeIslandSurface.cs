@@ -25,6 +25,8 @@ namespace Drift.Tests
         public int Biome => biome;
         public float storm;
         public float StormIntensity => storm;
+        public float sinkDepth;
+        public float SinkDepth => sinkDepth;
         public float speed;
         public float Speed => speed;
 

@@ -82,6 +82,27 @@ camera smoothing, touch) still needs the owner's own hands-on test.
 
 ## Working with several agents on this project
 
+**Default workflow (owner's standing request, 2026-09-21): parallelize as much as possible.**
+1. Split every request into independent tasks, grouped by disjoint file ownership (one agent per
+   system/file set; shared files like `IIslandSurface`, `LifeEnvironment` or the scene stay with the
+   coordinator). Put any cross-agent API the tasks need in place *before* dispatch.
+2. Dispatch all independent tasks at once as parallel agents. Each agent: writes code, verifies with
+   `eval`/its own EditMode test class (`run_tests --mode EditMode --filter ...`, never Play Mode,
+   never `run_tests` without `--mode EditMode`), and reports changed files, results, "Scene wiring
+   needed" and "Integration requests".
+3. Only the coordinator integrates: scene wiring, Play Mode checks, screenshots, the full EditMode
+   suite, docs (`Docs/CHANGES_*.md`, ARCHITECTURE.md), save backup/restore — then reports to the owner.
+   Tasks that genuinely depend on each other run sequentially; small one-file fixes need no agent.
+4. Only one Editor is running, so recompiles from parallel agents collide: agents wait for
+   `recompile_status` to be `completed` and re-run their check if another agent's edit triggered a
+   reload in between.
+5. Scale: ~3–5 agents normally, more for big requests — but every agent always owns its own
+   independent system; never two agents on the same system.
+6. Spare the Editor: do everything that can happen before dispatch up front (shared APIs, interfaces,
+   scene objects, materials, one recompile), and have agents do the Editor-free parts of their work
+   (reading, planning, writing code and tests) first, then compile/verify in as few rounds as possible.
+7. Commits only when the owner asks — also after an integration round.
+
 Five parallel agents built audio/visuals/UI/gameplay/persistence in one pass; it worked because each
 agent owned a disjoint set of files and never touched the scene or Play Mode — the coordinator did
 all `attach_script`/`set_component_properties`/`save_scene`/screenshots afterwards from the agents'

@@ -77,6 +77,8 @@ namespace Drift.Tests
         {
             var life = Make(4f, 7, "ClusterIsle", true);
             var herds = life.GetComponent<IslandHerdSystem>();
+            // Fanning out and visiting loosen the formation on purpose; this checks the formation itself.
+            herds.strollRate = herds.visitRate = herds.spreadRate = 0f;
             Assert.Greater(herds.HerdCount, 1);
             for (int h = 0; h < herds.HerdCount; h++)
                 for (int o = 0; o < h; o++)

@@ -26,12 +26,18 @@ Material:
     m_Ints: []
     m_Floats:
     - _Ambient: 0.45
+    - _Breath: 0.035
+    - _BreathSpeed: 2.4
     - _Cull: 2
     - _GrazePitch: 10
     - _GrazeSpeed: 1.5
     - _GrazeSwing: 6
     - _HopSpeed: 9
     - _LightAmount: 1
+    - _Markings: 1
+    - _RestLower: 0.38
+    - _TransitionTime: 0.8
+    - _Twitch: 0.14
     m_Colors:
     - _Tint: {r: 1, g: 1, b: 1, a: 1}
   m_BuildTextureStacks: []

@@ -85,6 +85,13 @@ namespace Drift.Life
         public float beachMargin = 0.35f;
         public float beachHeight = 0.25f;
         public float drownHeight = 0.05f;
+        [Header("Umzug bei steigendem Wasser")]
+        [Tooltip("Liegt der Dorfplatz weniger als so hoch über der Mindesthöhe für Bauplätze, zieht das Dorf auf höheren Grund.")]
+        [Range(0f, 1f)] public float moveUpMargin = 0.2f;
+        [Tooltip("Verschnaufpause (Sekunden), nachdem Häuser versunken sind, bevor am neuen Platz gebaut wird.")]
+        [Range(0f, 120f)] public float regroupRest = 25f;
+        [Tooltip("Wie weit (Einheiten) das Dorf für einen neuen Platz suchen darf.")]
+        [Range(4f, 40f)] public float moveUpRange = 20f;
         public float sinkTime = 5f;
         // A village whose ground drowned waits dormant for new ground; below this area it is given up.
         public float dissolveArea = 8f;
@@ -167,6 +174,10 @@ namespace Drift.Life
             // No buildable ground at the moment (the island is nearly under water): nothing is built and nobody
             // lives here until a shape change offers a site again. The stage is kept.
             public bool dormant;
+            // After homes went under: seconds of rest before building again, and how many folk the village keeps
+            // although their homes are gone (until new homes hold them again).
+            public float restT;
+            public int keep;
         }
 
         class Building
@@ -876,6 +887,7 @@ namespace Drift.Life
                 TryAdvance(v, area, mature);
 
                 if (v.dormant) continue;
+                if (v.restT > 0f) { v.restT -= dt; continue; }
                 int sites = 0;
                 foreach (var b in _buildings)
                     if (b.village == v && (b.state == BuildingState.Site || b.state == BuildingState.Upgrading)) sites++;
@@ -945,33 +957,113 @@ namespace Drift.Life
             _potential = -1f;
             _matureTimer = 0f;
             _staticDirty = true;
+            float sinkDepth = _surface.SinkDepth;
+            bool rising = sinkDepth > _lastSink + 1e-4f;
+            _lastSink = sinkDepth;
+            // Folk count per village before anything sinks: a flooded home does not cost its people.
+            foreach (var v in _villages)
+            {
+                int have = 0;
+                foreach (var st in _settlers) if (st.village == v && !st.leaving) have++;
+                v.keep = Mathf.Max(v.keep, have);
+            }
             foreach (var b in _buildings)
             {
                 if (b.state == BuildingState.Sinking) continue;
                 float h = H(b.pos);
-                if (b.kind == BuildingKind.Dock)
-                {
-                    if (h < -0.25f || h > 0.4f || H(b.pos + Fwd(b.yaw) * (0.5f * ScaleOf(BuildingKind.Dock))) > 0.03f) BeginSink(b);
-                }
-                else if (h < drownHeight) BeginSink(b);
+                bool sink;
+                if (b.kind == BuildingKind.Dock) sink = h < -0.25f || h > 0.4f || H(b.pos + Fwd(b.yaw) * (0.5f * ScaleOf(BuildingKind.Dock))) > 0.03f;
+                else sink = h < drownHeight;
+                if (!sink) continue;
+                BeginSink(b);
+                if (b.village != null && HomesOfKind(b.kind) > 0 && regroupRest > 0f) b.village.restT = Mathf.Max(b.village.restT, regroupRest);
             }
             for (int i = _villages.Count - 1; i >= 0; i--)
             {
                 var v = _villages[i];
                 v.blocked = 0;
-                if (H(v.center) >= siteMinHeight * 0.7f) { v.dormant = false; continue; }
-                v.dormant = !Recenter(v);
+                // The water is coming: the heart of the village moves up to high ground with room, and the folk
+                // gather there, rest a while, then build again around it.
+                // Only rising water moves a village: a merge that leaves it low but dry is no reason to pack up.
+                if (H(v.center) >= siteMinHeight + (rising ? moveUpMargin : 0f)) { v.dormant = false; continue; }
+                Vector2 old = v.center;
+                bool moved = (rising && MoveUp(v)) || (H(v.center) < siteMinHeight * 0.7f ? Recenter(v) : H(v.center) >= siteMinHeight * 0.7f);
+                v.dormant = !moved;
                 if (v.dormant && _surface.LandArea < dissolveArea) RemoveVillage(v);
+                else if (moved && (v.center - old).sqrMagnitude > 1f && regroupRest > 0f) v.restT = Mathf.Max(v.restT, regroupRest);
             }
             foreach (var s in _settlers)
             {
-                if (GroundY(s.pos) >= drownHeight) continue;
-                if (s.village.dormant) { s.leaving = true; continue; }
-                s.pos = s.home != null && s.home.state != BuildingState.Sinking ? DoorOf(s.home) : s.village.center;
-                s.state = SettlerState.Idle;
-                s.timer = Rand(0.5f, 2f);
+                if (s.leaving) continue;
+                var v = s.village;
+                bool wet = GroundY(s.pos) < drownHeight;
+                if (v.dormant)
+                {
+                    if (wet) s.leaving = true;
+                    continue;
+                }
+                bool homeless = s.home == null || s.home.state == BuildingState.Sinking;
+                if (!wet && !(homeless && v.restT > 0f)) continue;
+                // Standing in the water already: straight onto dry land. Otherwise walk up to the meeting place.
+                if (wet) s.pos = NearestDry(s.pos, v.center);
+                if (s.state == SettlerState.Indoors) s.state = SettlerState.Idle;
+                s.home = null;
+                Walk(s, RingSpot(v.center, s, 0.35f * Unit + Rand(0f, 0.25f) * Unit), SettlerState.Idle, null);
             }
         }
+
+        float _lastSink;
+
+        // Highest buildable ground with room around it within moveUpRange that can be reached without crossing water;
+        // a little closer is worth a little lower. False when nothing is higher than where the village is now.
+        bool MoveUp(Village v)
+        {
+            float here = H(v.center);
+            float best = float.MinValue;
+            Vector2 site = v.center;
+            float r = 0.3f * buildingScale;
+            for (int t = 0; t < 64; t++)
+            {
+                float a = Rand(0f, Mathf.PI * 2f);
+                Vector2 p = v.center + new Vector2(Mathf.Cos(a), Mathf.Sin(a)) * Rand(1f, moveUpRange);
+                float h = H(p);
+                if (h <= here + 0.05f || !IsValidSite(p, r) || !DryPath(v.center, p)) continue;
+                int room = 0;
+                for (int i = 0; i < 8; i++)
+                {
+                    float ang = i * Mathf.PI * 0.25f + 0.3f;
+                    float hr = H(p + new Vector2(Mathf.Cos(ang), Mathf.Sin(ang)) * (1.2f * buildingScale));
+                    if (hr >= siteMinHeight && hr <= siteMaxHeight) room++;
+                }
+                float score = h + room * 0.12f - (p - v.center).magnitude * 0.02f;
+                if (score > best) { best = score; site = p; }
+            }
+            if (best == float.MinValue) return false;
+            v.center = site;
+            RecomputeRadius(v);
+            return true;
+        }
+
+        bool DryPath(Vector2 from, Vector2 to)
+        {
+            int n = Mathf.Max(2, Mathf.CeilToInt((to - from).magnitude / 0.4f));
+            for (int i = 1; i < n; i++) if (H(Vector2.Lerp(from, to, i / (float)n)) < drownHeight) return false;
+            return true;
+        }
+
+        Vector2 NearestDry(Vector2 p, Vector2 fallback)
+        {
+            for (int ring = 1; ring <= 8; ring++)
+                for (int k = 0; k < 8; k++)
+                {
+                    float a = k * Mathf.PI * 0.25f;
+                    Vector2 q = p + new Vector2(Mathf.Cos(a), Mathf.Sin(a)) * (0.25f * ring);
+                    if (GroundY(q) >= drownHeight) return q;
+                }
+            return fallback;
+        }
+
+        static int HomesOfKind(BuildingKind kind) => SettlementMeshes.Spec(kind).homes;
 
         // The heart of the village drowned: it moves to its highest standing building or to fresh valid ground
         // uphill within reach, so the folk rebuild higher up.
@@ -1114,7 +1206,9 @@ namespace Drift.Life
                 var v = _villages[vi];
                 int have = 0;
                 foreach (var s in _settlers) if (s.village == v && !s.leaving) have++;
-                int want = v.dormant ? 0 : Capacity(vi);
+                int cap = Capacity(vi);
+                if (cap >= v.keep) v.keep = 0;
+                int want = v.dormant ? 0 : Mathf.Max(cap, Mathf.Min(v.keep, maxSettlers));
                 while (have < want && total < maxSettlers)
                 {
                     Building home = FreeHome(v);
@@ -1236,6 +1330,13 @@ namespace Drift.Life
         {
             var v = s.village;
             s.carrying = false;
+            if (v.restT > 0f)
+            {
+                // Catching their breath at the new place: stand together, now and then shuffle round.
+                if ((s.pos - v.center).sqrMagnitude > 1.2f * Unit * Unit) Walk(s, RingSpot(v.center, s, 0.35f * Unit + Rand(0f, 0.25f) * Unit), SettlerState.Idle, null);
+                else { s.state = SettlerState.Idle; s.timer = Rand(2f, 5f); s.yaw += Rand(-90f, 90f); }
+                return;
+            }
             float r = Rand();
             var site = FindSite(v);
             if (site != null && r < 0.5f)

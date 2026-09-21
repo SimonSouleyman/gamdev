@@ -18,6 +18,9 @@ namespace Drift.Core
         // Self-propelled planar speed in units/s (drive and impact momentum, not the plate carry, which would
         // keep a carried island "moving fast" forever); Phase 4 crabs dive above IslandCrittersSystem.diveSpeed.
         float Speed { get; }
+        // How far the island has sunk (grows while it sinks, shrinks while a volcano rises): the life systems watch
+        // it to tell rising water (flee uphill) from a walk to the shore.
+        float SinkDepth { get; }
         float SampleHeight(Vector2 localXZ);
         // Colours the ground from a cell grid (row-major, cellsX * cellsZ, cell centres at gridOrigin + (i + 0.5,
         // j + 0.5) * gridCell), bilinearly filtered and clamped at the edges. A grid instead of a per-vertex
