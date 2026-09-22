@@ -1,4 +1,5 @@
 using System;
+using Drift.Core;
 using Drift.Islands;
 using Drift.Tectonics;
 using UnityEngine;
@@ -36,15 +37,33 @@ namespace Drift.SaveSystem
         public float restartDelay = 4f;
 
         bool _restartDue;
+        bool _pangaea;
 
         public GameSession.State Current { get; private set; } = GameSession.State.Title;
         public SessionStats Stats { get; } = new SessionStats();
         public float RestartCountdown { get; private set; }
 
         public event Action<GameSession.State, GameSession.State> StateChanged;
+        public event Action<bool> PangaeaReachedChanged;
 
         public bool IsPlaying => Current == GameSession.State.Playing;
         public bool InGame => Current == GameSession.State.Playing || Current == GameSession.State.Paused;
+
+        // The cozy Pangäa is complete but the run is NOT over: the world stays in Playing so the owner can look
+        // around for as long as they like, and only "Weiter" (CompleteRun) ends it. Leaving the game in any
+        // direction - title, game over, the finale itself - drops it; a pause keeps it.
+        public bool PangaeaReached
+        {
+            get => _pangaea;
+            set
+            {
+                if (_pangaea == value || (value && !InGame)) return;
+                _pangaea = value;
+                PangaeaReachedChanged?.Invoke(value);
+            }
+        }
+
+        public bool PangaeaFreeLook => _pangaea && IsPlaying;
 
         // continueFrom carries a loaded run's stats into the new Playing state; null starts them at zero.
         public bool BeginPlaying(SessionStats continueFrom = null)
@@ -61,6 +80,9 @@ namespace Drift.SaveSystem
         public bool EnterBackground() => Pause();
 
         public bool Resume() => Current == GameSession.State.Paused && Transition(GameSession.State.Playing);
+
+        // A cozy run ends when everything is merged into one Pangäa (GameSession.CompleteRun).
+        public bool CompleteRun() => InGame && Transition(GameSession.State.RunComplete);
 
         public bool Sink()
         {
@@ -111,6 +133,7 @@ namespace Drift.SaveSystem
         bool Transition(GameSession.State next)
         {
             if (next == Current) return false;
+            if (next != GameSession.State.Playing && next != GameSession.State.Paused) PangaeaReached = false;
             var prev = Current;
             Current = next;
             StateChanged?.Invoke(prev, next);
@@ -120,7 +143,7 @@ namespace Drift.SaveSystem
 
     public class GameSession : MonoBehaviour
     {
-        public enum State { Title, Playing, Paused, GameOver }
+        public enum State { Title, Playing, Paused, GameOver, RunComplete }
 
         public Island player;
         public WorldStreamer streamer;
@@ -148,6 +171,29 @@ namespace Drift.SaveSystem
         public SessionStats Stats => _model.Stats;
         public event Action<State> StateChanged;
         public event Action WorldSeedChanged;
+        // Fired once when a cozy run reaches its Pangäa, after the state became RunComplete and the save was cleared.
+        public event Action RunCompleted;
+        // Raised when the free look after the last merge begins (true) and when it ends (false).
+        public event Action<bool> PangaeaReachedChanged;
+
+        // Which game runs (GameModes.Current); each mode keeps its own save file.
+        public GameMode Mode => GameModes.Current;
+        public bool IsRunComplete => Current == State.RunComplete;
+
+        // The last island is merged but the run is NOT over yet: the world stays in Playing so the owner can drive
+        // around, watch the animals and take photos for as long as they like. PangaeaFinale sets this when it has
+        // confirmed the Pangäa and shows its "Weiter" banner; only that button calls CompleteRun. While it is set
+        // nothing may end the run, so it holds sinking like the tutorial and the watch tools do (the state machine
+        // in SessionModel drops it as soon as the game is left in any direction).
+        // It is deliberately not saved: a continued run confirms its finished world again and the banner returns.
+        public bool PangaeaReached
+        {
+            get => _model.PangaeaReached;
+            set => _model.PangaeaReached = value;
+        }
+
+        // The free look itself: the Pangäa is complete and the player is still driving around in it.
+        public bool PangaeaFreeLook => _model.PangaeaFreeLook;
 
         public bool IsGameOver => Current == State.GameOver;
         public bool IsPaused => Current == State.Paused;
@@ -231,18 +277,26 @@ namespace Drift.SaveSystem
 
         public static bool SinkAllowed(bool playing, bool tutorialHold, bool photoHold) => SinkAllowed(playing, tutorialHold, photoHold, false);
 
-        public static bool SinkAllowed(bool playing, bool tutorialHold, bool photoHold, bool followHold) => playing && !tutorialHold && !photoHold && !followHold;
+        public static bool SinkAllowed(bool playing, bool tutorialHold, bool photoHold, bool followHold) => SinkAllowed(playing, tutorialHold, photoHold, followHold, false);
 
-        public static bool IslandInputLocked(bool playing, bool photoHold, bool followHold) => !playing || photoHold || followHold;
+        public static bool SinkAllowed(bool playing, bool tutorialHold, bool photoHold, bool followHold, bool pangaeaHold) =>
+            playing && !tutorialHold && !photoHold && !followHold && !pangaeaHold;
+
+        public static bool IslandInputLocked(bool playing, bool photoHold, bool followHold) => IslandInputLocked(playing, photoHold, followHold, false);
+
+        // The free look after the last merge steers nothing but the camera: the Pangäa itself stops taking input
+        // (PangaeaFinale also pins it, so no current carries it away) and the player flies over their island.
+        public static bool IslandInputLocked(bool playing, bool photoHold, bool followHold, bool pangaeaFreeLook) =>
+            !playing || photoHold || followHold || pangaeaFreeLook;
 
         void ApplySinking()
         {
-            if (Application.isPlaying && player != null) player.sinkEnabled = SinkAllowed(_model.IsPlaying, _sinkingSuspended, _photoSinkHold, _followSinkHold);
+            if (Application.isPlaying && player != null) player.sinkEnabled = SinkAllowed(_model.IsPlaying, _sinkingSuspended, _photoSinkHold, _followSinkHold, _model.PangaeaReached);
         }
 
         void ApplyInputLock()
         {
-            if (Application.isPlaying) SetIslandInputLocked(IslandInputLocked(_model.IsPlaying, _photoInputHold, _followInputHold));
+            if (Application.isPlaying) SetIslandInputLocked(IslandInputLocked(_model.IsPlaying, _photoInputHold, _followInputHold, _model.PangaeaFreeLook));
         }
 
         static void SetIslandInputLocked(bool locked) => Island.InputLocked = locked;
@@ -257,8 +311,12 @@ namespace Drift.SaveSystem
             _followSinkHold = false;
             _photoInputHold = false;
             _followInputHold = false;
+            _model.PangaeaReached = false;
+            if (saveManager == null) saveManager = FindAnyObjectByType<SaveManager>();
+            if (saveManager != null) saveManager.fileName = GameModes.SaveFile(GameModes.Current);
             _model.restartDelay = restartDelay;
             _model.StateChanged += OnModelStateChanged;
+            _model.PangaeaReachedChanged += OnPangaeaReachedChanged;
             Island.Merged += OnMerged;
             Resolve();
             Subscribe();
@@ -267,12 +325,16 @@ namespace Drift.SaveSystem
         void OnDisable()
         {
             _model.StateChanged -= OnModelStateChanged;
+            _model.PangaeaReachedChanged -= OnPangaeaReachedChanged;
             Island.Merged -= OnMerged;
             Unsubscribe();
             if (Application.isPlaying)
             {
                 Time.timeScale = 1f;
                 SetIslandInputLocked(false);
+                // Leaving Play Mode (no domain reload) must not leave the Editor in the ring world: the scene would
+                // then be edited and saved with the streamer off and the adventure camera.
+                GameModes.Set(GameMode.Cozy);
             }
         }
 
@@ -317,7 +379,8 @@ namespace Drift.SaveSystem
             if (!_seedInitialized) InitializeTitleWorld();
             _model.restartDelay = restartDelay;
             float dt = _model.IsPlaying ? Time.deltaTime : Time.unscaledDeltaTime;
-            if (_model.Step(dt)) RestartFromGameOver();
+            // An adventure run ends on its "Versunken" screen (time, best time, "Nochmal"); only cozy restarts by itself.
+            if (_model.Step(dt) && Mode != GameMode.Adventure) RestartFromGameOver();
             if (_model.IsPlaying) _model.RecordLandMass(player.LandArea);
         }
 
@@ -337,7 +400,7 @@ namespace Drift.SaveSystem
         void OnBackgrounded()
         {
             if (!Application.isPlaying || !_model.IsPlaying) return;
-            if (saveManager != null) saveManager.Save();
+            if (saveManager != null && Mode == GameMode.Cozy) saveManager.Save();
             _model.EnterBackground();
         }
 
@@ -369,6 +432,15 @@ namespace Drift.SaveSystem
             _model.RecordMerge(guest != null && guest.isVolcano);
         }
 
+        // The free look holds sinking and takes the steering off the island; SessionModel drops the flag itself
+        // whenever the game is left.
+        void OnPangaeaReachedChanged(bool on)
+        {
+            ApplySinking();
+            ApplyInputLock();
+            PangaeaReachedChanged?.Invoke(on);
+        }
+
         void OnModelStateChanged(State prev, State next)
         {
             ApplyState(next);
@@ -380,10 +452,38 @@ namespace Drift.SaveSystem
             if (!Application.isPlaying) return;
             bool playing = s == State.Playing;
             bool inGame = playing || s == State.Paused;
-            if (player != null) player.sinkEnabled = SinkAllowed(playing, _sinkingSuspended, _photoSinkHold, _followSinkHold);
-            SetIslandInputLocked(IslandInputLocked(playing, _photoInputHold, _followInputHold));
+            if (player != null) player.sinkEnabled = SinkAllowed(playing, _sinkingSuspended, _photoSinkHold, _followSinkHold, _model.PangaeaReached);
+            SetIslandInputLocked(IslandInputLocked(playing, _photoInputHold, _followInputHold, _model.PangaeaFreeLook));
             Time.timeScale = s == State.Paused ? 0f : 1f;
-            if (saveManager != null) saveManager.autosaveInterval = inGame ? autosaveInterval : 0f;
+            if (saveManager != null) saveManager.autosaveInterval = inGame && Mode == GameMode.Cozy ? autosaveInterval : 0f;
+        }
+
+        // Switches the mode the title works with (which save "Weiter" continues). Only on the title.
+        public void SelectMode(GameMode mode)
+        {
+            if (_model.Current != State.Title || mode == GameModes.Current) return;
+            GameModes.Set(mode);
+            if (saveManager != null) saveManager.fileName = GameModes.SaveFile(mode);
+            _worldIsSavedState = false;
+        }
+
+        public void StartNewGame(GameMode mode)
+        {
+            GameModes.Set(mode);
+            if (saveManager != null) saveManager.fileName = GameModes.SaveFile(mode);
+            StartNewGame(WorldSeeds.Random(), false);
+        }
+
+        // Ends the free look and starts the finale: the run is over for good (its save is removed), the world stays
+        // as it is for the flight into space. Called by the banner's "Weiter", never by the merge itself.
+        // A new run starts with StartNewGame.
+        public void CompleteRun()
+        {
+            if (!_model.CompleteRun()) return;
+            // The save (and with it the run's journal layer) is deleted only when the finale is left: the finale
+            // still reads the run's species and stats for the run journal. RunComplete never saves.
+            _worldIsSavedState = false;
+            RunCompleted?.Invoke();
         }
 
         public void StartNewGame() => StartNewGame(_worldSeed, _legacySeeds);
@@ -465,7 +565,9 @@ namespace Drift.SaveSystem
 
         public void ReturnToTitle()
         {
-            if (_model.InGame && saveManager != null) _worldIsSavedState = saveManager.Save();
+            if (IsRunComplete && saveManager != null) saveManager.DeleteSave();
+            // Adventure runs are short and never continued: nothing to save.
+            if (_model.InGame && saveManager != null && Mode == GameMode.Cozy) _worldIsSavedState = saveManager.Save();
             _model.ReturnToTitle();
         }
 
@@ -481,6 +583,7 @@ namespace Drift.SaveSystem
         public void Restart()
         {
             _worldIsSavedState = false;
+            PangaeaReached = false;
             var plates = PlateSystem.Instance;
             if (plates != null) plates.Restore(new PlateSaveData());
             var storms = StormSystem.Instance;

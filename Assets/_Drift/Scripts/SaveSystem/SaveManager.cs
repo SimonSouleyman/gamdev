@@ -20,8 +20,9 @@ namespace Drift.SaveSystem
         public const int MinReadableVersion = 2;
 
         public int version = CurrentVersion;
-        // WorldStreamer.WorldGenVersion at save time. No initialiser on purpose: JsonUtility keeps initialisers
-        // for keys a file lacks, and an old file must read 0 (= another world layout, not continuable).
+        // The WorldStreamer layout the world was planned in (WorldGenVersion, or LegacyWorldGenVersion for a world
+        // started before the small world). No initialiser on purpose: JsonUtility keeps initialisers for keys a file
+        // lacks, and an old file must read 0 (= a layout that no longer exists, not continuable).
         public int worldGenVersion;
         public long savedUtcTicks;
         public int worldSeed;
@@ -36,6 +37,9 @@ namespace Drift.SaveSystem
         public List<IslandSaveData> aiIslands = new();
         public List<IslandSaveData> volcanoes = new();
         public float volcanoCooldown;
+        // Bit per Milestone reached in this run. An older file has no such key and reads 0; the milestones are
+        // then derived from stats.islandsAbsorbed alone (Milestones.Restore), so no version bump is needed.
+        public int milestones;
     }
 
     public class SaveManager : MonoBehaviour
@@ -67,6 +71,8 @@ namespace Drift.SaveSystem
         public SessionStats LoadedStats { get; } = new SessionStats();
         // The run's collection album (filled by the watch tools); saved with the run, empty for pre-v5 files.
         public DiscoveryJournal Journal { get; } = new DiscoveryJournal();
+        // The milestone mask of the last successful Load (0 for a file from before the milestones).
+        public int LoadedMilestones { get; private set; }
 
         // A save that Load() would accept: exists, parses, has a player heightfield and a readable version.
         // Cached on the file's size + write time so the title screen can poll it cheaply.
@@ -108,7 +114,7 @@ namespace Drift.SaveSystem
         static bool Readable(SaveGame data)
         {
             if (data == null || data.player == null || data.player.heights == null || data.player.heights.Length == 0) return false;
-            return data.version >= SaveGame.MinReadableVersion && data.worldGenVersion == WorldStreamer.WorldGenVersion;
+            return data.version >= SaveGame.MinReadableVersion && WorldStreamer.IsKnownLayout(data.worldGenVersion);
         }
 
         static void ReadSeed(SaveGame data, out int worldSeed, out bool legacySeeds)
@@ -171,6 +177,8 @@ namespace Drift.SaveSystem
             Resolve();
             if (session == null) session = FindAnyObjectByType<GameSession>();
             if (session != null && !session.SavingAllowed) return false;
+            // Adventure runs are never continued, so nothing of them is written (autosave, pause or quit).
+            if (Drift.Core.GameModes.IsAdventure) return false;
             if (player == null || player.IsSunk) return false;
             if (_savedFrame == Time.frameCount && (_write != null || File.Exists(SavePath)))
             {
@@ -225,7 +233,7 @@ namespace Drift.SaveSystem
             var data = new SaveGame
             {
                 savedUtcTicks = DateTime.UtcNow.Ticks,
-                worldGenVersion = WorldStreamer.WorldGenVersion,
+                worldGenVersion = streamer != null ? streamer.Layout : WorldStreamer.WorldGenVersion,
                 worldSeed = session != null ? session.WorldSeed : LoadedWorldSeed,
                 legacySeeds = session != null ? session.LegacySeeds : LoadedLegacySeeds,
                 stats = new SessionStats(),
@@ -235,6 +243,7 @@ namespace Drift.SaveSystem
                 plates = plates != null ? plates.Capture() : null,
                 startX = streamer != null ? streamer.StartPosition.x : 0f,
                 startZ = streamer != null ? streamer.StartPosition.y : 0f,
+                milestones = Milestones.Capture(),
             };
             // A copy: the live stats keep counting while the worker serialises.
             data.stats.CopyFrom(session != null ? session.Stats : LoadedStats);
@@ -296,7 +305,7 @@ namespace Drift.SaveSystem
                     Debug.Log($"SaveManager: ignoring save of version {data.version} (current {SaveGame.CurrentVersion}, oldest readable {SaveGame.MinReadableVersion})");
                     return false;
                 }
-                if (data.worldGenVersion != WorldStreamer.WorldGenVersion)
+                if (!WorldStreamer.IsKnownLayout(data.worldGenVersion))
                 {
                     Debug.Log($"SaveManager: ignoring save of world layout {data.worldGenVersion} (current {WorldStreamer.WorldGenVersion})");
                     return false;
@@ -309,6 +318,8 @@ namespace Drift.SaveSystem
                 LoadedLegacySeeds = legacySeeds;
                 LoadedStats.CopyFrom(data.version >= 4 ? data.stats : null);
                 Journal.Restore(data.version >= 5 ? data.journal : null);
+                LoadedMilestones = data.milestones;
+                Milestones.Restore(LoadedMilestones, LoadedStats.islandsAbsorbed);
                 if (session == null) session = FindAnyObjectByType<GameSession>();
                 if (session != null) session.ApplyWorldSeed(worldSeed, legacySeeds);
                 else if (!legacySeeds) WorldSeeds.Apply(worldSeed, player, streamer);
@@ -319,6 +330,8 @@ namespace Drift.SaveSystem
                 if (streamer != null)
                 {
                     streamer.ResetWorld();
+                    // An old save keeps its big world; everything new is planned in the small one.
+                    streamer.UseLayout(data.worldGenVersion);
                     streamer.RestoreState(new Vector2(data.startX, data.startZ), data.consumed);
                     streamer.RestoreOverrides(data.aiIslands);
                 }
@@ -351,6 +364,8 @@ namespace Drift.SaveSystem
             _savedFrame = -1;
             LoadedStats.Reset();
             Journal.Reset();
+            LoadedMilestones = 0;
+            Milestones.Reset();
             if (File.Exists(SavePath)) File.Delete(SavePath);
         }
     }

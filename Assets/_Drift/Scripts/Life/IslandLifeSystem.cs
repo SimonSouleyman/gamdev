@@ -115,6 +115,22 @@ namespace Drift.Life
         // and a merge fades the guest's cheapest surplus first. Nothing else ever removes a plant.
         public int maxVegetationVerts = 60000;
         public int fullCellVerts = 190;
+
+        // The wind that looks alive from the chase camera shakes the trees when the camera stands two metres away
+        // (watching a herd, photo mode). The sway therefore calms down between windFar and windNear: the lean keeps
+        // breathing at windCalmAmplitude, the fast flutter drops to windCalmFlutter of its size and to
+        // windCalmSpeed of its rate. Beyond windFar nothing changes.
+        [Header("Wind (Pflanzen)")]
+        [Tooltip("Ab dieser Kameraentfernung (Einheiten) weht der Wind unverändert.")]
+        [Range(5f, 80f)] public float windFar = 26f;
+        [Tooltip("Bei dieser Kameraentfernung ist das Schwanken am ruhigsten (Herde beobachten).")]
+        [Range(0.5f, 20f)] public float windNear = 4f;
+        [Tooltip("Stärke des Schwankens ganz nah (1 = unverändert).")]
+        [Range(0.05f, 1f)] public float windCalmAmplitude = 0.45f;
+        [Tooltip("Stärke des schnellen Flatterns ganz nah (1 = unverändert).")]
+        [Range(0f, 1f)] public float windCalmFlutter = 0.22f;
+        [Tooltip("Tempo des schnellen Flatterns ganz nah (1 = unverändert).")]
+        [Range(0.05f, 1f)] public float windCalmSpeed = 0.35f;
         // Species of another biome (they only ever arrive with a merge) hold on like this: a cell that has room
         // for a plant of a role takes the foreign species with foreignReseedChance when one grows in it or next to
         // it, and every foreignSpreadInterval life-seconds one foreign plant seeds a suitable neighbour cell - into
@@ -173,8 +189,14 @@ namespace Drift.Life
         // Global wind for Drift/VertexColor and Drift/Vegetation (xy = wind * (1 + 1.5 storm), z = storm), pushed once per frame by
         // whichever island steps first; force re-pushes inside one editor frame (eval screenshots).
         static readonly int LifeWindId = Shader.PropertyToID("_LifeWind");
+        // Drift/Vegetation only: (sway amplitude, gust phase, flutter phase, flutter amplitude). The two phases are
+        // accumulated here instead of being read off _Time in the shader, because their rate changes with the camera
+        // distance and t * rate would jump by the whole elapsed time whenever the rate moved.
+        static readonly int LifeSwayId = Shader.PropertyToID("_LifeWindSway");
         static int _windFrame = -1;
+        static float _gustPhase, _flutterPhase;
         public static Vector4 LastWind { get; private set; }
+        public static Vector4 LastSway { get; private set; } = new Vector4(1f, 0f, 0f, 1f);
 
         // Season of the island that ticked last: a freshly populated island starts here instead of at 0, so
         // streamed-in neighbours share the player's season (all islands advance at the same rate).
@@ -210,6 +232,10 @@ namespace Drift.Life
         byte[] _foreignAt;
         bool _hasGrid;
         int _gridVersion = -1;
+        // Set by AbsorbFrom: the merged island's mesh has been rebuilt with white (untinted) vertex colours and
+        // its new land has no biome yet. Cleared by the first ApplyTint after the merge, which must happen before
+        // that mesh is drawn - see RefreshAfterMerge.
+        bool _mergeRefresh;
         float _age;
         float _season, _bakedSeason;
         int _liveVerts;
@@ -555,6 +581,29 @@ namespace Drift.Life
             Step(Time.deltaTime);
         }
 
+        // Island.MergeFrom throws the terrain's vertex colours away (the merged mesh has a new vertex count) and
+        // rebuilds the mesh white, i.e. the shader's raw _Grass on every cell and the wrong ground texture with it.
+        // The grid and the tint used to wait for the next Tick (up to tickInterval), so the merged island was drawn
+        // in that one flat green for ~12 frames. LateUpdate runs after IslandWorld.Update and before anything is
+        // rendered, whatever order the two Updates ran in, so the first frame of the merged island is already
+        // tinted. It costs one bool test per island per frame and no extra grid build: the rebuild it does here is
+        // the one the next Tick would have done.
+        void LateUpdate()
+        {
+            if (_mergeRefresh) RefreshAfterMerge();
+        }
+
+        // Re-grids the merged island and pushes the tint, at most once per merge. Island.MergeFrom may call this
+        // directly at its end (same effect, one frame earlier than LateUpdate would be in the worst case).
+        public void RefreshAfterMerge()
+        {
+            _mergeRefresh = false;
+            if (_surface == null) _surface = GetComponent<IIslandSurface>();
+            if (_surface == null) return;
+            if (!_hasGrid || _surface.Version != _gridVersion) RebuildGrid();
+            ApplyTint();
+        }
+
         float Rand() => (float)_rnd.NextDouble();
         float Rand(float a, float b) => a + Rand() * (b - a);
 
@@ -566,16 +615,100 @@ namespace Drift.Life
 
         static uint CellHash(int idx) => (uint)idx * 2654435761u;
 
+        // ------------------------------------------------------------ wind
+
+        const float FarView = 1000f;
+        // Rates of the two sway terms in the shader, kept here so the phases can be integrated.
+        const float GustRate = 0.6f, FlutterRate = 3.2f, FlutterStormRate = 3f;
+
+        // How far the camera is from what it looks at. A camera that goes close to a creature (watching a herd,
+        // photo mode) reports its own distance; otherwise it is the main camera's distance to the ground under
+        // its view, which is what the chase camera frames.
+        public static float ViewDistance { get; private set; } = FarView;
+
+        static float _reportedView = -1f;
+        static int _reportedFrame = int.MinValue;
+
+        public static void ReportViewDistance(float distance)
+        {
+            _reportedView = Mathf.Max(0f, distance);
+            _reportedFrame = Time.frameCount;
+        }
+
+        public static void ClearViewDistance()
+        {
+            _reportedView = -1f;
+            _reportedFrame = int.MinValue;
+            ViewDistance = FarView;
+        }
+
+        // Static mirror of the sliders of whichever island pushes the wind (the wind itself is global too).
+        static float _windFar = 26f, _windNear = 4f, _calmAmplitude = 0.45f, _calmFlutter = 0.22f, _calmSpeed = 0.35f;
+
+        // 0 far away (full wind), 1 at windNear and closer (as calm as it gets), smooth in between.
+        public static float CalmAmount(float viewDistance, float near, float far)
+        {
+            if (far <= near) return viewDistance <= near ? 1f : 0f;
+            return Smooth(far, near, viewDistance);
+        }
+
+        public static float CalmAmount(float viewDistance) => CalmAmount(viewDistance, _windNear, _windFar);
+
+        // The three sway scales at a camera distance: how far the plant leans, how big the fast flutter on top of
+        // it is, and how quickly that flutter runs. 1/1/1 is the old look.
+        public static void SwayScales(float viewDistance, out float amplitude, out float flutter, out float speed)
+        {
+            float c = CalmAmount(viewDistance);
+            amplitude = Mathf.Lerp(1f, _calmAmplitude, c);
+            flutter = Mathf.Lerp(1f, _calmFlutter, c);
+            speed = Mathf.Lerp(1f, _calmSpeed, c);
+        }
+
+        static float EstimateViewDistance()
+        {
+            var cam = Camera.main;
+            if (cam == null) return FarView;
+            var tr = cam.transform;
+            Vector3 p = tr.position, d = tr.forward;
+            if (p.y <= 0.05f) return 0f;
+            if (d.y > -0.02f) return FarView;
+            return Mathf.Min(FarView, p.y / -d.y);
+        }
+
+        // The wind is one global for every island, so the sliders of whichever island steps first this frame decide.
+        // Every island carries the same values; this only exists so the Inspector can tune them.
+        public void ApplyWindSettings()
+        {
+            _windFar = Mathf.Max(windNear + 0.1f, windFar);
+            _windNear = windNear;
+            _calmAmplitude = windCalmAmplitude;
+            _calmFlutter = windCalmFlutter;
+            _calmSpeed = windCalmSpeed;
+        }
+
         public static void PushWind(bool force = false)
         {
             int f = Time.frameCount;
-            if (!force && f == _windFrame) return;
-            _windFrame = f;
+            bool newFrame = f != _windFrame;
+            if (!force && !newFrame) return;
             Vector2 w = LifeEnvironment.Wind;
             float s = LifeEnvironment.Storm;
             float mag = 1f + 1.5f * s;
             LastWind = new Vector4(w.x * mag, w.y * mag, s, 0f);
             Shader.SetGlobalVector(LifeWindId, LastWind);
+
+            ViewDistance = f - _reportedFrame <= 1 && _reportedView >= 0f ? _reportedView : EstimateViewDistance();
+            SwayScales(ViewDistance, out float amp, out float flut, out float speed);
+            if (newFrame)
+            {
+                _windFrame = f;
+                // A forced push inside the same frame must not advance the phases twice (eval screenshots).
+                float dt = Mathf.Clamp(Application.isPlaying ? Time.deltaTime : Time.unscaledDeltaTime, 0f, 0.1f);
+                _gustPhase = Mathf.Repeat(_gustPhase + dt * GustRate, Mathf.PI * 2f);
+                _flutterPhase = Mathf.Repeat(_flutterPhase + dt * (FlutterRate + FlutterStormRate * s) * speed, Mathf.PI * 2f);
+            }
+            LastSway = new Vector4(Mathf.Max(1e-4f, amp), _gustPhase, _flutterPhase, flut);
+            Shader.SetGlobalVector(LifeSwayId, LastSway);
         }
 
         // ---------------------------------------------------------------- setup
@@ -928,6 +1061,11 @@ namespace Drift.Life
         {
             if (_surface == null) _surface = GetComponent<IIslandSurface>();
             if (_surface == null || !_hasGrid) return;
+            // A merge that LateUpdate has not caught up with yet (a headless run, a disabled component) must not
+            // survive into a second frame of untinted ground.
+            if (_mergeRefresh) RefreshAfterMerge();
+            // The island that pushes the wind this frame is the one whose sliders the push uses.
+            if (Time.frameCount != _windFrame) ApplyWindSettings();
             PushWind();
 
             float dist = LifeLod.Distance(transform.position);
@@ -1556,6 +1694,7 @@ namespace Drift.Life
             else _surface.ApplyGroundTint(WhiteCell, 1, 1, Vector2.zero, 1f);
             _tintDirty = false;
             _tintTimer = 0f;
+            _mergeRefresh = false;
         }
 
         // Where two biomes meet, a cell's colour is averaged with its four neighbours' (own colour weighted
@@ -1724,6 +1863,7 @@ namespace Drift.Life
                 }
             _gridVersion = -1;
             _dirty = true;
+            _mergeRefresh = true;
         }
 
         // ---------------------------------------------------------- persistence

@@ -93,15 +93,17 @@ camera smoothing, touch) still needs the owner's own hands-on test.
 3. Only the coordinator integrates: scene wiring, Play Mode checks, screenshots, the full EditMode
    suite, docs (`Docs/CHANGES_*.md`, ARCHITECTURE.md), save backup/restore — then reports to the owner.
    Tasks that genuinely depend on each other run sequentially; small one-file fixes need no agent.
-4. Only one Editor is running, so recompiles from parallel agents collide: agents wait for
+4. No background shells may outlive an agent: polling loops get a hard iteration limit and a timeout, never a bare
+   `until <condition>` (a condition that never matches kept recompiling the Editor for 40 minutes once).
+5. Only one Editor is running, so recompiles from parallel agents collide: agents wait for
    `recompile_status` to be `completed` and re-run their check if another agent's edit triggered a
    reload in between.
-5. Scale: ~3–5 agents normally, more for big requests — but every agent always owns its own
+6. Scale: ~3–5 agents normally, more for big requests — but every agent always owns its own
    independent system; never two agents on the same system.
-6. Spare the Editor: do everything that can happen before dispatch up front (shared APIs, interfaces,
+7. Spare the Editor: do everything that can happen before dispatch up front (shared APIs, interfaces,
    scene objects, materials, one recompile), and have agents do the Editor-free parts of their work
    (reading, planning, writing code and tests) first, then compile/verify in as few rounds as possible.
-7. Commits only when the owner asks — also after an integration round.
+8. Commits only when the owner asks — also after an integration round.
 
 Five parallel agents built audio/visuals/UI/gameplay/persistence in one pass; it worked because each
 agent owned a disjoint set of files and never touched the scene or Play Mode — the coordinator did

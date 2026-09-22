@@ -14,6 +14,9 @@ namespace Drift.Bridge
         public const string NewIsland = "new_island";
         public const string VoiceOn = "voice_on";
         public const int IdleCount = 4;
+        // Abenteuer: she wears her "schnelle Brille" there and talks like a race coach. ForMode picks the variant.
+        public const string AdventurePrefix = "adv_";
+        public const string AdventureRecord = "adv_record";
 
         // What she mumbles when she dozes off; never shown.
         public const string SleepyMumble = "Oooh, muuh. Hach jaa. Mmoh, nuuh, hmm.";
@@ -29,6 +32,16 @@ namespace Drift.Bridge
             Line("idle_2", "Ich dampfe hier gemütlich vor mich hin. Sag Bescheid, wenn es losgeht."),
             Line("idle_3", "Im " + K("Fotoalbum") + " findest du deine schönsten Inseln wieder."),
             Line("idle_4", "Ach, ist das Meer heute wieder schön."),
+            Line("adv_gameover", "Uff, abgesoffen! Aber das war eine " + K("starke Zeit") + ". Gleich nochmal?"),
+            Line("adv_new_island", "Brille sitzt, Lava kocht. Auf die Plätze, fertig – " + K("los") + "!"),
+            Line("adv_pause", "Kurz verschnaufen? Gut so. Meine Brille läuft eh gerade an."),
+            Line(AdventureRecord, K("Neue Bestzeit") + "! Da beschlägt mir glatt die Brille."),
+            // Meilensteine im Gemütlich-Modus (Drift.SaveSystem.Milestones.VoiceKeyOf).
+            Line("milestone_lighthouse", "Ein " + K("Leuchtturm") + "! Jetzt findest du auch die Inseln hinterm Horizont."),
+            Line("milestone_harbour", "Dein eigener " + K("Hafen") + " – da legt bestimmt bald jemand an."),
+            Line("milestone_birds", "Hörst du die " + K("Seevögel") + "? Die bleiben jetzt bei uns."),
+            Line("milestone_festival", "Heute Abend wird " + K("gefeiert") + ", mein Schatz!"),
+            Line("pangaea_ready", "Alles vereint, mein Schatz. Bleib ruhig noch ein bisschen."),
         };
 
         static string K(string word) => TildaBubble.Key(word);
@@ -43,14 +56,22 @@ namespace Drift.Bridge
             return null;
         }
 
+        // The Abenteuer variant of a remark (adv_ + key) when there is one and the run is an adventure.
+        public static string ForMode(string key, bool adventure)
+        {
+            if (!adventure || key == null) return key;
+            string variant = AdventurePrefix + key;
+            return TextOf(variant) != null ? variant : key;
+        }
+
         public static string Idle(int index) => "idle_" + (((index % IdleCount) + IdleCount) % IdleCount + 1);
 
         public static GrumbleMood MoodOf(string key)
         {
             switch (key)
             {
-                case Greeting: case NewIsland: return GrumbleMood.Cheerful;
-                case VoiceOn: return GrumbleMood.Giggly;
+                case Greeting: case NewIsland: case "adv_new_island": return GrumbleMood.Cheerful;
+                case VoiceOn: case AdventureRecord: return GrumbleMood.Giggly;
                 case GameOver: return GrumbleMood.Soft;
                 default: return GrumbleMood.Warm;
             }

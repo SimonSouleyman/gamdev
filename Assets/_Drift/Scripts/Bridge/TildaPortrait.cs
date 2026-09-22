@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using Drift.Core;
 using Drift.UI;
 using UnityEngine;
 using UnityEngine.UI;
@@ -51,6 +52,18 @@ namespace Drift.Bridge
         public static readonly Vector2 MouthBust = new Vector2(0.5f, 0.252f), MouthFullBody = new Vector2(0.5f, 0.321f);
 
         public static Vector2 MouthIn(bool fullBody) => fullBody ? MouthFullBody : MouthBust;
+
+        // What she wears: the "schnelle Brille" in Abenteuer, her reading glasses otherwise. The override is for
+        // previews and verification renders (null: follow the game mode).
+        public static TildaAccessory? AccessoryOverride;
+        public static TildaAccessory WantedAccessory =>
+            AccessoryOverride ?? (GameModes.IsAdventure ? TildaAccessory.SportShades : TildaAccessory.ReadingGlasses);
+
+        void Dress()
+        {
+            var wanted = WantedAccessory;
+            if (_parts.accessory != wanted) TildaModel.SetAccessory(_parts, wanted);
+        }
 
         // The same, measured live from the rig's camera (null without a rig).
         public static Vector2? MeasureMouth()
@@ -150,6 +163,7 @@ namespace Drift.Bridge
             s_instance._animator.VoiceLevel = -1f;
             s_instance._animator.PresentSide = view != null ? view.PresentSide : 1f;
             s_instance.Frame(view != null && view.FullBody);
+            s_instance.Dress();
             s_instance._animator.Apply(pose, talking, time, 0f, true);
             s_instance._cam.Render();
         }
@@ -198,6 +212,7 @@ namespace Drift.Bridge
             _cam.aspect = 1f;
             _fullBody = true;
             Frame(false);
+            Dress();
 
             _animator.Apply(TildaPose.Idle, false, PreviewTime, 0f, true);
             _built = true;
@@ -259,6 +274,7 @@ namespace Drift.Bridge
             _animator.VoiceLevel = voiced ? TildaVoice.Level : -1f;
             _animator.PresentSide = view != null ? view.PresentSide : 1f;
             Frame(view != null && view.FullBody);
+            Dress();
             bool talking = view != null && view.Talking && (!TildaVoice.Speaking || TildaBubble.TypingNow);
             _animator.Apply(view != null ? view.Pose : TildaPose.Idle, voiced || talking, time, dt, snap);
         }

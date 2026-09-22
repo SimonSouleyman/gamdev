@@ -40,6 +40,18 @@ namespace Drift.Audio
         public float tensionHorizonSeconds = 8f;
         public float tensionOverride = -1f;
 
+        [Header("Tempo und Strömung")]
+        [Tooltip("Hörbare Rückmeldung für Tempo, Strömung und Surfen. Aus = nur Wind und Wasser wie bisher.")]
+        public bool speedFeelEnabled = true;
+        [Tooltip("Lautstärke des Rauschens, das anschwillt, während du mit der Strömung fährst.")]
+        [Range(0f, 1f)] public float flowVolume = 0.5f;
+        [Tooltip("Lautstärke des steigenden Tons, solange du eine Plattengrenze surfst.")]
+        [Range(0f, 1f)] public float surfVolume = 0.45f;
+        [Tooltip("Wie viel lauter das Wasserrauschen bei vollem Tempo wird.")]
+        [Range(0f, 1f)] public float speedWaterBoost = 0.35f;
+        [Tooltip("Zusätzlicher Platscher beim Verschmelzen (die Gischt). 0 = aus.")]
+        [Range(0f, 1f)] public float mergeSplash = 0.7f;
+
         public MusicSynth Music { get; private set; }
         public SfxSynth Sfx { get; private set; }
         public LifeSynth Life { get; private set; }
@@ -53,6 +65,9 @@ namespace Drift.Audio
         public float PlayerSpeedNormalized { get; private set; }
         public bool FilterFallbackActive { get; private set; }
         public Island Player => _player;
+        public float SpeedDrive => _feel.Drive;
+        public float FlowAmount => _feel.Flow;
+        public float SurfAmount => _feel.Surf;
 
         SynthAudioOutput _musicOut, _sfxOut, _lifeOut;
         Island _player;
@@ -61,6 +76,7 @@ namespace Drift.Audio
         bool _subscribed;
         IslandWorld _world;
         float _grindTimer, _worldSearchTimer, _grindOverride, _heardIntensity;
+        readonly SpeedFeel.Tracker _feel = new();
 
         void OnEnable()
         {
@@ -74,6 +90,7 @@ namespace Drift.Audio
             {
                 Island.Impact += OnImpact;
                 Island.Merged += OnMerged;
+                Island.Bumped += OnBumped;
                 LifeEnvironment.LightningStruck += OnLightning;
                 _subscribed = true;
             }
@@ -85,6 +102,7 @@ namespace Drift.Audio
             {
                 Island.Impact -= OnImpact;
                 Island.Merged -= OnMerged;
+                Island.Bumped -= OnBumped;
                 LifeEnvironment.LightningStruck -= OnLightning;
                 _subscribed = false;
             }
@@ -143,7 +161,8 @@ namespace Drift.Audio
                     warn = Mathf.Clamp01(0.3f + 0.7f * (sinkWarningBuoyancy - b) / sinkWarningBuoyancy);
             }
             PlayerSpeedNormalized = speedN;
-            Sfx.WaterAmount = speedN;
+            UpdateSpeedFeel(player, dt);
+            Sfx.WaterAmount = Mathf.Clamp01(speedN * (1f + (speedFeelEnabled ? speedWaterBoost * _feel.Drive : 0f)));
             Sfx.WindAmount = Mathf.Clamp01(windBase + windFromSpeed * speedN
                 + windLfoDepth * Mathf.Sin(_lfoT * (2f * Mathf.PI / Mathf.Max(1f, windLfoPeriod))));
             Sfx.SinkWarning = warn;
@@ -166,6 +185,20 @@ namespace Drift.Audio
                 _lifeOut.SwitchToClipStreaming();
                 Debug.LogWarning("AudioDirector: OnAudioFilterRead never ran on a clip-less AudioSource; switched to streamed AudioClip output.");
             }
+        }
+
+        // Riding the current swells a band of rushing water, surfing a plate boundary sings a rising tone that
+        // stops the moment the boundary is lost - the two things you cannot see from the chase camera.
+        void UpdateSpeedFeel(Island player, float dt)
+        {
+            _feel.Step(Island.InputLocked ? null : player, dt);
+            if (Sfx == null) return;
+            bool on = speedFeelEnabled && !Island.InputLocked;
+            // The amount drives the pitch/brightness, the gain only the loudness: the sliders must not move the tone.
+            Sfx.FlowAmount = on ? _feel.Flow : 0f;
+            Sfx.SurfAmount = on ? _feel.Surf : 0f;
+            Sfx.FlowGain = SfxSynth.FlowGainFull * flowVolume;
+            Sfx.SurfGain = SfxSynth.SurfGainFull * surfVolume;
         }
 
         // Densities are re-read from the scene every lifeUpdateInterval; the duck follows tension and impacts
@@ -289,6 +322,13 @@ namespace Drift.Audio
         // the first only parks the intensity, the second knows where it happened and how long the uplift runs.
         void OnImpact(float intensity) => _heardIntensity = intensity;
 
+        // Adventure: the player bounced off an obstacle island - the crash is the same impact, but short.
+        void OnBumped(Island player, Island obstacle, Vector2 contact, float strength)
+        {
+            _heardIntensity = 0f;
+            PlayImpact(Mathf.Clamp01(strength), 0.35f);
+        }
+
         void OnMerged(Island host, Island guest, float energy)
         {
             float intensity = _heardIntensity;
@@ -299,6 +339,8 @@ namespace Drift.Audio
                 intensity *= Audibility(host.PlanarPosition, impactHearingRange + host.BoundingRadius);
             if (intensity < 0.02f) return;
             PlayImpact(intensity, EstimateMergeSeconds(host, energy, intensity));
+            // The spray ring WaterFeedback throws gets its water sound; the rock crunch alone read as dry.
+            if (mergeSplash > 0f && Sfx != null) Sfx.BigSplash(mergeSplash * intensity);
         }
 
         void PlayImpact(float intensity, float duration)

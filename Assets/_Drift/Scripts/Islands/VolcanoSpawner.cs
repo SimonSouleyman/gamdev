@@ -11,6 +11,7 @@ namespace Drift.Islands
     {
         public Island player;
         public Material islandMaterial;
+        public WorldStreamer streamer;
         public int maxLive = 10;
         public float cooldown = 25f;
         public float minPlayerDistance = 30f;
@@ -330,12 +331,29 @@ namespace Drift.Islands
 
         void Prune()
         {
+            if (streamer == null) streamer = FindAnyObjectByType<WorldStreamer>();
+            // Only while the torus world streams (the adventure ring switches the streamer off and wraps on its own).
+            float w = streamer != null && streamer.isActiveAndEnabled ? streamer.WorldSize : 0f;
             for (int i = _live.Count - 1; i >= 0; i--)
             {
                 if (_live[i] == null) { _anchors.Remove(_live[i]); _live.RemoveAt(i); continue; }
                 if (player == null) continue;
+                if (w > 0f) Rewrap(_live[i], w);
                 if (Vector2.Distance(_live[i].PlanarPosition, player.PlanarPosition) > unloadDistance) Remove(i);
             }
+        }
+
+        // The world repeats every WorldSize units and the streamed islands always show their copy nearest the
+        // player; a cone does the same, or it would vanish (unloadDistance) while it is just across the wrap line
+        // ahead. The seam anchor names plate cells of the old copy, so it is looked up again.
+        void Rewrap(Island island, float w)
+        {
+            Vector2 d = island.PlanarPosition - player.PlanarPosition;
+            Vector2 shift = new Vector2(w * Mathf.Round(d.x / w), w * Mathf.Round(d.y / w));
+            if (shift == Vector2.zero) return;
+            island.SetPlanarPosition(island.PlanarPosition - shift);
+            if (!_anchors.Remove(island)) return;
+            if (FindSeam(island.PlanarPosition, 8f, out var seam)) _anchors[island] = new SeamAnchor { a = seam.a.cell, b = seam.b.cell };
         }
 
         void Remove(int index)

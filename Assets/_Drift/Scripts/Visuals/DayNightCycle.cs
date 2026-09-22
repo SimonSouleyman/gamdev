@@ -234,8 +234,10 @@ namespace Drift.Visuals
             }
             if (driveAmbient)
             {
+                // WorldEvents.AmbientBoost is black unless the northern lights are out, so the normal sky and the
+                // normal ambient are untouched while no spectacle runs.
                 RenderSettings.ambientMode = AmbientMode.Flat;
-                RenderSettings.ambientLight = AmbientColor + flashAmbient * flash;
+                RenderSettings.ambientLight = AmbientColor + flashAmbient * flash + WorldEvents.AmbientBoost;
             }
             if (driveWater && water != null) water.SetSky(WaterSky, WaterDeep);
         }

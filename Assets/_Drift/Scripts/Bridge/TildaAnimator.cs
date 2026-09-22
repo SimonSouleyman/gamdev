@@ -72,6 +72,7 @@ namespace Drift.Bridge
         const float LidShut = -78f, LidOpen = 80f, LowDown = -74f, LowUp = 34f;
         const float LookYaw = 22f, LookPitch = 15f, Converge = 17f, RestPitch = 10f;
         const float GlancePeriod = 5.3f, GlintPeriod = 7.4f, GlintSeconds = 0.55f;
+        const float SweepPeriod = 3.3f, SweepSeconds = 0.6f;
 
         readonly TildaParts _p;
         float _armL = RestArm, _armR = RestArm, _open;
@@ -169,6 +170,7 @@ namespace Drift.Bridge
             Eyes(t, snap, cheer || sleepy);
             Brows(t, talking);
             Glasses(t, jump, snap);
+            Shades(t, jump, snap);
             Extras(t, jump, breathe);
 
             float pulse = Mathf.Sin(t * 3.3f);
@@ -252,6 +254,24 @@ namespace Drift.Bridge
             var pos = new Vector3(s * r * 0.92f, 0f, 0f);
             _p.glintL.localPosition = _p.glintR.localPosition = pos;
             _p.glintL.localScale = _p.glintR.localScale = new Vector3(1f, chord, 1f);
+        }
+
+        // The sport shades bounce on a hop, sag a little when she dozes and shimmer: the hues drift with time and
+        // with the turn of her head like a mirror, and a streak flashes across.
+        void Shades(float t, float jump, bool snap)
+        {
+            if (_p.shades == null || !_p.shades.gameObject.activeSelf) return;
+            float slip = _face.glassesSlip * 0.3f;
+            _p.shades.localPosition = _p.shadesRest + Vector3.down * (slip - 0.03f * jump);
+            _p.shades.localRotation = Quaternion.Euler(slip * 60f, 0f, slip > 0.01f ? 3f : 0f);
+
+            float into = Mathf.Repeat(t + 0.4f, SweepPeriod);
+            float sweep = snap || into > SweepSeconds ? 3f : Mathf.Lerp(-1.7f, 1.7f, Smooth(0f, SweepSeconds, into));
+            float shimmer = 0.04f * Mathf.Sin(t * 1.25f) + 0.02f * Mathf.Sin(t * 3.1f) + 0.004f * _yaw;
+            var uv = _p.shadesUV;
+            var colors = _p.shadesColors;
+            for (int i = 0; i < colors.Length; i++) colors[i] = TildaModel.ShadesColor(uv[i], shimmer, sweep);
+            _p.shadesLens.colors = colors;
         }
 
         void Extras(float t, float jump, float breathe)

@@ -7,6 +7,8 @@ namespace Drift.SaveSystem
         public bool strong;
         // Catalog index of the first entry the toast names and how many it covers (0 = not about an entry).
         public int first, count;
+        // A photo task was done: first is then the task's catalog entry.
+        public bool photo;
     }
 
     // Turns journal news into at most one toast at a time. News that arrives while a toast is up (or in the same
@@ -19,13 +21,13 @@ namespace Drift.SaveSystem
         public float subtleSeconds = 2.6f;
         public float gapSeconds = 0.5f;
 
-        readonly int[] _collected = new int[Max], _seen = new int[Max];
-        int _collectedCount, _seenCount, _collectedTotal, _seenTotal;
+        readonly int[] _collected = new int[Max], _seen = new int[Max], _photos = new int[Max];
+        int _collectedCount, _seenCount, _collectedTotal, _seenTotal, _photoCount, _photoTotal;
         float _timer, _gap;
 
         public CollectionToast Current { get; private set; }
         public bool Showing => !string.IsNullOrEmpty(Current.text);
-        public int Pending => _collectedTotal + _seenTotal;
+        public int Pending => _collectedTotal + _seenTotal + _photoTotal;
 
         public void Collected(int index)
         {
@@ -50,6 +52,14 @@ namespace Drift.SaveSystem
             _seenTotal++;
         }
 
+        // A photo task (PhotoTaskCatalog index) was done. Comes before the rest of the queue.
+        public void PhotoTaskDone(int task)
+        {
+            for (int i = 0; i < _photoCount; i++) if (_photos[i] == task) return;
+            if (_photoCount < Max) _photos[_photoCount++] = task;
+            _photoTotal++;
+        }
+
         // Takes the toast on screen away now (it was tapped); what is queued still follows after the gap.
         public void Dismiss()
         {
@@ -61,7 +71,7 @@ namespace Drift.SaveSystem
 
         public void Clear()
         {
-            _collectedCount = _seenCount = _collectedTotal = _seenTotal = 0;
+            _collectedCount = _seenCount = _collectedTotal = _seenTotal = _photoCount = _photoTotal = 0;
             _timer = _gap = 0f;
             Current = default;
         }
@@ -81,6 +91,17 @@ namespace Drift.SaveSystem
             {
                 _gap -= dt;
                 return false;
+            }
+            if (_photoTotal > 0)
+            {
+                Current = new CollectionToast
+                {
+                    text = PhotoTaskCatalog.DoneText(_photos, _photoCount, _photoTotal), strong = true, photo = true,
+                    first = _photoCount > 0 ? PhotoTaskCatalog.At(_photos[0]).entry : 0, count = _photoCount > 0 ? _photoTotal : 0,
+                };
+                _photoCount = _photoTotal = 0;
+                _timer = strongSeconds;
+                return true;
             }
             if (_collectedTotal > 0)
             {

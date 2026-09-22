@@ -28,10 +28,35 @@ float  _CurveInvRadius;  // 1 / R, 0 = flat
 float4 _CurveFogColor;   // rgb = horizon haze (the sky colour at the limb), a = max haze on solid things
 float4 _CurveFogParams;  // x = start, y = 1 / (end - start) of the planar distance to zw (the point under the camera)
 
+// Adventure ring (Drift.Islands.RingWorld): x = 1 / ring radius (0 = off, the cozy globe above applies),
+// y = band centre x, z = half width of the band (its rim), w = half circumference.
+float4 _CurveRing;
+
 #define DRIFT_CURVE_GUARD_Y -1000.0
+
+// The inside of a closed ring: a point dz along the track from the focus lands at the angle dz / R on a circle whose
+// axis hangs R above the focus, its height pointing at the axis, so the sea climbs into the sky ahead and behind and
+// z and z + circumference are drawn at the same place. Whatever lies more than half a circumference away folds onto
+// the antipode, so the sea mesh never overlaps itself. Heights stop at R / 2 so high things (clouds) never cross the
+// axis.
+// Across the band the world simply ends at the two rims: everything past the lip is folded onto the band's own edge
+// plane, so the sea closes cleanly into the rim and nothing is drawn outside it. The rims themselves are invisible
+// (Drift.Visuals.RingRims only lays a foam line on the water there); the player is held inside by RingWorld.
+float3 DriftRingWS(float3 positionWS)
+{
+    positionWS.x = clamp(positionWS.x, _CurveRing.y - _CurveRing.z, _CurveRing.y + _CurveRing.z);
+    float invR = _CurveRing.x;
+    float R = 1.0 / invR;
+    float dz = clamp(positionWS.z - _CurveFocus.y, -_CurveRing.w, _CurveRing.w);
+    float y = min(positionWS.y, 0.5 * R);
+    float t = dz * invR;
+    float h = sin(0.5 * t);
+    return float3(positionWS.x, y + (R - y) * (2.0 * h * h), _CurveFocus.y + (R - y) * sin(t));
+}
 
 float3 DriftCurveWS(float3 positionWS)
 {
+    if (_CurveRing.x > 0.0 && positionWS.y >= DRIFT_CURVE_GUARD_Y) return DriftRingWS(positionWS);
     if (_CurveInvRadius <= 0.0 || positionWS.y < DRIFT_CURVE_GUARD_Y) return positionWS;
     float2 rel = positionWS.xz - _CurveFocus.xy;
     float d = length(rel);

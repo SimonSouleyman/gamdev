@@ -8,6 +8,10 @@ namespace Drift.Bridge
     // head tilted, soft eyes (game over).
     public enum TildaPose { Idle, Talk, Wave, Cheer, Sleepy, Present, Comfort }
 
+    // What she wears on her nose: her round gold reading glasses (Gemütlich) or the "schnelle Brille", mirrored
+    // wraparound cycling shades (Abenteuer).
+    public enum TildaAccessory { ReadingGlasses, SportShades }
+
     public sealed class TildaParts
     {
         public Transform root, body, lava;
@@ -21,6 +25,14 @@ namespace Drift.Bridge
         public Transform mouth, smile, mouthFill, armL, armR;
         public Transform[] puffs, zs, sparks;
         public int vertexCount, rendererCount;
+        // The sport shades: one shield lens whose vertex colours the animator repaints (the mirror shimmer), with
+        // its lens coordinates (x across -1..1 from the viewer's left, y 0 at the bottom edge .. 1 at the top).
+        public Transform shades;
+        public Vector3 shadesRest;
+        public Mesh shadesLens;
+        public Vector2[] shadesUV;
+        public Color[] shadesColors;
+        public TildaAccessory accessory;
     }
 
     // Tilda, the friendly little island volcano: low-poly vertex-colour meshes built at runtime on Drift/VertexColor
@@ -118,6 +130,7 @@ namespace Drift.Bridge
             BuildBrow(parts, true, material, layer, made);
             BuildBrow(parts, false, material, layer, made);
             BuildGlasses(parts, material, layer, made);
+            BuildShades(parts, material, layer, made);
             BuildFlower(parts, material, layer, made);
             BuildCurl(parts, material, layer, made);
 
@@ -141,7 +154,19 @@ namespace Drift.Bridge
 
             foreach (var r in made) parts.vertexCount += r.GetComponent<MeshFilter>().sharedMesh.vertexCount;
             parts.rendererCount = made.Count;
+            SetAccessory(parts, TildaAccessory.ReadingGlasses);
             return parts;
+        }
+
+        public static void SetAccessory(TildaParts parts, TildaAccessory accessory)
+        {
+            parts.accessory = accessory;
+            if (parts.glasses != null) parts.glasses.gameObject.SetActive(accessory == TildaAccessory.ReadingGlasses);
+            bool shades = accessory == TildaAccessory.SportShades;
+            if (parts.shades != null) parts.shades.gameObject.SetActive(shades);
+            // Behind the mirror her eyes are not seen, except their lower rim below the lens during a blink: off.
+            if (parts.ballL != null) parts.ballL.parent.gameObject.SetActive(!shades);
+            if (parts.ballR != null) parts.ballR.parent.gameObject.SetActive(!shades);
         }
 
         static Transform Node(Transform parent, string name, int layer)
@@ -529,6 +554,134 @@ namespace Drift.Bridge
                 prev = p;
             }
             Part(g, "Frame", Lit(b, "TildaGlasses", 0.78f, 1.12f), material, layer, made);
+        }
+
+        // ---------------------------------------------------------------- the "schnelle Brille" (Abenteuer)
+
+        // One wraparound shield in front of both eyes, standing ShadesLift off her face (clear of the eyeballs),
+        // with a nose notch, a neon top bar and neon temples into her flanks. The lens is a shared-vertex grid, so
+        // its mirror gradient is smooth and the animator can repaint it cheaply every frame.
+        const float ShadesLift = 0.16f, ShadesWrap = 52f, ShadesPivotY = 1.08f;
+        const int ShadesColumns = 36, ShadesRows = 8;
+        static readonly Color Neon = new Color(0.74f, 1f, 0.1f);
+        static readonly Color NeonTip = new Color(1f, 0.2f, 0.6f);
+
+        // Lens outline in (u = -1..1 across, y): a nearly straight brow line and a lower edge that rises over her
+        // nose and sweeps up into narrow wings at the wrapped ends (the racing look, not a ski goggle).
+        public static float ShadesTop(float u) => 1.255f + 0.01f * (1f - u * u) + 0.025f * u * u * u * u;
+
+        public static float ShadesBottom(float u)
+        {
+            float n = u / 0.13f;
+            return 0.895f + 0.05f * u * u + 0.2f * u * u * u * u + 0.12f * Mathf.Exp(-n * n);
+        }
+
+        static float SmoothStep01(float from, float to, float x) => Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(from, to, x));
+
+        // The mirror: an iridescent sweep from orange at the bottom over pink and violet to blue at the top, a pale
+        // sky reflection above, a fixed catch light on the viewer's left and a moving streak. shimmer shifts the
+        // hues (time and head turn), sweep is where the streak crosses (off the lens at |sweep| > 2). Linear colour.
+        public static Color ShadesColor(Vector2 p, float shimmer, float sweep)
+        {
+            float u = p.x, v = p.y;
+            float hue = Mathf.Repeat(0.1f - 0.56f * v + 0.03f * Mathf.Sin(u * 2.2f) + shimmer * (0.7f + 0.3f * Mathf.Sin(u * 3.1f + v * 2f)), 1f);
+            Color c = Color.HSVToRGB(hue, 0.82f - 0.12f * v, 0.8f + 0.18f * v);
+            float sky = SmoothStep01(0.55f, 1f, v) * (1f - 0.5f * Mathf.Abs(u));
+            float du = (u + 0.5f) / 0.12f, dv = (v - 0.72f) / 0.18f;
+            float spot = Mathf.Exp(-(du * du + dv * dv));
+            float d = u + 0.55f * (v - 0.5f) - sweep;
+            float d1 = d / 0.09f, d2 = (d + 0.21f) / 0.04f;
+            float streak = Mathf.Exp(-d1 * d1) + 0.5f * Mathf.Exp(-d2 * d2);
+            c = Color.Lerp(c, Color.white, Mathf.Clamp01(0.3f * sky + 0.8f * spot + 0.85f * streak));
+            float edge = 1f - 0.22f * SmoothStep01(0.8f, 1f, Mathf.Abs(u)) - 0.12f * SmoothStep01(0.16f, 0f, v);
+            return new Color(c.r * edge, c.g * edge, c.b * edge, 1f).linear;
+        }
+
+        static void BuildShades(TildaParts parts, Material material, int layer, List<MeshRenderer> made)
+        {
+            Vector3 pivot = Surface(0f, ShadesPivotY, ShadesLift, out _);
+            var node = Node(parts.body, "Shades", layer);
+            node.localPosition = pivot;
+            parts.shades = node;
+            parts.shadesRest = pivot;
+
+            int cols = ShadesColumns + 1, rows = ShadesRows + 1;
+            var verts = new Vector3[cols * rows];
+            var normals = new Vector3[verts.Length];
+            var uv = new Vector2[verts.Length];
+            for (int i = 0; i < cols; i++)
+            {
+                float u = Mathf.Lerp(-1f, 1f, i / (float)ShadesColumns);
+                float y0 = ShadesBottom(u), y1 = ShadesTop(u);
+                for (int j = 0; j < rows; j++)
+                {
+                    float v = j / (float)ShadesRows;
+                    int k = j * cols + i;
+                    // A little lens curvature from top to bottom.
+                    float bulge = 0.02f * Mathf.Sin(v * Mathf.PI);
+                    verts[k] = Surface(u * ShadesWrap, Mathf.Lerp(y0, y1, v), ShadesLift + bulge, out var n) - pivot;
+                    normals[k] = n;
+                    uv[k] = new Vector2(u, v);
+                }
+            }
+            var tris = new int[ShadesColumns * ShadesRows * 6];
+            int t = 0;
+            for (int i = 0; i < ShadesColumns; i++)
+                for (int j = 0; j < ShadesRows; j++)
+                {
+                    int a0 = j * cols + i, a1 = a0 + 1, b0 = a0 + cols, b1 = b0 + 1;
+                    OutwardTri(tris, ref t, verts, normals, a0, b0, b1);
+                    OutwardTri(tris, ref t, verts, normals, a0, b1, a1);
+                }
+            var colors = new Color[verts.Length];
+            for (int k = 0; k < colors.Length; k++) colors[k] = ShadesColor(uv[k], 0f, 3f);
+            var mesh = new Mesh { name = "TildaShadesLens", hideFlags = HideFlags.DontSave };
+            mesh.MarkDynamic();
+            mesh.vertices = verts;
+            mesh.normals = normals;
+            mesh.colors = colors;
+            mesh.triangles = tris;
+            mesh.RecalculateBounds();
+            parts.shadesLens = mesh;
+            parts.shadesUV = uv;
+            parts.shadesColors = colors;
+            Part(node, "Lens", mesh, material, layer, made);
+
+            // Frame: a neon bar along the brow line that runs down the wrapped ends, then temples into her flanks.
+            var b = new ShapeBuilder();
+            const float bar = 0.036f, rimLift = ShadesLift + 0.012f;
+            const int barSteps = 22;
+            Vector3 prev = Surface(-ShadesWrap, ShadesTop(-1f), rimLift, out _) - pivot;
+            for (int k = 1; k <= barSteps; k++)
+            {
+                float u = Mathf.Lerp(-1f, 1f, k / (float)barSteps);
+                Vector3 p = Surface(u * ShadesWrap, ShadesTop(u) + 0.004f, rimLift, out var n) - pivot;
+                b.Tube(prev, p, n, new Vector2(bar, bar), new Vector2(bar, bar), 4, Neon, k == 1, k == barSteps);
+                prev = p;
+            }
+            for (int side = -1; side <= 1; side += 2)
+            {
+                float a = side * ShadesWrap;
+                Vector3 top = Surface(a, ShadesTop(side), rimLift, out var n);
+                Vector3 low = Surface(a + side * 0.5f, ShadesBottom(side) + 0.01f, rimLift, out _);
+                b.Tube(top - pivot, low - pivot, n, new Vector2(bar * 0.8f, bar * 0.8f), new Vector2(bar * 0.6f, bar * 0.6f), 4, Neon, true, true);
+
+                Vector3 hinge = Surface(a + side * 1.5f, Mathf.Lerp(ShadesBottom(side), ShadesTop(side), 0.75f), ShadesLift, out _) - pivot;
+                Vector3 mid = Surface(side * 66f, 1.2f, 0.07f, out _) - pivot;
+                Vector3 ear = Surface(side * 80f, 1.23f, -0.02f, out _) - pivot;
+                b.Tube(hinge, mid, Vector3.up, new Vector2(0.045f, 0.03f), new Vector2(0.04f, 0.028f), 4, Neon * 0.95f, true, false);
+                b.Tube(mid, ear, Vector3.up, new Vector2(0.04f, 0.028f), new Vector2(0.036f, 0.026f), 4, NeonTip, true, true);
+            }
+            Part(node, "Frame", Lit(b, "TildaShadesFrame", 0.8f, 1.12f), material, layer, made);
+        }
+
+        static void OutwardTri(int[] tris, ref int t, Vector3[] v, Vector3[] n, int a, int b, int c)
+        {
+            Vector3 cross = Vector3.Cross(v[b] - v[a], v[c] - v[a]);
+            if (Vector3.Dot(cross, n[a] + n[b] + n[c]) < 0f) (b, c) = (c, b);
+            tris[t++] = a;
+            tris[t++] = b;
+            tris[t++] = c;
         }
 
         // A frangipani tucked behind her "ear" on the viewer's left of the crater rim.

@@ -10,14 +10,44 @@ namespace Drift.Islands
         public Island player;
         public Material islandMaterial;
         public int seed = 777;
-        public float chunkSize = 110f;
-        public int worldChunks = 6;
+        [Tooltip("Kantenlänge eines Streaming-Abschnitts. Die Welt ist chunkSize · worldChunks breit und wiederholt sich dann (PlateSystem.gridPeriod · cellSize muss gleich groß sein).")]
+        public float chunkSize = 76.5f;
+        [Tooltip("Abschnitte pro Weltseite.")]
+        public int worldChunks = 4;
         public int loadRadius = 1;
         public int unloadMargin = 1;
         // Bump when Plan() changes what it generates for a given seed: consumed slot keys and overrides of
-        // an older layout no longer fit, so SaveManager rejects saves written under another value.
-        public const int WorldGenVersion = 2;
+        // an older layout no longer fit. Saves carry the layout they were made in; SaveManager continues every
+        // layout this class can still build (IsKnownLayout) and rejects the rest.
+        public const int WorldGenVersion = 4;
+        // The first small world (2026-09-22): 4 x 90 u = 360 u, same 20 islands. A run started in it keeps its
+        // size, because every planned position would move in the smaller one.
+        public const int MediumWorldGenVersion = 3;
+        const float MediumChunkSize = 90f;
+        // The big world before 2026-09-22: 6 x 6 chunks of 110 u, planned chunk by chunk (~166 islands). Old saves
+        // keep playing in it (UseLayout); new games get the small world.
+        public const int LegacyWorldGenVersion = 2;
+        const float LegacyChunkSize = 110f;
+        const int LegacyWorldChunks = 6;
 
+        public static bool IsKnownLayout(int version) =>
+            version == WorldGenVersion || version == MediumWorldGenVersion || version == LegacyWorldGenVersion;
+
+        [Header("Kleine Welt")]
+        [Tooltip("Inseln in der ganzen Welt (ohne Vulkane): so viele vereint man zur Pangäa.")]
+        [Range(4, 60)] public int worldIslands = 20;
+        [Tooltip("Davon winzige Inselchen (Radius 1–2).")]
+        [Range(0, 20)] public int worldIslets = 3;
+        [Tooltip("Davon sehr große Inseln (Radius 9–13).")]
+        [Range(0, 6)] public int worldLarge = 2;
+        [Tooltip("Davon große Inseln (Radius 6–9).")]
+        [Range(0, 12)] public int worldBig = 4;
+        [Tooltip("Davon mittlere Inseln (Radius 3–6); der Rest ist klein (Radius 2–3).")]
+        [Range(0, 30)] public int worldMedium = 6;
+        [Tooltip("Mindestabstand der Inselmitten als Anteil eines gleichmäßigen Rasters (Weltbreite / Wurzel der Inselzahl): größer = gleichmäßiger verteilt und längere Fahrten zwischen den Inseln.")]
+        [Range(0f, 1f)] public float worldSpacing = 0.7f;
+
+        [Header("Alte große Welt (nur für alte Spielstände)")]
         // Per chunk: minPerChunk..maxPerChunk main islands (small 2-3, medium 3-6, big 6-9, a few large
         // 9-14) plus minIslets..maxIslets tiny ones (radius 1-2), some of them satellites of a main island.
         public int minPerChunk = 2;
@@ -28,6 +58,7 @@ namespace Drift.Islands
         public float largeShare = 0.05f;
         public float bigShare = 0.12f;
         public float mediumShare = 0.43f;
+        [Header("Streaming")]
         public float startExclusion = 18f;
         public int spawnsPerFrame = 1;
         public float dirtyDistance = 2f;
@@ -75,7 +106,18 @@ namespace Drift.Islands
         Vector2 _startPos;
         bool _started;
 
-        public float WorldSize => worldChunks > 0 ? worldChunks * chunkSize : 0f;
+        // The layout the current world is planned in (WorldGenVersion, or LegacyWorldGenVersion for an old save).
+        public int Layout { get; private set; } = WorldGenVersion;
+        public bool IsLegacyLayout => Layout == LegacyWorldGenVersion;
+        public float ChunkSize => IsLegacyLayout ? LegacyChunkSize : Layout == MediumWorldGenVersion ? MediumChunkSize : chunkSize;
+        public int WorldChunks => IsLegacyLayout ? LegacyWorldChunks : worldChunks;
+
+        public float WorldSize => WorldChunks > 0 ? WorldChunks * ChunkSize : 0f;
+
+        // A chunk and its copy one world width away must never be loaded at once (the same islands twice): the
+        // loaded span, 2 * loadRadius + 1 plus the unload margin, has to fit into the world.
+        int LoadRadius => WorldChunks > 0 ? Mathf.Clamp(loadRadius, 0, (WorldChunks - 1) / 2) : loadRadius;
+        int UnloadMargin => WorldChunks > 0 ? Mathf.Clamp(unloadMargin, 0, WorldChunks - 2 * LoadRadius - 1) : unloadMargin;
         public int LoadedChunks => _chunks.Count;
         public Vector2 StartPosition => _startPos;
         public int OverrideCount => _overrides.Count;
@@ -195,12 +237,13 @@ namespace Drift.Islands
         public IReadOnlyList<WorldSlot> WorldSlots()
         {
             EnsureStarted();
+            SweepConsumed();
             if (!_worldSlotsDirty) return _worldSlots;
             _worldSlotsDirty = false;
             _worldSlots.Clear();
-            if (worldChunks <= 0) return _worldSlots;
-            for (int cx = 0; cx < worldChunks; cx++)
-                for (int cz = 0; cz < worldChunks; cz++)
+            if (WorldChunks <= 0) return _worldSlots;
+            for (int cx = 0; cx < WorldChunks; cx++)
+                for (int cz = 0; cz < WorldChunks; cz++)
                 {
                     var chunk = Plan(new Vector2Int(cx, cz));
                     foreach (var s in chunk.slots)
@@ -216,6 +259,11 @@ namespace Drift.Islands
             return _worldSlots;
         }
 
+        // islandsLeft counts the planned slots whose key is not consumed. A slot is consumed once its streamed island
+        // is gone, i.e. merged into another island (the player, or an AI island that is then counted in its place);
+        // this sweeps the loaded slots first, so the count is exact in the very frame of a merge. Hence islandsLeft
+        // is 0 exactly when every planned island of the world has been merged away. Volcanoes are not planned slots
+        // and never count.
         public void Progress(out float remainingArea, out int islandsLeft)
         {
             remainingArea = 0f;
@@ -228,10 +276,43 @@ namespace Drift.Islands
             }
         }
 
+        public int WorldIslandCount => WorldSlots().Count;
+
+        // Share of the planned islands already merged away (0..1), by count.
+        public float MergedShare
+        {
+            get
+            {
+                var slots = WorldSlots();
+                if (slots.Count == 0) return 0f;
+                int done = 0;
+                for (int i = 0; i < slots.Count; i++) if (slots[i].consumed) done++;
+                return done / (float)slots.Count;
+            }
+        }
+
+        void SweepConsumed()
+        {
+            foreach (var chunk in _chunks.Values)
+                foreach (var slot in chunk.slots)
+                    if (slot.spawned && Gone(slot.island)) Consume(Key(chunk.coord, slot.index));
+        }
+
         void OnEnable() => ResetWorld();
+
+        // Switches to another world layout (an old save): clears the world like ResetWorld. ResetWorld itself goes
+        // back to the current layout, so a new game always gets the small world.
+        public void UseLayout(int version)
+        {
+            if (!IsKnownLayout(version)) version = WorldGenVersion;
+            if (version == Layout) return;
+            ResetWorld();
+            Layout = version;
+        }
 
         public void ResetWorld()
         {
+            Layout = WorldGenVersion;
             for (int i = transform.childCount - 1; i >= 0; i--)
             {
                 var child = transform.GetChild(i).gameObject;
@@ -254,9 +335,9 @@ namespace Drift.Islands
             {
                 // WorldSlots()/Progress() (HUD, tools) may have started the plan before the first editor tick.
                 if (!_started || _chunks.Count == 0) StreamAround(true);
-                return;
             }
-            StreamAround(false);
+            else StreamAround(false);
+            player.RunProgress = MergedShare;
         }
 
         static Island FindPlayer()
@@ -265,7 +346,7 @@ namespace Drift.Islands
             return null;
         }
 
-        int Wrap(int c) => worldChunks > 0 ? ((c % worldChunks) + worldChunks) % worldChunks : c;
+        int Wrap(int c) => WorldChunks > 0 ? ((c % WorldChunks) + WorldChunks) % WorldChunks : c;
 
         long Key(Vector2Int c, int idx) => ((long)Wrap(c.x) << 40) ^ ((long)Wrap(c.y) << 20) ^ idx;
 
@@ -300,10 +381,12 @@ namespace Drift.Islands
             }
 
             Vector2 pp = new Vector2(player.transform.position.x, player.transform.position.z);
-            var pc = new Vector2Int(Mathf.FloorToInt(pp.x / chunkSize), Mathf.FloorToInt(pp.y / chunkSize));
+            float size = ChunkSize;
+            int load = LoadRadius;
+            var pc = new Vector2Int(Mathf.FloorToInt(pp.x / size), Mathf.FloorToInt(pp.y / size));
 
-            for (int dx = -loadRadius; dx <= loadRadius; dx++)
-                for (int dz = -loadRadius; dz <= loadRadius; dz++)
+            for (int dx = -load; dx <= load; dx++)
+                for (int dz = -load; dz <= load; dz++)
                 {
                     var c = new Vector2Int(pc.x + dx, pc.y + dz);
                     if (!_chunks.ContainsKey(c))
@@ -319,7 +402,7 @@ namespace Drift.Islands
             foreach (var kv in _chunks)
             {
                 var c = kv.Key;
-                if (Mathf.Max(Mathf.Abs(c.x - pc.x), Mathf.Abs(c.y - pc.y)) > loadRadius + unloadMargin)
+                if (Mathf.Max(Mathf.Abs(c.x - pc.x), Mathf.Abs(c.y - pc.y)) > load + UnloadMargin)
                 {
                     using (UnloadMarker.Auto()) Unload(kv.Value);
                     _toRemove.Add(c);
@@ -455,11 +538,127 @@ namespace Drift.Islands
         }
 
         // The plan of a chunk depends only on its wrapped coordinates, so the world repeats seamlessly.
-        Chunk Plan(Vector2Int coord)
+        Chunk Plan(Vector2Int coord) => IsLegacyLayout ? PlanLegacy(coord) : PlanFromWorld(coord);
+
+        // The small world: the whole torus is planned at once (GlobalPlan) and each chunk takes the islands whose
+        // centre lies in it, moved onto this copy of the world.
+        Chunk PlanFromWorld(Vector2Int coord)
+        {
+            var chunk = new Chunk { coord = coord };
+            var wrapped = new Vector2Int(Wrap(coord.x), Wrap(coord.y));
+            Vector2 shift = (Vector2)(coord - wrapped) * ChunkSize;
+            foreach (var g in GlobalPlan())
+                if (g.chunk == wrapped)
+                    chunk.slots.Add(new Slot { pos = g.pos + shift, radius = g.radius, archetype = g.archetype, shapeSeed = g.shapeSeed, index = g.index });
+            return chunk;
+        }
+
+        struct PlannedIsland
+        {
+            public Vector2 pos;
+            public float radius;
+            public IslandArchetype archetype;
+            public int shapeSeed, index;
+            public Vector2Int chunk;
+        }
+
+        readonly List<PlannedIsland> _plan = new();
+        int _planKey;
+        bool _planValid;
+
+        int PlanKey()
+        {
+            unchecked
+            {
+                int h = Hash(seed, worldIslands, worldIslets);
+                h = h * 31 + Hash(worldLarge, worldBig, worldMedium);
+                h = h * 31 + worldSpacing.GetHashCode();
+                h = h * 31 + ChunkSize.GetHashCode();
+                h = h * 31 + WorldChunks * 7919 + Layout;
+                h = h * 31 + startExclusion.GetHashCode();
+                h = h * 31 + (_started ? _startPos.GetHashCode() : 0);
+                return h;
+            }
+        }
+
+        // worldIslands islands in fixed size classes (worldLarge / worldBig / worldMedium, the rest small, worldIslets
+        // of them islets), largest first, each at a random spot of the torus at least worldSpacing * W / sqrt(n)
+        // from every other centre (half that for islets) and never closer than the old pair gaps. When no spot is
+        // found the spacing relaxes step by step, so the count is exact.
+        List<PlannedIsland> GlobalPlan()
+        {
+            int key = PlanKey();
+            if (_planValid && key == _planKey) return _plan;
+            _plan.Clear();
+            float w = WorldSize;
+            if (w <= 0f) return _plan;
+
+            // Keyed on the layout, so a run planned in the 360 u world keeps exactly the islands it had.
+            var rnd = new System.Random(Hash(seed, 0x51A11, Layout));
+            int n = Mathf.Max(1, worldIslands);
+            int islets = Mathf.Clamp(worldIslets, 0, n);
+            int mains = n - islets;
+            int large = Mathf.Clamp(worldLarge, 0, mains);
+            int big = Mathf.Clamp(worldBig, 0, mains - large);
+            int medium = Mathf.Clamp(worldMedium, 0, mains - large - big);
+
+            var radii = new float[n];
+            var types = new IslandArchetype[n];
+            var seeds = new int[n];
+            for (int i = 0; i < n; i++)
+            {
+                float t = (float)rnd.NextDouble();
+                if (i < large) { radii[i] = 9f + 4f * t * t; types[i] = Pick(rnd, LargeWeights); }
+                else if (i < large + big) { radii[i] = 6f + 3f * t; types[i] = Pick(rnd, BigWeights); }
+                else if (i < large + big + medium) { radii[i] = 3f + 3f * t; types[i] = Pick(rnd, MediumWeights); }
+                else if (i < mains) { radii[i] = 2f + t; types[i] = Pick(rnd, SmallWeights); }
+                else RollIslet(rnd, out radii[i], out types[i]);
+                seeds[i] = rnd.Next();
+            }
+            for (int i = 1; i < n; i++)
+                for (int k = i; k > 0 && radii[k] > radii[k - 1]; k--)
+                {
+                    (radii[k], radii[k - 1]) = (radii[k - 1], radii[k]);
+                    (types[k], types[k - 1]) = (types[k - 1], types[k]);
+                    (seeds[k], seeds[k - 1]) = (seeds[k - 1], seeds[k]);
+                }
+
+            float spacing = Mathf.Max(0f, worldSpacing) * w / Mathf.Sqrt(n);
+            float size = ChunkSize;
+            for (int i = 0; i < n; i++)
+            {
+                float r = radii[i];
+                bool islet = r < 2f;
+                float need = islet ? 0.5f * spacing : spacing;
+                for (int attempt = 0; attempt < 600; attempt++)
+                {
+                    if (attempt > 0 && attempt % 60 == 0) need *= 0.85f;
+                    var pos = new Vector2((float)rnd.NextDouble() * w, (float)rnd.NextDouble() * w);
+                    if (_started && WrapDistance(pos, _startPos) < startExclusion + 1.4f * r) continue;
+                    bool clash = false;
+                    foreach (var o in _plan)
+                    {
+                        float sum = o.radius + r;
+                        float gap = islet || o.radius < 2f ? sum * 1.4f + 5f : sum * 1.8f + 6f;
+                        if (WrapDistance(o.pos, pos) < Mathf.Max(gap, need)) { clash = true; break; }
+                    }
+                    if (clash) continue;
+                    var chunk = new Vector2Int(Mathf.Clamp(Mathf.FloorToInt(pos.x / size), 0, WorldChunks - 1),
+                        Mathf.Clamp(Mathf.FloorToInt(pos.y / size), 0, WorldChunks - 1));
+                    _plan.Add(new PlannedIsland { pos = pos, radius = r, archetype = types[i], shapeSeed = seeds[i], index = i, chunk = chunk });
+                    break;
+                }
+            }
+            _planValid = true;
+            _planKey = key;
+            return _plan;
+        }
+
+        Chunk PlanLegacy(Vector2Int coord)
         {
             var chunk = new Chunk { coord = coord };
             var rnd = new System.Random(Hash(seed, Wrap(coord.x), Wrap(coord.y)));
-            Vector2 min = new Vector2(coord.x, coord.y) * chunkSize;
+            Vector2 min = new Vector2(coord.x, coord.y) * ChunkSize;
 
             int mains = rnd.Next(minPerChunk, maxPerChunk + 1);
             var radii = new float[mains];
@@ -492,6 +691,7 @@ namespace Drift.Islands
         {
             // Land reaches up to ~1.4 radii (ridges, clusters): keep that inside the chunk so neighbours
             // planned independently never overlap.
+            float size = ChunkSize;
             float margin = Mathf.Max(10f, 1.4f * radius + 2f);
             for (int attempt = 0; attempt < 24; attempt++)
             {
@@ -503,9 +703,9 @@ namespace Drift.Islands
                     float dist = (parent.radius + radius) * 1.4f + 5f + 8f * b;
                     pos = parent.pos + new Vector2(Mathf.Cos(ang), Mathf.Sin(ang)) * dist;
                     Vector2 rel = pos - min;
-                    if (rel.x < margin || rel.y < margin || rel.x > chunkSize - margin || rel.y > chunkSize - margin) continue;
+                    if (rel.x < margin || rel.y < margin || rel.x > size - margin || rel.y > size - margin) continue;
                 }
-                else pos = min + new Vector2(Mathf.Lerp(margin, chunkSize - margin, a), Mathf.Lerp(margin, chunkSize - margin, b));
+                else pos = min + new Vector2(Mathf.Lerp(margin, size - margin, a), Mathf.Lerp(margin, size - margin, b));
 
                 if (_started && WrapDistance(pos, _startPos) < startExclusion + 1.4f * radius) continue;
 

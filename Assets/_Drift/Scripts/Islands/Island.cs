@@ -17,20 +17,39 @@ namespace Drift.Islands
 
         public static event Action<float> Impact;
         public static event Action<Island, Island, float> Merged;
+        // Adventure: the player bumped into an obstacle island (player, obstacle, contact in world xz, 0..1 strength).
+        // Only the counted hits (outside the cooldown) are reported.
+        public static event Action<Island, Island, Vector2, float> Bumped;
         // When set and returning a non-zero vector, replaces keyboard input for the player island (touch UI).
         public static Func<Vector2> InputProvider;
+        // Direct-direction steering (tilt, and the same scheme for touch and WASD): a WORLD-space XZ direction,
+        // length 0..1 = share of full thrust. The island drives straight that way without turning into it first
+        // ("es gibt kein vorne, sie treibt einfach nur in die Richtung").
+        public static Func<Vector2> DirectionProvider;
+        public static bool DirectionSteering;
         public static bool InputLocked;
 
         public float landRadius = 3f;
         public float cellSize = 0.5f;
         [Tooltip("Höchsttempo der Insel aus eigener Kraft (kleine Insel; große sind etwas langsamer).")]
         [Range(2f, 25f)] public float moveSpeed = 8f;
-        public float acceleration = 3.6f;
+        [Tooltip("Schub beim Gasgeben (u/s²). Höher = die Insel ist schneller auf Tempo.")]
+        public float acceleration = 9f;
+        [Tooltip("Wie stark große, träge Inseln langsamer beschleunigen (0 = gar nicht, 1 = voll mit der Wendigkeit).")]
+        [Range(0f, 1f)] public float accelAgilityExponent = 0.35f;
         public float dragBase = 0.45f;
         public float turnRateDegPerSec = 90f;
         public float turnResponse = 3f;
         public float turnEaseIn = 0.35f;
         public float velocityAlign = 2.5f;
+        [Tooltip("Richtungssteuerung: mit wie viel Grad pro Sekunde die Blickrichtung (und damit die Kamera) der Fahrtrichtung nachzieht. 0 = gar nicht.")]
+        [Range(0f, 90f)] public float directionHeadingFollow = 0f;
+        [Tooltip("Richtungssteuerung: welchen Anteil des Höchsttempos ein ganz leichter Ausschlag gibt. Voller Ausschlag ist immer volles Tempo.")]
+        [Range(0.05f, 1f)] public float directionMinSpeedShare = 0.35f;
+        [Tooltip("Wie weit sich die Insel in eine Kurve legt (Grad). 0 = aus.")]
+        [Range(0f, 12f)] public float leanIntoTurns = 3.5f;
+        [Tooltip("Wie schnell die Insel sich in die Kurve legt und wieder aufrichtet.")]
+        [Range(0.5f, 10f)] public float leanResponse = 3f;
         public float driftRotation = 2f;
         public float driftPeriod = 40f;
         // Merge turn = a critically damped angular spring. bodyTurnTime / bodyTurnMaxRate: seconds to get within
@@ -84,6 +103,46 @@ namespace Drift.Islands
         public float barrenRadiusScale = DefaultBarrenRadiusScale;
         public float startleDuration = 3f;
 
+        [Header("Sinken (Gemütlich)")]
+        [Tooltip("Wie schnell die Insel im gemütlichen Modus sinkt (1 = so schnell wie im Abenteuer bei gleicher Landfläche, kleiner = gemächlicher). Große Inseln sinken schneller, kleine langsamer; untergehen kann sie nie.")]
+        [Range(0f, 3f)] public float cozySinkSpeed = 0.6f;
+        [Tooltip("Anteil des gesammelten Landes, der zu Beginn der Reise mindestens über Wasser bleibt. Darunter sinkt die Insel nicht weiter (nie kleiner als die Startinsel).")]
+        [Range(0f, 1f)] public float cozyKeepShareStart = 0.5f;
+        [Tooltip("Anteil des gesammelten Landes, der mindestens über Wasser bleibt, wenn alle Inseln der Welt vereint sind. Dazwischen wächst die Mindestgröße mit dem Anteil der vereinten Inseln.")]
+        [Range(0f, 1f)] public float cozyKeepShareEnd = 0.9f;
+        [Tooltip("Sanftes Ausrollen: in diesem Anteil der Landfläche über der Mindestgröße wird das Sinken immer langsamer, bis es ganz aufhört.")]
+        [Range(0.01f, 0.5f)] public float cozyEaseShare = 0.12f;
+        [Tooltip("Liegt die Insel unter ihrer Mindestgröße (weil die Reise vorangekommen ist), taucht sie in etwa so vielen Sekunden bis dorthin wieder auf.")]
+        [Range(1f, 120f)] public float cozyRiseSeconds = 20f;
+
+        [Header("Sinken und Schub (Abenteuer)")]
+        [Tooltip("Im Abenteuer sinkt die Insel auf Zeit, und die Runde ist verloren, wenn sie untergeht. Aus = die Insel sinkt gar nicht (zum Ausprobieren).")]
+        public bool adventureSinking = true;
+
+        [Header("Abenteuer-Fahrt")]
+        [Tooltip("Bremsen: wie viel vom Grundtempo beim vollen Zurückziehen mindestens übrig bleibt. Ganz anhalten oder rückwärts fahren geht im Abenteuer nie.")]
+        [Range(0.1f, 1f)] public float adventureBrakeMin = 0.45f;
+        [Tooltip("Wie kräftig gebremst wird: Vielfaches des normalen Schubs.")]
+        [Range(0.5f, 6f)] public float adventureBrakeForce = 2.2f;
+        [Tooltip("Lenken: seitliches Tempo bei vollem Ausschlag als Anteil des Höchsttempos. Größer = die Insel zieht schneller quer über die Bahn.")]
+        [Range(0.2f, 1.6f)] public float adventureSteerShare = 0.9f;
+
+        [Header("Zusammenstoß mit Hindernissen (Abenteuer)")]
+        [Tooltip("Anteil des vollen Auftriebs, den ein Zusammenstoß mit einer Insel kostet. Mehrere Treffer sind zu überleben, Ausweichen lohnt sich trotzdem deutlich.")]
+        [Range(0f, 0.6f)] public float hitBuoyancyLoss = 0.18f;
+        [Tooltip("Anteil des Tempos längs der Küste, der nach einem Treffer bleibt.")]
+        [Range(0f, 1f)] public float hitSpeedKeep = 0.35f;
+        [Tooltip("Wie kräftig die Insel abprallt (0 = sie bleibt kleben, 1 = so schnell zurück, wie sie gekommen ist).")]
+        [Range(0f, 1.5f)] public float hitBounce = 0.7f;
+        [Tooltip("Mindesttempo (u/s), mit dem die Insel vom Hindernis wegprallt.")]
+        [Range(0f, 12f)] public float hitMinBounce = 5f;
+        [Tooltip("Sekunden nach einem Treffer, in denen dieselbe Berührung nicht noch einmal zählt.")]
+        [Range(0f, 4f)] public float hitCooldown = 1.2f;
+        [Tooltip("Sekunden nach einem Treffer ohne Grundtempo, damit man nicht sofort wieder hineinfährt.")]
+        [Range(0f, 2f)] public float hitStun = 0.6f;
+        [Tooltip("Wie schnell (Anteil des Landes pro Sekunde) die Insel nach einem Treffer auf ihre neue Tiefe absackt.")]
+        [Range(0.02f, 1f)] public float hitSinkRate = 0.15f;
+
         [Header("Bergbildung")]
         [Tooltip("Sekunden, in denen das neue Bergland nach einem Zusammenstoß aufsteigt (kleiner = schneller). Höhere Berge brauchen etwas länger.")]
         [Range(0.5f, 30f)] public float upliftDuration = DefaultUpliftDuration;
@@ -109,6 +168,8 @@ namespace Drift.Islands
         Vector2 _carry;
         Vector2 _surf;
         Vector2 _selfVel;
+        Vector2 _driveDir;
+        float _lean;
         float _turnVel;
         float _clock;
         float _driftPhase;
@@ -134,6 +195,25 @@ namespace Drift.Islands
         float _sinkVersionAccum;
         float _emergeTime;
         float _emergeSpeed;
+        [NonSerialized] float _boostLeft;
+        [NonSerialized] float _boostStrength = 1f;
+        [NonSerialized] float _boostDuration = 1f;
+        [NonSerialized] float _startArea;
+        [NonSerialized] float _hitCooldownLeft, _hitStunLeft, _hitSinkLeft;
+        [NonSerialized] float _staggerLeft, _staggerFactor = 1f;
+
+        // The ring's rim (RingWorld, Adventure only): near the edge of the band the water foams and pushes gently
+        // back towards the middle; the hard stop is PositionConstraint. Never set in Cozy.
+        [NonSerialized] public Vector2 EdgePush;
+        [NonSerialized] public float EdgeWarning;
+
+        // Adventure only, written by RingWorld as the difficulty rises (1 / 0 / 1 = as the sliders say).
+        [NonSerialized] public float AdventureSpeedScale = 1f;
+        // Share of the top speed the island keeps up by itself in Adventure (the ring's base pace).
+        [NonSerialized] public float AdventureCruise;
+        [NonSerialized] public float AdventureSinkScale = 1f;
+        // The direction of travel along the adventure track (RingWorld writes it; +z until then).
+        [NonSerialized] public Vector2 AdventureTrack = Vector2.up;
 
         public Vector3 Normal { get; private set; } = Vector3.up;
         // Heading: steering, thrust and the chase camera. Only player input turns it.
@@ -149,9 +229,73 @@ namespace Drift.Islands
         public float LandFraction => _areaRaw > 0f ? Mathf.Clamp01(_area / _areaRaw) : 1f;
         public float FullArea => _areaRaw;
 
-        // The player's buoyancy is the share of its sink time that is left (1 = afloat, 0 = sunk): it drains
-        // linearly, the HUD bar is a timer. Every other island reports its land share.
+        // Which rules apply: GameModes.Current unless a test pins it.
+        [NonSerialized] public GameMode? ModeOverride;
+        public GameMode Mode => ModeOverride ?? GameModes.Current;
+
+        // Share of the world's planned islands already merged (0..1); WorldStreamer keeps it current for the player.
+        // Raises the cozy minimum size from cozyKeepShareStart to cozyKeepShareEnd.
+        [NonSerialized] public float RunProgress;
+
+        // Land area of the start island (the cozy floor never goes below it); taken when the player's start shape is
+        // generated, a restored save keeps the value of the shape generated before it.
+        public float StartArea
+        {
+            get => _startArea > 0f ? _startArea : _areaRaw;
+            set => _startArea = Mathf.Max(0f, value);
+        }
+
+        // Adventure with sinking on: the run is lost when the island goes under. Cozy never sinks completely.
+        public bool SinkIsLethal => Mode == GameMode.Adventure && adventureSinking;
+
+        // Cozy: the land area the island keeps above water whatever happens; 0 in Adventure.
+        public float SinkFloorArea
+        {
+            get
+            {
+                if (Mode != GameMode.Cozy || !useKeyboardInput) return 0f;
+                float keep = Mathf.Lerp(cozyKeepShareStart, cozyKeepShareEnd, Mathf.Clamp01(RunProgress));
+                return Mathf.Min(_areaRaw, Mathf.Max(StartArea, keep * _areaRaw));
+            }
+        }
+
+        float FloorShare => _areaRaw > 0f ? Mathf.Clamp01(SinkFloorArea / _areaRaw) : 0f;
+
+        // 1 = fully afloat, 0 = as low as the island can go (cozy: resting on its minimum size, adventure: sunk).
+        public float SinkHeadroom
+        {
+            get
+            {
+                if (!useKeyboardInput || _shape == null) return LandFraction;
+                SyncBuoyancy();
+                float floor = BuoyancyAtLandShare(FloorShare);
+                if (floor >= 0.999f) return 1f;
+                return Mathf.Clamp01((_buoy - floor) / (1f - floor));
+            }
+        }
+
+        // Cozy: the island has settled on its minimum size and does not sink any further.
+        public bool SinkResting => Mode == GameMode.Cozy && useKeyboardInput && SinkHeadroom < 0.02f;
+
+        // Where the HUD bar of a cozy island stands when it rests on its minimum: above every sinking warning
+        // (HUD 0.55, audio 0.35), because in cozy there is nothing to warn about.
+        public const float CozyBarAtRest = 0.6f;
+
+        // The player's buoyancy: in Adventure the share of its sink time that is left (1 = afloat, 0 = sunk; it drains
+        // linearly, the HUD bar is a timer); in Cozy the bar runs from 1 down to CozyBarAtRest when the island rests
+        // on its minimum size (SinkHeadroom is the plain 0..1 value). Every other island reports its land share.
         public float Buoyancy
+        {
+            get
+            {
+                if (!useKeyboardInput || _shape == null) return LandFraction;
+                SyncBuoyancy();
+                return Mode == GameMode.Cozy ? Mathf.Lerp(CozyBarAtRest, 1f, SinkHeadroom) : _buoy;
+            }
+        }
+
+        // The internal buoyancy state (land above water = RawBuoyancy ^ sinkLandExponent), whatever the mode.
+        public float RawBuoyancy
         {
             get
             {
@@ -163,19 +307,164 @@ namespace Drift.Islands
 
         public float SinkSecondsForArea(float area) => SinkBalance.SecondsForArea(area, sinkSecondsSmall, sinkSecondsHuge, sinkHalfArea);
         // Storm and form penalty on top of the size curve.
-        public float SinkMultiplier => Mathf.Lerp(1f, stormSinkMultiplier, StormIntensity) * Mathf.Lerp(elongatedSinkMultiplier, 1f, Compactness);
-        // Full-buoyancy sink time of this island as it is now (size, storm, form).
-        public float SinkSecondsFull => SinkSecondsForArea(_areaRaw) / Mathf.Max(0.01f, SinkMultiplier);
+        // In the race a storm may only push the island off its line, never speed up the sinking (owner: "die stürme
+        // sollen nur die insel abdriften lassen").
+        public float SinkMultiplier => Mathf.Lerp(1f, stormSinkMultiplier, AdventureRacing ? 0f : StormIntensity)
+            * Mathf.Lerp(elongatedSinkMultiplier, 1f, Compactness);
+        // Full-buoyancy sink time of this island as it is now (size, storm, form, and the adventure difficulty).
+        public float SinkSecondsFull => SinkSecondsForArea(_areaRaw) / Mathf.Max(0.01f, SinkMultiplier * (AdventurePlayer ? Mathf.Max(0.1f, AdventureSinkScale) : 1f));
 
-        // Estimate at the current rate; infinite while sinking is held or for islands that never sink.
+        // The player island in Adventure: an obstacle course, no merges, a base pace and a harder sink as time goes on.
+        public bool AdventurePlayer => useKeyboardInput && Mode == GameMode.Adventure;
+
+        // Estimate at the current rate; infinite while sinking is held, when it cannot sink the island (Cozy,
+        // Adventure with sinking off) or for islands that never sink.
         public float SinkSecondsLeft
         {
             get
             {
-                if (!sinkEnabled || !useKeyboardInput || _shape == null) return float.PositiveInfinity;
+                if (!sinkEnabled || !useKeyboardInput || _shape == null || !SinkIsLethal) return float.PositiveInfinity;
                 return IsSunk ? 0f : Buoyancy * SinkSecondsFull;
             }
         }
+
+        // A timed speed boost (Adventure: flotsam), fading out in the last third.
+        public bool Boosting => _boostLeft > 0f;
+        public float BoostRemaining => Mathf.Max(0f, _boostLeft);
+        // Multiplier on the top speed right now (1 = no boost); for the HUD and effects.
+        public float BoostFactor => _boostLeft > 0f ? 1f + (Mathf.Max(1f, _boostStrength) - 1f) * BoostEnvelope : 1f;
+        float BoostEnvelope => Mathf.Clamp01(_boostLeft / Mathf.Max(0.01f, BoostFadeShare * _boostDuration));
+        const float BoostFadeShare = 0.35f;
+        const float BoostResponse = 2.5f;
+
+        // A temporary speed boost: the top speed times factor for seconds (fading out in the last third), the island
+        // surging forward on its own. A boost during another one keeps the stronger factor and the longer time.
+        public void SpeedBoost(float seconds, float factor)
+        {
+            if (seconds <= 0f || factor <= 1f) return;
+            _boostStrength = Mathf.Max(factor, BoostFactor);
+            _boostLeft = Mathf.Max(seconds, _boostLeft);
+            _boostDuration = _boostLeft;
+        }
+
+        // A temporary slow-down (lightning, scraping a ship): for seconds the island may only reach speedFactor of
+        // its speed. It is not a stop and it is not cancelled by the ring's cruise floor - the floor is scaled by it
+        // too, so a staggered island really is slower than one that just lets go of the stick. The harsher and the
+        // longer of two overlapping staggers wins.
+        public void Stagger(float seconds, float speedFactor)
+        {
+            if (seconds <= 0f) return;
+            float f = Mathf.Clamp(speedFactor, 0.05f, 1f);
+            if (_staggerLeft > 0f)
+            {
+                _staggerFactor = Mathf.Min(_staggerFactor, f);
+                _staggerLeft = Mathf.Max(_staggerLeft, seconds);
+            }
+            else
+            {
+                _staggerFactor = f;
+                _staggerLeft = seconds;
+            }
+        }
+
+        public bool Staggered => _staggerLeft > 0f;
+        public float StaggerRemaining => Mathf.Max(0f, _staggerLeft);
+        // 1 = free, below 1 = the share of the speed the island may reach right now.
+        public float StaggerFactor => _staggerLeft > 0f ? Mathf.Clamp(_staggerFactor, 0.05f, 1f) : 1f;
+
+        // Refloats the player by share (0..1) of the full buoyancy, like a merge does, clamped at fully afloat.
+        // No effect when the island cannot sink (not the player, or Adventure with sinking off).
+        public void AddBuoyancy(float share)
+        {
+            if (!useKeyboardInput || _shape == null || share <= 0f || IsSunk) return;
+            if (Mode == GameMode.Adventure && !adventureSinking) return;
+            SyncBuoyancy();
+            float before = _shape.sink;
+            _buoy = Mathf.Clamp01(_buoy + share);
+            _shape.sink = _hypso.DepthAt(LandShareAt(_buoy));
+            if (Mathf.Abs(_shape.sink - before) < 1e-5f) return;
+            RecomputeStats();
+            if (_mesh != null) _shape.RefreshHeights(_mesh, false);
+            else RebuildMesh();
+            _sinkMeshTimer = 0f;
+            _sinkVersionAccum = 0f;
+            _version++;
+        }
+
+        // Takes share (0..1) of the full buoyancy away (a hit against an obstacle island). The bar answers at once;
+        // the waterline follows at hitSinkRate, so the land visibly sinks a step instead of jumping.
+        // Brings the island to a real standstill (own drive, plate carry and surf): the finished Pangäa must not
+        // drift on during the fly-over, and the water must not draw a bow wave for a current it no longer feels.
+        public void StopDrift()
+        {
+            _selfVel = Vector2.zero;
+            _carry = Vector2.zero;
+            _surf = Vector2.zero;
+        }
+
+        public void RemoveBuoyancy(float share)
+        {
+            if (!useKeyboardInput || _shape == null || share <= 0f || IsSunk) return;
+            if (Mode == GameMode.Adventure && !adventureSinking) return;
+            SyncBuoyancy();
+            _buoy = Mathf.Clamp01(_buoy - share);
+            LastHitLoss = share;
+            _hitSinkLeft = HitSinkSeconds;
+        }
+
+        const float HitSinkSeconds = 2.5f;
+
+        // Share of the full buoyancy the last hit cost.
+        public float LastHitLoss { get; private set; }
+        // Counted hits against obstacle islands since the island was (re)generated.
+        public int Hits { get; private set; }
+        public float HitCooldownLeft => Mathf.Max(0f, _hitCooldownLeft);
+        public bool HitStunned => _hitStunLeft > 0f;
+
+        // Adventure: the player ran into an obstacle island. Bounces off along the contact normal (always at least
+        // hitMinBounce, so even a slow scrape pushes clear), keeps only hitSpeedKeep of the speed along the coast and
+        // - outside the cooldown - costs hitBuoyancyLoss of the buoyancy. Returns true when the hit counted.
+        public bool Bump(Island obstacle, Vector2 contactLocal, float dt)
+        {
+            if (obstacle == null || _shape == null) return false;
+            Vector2 contact = ToWorld(contactLocal);
+            Vector2 n = _pos - contact;
+            if (n.sqrMagnitude < 1e-4f) n = _pos - obstacle._pos;
+            n = n.sqrMagnitude > 1e-6f ? n.normalized : -Forward2;
+
+            float closing = Mathf.Max(0f, -Vector2.Dot(PlanarVelocity - obstacle.PlanarVelocity, n));
+            // The plate current and the surf keep pushing into the island otherwise, and the contact never ends.
+            float carryIn = Vector2.Dot(_carry, n);
+            if (carryIn < 0f) _carry -= n * carryIn;
+            float surfIn = Vector2.Dot(_surf, n);
+            if (surfIn < 0f) _surf -= n * surfIn;
+
+            float selfN = Vector2.Dot(_selfVel, n);
+            float bounce = Mathf.Max(hitMinBounce, closing * hitBounce);
+            if (selfN < bounce) _selfVel += n * (bounce - selfN);
+            if (dt > 0f) _pos += n * (Mathf.Max(1f, hitMinBounce) * dt);
+            ApplyTransform();
+
+            if (_hitCooldownLeft > 0f) return false;
+            _hitCooldownLeft = hitCooldown;
+            _hitStunLeft = hitStun;
+            Hits++;
+            selfN = Vector2.Dot(_selfVel, n);
+            _selfVel = n * selfN + (_selfVel - n * selfN) * Mathf.Clamp01(hitSpeedKeep);
+            _boostLeft = 0f;
+            RemoveBuoyancy(hitBuoyancyLoss);
+            if (_herds == null) _herds = GetComponent<IslandHerdSystem>();
+            if (_herds != null) _herds.Startle(contactLocal, startleDuration);
+            float intensity = Mathf.Clamp01(0.35f + closing / 14f);
+            Impact?.Invoke(intensity);
+            Bumped?.Invoke(this, obstacle, contact, intensity);
+            return true;
+        }
+
+        // The ring world ends at its rims and holds the island inside (RingWorld.PositionConstraint): there is no way
+        // off the band, so an adventure run can only ever end by sinking. Kept so the game-over screen, which asks
+        // how the run ended, still compiles.
+        public bool LostOverEdge => false;
 
         // Share of the full buoyancy the last absorbed island gave back (after the kind factor, before the clamp at full).
         public float LastRefloat { get; private set; }
@@ -239,7 +528,35 @@ namespace Drift.Islands
         public bool IsUplifting => _upliftT < 1f;
         public float Agility => AgilityFor(_area);
         public float AgilityFor(float area) => Mathf.Pow(agilityArea / (agilityArea + Mathf.Max(0f, area)), 0.6f);
-        public float MaxSpeed => moveSpeed * (0.55f + 0.45f * Agility);
+        public float MaxSpeed => moveSpeed * (0.55f + 0.45f * Agility) * SpeedScale;
+        float SpeedScale => AdventurePlayer ? Mathf.Max(0.1f, AdventureSpeedScale) : 1f;
+
+        // Adventure is a race: the island always runs along the track and the input only steers sideways and
+        // brakes. Whatever the steering scheme (direct direction or the old wheel), it comes down to the same
+        // two numbers, so both play exactly the same.
+        public bool AdventureRacing => AdventurePlayer && AdventureCruise > 0f && !IsSunk;
+
+        // Unit direction of travel along the ring.
+        public Vector2 TrackDirection
+        {
+            get
+            {
+                float len = AdventureTrack.magnitude;
+                return len > 1e-4f ? AdventureTrack / len : Vector2.up;
+            }
+        }
+
+        // The pace the ring keeps up by itself right now (u/s) and the slowest the brake can ever get.
+        public float AdventureBaseSpeed => Mathf.Clamp01(AdventureCruise) * MaxSpeed * StaggerFactor;
+        public float AdventureBrakeSpeed => AdventureBaseSpeed * adventureBrakeMin;
+        // Sideways speed at full deflection; it grows with the top speed, so the line the island can weave over
+        // the band stays the same while everything gets faster from level to level.
+        public float AdventureSteerSpeed => adventureSteerShare * MaxSpeed;
+        // Speed along the track right now - what the race is actually about.
+        public float TrackSpeed => Vector2.Dot(PlanarVelocity, TrackDirection);
+
+        const float RaceHeadingRate = 240f;
+        const float RaceSteerResponse = 4f;
 
         public float MaxHeight
         {
@@ -288,6 +605,8 @@ namespace Drift.Islands
 
         // IPlateRider
         public Vector2 PlanarPosition => _pos;
+        // Optional clamp for the player's planar position (null = open sea). Set by the adventure ring world.
+        public static Func<Vector2, Vector2> PositionConstraint;
         public Vector2 SelfVelocity => _selfVel;
         public float Mass => Mathf.Max(1f, _area);
 
@@ -299,6 +618,7 @@ namespace Drift.Islands
             // The transform carries heading + body yaw; a re-enable must not fold the body yaw into the heading.
             Forward = (Quaternion.AngleAxis(-_bodyYaw, Vector3.up) * f).normalized;
             _bodyYaw = 0f;
+            _driveDir = Vector2.zero;
             ClearBodyTurns();
             _pos = new Vector2(transform.position.x, transform.position.z);
             _bobPhase = (Mathf.Abs(shapeSeed) % 97) * 0.13f;
@@ -331,13 +651,22 @@ namespace Drift.Islands
         {
             if (!Application.isPlaying) return;
             Vector2 input = Vector2.zero;
+            Vector2 drive = Vector2.zero;
             if (useKeyboardInput && !InputLocked)
             {
-                if (InputProvider != null) input = InputProvider();
-                if (input.sqrMagnitude < 1e-4f) input = ReadKeyboardInput();
+                if (DirectionSteering)
+                {
+                    if (DirectionProvider != null) drive = DirectionProvider();
+                    if (drive.sqrMagnitude < 1e-6f) drive = KeysToDirection(ReadKeyboardInput());
+                }
+                else
+                {
+                    if (InputProvider != null) input = InputProvider();
+                    if (input.sqrMagnitude < 1e-4f) input = ReadKeyboardInput();
+                }
             }
-            if (IsSunk) input = Vector2.zero;
-            Tick(input, Time.deltaTime);
+            if (IsSunk) { input = Vector2.zero; drive = Vector2.zero; }
+            Tick(input, drive, Time.deltaTime);
             AdvanceUplift(Time.deltaTime);
             AdvanceEmergence(Time.deltaTime);
             AdvanceSink(Time.deltaTime);
@@ -355,37 +684,170 @@ namespace Drift.Islands
             return new Vector2(turn, throttle);
         }
 
+        // Direct-direction steering for the keyboard: WASD name a direction on the screen, not a turn. The chase
+        // camera looks along the heading, so the heading's own frame IS the screen frame.
+        Vector2 KeysToDirection(Vector2 keys)
+        {
+            if (keys.sqrMagnitude < 1e-4f) return Vector2.zero;
+            Vector2 f = Forward2;
+            Vector2 r = new Vector2(f.y, -f.x);
+            return Vector2.ClampMagnitude(r * keys.x + f * keys.y, 1f);
+        }
+
         static float DriftWave(float t) => 0.65f * Mathf.Sin(t) + 0.35f * Mathf.Sin(t * 0.41f + 1.7f);
 
-        public void Tick(Vector2 input, float dt)
+        public void Tick(Vector2 input, float dt) => Tick(input, Vector2.zero, dt);
+
+        // driveDir: a world-space XZ direction of travel, length 0..1 = share of full thrust. While
+        // DirectionSteering is on it replaces the input outright - the island pushes straight that way without
+        // turning into it first. The heading is what the chase camera looks along, so it must NOT chase the
+        // input: that would turn the very frame the direction is given in and make a held tilt circle for ever.
+        public void Tick(Vector2 input, Vector2 driveDir, float dt)
         {
+            bool direct = DirectionSteering && useKeyboardInput;
+            bool race = AdventureRacing;
+            Vector2 stick = Vector2.ClampMagnitude(driveDir, 1f);
+            float push = 0f;
+            if (direct)
+            {
+                if (_driveDir.sqrMagnitude < 1e-6f) _driveDir = Forward2;
+                float len = driveDir.magnitude;
+                if (len > 1e-4f)
+                {
+                    _driveDir = driveDir / len;
+                    push = Mathf.Min(1f, len);
+                }
+                input = new Vector2(0f, push);
+            }
+            Vector2 drive2 = direct ? _driveDir : Forward2;
             float ag = Agility;
             float sq = Mathf.Sqrt(ag);
             _clock += dt;
+            if (_hitCooldownLeft > 0f) _hitCooldownLeft = Mathf.Max(0f, _hitCooldownLeft - dt);
+            if (_hitStunLeft > 0f) _hitStunLeft = Mathf.Max(0f, _hitStunLeft - dt);
+            if (_staggerLeft > 0f) _staggerLeft = Mathf.Max(0f, _staggerLeft - dt);
 
-            // Steering: a turn builds up linearly over turnEaseIn (angle grows quadratically, so it starts
-            // soft) and winds down exponentially, both only mildly slower for heavy islands; the top rate
-            // still scales with the full Agility.
-            float targetTurn = input.x * turnRateDegPerSec * ag;
-            if (Mathf.Abs(targetTurn) > Mathf.Abs(_turnVel) && targetTurn * _turnVel >= 0f)
-                _turnVel = Mathf.MoveTowards(_turnVel, targetTurn, turnRateDegPerSec * sq * dt / Mathf.Max(0.05f, turnEaseIn));
+            // The race reads both schemes into one pair of numbers: sideways = steer, backwards = brake. Pushing
+            // forwards asks for more than the base pace, up to the top speed; it can never ask for less.
+            Vector2 track = Vector2.up, across2 = Vector2.right;
+            float steer = 0f, ahead = 0f, brake = 0f;
+            if (race)
+            {
+                track = TrackDirection;
+                across2 = new Vector2(track.y, -track.x);
+                float along;
+                if (direct)
+                {
+                    steer = Vector2.Dot(stick, across2);
+                    along = Vector2.Dot(stick, track);
+                }
+                else
+                {
+                    steer = input.x;
+                    along = input.y;
+                }
+                steer = Mathf.Clamp(steer, -1f, 1f);
+                ahead = Mathf.Clamp01(along);
+                brake = Mathf.Clamp01(-along);
+                drive2 = track;
+                _driveDir = track;
+            }
+
+            if (race)
+            {
+                // The chase camera looks along the heading, so in the race the heading lies on the track: left and
+                // right on the screen are left and right on the band, in either steering scheme.
+                _turnVel = 0f;
+                float toA = Mathf.Atan2(track.x, track.y) * Mathf.Rad2Deg;
+                float a = Mathf.MoveTowardsAngle(Yaw, toA, RaceHeadingRate * Mathf.Max(0f, dt)) * Mathf.Deg2Rad;
+                Forward = new Vector3(Mathf.Sin(a), 0f, Mathf.Cos(a));
+            }
             else
-                _turnVel = Mathf.Lerp(_turnVel, targetTurn, 1f - Mathf.Exp(-2f * turnResponse * sq * dt));
+            {
+                // Steering: a turn builds up linearly over turnEaseIn (angle grows quadratically, so it starts
+                // soft) and winds down exponentially, both only mildly slower for heavy islands; the top rate
+                // still scales with the full Agility.
+                float targetTurn = input.x * turnRateDegPerSec * ag;
+                if (Mathf.Abs(targetTurn) > Mathf.Abs(_turnVel) && targetTurn * _turnVel >= 0f)
+                    _turnVel = Mathf.MoveTowards(_turnVel, targetTurn, turnRateDegPerSec * sq * dt / Mathf.Max(0.05f, turnEaseIn));
+                else
+                    _turnVel = Mathf.Lerp(_turnVel, targetTurn, 1f - Mathf.Exp(-2f * turnResponse * sq * dt));
 
-            float yawStep = _turnVel * dt;
-            if (Mathf.Abs(yawStep) > 1e-5f)
-                Forward = (Quaternion.AngleAxis(yawStep, Vector3.up) * Forward).normalized;
+                float yawStep = _turnVel * dt;
+                if (Mathf.Abs(yawStep) > 1e-5f)
+                    Forward = (Quaternion.AngleAxis(yawStep, Vector3.up) * Forward).normalized;
+                if (direct && push > 0f && directionHeadingFollow > 0f)
+                {
+                    float toA = Mathf.Atan2(_driveDir.x, _driveDir.y) * Mathf.Rad2Deg;
+                    float fromA = Mathf.Atan2(Forward.x, Forward.z) * Mathf.Rad2Deg;
+                    float a = Mathf.MoveTowardsAngle(fromA, toA, directionHeadingFollow * ag * dt) * Mathf.Deg2Rad;
+                    Forward = new Vector3(Mathf.Sin(a), 0f, Mathf.Cos(a));
+                }
+            }
 
             // Ambient yaw drift: a seeded slow double sine (bounded by driftRotation * Agility) so islands
             // never sit perfectly still. It turns the body only: W always drives straight ahead.
             float drift = driftRotation * ag * DriftWave(_clock * (2f * Mathf.PI / Mathf.Max(1f, driftPeriod)) + _driftPhase);
             _bodyYaw = Mathf.DeltaAngle(0f, _bodyYaw + drift * dt + StepBodyTurns(dt));
 
-            _selfVel += new Vector2(Forward.x, Forward.z) * (input.y * acceleration * ag * dt);
-            _selfVel *= Mathf.Exp(-dragBase * ag * dt);
-            AlignVelocity(dt);
+            // Thrust scales only gently with size (owner: "fühlt sich sehr träge an"); the drag keeps the full agility,
+            // so a big island still glides on long after the throttle is released.
+            float thrust = acceleration * SpeedScale * Mathf.Pow(ag, accelAgilityExponent);
             float max = MaxSpeed;
-            if (_selfVel.sqrMagnitude > max * max) _selfVel = _selfVel.normalized * max;
+            float cap;
+            if (race)
+            {
+                float stag = StaggerFactor;
+                float top = max * stag;
+                float baseSpeed = Mathf.Clamp01(AdventureCruise) * top;
+                // Braking drops to a share of the base pace and no further: the island never stops and never runs
+                // backwards. A stagger (lightning, a ship) lowers base and top alike, so the floor cannot undo it.
+                float want = _hitStunLeft > 0f
+                    ? baseSpeed * adventureBrakeMin
+                    : brake > 0f
+                        ? baseSpeed * Mathf.Lerp(1f, adventureBrakeMin, brake)
+                        : Mathf.Lerp(baseSpeed, top, ahead);
+                float along = Vector2.Dot(_selfVel, track);
+                float side = Vector2.Dot(_selfVel, across2);
+                if (along < want) along = Mathf.MoveTowards(along, want, thrust * dt);
+                else if (brake > 0f && _hitStunLeft <= 0f) along = Mathf.MoveTowards(along, want, thrust * adventureBrakeForce * dt);
+                // Above the wanted pace (a boost running out) the island coasts down on its drag; a stagger,
+                // though, has to bite at once, so it pulls the speed down at the brake's rate.
+                else along = Mathf.Max(want, along - (_staggerLeft > 0f
+                    ? thrust * adventureBrakeForce * dt
+                    : along * (1f - Mathf.Exp(-dragBase * ag * dt))));
+                // Right after a hit the bounce off the island is left alone, so it really pushes clear.
+                if (_hitStunLeft > 0f) side *= Mathf.Exp(-dragBase * ag * dt);
+                else side = Mathf.MoveTowards(side, steer * AdventureSteerSpeed * stag, AdventureSteerSpeed * RaceSteerResponse * dt);
+                _selfVel = track * along + across2 * side;
+                cap = Mathf.Max(top, _selfVel.magnitude);
+            }
+            else
+            {
+                if (_hitStunLeft > 0f) input.y = Mathf.Min(input.y, 0f);
+                _selfVel += drive2 * (input.y * thrust * dt);
+                _selfVel *= Mathf.Exp(-dragBase * ag * dt);
+                // The keel pulls the velocity onto the direction the island is driven in. In direct mode a phone held
+                // level means "let it glide": nothing drags the momentum onto a heading the player never chose.
+                if (!direct) AlignVelocity(dt, Forward2, true);
+                else if (push > 0f) AlignVelocity(dt, _driveDir, false);
+                // Direct steering: how far the stick or the phone is pushed is how fast the island goes - a small
+                // deflection used to reach the full speed all the same. Only the player's own top speed is scaled;
+                // the boost and the surf reference stay on the unscaled one.
+                cap = direct && push > 0f ? max * Mathf.Lerp(directionMinSpeedShare, 1f, push) : max;
+                cap *= StaggerFactor;
+            }
+            if (_boostLeft > 0f)
+            {
+                // The boost surges the island along the direction it is driven in, towards the boosted top speed.
+                max *= BoostFactor;
+                cap = Mathf.Max(cap, max);
+                Vector2 f2 = drive2;
+                float along = Vector2.Dot(_selfVel, f2);
+                if (along < max) _selfVel += f2 * ((max - along) * (1f - Mathf.Exp(-BoostResponse * BoostEnvelope * dt)));
+                _boostLeft = Mathf.Max(0f, _boostLeft - dt);
+            }
+            if (_selfVel.sqrMagnitude > cap * cap) _selfVel = _selfVel.normalized * cap;
 
             Vector2 plateVel = PlateSystem.Instance != null ? PlateSystem.Instance.SampleVelocity(_pos) : Vector2.zero;
 
@@ -396,6 +858,8 @@ namespace Drift.Islands
             {
                 storm = storms.IntensityAt(_pos);
                 if (storm > 0f) gust = storms.GustAt(_pos, storms.Clock);
+                // On the ring the gust only pushes across the track; along it the race keeps its own pace.
+                if (storm > 0f && AdventureRacing) gust -= AdventureTrack * Vector2.Dot(gust, AdventureTrack);
             }
             StormIntensity = storm;
             StormGust = gust;
@@ -406,28 +870,48 @@ namespace Drift.Islands
             float surfStrength = 0f;
             if (useKeyboardInput && PlateSystem.Instance != null)
             {
-                Vector2 f2 = Forward2;
+                Vector2 f2 = drive2;
                 float drive = Mathf.Clamp01(Vector2.Dot(_selfVel, f2) / Mathf.Max(0.1f, 0.35f * max));
                 surf = PlateSystem.Instance.SurfVelocity(_pos, f2, _boundRadius, drive, out surfStrength);
             }
             SurfStrength = surfStrength;
             _surf = Vector2.Lerp(_surf, surf, 1f - Mathf.Exp(-surfResponse * dt));
-            _pos += (_selfVel + _carry + _surf) * dt;
+            _pos += (_selfVel + _carry + _surf + EdgePush) * dt;
+            // A clamp on the planar position (cozy: none; the adventure ring holds the player inside its band).
+            if (useKeyboardInput && PositionConstraint != null)
+            {
+                Vector2 kept = PositionConstraint(_pos);
+                if ((kept - _pos).sqrMagnitude > 1e-8f)
+                {
+                    Vector2 n = (kept - _pos).normalized;
+                    float into = Vector2.Dot(_selfVel, n);
+                    if (into < 0f) _selfVel -= n * into;
+                    _pos = kept;
+                }
+            }
 
             if (_herds == null) _herds = GetComponent<IslandHerdSystem>();
             if (_herds != null) _herds.Agitation = storm;
+
+            // Lean into the turn: the body rolls towards the inside of a curve, the more the faster it runs.
+            // In the race there is no turn to read, so the sideways pull stands in for it.
+            float bankRate = race ? steer * turnRateDegPerSec : _turnVel;
+            float leanWant = SpeedFeel.Bank(bankRate, turnRateDegPerSec,
+                SpeedFeel.Drive(PlanarVelocity.magnitude, MaxSpeed), leanIntoTurns);
+            _lean = dt > 0f ? Mathf.Lerp(_lean, leanWant, 1f - Mathf.Exp(-leanResponse * dt)) : leanWant;
 
             ApplyTransform();
         }
 
         // Keel effect: self-velocity swings toward the heading (speed preserved) so a turn redirects the
         // island instead of letting it slide sideways on the old course.
-        void AlignVelocity(float dt)
+        // allowReverse keeps a backwards-moving island backwards (the heading has a front); a driven direction
+        // has none, so there it pulls the momentum around the other way too.
+        void AlignVelocity(float dt, Vector2 goal2, bool allowReverse)
         {
             float speed = _selfVel.magnitude;
             if (speed < 0.05f || velocityAlign <= 0f) return;
-            Vector2 f2 = Forward2;
-            Vector2 goal = Vector2.Dot(_selfVel, f2) >= 0f ? f2 : -f2;
+            Vector2 goal = allowReverse && Vector2.Dot(_selfVel, goal2) < 0f ? -goal2 : goal2;
             Vector2 dir = _selfVel / speed;
             dir += (goal - dir) * (1f - Mathf.Exp(-velocityAlign * dt));
             if (dir.sqrMagnitude > 1e-6f) _selfVel = dir.normalized * speed;
@@ -628,7 +1112,10 @@ namespace Drift.Islands
             float bob = Application.isPlaying ? bobAmplitude * Mathf.Sin(Time.time * 1.3f + _bobPhase) : 0f;
             RefreshBodyBasis();
             transform.position = new Vector3(_pos.x, heightOffset + bob, _pos.y);
-            transform.rotation = Quaternion.LookRotation(BodyForward, Normal);
+            var rot = Quaternion.LookRotation(BodyForward, Normal);
+            // Only the transform leans into a curve; the heightfield frame stays planar, so contacts are unaffected.
+            if (Mathf.Abs(_lean) > 0.01f) rot = Quaternion.AngleAxis(_lean, BodyForward) * rot;
+            transform.rotation = rot;
         }
 
         void RefreshBodyBasis()
@@ -706,8 +1193,11 @@ namespace Drift.Islands
             _colors = null;
             _hypsoDirty = true;
             _buoy = 1f;
+            _boostLeft = 0f;
             LastRefloat = 0f;
+            ClearHits();
             RecomputeStats();
+            if (useKeyboardInput) _startArea = _areaRaw;
             RebuildMesh();
             _version++;
             NotifyShapeGenerated();
@@ -795,20 +1285,61 @@ namespace Drift.Islands
             _mesh.SetColors(_colors);
         }
 
-        // Buoyancy drains linearly over SinkSecondsForArea(full area) (times storm and the form penalty: a
-        // stretched island sinks faster, the incentive to grow from all sides). The sink depth follows from the
-        // island's own hypsometric curve, so the timing holds whatever the terrain: plateau, ridges or a volcano.
+        // Adventure: buoyancy drains linearly over SinkSecondsForArea(full area) (times storm and the form penalty: a
+        // stretched island sinks faster, the incentive to grow from all sides) until the island is gone.
+        // Cozy: a size regulator, no timer. The rate follows the land above water right now (SinkSecondsForArea of
+        // LandArea, times cozySinkSpeed), eases out over cozyEaseShare and stops at SinkFloorArea; below it (the floor
+        // rose with the run's progress) the island floats back up over cozyRiseSeconds.
+        // Either way the sink depth follows from the island's own hypsometric curve, so the timing holds whatever the
+        // terrain: plateau, ridges or a volcano.
         public void AdvanceSink(float dt)
         {
             if (!sinkEnabled || !useKeyboardInput || IsSunk || _shape == null || _emergeTime > 0f) return;
+            bool cozy = Mode == GameMode.Cozy;
+            if (!cozy && !adventureSinking) return;
             SyncBuoyancy();
             float before = _shape.sink;
-            _buoy = Mathf.Max(0f, _buoy - dt / Mathf.Max(0.1f, SinkSecondsFull));
+            if (cozy)
+            {
+                float floorShare = FloorShare;
+                float floor = BuoyancyAtLandShare(floorShare);
+                if (_buoy > floor)
+                {
+                    float ease = Mathf.Clamp01((LandShareAt(_buoy) - floorShare) / Mathf.Max(0.01f, cozyEaseShare));
+                    float rate = Mathf.Max(0f, cozySinkSpeed) * SinkMultiplier / Mathf.Max(0.1f, SinkSecondsForArea(_area));
+                    _buoy = Mathf.Max(floor, _buoy - dt * rate * ease);
+                }
+                else _buoy = Mathf.Min(floor, _buoy + dt / Mathf.Max(0.1f, cozyRiseSeconds));
+            }
+            else _buoy = Mathf.Max(0f, _buoy - dt / Mathf.Max(0.1f, SinkSecondsFull));
             float share = LandShareAt(_buoy);
-            float held = _hypso.LandFractionAt(before) - Mathf.Max(0f, maxLandLossPerSecond) * dt;
+            // After a hit the waterline is allowed to climb faster for a moment, so the price of the crash is seen.
+            float loss = Mathf.Max(0f, maxLandLossPerSecond);
+            if (_hitSinkLeft > 0f)
+            {
+                _hitSinkLeft = Mathf.Max(0f, _hitSinkLeft - dt);
+                loss = Mathf.Max(loss, hitSinkRate);
+            }
+            float held = _hypso.LandFractionAt(before) - loss * dt;
             _shape.sink = _hypso.DepthAt(Mathf.Max(share, held));
             _sinkVersionAccum += Mathf.Abs(_shape.sink - before);
-            RefreshSink(dt, 0.5f, true);
+            RefreshSink(dt, _hitSinkLeft > 0f ? 0.2f : 0.5f, !cozy);
+        }
+
+        void ClearEdge()
+        {
+            EdgePush = Vector2.zero;
+            EdgeWarning = 0f;
+        }
+
+        void ClearHits()
+        {
+            ClearEdge();
+            Hits = 0;
+            LastHitLoss = 0f;
+            _hitCooldownLeft = 0f;
+            _hitStunLeft = 0f;
+            _hitSinkLeft = 0f;
         }
 
         float LandShareAt(float buoyancy) => Mathf.Pow(Mathf.Clamp01(buoyancy), Mathf.Max(0.05f, sinkLandExponent));
@@ -902,6 +1433,7 @@ namespace Drift.Islands
             _emergeTime = 0f;
             _selfVel = Vector2.zero;
             _turnVel = 0f;
+            _lean = 0f;
             _bodyYaw = 0f;
             ClearBodyTurns();
             _clock = 0f;
@@ -1010,6 +1542,7 @@ namespace Drift.Islands
             Forward = Quaternion.Euler(0f, d.yaw, 0f) * Vector3.forward;
             _selfVel = new Vector2(d.velX, d.velZ);
             _turnVel = 0f;
+            _lean = 0f;
             _carry = Vector2.zero;
             _surf = Vector2.zero;
             _bodyYaw = Mathf.DeltaAngle(0f, d.bodyYaw);
@@ -1018,6 +1551,8 @@ namespace Drift.Islands
             _emergeTime = 0f;
             _sinkMeshTimer = 0f;
             _sinkVersionAccum = 0f;
+            _boostLeft = 0f;
+            ClearHits();
             StormIntensity = 0f;
             StormGust = Vector2.zero;
 
@@ -1270,6 +1805,9 @@ namespace Drift.Islands
             RecomputeStats();
             RebuildMesh();
             _version++;
+            // The merged mesh carries white (untinted) vertex colours; tint it now, not at the next life tick,
+            // or the new island is drawn in raw grass green for about a dozen frames.
+            if (life != null) life.RefreshAfterMerge();
         }
     }
 

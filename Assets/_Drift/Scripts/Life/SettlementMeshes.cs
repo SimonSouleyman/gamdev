@@ -42,7 +42,7 @@ namespace Drift.Life
 
         static BuildingSpec[] _specs;
         static PlantTemplate[,] _settlers;
-        static PlantTemplate _log, _rod, _flame, _sails, _boat, _beam, _smoke;
+        static PlantTemplate _log, _rod, _flame, _sails, _boat, _beam, _smoke, _lanternPole, _lantern;
 
         static readonly Color Wood = new Color(0.62f, 0.45f, 0.28f);
         static readonly Color DarkWood = new Color(0.36f, 0.24f, 0.14f);
@@ -113,6 +113,24 @@ namespace Drift.Life
             b.Fin(bow + drop, pr + drop, pl + drop, Vector3.up, inside);
             b.Fin(pl + drop, pr + drop, stern + drop, Vector3.up, inside);
             Quad(b, new Vector3(-w * 0.8f, h - 0.004f, -0.02f), new Vector3(w * 0.8f, h - 0.004f, -0.02f), new Vector3(w * 0.8f, h - 0.004f, 0f), new Vector3(-w * 0.8f, h - 0.004f, 0f), Vector3.up, DarkWood);
+        });
+
+        // Festival lanterns (the milestone „Fest"): a thin pole with a hook, and the paper lantern itself, which
+        // the system tints per lantern and blends towards its warm glow colour. The lantern is modelled around
+        // its own centre so it can hang anywhere on the line between two poles.
+        public static float LanternPoleHeight => 0.42f;
+
+        public static PlantTemplate LanternPole => _lanternPole ??= Make(b =>
+        {
+            Post(b, Vector3.zero, new Vector3(0f, LanternPoleHeight, 0f), 0.011f, DarkWood);
+            Post(b, new Vector3(0f, LanternPoleHeight, 0f), new Vector3(0f, LanternPoleHeight + 0.01f, 0.035f), 0.007f, DarkWood);
+        });
+
+        public static PlantTemplate Lantern => _lantern ??= Make(b =>
+        {
+            Color paper = new Color(1f, 0.93f, 0.78f);
+            b.Cone(new Vector3(0f, -0.008f, 0f), Vector3.up, 0.05f, 0.062f, 5, paper);
+            b.Cone(new Vector3(0f, -0.008f, 0f), Vector3.down, 0.05f, 0.05f, 5, paper * 0.94f);
         });
 
         // Lighthouse sweep: two opposite flat wedges, both sides visible.

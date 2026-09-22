@@ -18,6 +18,9 @@ namespace Drift.Visuals
     // The sky (Shaders/DriftSky.hlsl: gradient, sun, moon, stars, Milky Way, clouds) gets all its globals from
     // here: the colours are DayNightCycle.Sky, the shared palette, so the limb colour of the sky is by
     // construction the haze colour and the water's reflection tint.
+    // Adventure mode (RingWorld.Active): the world is rolled up into the inside of a closed ring instead (DriftRingWS),
+    // the sea ending cleanly at the two rims. The rims are invisible - only a foam line lies on the water there
+    // (RingRims) - plus a haze by distance along the ring and a culling box around the whole band.
     [ExecuteAlways]
     [DefaultExecutionOrder(300)]
     public class CurvedWorld : MonoBehaviour
@@ -81,7 +84,13 @@ namespace Drift.Visuals
         public float shootingStarDuration = 0.9f;
         public float shootingStarLength = 9f;
 
+        // The sky shader's own cloud layer (a noise field seen from below, DriftSky.hlsl). It reads as thin streaks
+        // rather than as clouds and doubles what the puffy clumps of CloudShadows already draw, so it is off: the
+        // sky keeps only its gradient, sun, moon and stars.
+        [Tooltip("Die Schleierwolken des Himmels zeichnen. Aus = am Himmel sind nur die Schäfchenwolken zu sehen.")]
+        public bool skyClouds;
         // Cover of the sky clouds relative to CloudShadows' cover (same field, offset and wind as the shadows).
+        [Tooltip("Dichte der Schleierwolken, falls sie eingeschaltet sind.")]
         [Range(0f, 2f)] public float cloudAmount = 1.15f;
         public float cloudHeight = 150f;
         // Degrees the limb lies under eye level: beyond the second value the camera looks at a planet from
@@ -93,12 +102,48 @@ namespace Drift.Visuals
         public float cullTop = 14f;
         public float cullBottom = -4f;
 
+        [Header("Ringwelt (Abenteuer)")]
+        [Tooltip("Dunst über dem Ring: Anteil der Horizontfarbe auf Inseln und Wänden in der Ferne (das Meer wird bei vollem Dunst ganz zur Horizontfarbe).")]
+        [Range(0f, 1f)] public float ringHaze = 0.6f;
+        [Tooltip("Ab dieser Entfernung entlang des Rings beginnt der Dunst.")]
+        public float ringHazeStart = 60f;
+        [Tooltip("Entfernung, bei der der Dunst voll wäre. Größer als der halbe Umfang: die Gegenseite des Rings hoch am Himmel bleibt sichtbar.")]
+        public float ringHazeEnd = 620f;
+        [Tooltip("Die Schaumlinie an den beiden Rändern des Rings zeichnen (die Ränder selbst bleiben unsichtbar).")]
+        public bool ringRims = true;
+        [Tooltip("Material der Schaumlinie (leer = Drift/RingRim).")]
+        public Material rimMaterial;
+        [Tooltip("Länge eines Abschnitts der Schaumlinie.")]
+        public float rimSegment = 8f;
+        [Tooltip("Wie weit die Schaumlinie vom Rand nach innen reicht.")]
+        [Range(1f, 12f)] public float rimFoamWidth = 4f;
+
+        [Header("Außerhalb des Rings")]
+        [Tooltip("Jenseits der Ränder des Bands nur den Sternenhimmel zeigen: kein Himmelsverlauf, keine Wolken, kein Dunst. Über dem Band bleibt der Himmel wie immer.")]
+        [Range(0f, 1f)] public float ringSpace = 1f;
+        [Tooltip("Farbe des Weltraums zwischen den Sternen.")]
+        public Color ringSpaceColor = new Color(0.016f, 0.021f, 0.047f);
+        [Tooltip("Wie hell die Sterne draußen bei Tag stehen (1 = so hell wie nachts).")]
+        [Range(0f, 1f)] public float ringSpaceStars = 1f;
+        [Tooltip("Sonne und Mond auch draußen als Scheibe zeigen (ohne Hof).")]
+        [Range(0f, 1f)] public float ringSpaceDiscs = 1f;
+        [Tooltip("Wie viel von der Milchstraße draußen übrig bleibt. Voll aufgedreht liegt ihr Staub als graues Gewölk über dem Sternenfeld.")]
+        [Range(0f, 1f)] public float ringSpaceMilkyWay = 0.3f;
+        [Tooltip("Weiche Kante am Rand des Bands, in Einheiten.")]
+        [Range(0f, 4f)] public float ringSpaceEdge = 0.6f;
+
         const string SkyName = "CurvedSky";
         const string SkyShader = "Drift/CurvedSky";
         const string SkyboxShader = "Drift/Skybox";
+        const string RimName = "RingRims";
+        const string RimShader = "Drift/RingRim";
 
         static readonly int FocusId = Shader.PropertyToID("_CurveFocus");
         static readonly int InvRadiusId = Shader.PropertyToID("_CurveInvRadius");
+        static readonly int RingId = Shader.PropertyToID("_CurveRing");
+        static readonly int RimGlowId = Shader.PropertyToID("_RimGlow");
+        static readonly int CullId = Shader.PropertyToID("_Cull");
+        static readonly int LightAmountId = Shader.PropertyToID("_LightAmount");
         static readonly int FogColorId = Shader.PropertyToID("_CurveFogColor");
         static readonly int FogParamsId = Shader.PropertyToID("_CurveFogParams");
         static readonly int ZenithId = Shader.PropertyToID("_CurveSkyZenith");
@@ -122,6 +167,8 @@ namespace Drift.Visuals
         static readonly int CloudLightId = Shader.PropertyToID("_SkyCloudLight");
         static readonly int ShootHeadId = Shader.PropertyToID("_SkyShootHead");
         static readonly int ShootTailId = Shader.PropertyToID("_SkyShootTail");
+        static readonly int SpaceId = Shader.PropertyToID("_SkySpace");
+        static readonly int SpaceColorId = Shader.PropertyToID("_SkySpaceColor");
 
         static readonly HashSet<Camera> Extra = new HashSet<Camera>();
         static CurvedWorld _active;
@@ -133,6 +180,9 @@ namespace Drift.Visuals
         };
 
         Material _skyMat;
+        Mesh _rimMesh;
+        Material _rimMat;
+        Vector4 _rimKey;
         Material _skyboxMat;
         Material _skyboxBefore;
         bool _skyboxSet;
@@ -167,8 +217,15 @@ namespace Drift.Visuals
         public static Vector3 Bend(Vector3 world)
         {
             var cw = _active;
-            return cw == null ? world : Wrap(world, cw.Focus, cw.InvRadius);
+            if (cw == null) return world;
+            var ring = RingWorld.Active;
+            if (ring != null) return ring.Geometry.Bend(world, cw.Focus);
+            return Wrap(world, cw.Focus, cw.InvRadius);
         }
+
+        // Shader globals of the ring bend (_CurveRing): the band's lip is where the world ends.
+        public static Vector4 RingParams(RingGeometry g) =>
+            new Vector4(1f / Mathf.Max(1f, g.Radius), g.centerX, g.halfWidth, g.HalfLength);
 
         public static Vector3 Wrap(Vector3 world, Vector2 focus, float invR)
         {
@@ -187,7 +244,10 @@ namespace Drift.Visuals
         public static float DropAt(Vector2 worldXZ)
         {
             var cw = _active;
-            if (cw == null || cw.InvRadius <= 0f) return 0f;
+            if (cw == null) return 0f;
+            var ring = RingWorld.Active;
+            if (ring != null) return -ring.Geometry.Bend(new Vector3(worldXZ.x, 0f, worldXZ.y), cw.Focus).y;
+            if (cw.InvRadius <= 0f) return 0f;
             float t = Mathf.Min((worldXZ - cw.Focus).magnitude * cw.InvRadius, 3f);
             float s2 = Mathf.Sin(t * 0.5f);
             return 2f * s2 * s2 / cw.InvRadius;
@@ -210,6 +270,10 @@ namespace Drift.Visuals
             if (_active == this) _active = null;
             if (_culled != null) { _culled.ResetCullingMatrix(); _culled = null; }
             Shader.SetGlobalFloat(InvRadiusId, 0f);
+            Shader.SetGlobalVector(RingId, Vector4.zero);
+            Shader.SetGlobalVector(SpaceId, Vector4.zero);
+            Shader.SetGlobalFloat(RimGlowId, 0f);
+            DestroyRims();
             Shader.SetGlobalVector(FogColorId, Vector4.zero);
             Shader.SetGlobalVector(FogParamsId, Vector4.zero);
             Shader.SetGlobalFloat(SkyDrawId, 0f);
@@ -232,7 +296,19 @@ namespace Drift.Visuals
             EnsureSky();
             EnsureSkybox();
             var cam = Camera.main;
+            var ring = RingWorld.Active;
+            EnsureRims(ring);
             if (cam == null) return;
+            if (ring != null)
+            {
+                Focus = WaterFollower.ViewFocus(cam.transform);
+                InvRadius = 0f;
+                Radius = float.PositiveInfinity;
+                ViewBlend = 0f;
+                LimbDistance = ring.Geometry.HalfLength;
+                PlaceRims(ring, Focus);
+                return;
+            }
             Solve(cam, out Vector2 focus, out float invR, out float t, out _, out float limb, out _);
             Focus = focus;
             InvRadius = invR;
@@ -306,7 +382,7 @@ namespace Drift.Visuals
             Shader.SetGlobalVector(MoonColorId, Lin(moonColor, moonVis));
             Shader.SetGlobalVector(StarsId, new Vector4(stars * starBrightness, starDensity, starTwinkle, milkyWay));
             Shader.SetGlobalVector(StarParamsId, new Vector4(starSize, moonHalo * SkyMath.MoonLit(phase), sunHalo, Mathf.Max(0.1f, skyGradient)));
-            _cloudLit = Lin(sky.cloudLit, cloudAmount);
+            _cloudLit = Lin(sky.cloudLit, skyClouds ? cloudAmount : 0f);
             Shader.SetGlobalVector(CloudLitId, _cloudLit);
             Shader.SetGlobalVector(CloudDarkId, Lin(sky.cloudDark, cloudHeight));
             var flatLight = new Vector2(light.x, light.z);
@@ -401,6 +477,8 @@ namespace Drift.Visuals
         void OnBeginCamera(ScriptableRenderContext ctx, Camera cam)
         {
             var flatSky = new Vector4(0f, -1f, 0f, 0f);
+            Shader.SetGlobalVector(RingId, Vector4.zero);
+            Shader.SetGlobalVector(SpaceId, Vector4.zero);
             if (!Bends(cam))
             {
                 Shader.SetGlobalFloat(InvRadiusId, 0f);
@@ -415,6 +493,12 @@ namespace Drift.Visuals
 
             // The Scene view shows the game's bend (same focus and radius, no haze) so what is edited matches what is played.
             bool own = cam.cameraType != CameraType.SceneView || Camera.main == null;
+            var ring = RingWorld.Active;
+            if (ring != null)
+            {
+                BeginRingCamera(cam, own, ring);
+                return;
+            }
             Solve(own ? cam : Camera.main, out Vector2 focus, out float invR, out _, out Vector2 hazeCenter, out float hazeEnd, out Vector4 skyCenter);
             Shader.SetGlobalVector(FocusId, new Vector4(focus.x, focus.y, 0f, 0f));
             Shader.SetGlobalFloat(InvRadiusId, invR);
@@ -429,6 +513,118 @@ namespace Drift.Visuals
             Shader.SetGlobalFloat(SkyDrawId, 1f);
             PushCelestial(own ? skyCenter : flatSky);
             if (invR > 0f) WidenCulling(cam, focus, invR, hazeCenter, hazeEnd);
+        }
+
+        void BeginRingCamera(Camera cam, bool own, RingWorld ring)
+        {
+            RingGeometry g = ring.Geometry;
+            Vector2 focus = WaterFollower.ViewFocus((own ? cam : Camera.main).transform);
+            Vector3 cp = cam.transform.position;
+            Shader.SetGlobalVector(FocusId, new Vector4(focus.x, focus.y, 0f, 0f));
+            Shader.SetGlobalFloat(InvRadiusId, 0f);
+            Shader.SetGlobalVector(RingId, RingParams(g));
+            Shader.SetGlobalFloat(RimGlowId, ring.EdgeWarning);
+            Shader.SetGlobalVector(FogColorId, Lin(HorizonColor, own ? ringHaze : 0f));
+            float start = Mathf.Max(0f, ringHazeStart), end = Mathf.Max(start + 1f, ringHazeEnd);
+            Shader.SetGlobalVector(FogParamsId, own ? new Vector4(start, 1f / (end - start), cp.x, cp.z) : new Vector4(1e6f, 0f, 0f, 0f));
+            var flatSky = new Vector4(0f, -1f, 0f, 0f);
+            Shader.SetGlobalVector(SkyCenterId, flatSky);
+            Shader.SetGlobalFloat(SkyDrawId, 1f);
+            // Past the two rims the world ends and space begins: the sky shader turns every direction that leaves
+            // the band through an open end of the ring into the plain starfield (day and night).
+            Shader.SetGlobalVector(SpaceId, new Vector4(own ? ringSpace : 0f, ringSpaceStars, Mathf.Max(0.01f, ringSpaceEdge), ringSpaceMilkyWay));
+            Shader.SetGlobalVector(SpaceColorId, Lin(ringSpaceColor, ringSpaceDiscs));
+            PushCelestial(flatSky);
+            PlaceRims(ring, focus);
+            RingCulling(cam, g, focus);
+        }
+
+        // Renderer bounds are unbent, and inside the ring nearly the whole band can be on screen (ahead climbing, the
+        // far side overhead): everything within the band and half a circumference of the focus survives culling.
+        // An axis-aligned box as the culling matrix; its depth maps to 0..1, which is inside the clip range of every
+        // graphics API.
+        void RingCulling(Camera cam, RingGeometry g, Vector2 focus)
+        {
+            float half = g.HalfLength + 40f;
+            float x0 = g.MinX - 40f, x1 = g.MaxX + 40f;
+            float y0 = -200f, y1 = g.Radius + 50f;
+            var m = Matrix4x4.zero;
+            m.m00 = 2f / (x1 - x0); m.m03 = -(x1 + x0) / (x1 - x0);
+            m.m11 = 2f / (y1 - y0); m.m13 = -(y1 + y0) / (y1 - y0);
+            m.m22 = 0.5f / half; m.m23 = -(focus.y - half) * (0.5f / half);
+            m.m33 = 1f;
+            cam.cullingMatrix = m;
+            _culled = cam;
+        }
+
+        void EnsureRims(RingWorld ring)
+        {
+            Transform rims = transform.Find(RimName);
+            if (ring == null || !ringRims)
+            {
+                if (rims != null || _rimMesh != null) DestroyRims();
+                return;
+            }
+            Material mat = rimMaterial;
+            if (mat == null)
+            {
+                if (_rimMat == null)
+                {
+                    var shader = Shader.Find(RimShader);
+                    if (shader == null) return;
+                    _rimMat = new Material(shader) { name = "RingRims (runtime)", hideFlags = HideFlags.DontSave };
+                }
+                mat = _rimMat;
+            }
+            RingGeometry g = ring.Geometry;
+            var key = new Vector4(g.halfWidth, g.circumference, rimFoamWidth, rimSegment);
+            if (_rimMesh == null || key != _rimKey)
+            {
+                if (_rimMesh != null) Kill(_rimMesh);
+                float snap = RingRims.Snap(rimSegment);
+                _rimMesh = RingRims.Build(g.halfWidth, g.circumference + 2f * snap, rimFoamWidth, rimSegment);
+                _rimKey = key;
+            }
+            if (rims == null)
+            {
+                var go = new GameObject(RimName) { hideFlags = HideFlags.DontSaveInEditor | HideFlags.DontSaveInBuild };
+                go.transform.SetParent(transform, false);
+                go.AddComponent<MeshFilter>();
+                var mr = go.AddComponent<MeshRenderer>();
+                mr.shadowCastingMode = ShadowCastingMode.Off;
+                mr.receiveShadows = false;
+                mr.lightProbeUsage = LightProbeUsage.Off;
+                mr.reflectionProbeUsage = ReflectionProbeUsage.Off;
+                rims = go.transform;
+            }
+            var filter = rims.GetComponent<MeshFilter>();
+            if (filter.sharedMesh != _rimMesh) filter.sharedMesh = _rimMesh;
+            var renderer = rims.GetComponent<MeshRenderer>();
+            if (renderer.sharedMaterial != mat) renderer.sharedMaterial = mat;
+        }
+
+        // Re-centred on the focus in whole panel groups (the foam stays on the edge), never rotated or scaled.
+        void PlaceRims(RingWorld ring, Vector2 focus)
+        {
+            Transform rims = transform.Find(RimName);
+            if (rims == null) return;
+            float snap = RingRims.Snap(rimSegment);
+            var pos = new Vector3(ring.Geometry.centerX, 0f, Mathf.Round(focus.y / snap) * snap);
+            if (rims.position != pos) rims.position = pos;
+            if (rims.rotation != Quaternion.identity) rims.rotation = Quaternion.identity;
+            Vector3 ls = transform.lossyScale;
+            if (ls != Vector3.one && ls.x != 0f && ls.y != 0f && ls.z != 0f)
+                rims.localScale = new Vector3(1f / ls.x, 1f / ls.y, 1f / ls.z);
+        }
+
+        void DestroyRims()
+        {
+            Transform rims = transform.Find(RimName);
+            if (rims != null) Kill(rims.gameObject);
+            if (_rimMesh != null) Kill(_rimMesh);
+            if (_rimMat != null) Kill(_rimMat);
+            _rimMesh = null;
+            _rimMat = null;
         }
 
         void OnEndCamera(ScriptableRenderContext ctx, Camera cam)

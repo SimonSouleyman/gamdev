@@ -6,18 +6,18 @@ using UnityEngine.UI;
 
 namespace Drift.Bridge
 {
-    // "Anleitung": five paged cards with Tilda in the corner. A plain builder/controller that SessionScreens
+    // "Anleitung": six paged cards with Tilda in the corner. A plain builder/controller that SessionScreens
     // places into its own canvas, so it needs no scene wiring and shares the title / pause raycaster. On wide
     // screens SessionScreens hands over the big presenter Tilda beside the panel (UsePresenter); the small one in
     // the corner then hides and her speech bubble takes the full width. Her tip for the page is typed into the
     // bubble (TildaBubble) while she grumbles along.
     public sealed class HelpScreen
     {
-        public const int PageCount = 5;
+        public const int PageCount = 6;
         const float PanelWidth = 960f, PanelHeight = 1680f, ContentWidth = 880f, ContentTop = -150f;
         public static readonly Vector2 PanelSize = new Vector2(PanelWidth, PanelHeight);
 
-        static readonly string[] Titles = { "Dein Ziel", "Steuerung", "Auftrieb & Form", "Platten, Stürme, Vulkane", "Leben beobachten" };
+        static readonly string[] Titles = { "Dein Ziel", "Steuerung", "Auftrieb & Form", "Platten, Stürme, Vulkane", "Leben beobachten", "Abenteuer" };
         // Two lines in the narrow bubble beside the small Tilda: above it the page's cards end, below it the dots begin.
         static readonly string[] Tips =
         {
@@ -26,9 +26,10 @@ namespace Drift.Bridge
             TildaBubble.Key("Rund ist gesund.") + " Sagt ein Vulkan mit rundem Bauch!",
             "Vulkaninseln sind meine " + TildaBubble.Key("Verwandten") + " – alle freundlich!",
             "Schau genau hin – auf meinen Hängen wächst es " + TildaBubble.Key("grün") + ".",
+            "Im " + TildaBubble.Key("Abenteuer") + " zählt jede Sekunde – ich feuere dich an!",
         };
         // Tilda grumbles while the tip is typed; page 1 waves, the volcano page gets a little lava cheer.
-        static readonly TildaPose[] Poses = { TildaPose.Wave, TildaPose.Talk, TildaPose.Talk, TildaPose.Cheer, TildaPose.Talk };
+        static readonly TildaPose[] Poses = { TildaPose.Wave, TildaPose.Talk, TildaPose.Talk, TildaPose.Cheer, TildaPose.Talk, TildaPose.Cheer };
         const float GestureSeconds = 1.8f, TipWidth = 640f, TipBottom = -1358f, CornerSize = 270f;
         static readonly Vector2 CornerPos = new Vector2(10f, -1096f);
 
@@ -86,6 +87,7 @@ namespace Drift.Bridge
             _pages[2] = BuildBuoyancy(panel);
             _pages[3] = BuildWorld(panel);
             _pages[4] = BuildLife(panel);
+            _pages[5] = BuildAdventure(panel);
 
             _panel = panel;
             var portrait = TildaPortrait.CreateImage(panel, new Vector2(CornerSize, CornerSize));
@@ -334,7 +336,7 @@ namespace Drift.Bridge
             UiStyle.Dot(art, "MergedHill", 46f, UiStyle.Mint).rectTransform.Center(new Vector2(250f, 8f), new Vector2(46f, 46f));
 
             InfoCard(page, -300f, 204f, UiStyle.Mint, "Rammen und wachsen", "Steuere deine Insel in andere Inseln hinein. Sie wachsen an, und deine Insel wird größer.");
-            InfoCard(page, -524f, 204f, UiStyle.Sky, "Bevor sie versinkt", "Deine Insel sinkt ganz langsam. Jede eingesammelte Insel hebt sie wieder an.");
+            InfoCard(page, -524f, 204f, UiStyle.Sky, "Eine Pangäa bauen", "Sammle alle Inseln der Welt zu einem Kontinent. Keine Eile: Im gemütlichen Spiel geht deine Insel nie unter.");
             InfoCard(page, -748f, 204f, UiStyle.Sand, "Eine runde Welt", "Das Meer ist rundherum verbunden: Wer über den Rand fährt, kommt gegenüber wieder an.");
             return page.gameObject;
         }
@@ -345,15 +347,16 @@ namespace Drift.Bridge
 
             _desktopCard = UiStyle.Card(page, "Desktop", new Vector2(ContentWidth, 470f)).TopCenter(Vector2.zero, new Vector2(ContentWidth, 470f));
             CardHeading(_desktopCard, "Am Computer");
-            KeyRow(_desktopCard, -92f, "Tempo: vorwärts und bremsen", "W", "S");
-            KeyRow(_desktopCard, -166f, "lenken", "A", "D");
+            KeyRow(_desktopCard, -92f, "Richtung: vor und zurück", "W", "S");
+            KeyRow(_desktopCard, -166f, "Richtung: nach links und rechts", "A", "D");
             KeyRow(_desktopCard, -240f, "oder Mausrad: Zoom", "Q", "E");
             KeyRow(_desktopCard, -314f, "Pause", "Esc");
             KeyRow(_desktopCard, -388f, "auf ein Tier: ansehen", "Klick");
 
             _touchCard = UiStyle.Card(page, "Touch", new Vector2(ContentWidth, 430f)).TopCenter(new Vector2(0f, -490f), new Vector2(ContentWidth, 430f));
             CardHeading(_touchCard, "Am Handy");
-            var stick = GlyphRow(_touchCard, -96f, "Stick links: lenken und Tempo");
+            // Adventure drives by itself and only steers, so the help has to follow the mode and the scheme.
+            var stick = GlyphRow(_touchCard, -96f, ModeTexts.SteerHint(Drift.Core.GameModes.Current, true, Drift.Islands.Island.DirectionSteering));
             UiStyle.Dot(stick, "Base", 84f, UiStyle.Ghost).rectTransform.Center(Vector2.zero, new Vector2(84f, 84f));
             UiStyle.Dot(stick, "Knob", 40f, UiStyle.WithAlpha(UiStyle.Cream, 0.85f)).rectTransform.Center(new Vector2(12f, 10f), new Vector2(40f, 40f));
             var pinch = GlyphRow(_touchCard, -204f, "Zwei Finger: Zoom");
@@ -402,11 +405,11 @@ namespace Drift.Bridge
         GameObject BuildBuoyancy(RectTransform panel)
         {
             var page = NewPage(panel, "PageBuoyancy");
-            var buoy = InfoCard(page, 0f, 330f, UiStyle.Sky, "Auftrieb", "Der blaue Balken zeigt, wie hoch deine Insel schwimmt. Wird er rot, sammle schnell eine Insel ein.");
-            SampleBar(buoy, -206f, 0.78f, UiStyle.Sky, "schwimmt gut");
-            SampleBar(buoy, -262f, 0.24f, UiStyle.Coral, "sinkt – schnell eine Insel holen");
+            var buoy = InfoCard(page, 0f, 330f, UiStyle.Sky, "Tiefgang", "Der Balken zeigt, wie hoch deine Insel schwimmt. Große Inseln liegen tiefer, jede neue Insel hebt sie wieder an.");
+            SampleBar(buoy, -206f, 0.78f, UiStyle.Sky, "schwimmt leicht");
+            SampleBar(buoy, -262f, 0.34f, UiStyle.Sand, "Insel ist schwer");
 
-            var form = InfoCard(page, -350f, 330f, UiStyle.Mint, "Form", "Runde Inseln schwimmen am besten. Längliche Inseln sinken bis zu 1,6-mal schneller.");
+            var form = InfoCard(page, -350f, 330f, UiStyle.Mint, "Form", "Runde Inseln schwimmen am besten. Längliche Inseln liegen tiefer und sinken bis zu 1,6-mal schneller.");
             UiStyle.Dot(form, "Round", 96f, UiStyle.Mint).rectTransform.TopLeft(new Vector2(110f, -196f), new Vector2(96f, 96f));
             var roundText = UiStyle.Label(form, "rund", UiStyle.Caption, UiStyle.Mint, TextAnchor.MiddleLeft);
             roundText.rectTransform.TopLeft(new Vector2(226f, -214f), new Vector2(200f, 60f));
@@ -433,7 +436,7 @@ namespace Drift.Bridge
         {
             var page = NewPage(panel, "PageWorld");
             InfoCard(page, 0f, 290f, UiStyle.Sky, "Strömungen", "Unter dem Meer wandern große Platten. Ihre Strömungen tragen dich und alle Inseln mit – nutze sie wie Rückenwind.");
-            InfoCard(page, -310f, 290f, UiStyle.Sand, "Stürme", "Im Sturm sinkst du schneller, und Blitze können Feuer entzünden. Keine Angst: Das Grün wächst wieder nach.");
+            InfoCard(page, -310f, 290f, UiStyle.Sand, "Stürme", "Im Sturm liegt deine Insel tiefer, und Blitze können Feuer entzünden. Keine Angst: Das Grün wächst wieder nach.");
             InfoCard(page, -620f, 290f, UiStyle.Coral, "Vulkane", "Manchmal steigt eine Vulkaninsel aus dem Meer. Sie gibt besonders viel Auftrieb – hol sie dir!");
             return page.gameObject;
         }
@@ -452,6 +455,19 @@ namespace Drift.Bridge
             Row(UiStyle.Sand, "Tier ansehen", "Tippe oder klicke ein Tier an. Mit „Herde folgen“ geht die Kamera mit der Herde mit.");
             Row(UiStyle.Cream, "Tagebuch", "Das Buch oben rechts merkt sich jede Art, die du entdeckt hast.");
             Row(UiStyle.Coral, "Foto", "Im Pausenmenü wartet der Fotomodus für schöne Bilder deiner Insel.");
+            return page.gameObject;
+        }
+
+        GameObject BuildAdventure(RectTransform panel)
+        {
+            var page = NewPage(panel, "PageAdventure");
+            InfoCard(page, 0f, 206f, UiStyle.Sky, "Die Ringwelt", "Ein schmales Meeresband, das sich vor und hinter dir in den Himmel wölbt. Deine Insel hält von allein Fahrt.");
+            InfoCard(page, -216f, 226f, UiStyle.Cream, "Der Rand", "Am Rand des Bands endet die Welt. Hinausfahren kannst du nicht: Dort schäumt das Wasser und schiebt dich sanft wieder auf die Bahn.");
+            var time = InfoCard(page, -452f, 240f, UiStyle.Coral, "Gegen die Zeit", "Deine Insel sinkt. Versinkt sie, ist der Lauf vorbei – deine längste Zeit bleibt als Bestzeit.");
+            SampleBar(time, -176f, 0.24f, UiStyle.Coral, "sinkt – Treibgut holen!");
+            InfoCard(page, -702f, 206f, UiStyle.Sand, "Inseln sind Hindernisse", "Hier wird nicht gerammt: Jede Insel wirft dich zurück und kostet Auftrieb. Fahr außen herum!");
+            InfoCard(page, -918f, 206f, UiStyle.Mint, "Treibgut hebt dich", "Kisten, Fässer und Flaschen auf der Bahn geben Auftrieb – das Einzige, was dich wieder hochbringt.");
+            InfoCard(page, -1134f, 206f, UiStyle.Sky, "Surfspuren", "Die Plattengrenzen laufen längs der Bahn und wandern. Fahr an ihnen entlang – dort bist du am schnellsten.");
             return page.gameObject;
         }
 

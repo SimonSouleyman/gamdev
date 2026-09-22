@@ -10,9 +10,11 @@ namespace Drift.Bridge
     // Where the camera looks while something is watched. False once the subject is gone for good.
     public delegate bool WatchFocus(out Vector3 focus);
 
-    // One thing of a journal entry the camera can watch: a herd (WatchTools follows it with the herd chip), or any
-    // other subject given as a focus function that is asked every frame, so it keeps up with a drifting island,
-    // a swimming whale or a flock in the air.
+    // One thing the camera can watch. There is exactly one watch mode ("Tier beobachten"): whatever the player
+    // tapped — an animal, a discovery toast, a journal card, a photo-task cue — becomes one of these and goes
+    // through WatchTools.BeginWatch. A herd carries its system and index (herd chip, popup, herd framing); anything
+    // else brings a focus function that is asked every frame, so it keeps up with a drifting island, a swimming
+    // whale or a flock in the air.
     public sealed class WatchSubject
     {
         public string label;
@@ -22,6 +24,9 @@ namespace Drift.Bridge
         public WatchFocus focus;
         public IslandHerdSystem herds;
         public int herd = -1;
+        // The critter the watch popup names, when the subject is one (the kind comes from the system).
+        public IslandCrittersSystem critters;
+        public int critter = -1;
     }
 
     // Finds the nearest live example of a journal entry around a point: herds, plants and critters on the loaded
@@ -29,6 +34,43 @@ namespace Drift.Bridge
     // A new kind of journal entry needs a case here, or its cards cannot be watched.
     public static class WatchSubjects
     {
+        // ---------------------------------------------------------------- the four entry points build one of these
+
+        public static WatchSubject OfHerd(Island island, IslandHerdSystem herds, int herd)
+        {
+            if (island == null || herds == null || herd < 0 || herd >= herds.HerdCount) return null;
+            return new WatchSubject { label = LifeNames.Of(herds.HerdKind(herd)), ground = island, herds = herds, herd = herd };
+        }
+
+        // A photo-task cue: the very creature that is showing its move right now.
+        public static WatchSubject OfCue(PhotoSubject cue)
+        {
+            if (cue.task < 0) return null;
+            if (cue.herds != null)
+            {
+                cue.herds.TryGetComponent(out Island island);
+                return OfHerd(island, cue.herds, cue.a);
+            }
+            var entry = CollectionCatalog.At(PhotoTaskCatalog.At(cue.task).entry);
+            if (cue.critters != null && cue.a >= 0 && cue.island != null)
+                return OfCritter(entry, cue.island, cue.critters, cue.a);
+            if (cue.flocks != null) return OfFlock(entry, cue.flocks, cue.a);
+            // The firefly wave: watched while it runs.
+            var s = cue;
+            return new WatchSubject
+            {
+                label = entry.name,
+                ground = cue.island,
+                radius = Mathf.Max(1.5f, cue.size),
+                focus = (out Vector3 f) =>
+                {
+                    bool ok = PhotoSubjects.Refresh(ref s);
+                    f = s.world;
+                    return ok;
+                },
+            };
+        }
+
         public static WatchSubject Find(CollectEntry e, Island player, Vector2 near, FlockSystem flocks, FishSystem fish, SeaLifeSystem sea, ShipSystem ships)
         {
             switch (e.type)
@@ -142,10 +184,16 @@ namespace Drift.Bridge
                 }
             }
             if (bestIsland == null) return null;
-            var ground = bestIsland;
-            var system = bestSystem;
-            int index = bestIndex;
-            var kind = e.life;
+            return OfCritter(e, bestIsland, bestSystem, bestIndex);
+        }
+
+        public static WatchSubject OfCritter(CollectEntry e, Island island, IslandCrittersSystem critters, int index)
+        {
+            if (island == null || critters == null || index < 0 || index >= critters.CritterCount) return null;
+            var ground = island;
+            var system = critters;
+            int live = index;
+            var kind = system.KindOf(index);
             Vector2 last = system.PositionOf(index);
             float lift = kind == LifeKind.Butterfly || kind == LifeKind.Firefly ? 0.6f : 0.1f;
             return new WatchSubject
@@ -153,14 +201,16 @@ namespace Drift.Bridge
                 label = e.name,
                 ground = ground,
                 radius = 1.3f,
+                critters = system,
+                critter = index,
                 focus = (out Vector3 f) =>
                 {
                     f = default;
                     if (ground == null || system == null || !ground.isActiveAndEnabled || ground.IsSunk) return false;
                     // Indices shift when a critter leaves; the one of the same kind nearest to where it was takes over.
-                    if (index >= system.CritterCount || system.KindOf(index) != kind || system.DyingOf(index))
+                    if (live >= system.CritterCount || system.KindOf(live) != kind || system.DyingOf(live))
                     {
-                        index = -1;
+                        live = -1;
                         float bestD = 25f;
                         for (int i = 0; i < system.CritterCount; i++)
                         {
@@ -168,11 +218,11 @@ namespace Drift.Bridge
                             float d = (system.PositionOf(i) - last).sqrMagnitude;
                             if (d >= bestD) continue;
                             bestD = d;
-                            index = i;
+                            live = i;
                         }
-                        if (index < 0) return false;
+                        if (live < 0) return false;
                     }
-                    last = system.PositionOf(index);
+                    last = system.PositionOf(live);
                     f = ground.transform.TransformPoint(last.x, Mathf.Max(0f, ground.SampleHeight(last)) + lift, last.y);
                     return true;
                 },
@@ -193,8 +243,14 @@ namespace Drift.Bridge
                 bestD = d;
                 best = i;
             }
-            if (best < 0) return null;
-            int index = best;
+            return OfFlock(e, flocks, best);
+        }
+
+        public static WatchSubject OfFlock(CollectEntry e, FlockSystem flocks, int index)
+        {
+            if (flocks == null || index < 0 || index >= flocks.FlockCount) return null;
+            var system = flocks;
+            int slot = index;
             return new WatchSubject
             {
                 label = e.name,
@@ -202,9 +258,9 @@ namespace Drift.Bridge
                 focus = (out Vector3 f) =>
                 {
                     f = default;
-                    if (flocks == null || index >= flocks.FlockCount) return false;
-                    Vector2 p = flocks.PositionOf(index);
-                    f = new Vector3(p.x, flocks.HeightOf(index), p.y);
+                    if (system == null || slot >= system.FlockCount) return false;
+                    Vector2 p = system.PositionOf(slot);
+                    f = new Vector3(p.x, system.HeightOf(slot), p.y);
                     return true;
                 },
             };

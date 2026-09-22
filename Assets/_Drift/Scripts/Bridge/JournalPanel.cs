@@ -23,6 +23,8 @@ namespace Drift.Bridge
     {
         public const int TabCount = 6;
         public const int IslandTab = 5;
+        // Not a tab button of its own: the "Fotoaufgaben" button in the header opens it.
+        public const int TasksTab = 6;
         public const float WideFrom = 2100f;
         const int Pool = 15, MaxPages = 4;
         const float CardW = 424f, CardH = 128f, CardGap = 12f, TabH = 76f, MaxFit = 1.5f;
@@ -43,6 +45,9 @@ namespace Drift.Bridge
             public Text name, state, when, detail;
             public Button button;
             public int entry = -1;
+            // Photo tasks: the big picture over the swatch (tasks view) and the small photo slot of a species card.
+            public RawImage thumb, slotPicture;
+            public GameObject thumbFrame, slot, slotRing, slotPictureFrame, slotDone;
         }
 
         RectTransform _screen, _fit, _panel, _pager, _islandA, _islandB;
@@ -57,6 +62,11 @@ namespace Drift.Bridge
         readonly StringBuilder _sb = new StringBuilder(256);
         DiscoveryJournal _journal;
         LifeBook _bookRef;
+        PhotoTaskBook _tasks;
+        Func<int, Texture> _thumbOf;
+        Button _tasksButton;
+        Text _tasksName, _tasksCount;
+        Image _tasksLip;
         JournalIslandInfo _info;
         int _wide = -1, _tab, _page, _columns = 2, _capacity = 10;
         Vector2 _gridOrigin;
@@ -71,7 +81,37 @@ namespace Drift.Bridge
         public static string BuildingName(BuildingKind kind) => BuildingNames[Mathf.Clamp((int)kind, 0, BuildingNames.Length - 1)];
 
         public static int PagesOf(int tab, int capacity) =>
-            tab >= IslandTab ? 1 : Mathf.Max(1, (CollectionCatalog.CountIn((CollectSection)tab) + capacity - 1) / Mathf.Max(1, capacity));
+            tab == TasksTab ? Mathf.Max(1, (PhotoTaskCatalog.Count + capacity - 1) / Mathf.Max(1, capacity))
+            : tab >= IslandTab ? 1 : Mathf.Max(1, (CollectionCatalog.CountIn((CollectSection)tab) + capacity - 1) / Mathf.Max(1, capacity));
+
+        public PhotoTaskBook PhotoTasks => _tasks;
+
+        // The photo tasks shown in the header button, the tasks view and on the species cards; thumbOf gives the
+        // picture of a done task (null while there is none). A null book hides all of it.
+        public void SetPhotoTasks(PhotoTaskBook tasks, Func<int, Texture> thumbOf)
+        {
+            _tasks = tasks;
+            _thumbOf = thumbOf;
+            if (_tasks == null && _tab == TasksTab) _tab = 0;
+            Refill();
+        }
+
+        // The tasks view on the page that holds this task.
+        public void ShowTask(int task) => SetTab(TasksTab, Mathf.Max(0, task) / Mathf.Max(1, _capacity));
+
+        // Taps the card of a catalog entry on the page that is up; false when it is not there (or not tappable).
+        // The real button handler runs, so tests and eval take the same route as a finger.
+        public bool TapCard(int entry)
+        {
+            for (int i = 0; i < Pool; i++)
+            {
+                var c = _cards[i];
+                if (c == null || c.entry != entry || c.go == null || !c.go.activeSelf || c.button == null || !c.button.interactable) continue;
+                c.button.onClick.Invoke();
+                return true;
+            }
+            return false;
+        }
 
         // ---------------------------------------------------------------- build
 
@@ -105,6 +145,16 @@ namespace Drift.Bridge
                 var lip = b.transform.Find("Lip");
                 _tabLip[i] = lip != null ? lip.GetComponent<Image>() : null;
             }
+
+            _tasksButton = UiStyle.SecondaryButton(_panel, "PhotoTasks", "Fotoaufgaben", new Vector2(240f, TabH), () => SetTab(TasksTab));
+            _tasksName = UiStyle.LabelOf(_tasksButton);
+            _tasksName.fontSize = 28;
+            _tasksName.rectTransform.Stretch(16f, 28f, 16f, 5f);
+            UiStyle.FitWidth(_tasksName);
+            _tasksCount = UiStyle.Label(_tasksButton.transform, "", 22, UiStyle.Muted, TextAnchor.MiddleCenter);
+            _tasksCount.rectTransform.Stretch(16f, 7f, 16f, 46f);
+            var tasksLip = _tasksButton.transform.Find("Lip");
+            _tasksLip = tasksLip != null ? tasksLip.GetComponent<Image>() : null;
 
             _sectionTitle = UiStyle.FitWidth(UiStyle.Label(_panel, "", 34, UiStyle.Sand, TextAnchor.MiddleLeft, true));
             _sectionCount = UiStyle.FitWidth(UiStyle.Label(_panel, "", 28, UiStyle.CreamSoft, TextAnchor.MiddleRight));
@@ -193,6 +243,28 @@ namespace Drift.Bridge
             c.when.rectTransform.Place(new Vector2(0f, 1f), new Vector2(0f, 0.5f), new Vector2(288f, -70f), new Vector2(124f, 32f));
             c.detail = UiStyle.FitWidth(UiStyle.Label(c.root, "", 23, UiStyle.CreamSoft, TextAnchor.MiddleLeft));
             c.detail.rectTransform.Place(new Vector2(0f, 1f), new Vector2(0f, 0.5f), new Vector2(128f, -104f), new Vector2(282f, 32f));
+
+            c.thumb = UiStyle.Picture(c.root, "TaskPhoto", new Vector2(92f, 92f), out var frame);
+            frame.Place(new Vector2(0f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(64f, 0f), new Vector2(92f, 92f));
+            frame.SetSiblingIndex(c.badge.transform.GetSiblingIndex());
+            c.thumbFrame = frame.gameObject;
+            c.thumbFrame.SetActive(false);
+            // The photo slot: an empty frame while the species' photo task is open, the picture once it is done.
+            var slot = UiStyle.Rect(c.root, "PhotoSlot");
+            slot.Place(new Vector2(1f, 1f), new Vector2(0.5f, 0.5f), new Vector2(-34f, -94f), new Vector2(46f, 46f));
+            c.slot = slot.gameObject;
+            var ring = UiStyle.Shape(slot, "Empty", UiSprites.Ring, UiStyle.WithAlpha(UiStyle.Sand, 0.45f));
+            ring.rectTransform.Stretch();
+            UiStyle.Icon(ring.transform, "Icon", UiIcon.Camera, 22f, UiStyle.WithAlpha(UiStyle.Sand, 0.55f)).rectTransform.Center(Vector2.zero, new Vector2(22f, 22f));
+            c.slotRing = ring.gameObject;
+            c.slotPicture = UiStyle.Picture(slot, "Photo", new Vector2(46f, 46f), out var slotFrame);
+            slotFrame.Stretch();
+            c.slotPictureFrame = slotFrame.gameObject;
+            var done = UiStyle.Shape(slot, "Done", UiSprites.RoundedSmall, UiStyle.Mint);
+            done.rectTransform.Stretch();
+            UiStyle.Icon(done.transform, "Icon", UiIcon.Camera, 24f, UiStyle.Ink).rectTransform.Center(Vector2.zero, new Vector2(24f, 24f));
+            c.slotDone = done.gameObject;
+            c.slot.SetActive(false);
             return c;
         }
 
@@ -228,6 +300,7 @@ namespace Drift.Bridge
                 Put(_bar.Root, m, 190f, left, 22f);
                 Put(_book.rectTransform, m, 222f, left, 36f);
                 for (int i = 0; i < TabCount; i++) Put((RectTransform)_tabs[i].transform, m, 280f + i * (TabH + 14f), left, TabH);
+                Put((RectTransform)_tasksButton.transform, m, 280f + TabCount * (TabH + 14f), left, TabH);
                 Put((RectTransform)_close.transform, m, H - 36f - 124f, left, 124f);
                 Put(_sectionTitle.rectTransform, gx, 40f, 620f, 44f, 0f);
                 Put(_sectionCount.rectTransform, gx + gridW - 640f, 42f, 640f, 40f, 1f);
@@ -243,7 +316,9 @@ namespace Drift.Bridge
             {
                 float W = TallSize.x, H = TallSize.y, inner = W - 2f * m;
                 _panel.sizeDelta = TallSize;
-                Put(_title.rectTransform, m, 22f, inner, 110f);
+                // The title is centred in what the photo-task button leaves of the row.
+                Put(_title.rectTransform, m, 22f, inner - 230f, 110f);
+                Put((RectTransform)_tasksButton.transform, W - m - 220f, 40f, 220f, TabH);
                 Put(_count.rectTransform, m, 134f, inner, 44f);
                 Put(_bar.Root, m, 190f, inner, 22f);
                 Put(_book.rectTransform, m, 222f, inner, 36f);
@@ -270,7 +345,7 @@ namespace Drift.Bridge
 
         public void SetTab(int tab, int page = 0)
         {
-            _tab = Mathf.Clamp(tab, 0, TabCount - 1);
+            _tab = Mathf.Clamp(tab, 0, _tasks != null ? TasksTab : TabCount - 1);
             _page = page;
             Refill();
         }
@@ -298,6 +373,22 @@ namespace Drift.Bridge
             Refill();
         }
 
+        // With the cross-run book the header counts everything ever found; this line is what the current run added.
+        public static string RunLine(DiscoveryJournal j) =>
+            "Diese Reise: " + j.RunSeenCount + " Arten gesehen  ·  " + (j.NewThisRun == 1 ? "1 neu entdeckt" : j.NewThisRun + " neu entdeckt");
+
+        // "bei 6:42" / "seit 7:11" (run time) or, for a step of an earlier run, the day.
+        public static string WhenOf(DiscoveryJournal j, int index)
+        {
+            var state = j.StateOf(index);
+            if (state == CollectState.Unknown) return "";
+            if (state == CollectState.Collected)
+                return j.CollectedBefore(index) ? DayOf(j.CollectedOn(index)) : "seit " + DiscoveryJournal.FormatTime(j.CollectedAt(index));
+            return j.SeenBefore(index) ? DayOf(j.SeenOn(index)) : "bei " + DiscoveryJournal.FormatTime(j.SeenAt(index));
+        }
+
+        static string DayOf(DateTime t) => t == DateTime.MinValue ? "früher" : "am " + t.ToString("dd.MM.", System.Globalization.CultureInfo.InvariantCulture);
+
         public static string ProgressLine(DiscoveryJournal j) =>
             "Gesammelt " + j.CollectedCount + "/" + CollectionCatalog.CollectibleCount + "  ·  Gesehen " + j.SeenCount + "/" + CollectionCatalog.Count
             + (j.Complete ? "  –  alles gefunden!" : "");
@@ -308,7 +399,7 @@ namespace Drift.Bridge
             if (j == null || _screen == null) return;
             _count.text = ProgressLine(j);
             _bar.Set(j.CollectedCount / (float)CollectionCatalog.CollectibleCount);
-            _book.text = _bookRef != null ? _bookRef.Line : "";
+            _book.text = j.HasBook ? RunLine(j) : _bookRef != null ? _bookRef.Line : "";
 
             for (int i = 0; i < TabCount; i++)
             {
@@ -319,6 +410,22 @@ namespace Drift.Bridge
                 _tabName[i].color = on ? UiStyle.Ink : UiStyle.Cream;
                 _tabCount[i].color = on ? UiStyle.WithAlpha(UiStyle.Ink, 0.75f) : UiStyle.Muted;
                 _tabCount[i].text = i == IslandTab ? _info.stage ?? "" : TabProgress(j, (CollectSection)i);
+            }
+            SetActive(_tasksButton.gameObject, _tasks != null);
+            if (_tasks != null)
+            {
+                bool on = _tab == TasksTab;
+                var body = _tasksButton.targetGraphic;
+                if (body != null) body.color = on ? UiStyle.Sand : UiStyle.Lagoon;
+                if (_tasksLip != null) _tasksLip.color = on ? UiStyle.CreamDeep : UiStyle.LagoonDeep;
+                _tasksName.color = on ? UiStyle.Ink : UiStyle.Cream;
+                _tasksCount.color = on ? UiStyle.WithAlpha(UiStyle.Ink, 0.75f) : UiStyle.Muted;
+                _tasksCount.text = _tasks.DoneCount + "/" + PhotoTaskBook.Total;
+            }
+            if (_tab == TasksTab && _tasks != null)
+            {
+                RefillTasks(j);
+                return;
             }
 
             bool island = _tab == IslandTab;
@@ -352,6 +459,11 @@ namespace Drift.Bridge
                 SetActive(_cards[i].root.gameObject, shown);
                 if (shown) FillCard(_cards[i], j, entries[k]);
             }
+            SetPager(pages);
+        }
+
+        void SetPager(int pages)
+        {
             SetActive(_pager.gameObject, pages > 1);
             if (pages > 1)
             {
@@ -359,6 +471,62 @@ namespace Drift.Bridge
                 UiStyle.SetInteractable(_prev, _page > 0);
                 UiStyle.SetInteractable(_next, _page < pages - 1);
             }
+        }
+
+        public static string TasksProgressLine(PhotoTaskBook tasks) =>
+            tasks.DoneCount + "/" + PhotoTaskBook.Total + " erfüllt" + (tasks.AllDone ? "  –  alle geschafft!" : "");
+
+        // Every task as a card: the species (unknown ones stay "???" until seen or photographed), open or done, the
+        // day it was done, the move, and the photo in place of the swatch.
+        void RefillTasks(DiscoveryJournal j)
+        {
+            _sectionTitle.text = "Fotoaufgaben";
+            _sectionCount.text = TasksProgressLine(_tasks);
+            _islandA.gameObject.SetActive(false);
+            _islandB.gameObject.SetActive(false);
+            _sectionBar.Root.gameObject.SetActive(true);
+            _sectionBar.Fill.color = UiStyle.Sand;
+            _sectionBar.Set(_tasks.DoneCount / (float)Mathf.Max(1, PhotoTaskBook.Total));
+            int pages = PagesOf(TasksTab, _capacity);
+            _page = Mathf.Clamp(_page, 0, pages - 1);
+            int first = _page * _capacity;
+            for (int i = 0; i < Pool; i++)
+            {
+                int k = first + i;
+                bool shown = i < _capacity && k < PhotoTaskCatalog.Count;
+                SetActive(_cards[i].root.gameObject, shown);
+                if (shown) FillTaskCard(_cards[i], j, k);
+            }
+            SetPager(pages);
+        }
+
+        void FillTaskCard(CardView c, DiscoveryJournal j, int task)
+        {
+            var t = PhotoTaskCatalog.At(task);
+            var e = CollectionCatalog.At(t.entry);
+            bool done = _tasks.IsDone(task), known = done || j.StateOf(t.entry) != CollectState.Unknown;
+            c.entry = known ? t.entry : -1;
+            c.button.interactable = known && _onWatch != null;
+            SetActive(c.go, known && _onWatch != null);
+            Color sw = SwatchOf(e);
+            c.body.color = done ? UiStyle.WithAlpha(UiStyle.Sand, 0.16f) : known ? UiStyle.Veil : UiStyle.WithAlpha(UiStyle.Veil, 0.06f);
+            c.swatch.color = known ? sw : UiStyle.WithAlpha(UiStyle.Track, 0.6f);
+            c.glyph.sprite = JournalGlyphs.Of(JournalGlyphs.For(e));
+            c.glyph.color = !known ? UiStyle.Faint : sw.r * 0.3f + sw.g * 0.59f + sw.b * 0.11f > 0.5f ? UiStyle.WithAlpha(UiStyle.Ink, 0.9f) : UiStyle.Cream;
+            var picture = done && _thumbOf != null ? _thumbOf(task) : null;
+            c.thumb.texture = picture;
+            SetActive(c.thumbFrame, picture != null);
+            SetActive(c.slot, false);
+            SetActive(c.badge, done);
+            c.name.text = known ? e.name : "???";
+            c.name.color = known ? UiStyle.Cream : UiStyle.Muted;
+            c.chip.color = done ? UiStyle.Sand : UiStyle.Ghost;
+            c.state.text = done ? "erfüllt" : "offen";
+            c.state.color = done ? UiStyle.Ink : UiStyle.CreamSoft;
+            c.when.text = done ? PhotoTaskBook.DateLabel(_tasks.DoneAt(task)) : "";
+            c.detail.text = t.phrase;
+            c.detail.color = done ? UiStyle.CreamSoft : UiStyle.Sand;
+            c.detail.rectTransform.sizeDelta = new Vector2(282f, 32f);
         }
 
         static string TabProgress(DiscoveryJournal j, CollectSection s) =>
@@ -383,9 +551,21 @@ namespace Drift.Bridge
             c.chip.color = collected ? UiStyle.Mint : known ? UiStyle.WithAlpha(UiStyle.Sand, 0.24f) : UiStyle.Ghost;
             c.state.text = collected ? "gesammelt" : known ? "gesehen" : "unbekannt";
             c.state.color = collected ? UiStyle.Ink : known ? UiStyle.Sand : UiStyle.Muted;
-            c.when.text = collected ? "seit " + DiscoveryJournal.FormatTime(j.CollectedAt(index)) : known ? "bei " + DiscoveryJournal.FormatTime(j.SeenAt(index)) : "";
+            c.when.text = WhenOf(j, index);
             c.detail.text = DetailOf(j, e, state);
             c.detail.color = collected && j.PresentNow(index) ? UiStyle.CreamSoft : UiStyle.Muted;
+            SetActive(c.thumbFrame, false);
+
+            int task = _tasks != null && known ? PhotoTaskCatalog.IndexOfEntry(index) : -1;
+            SetActive(c.slot, task >= 0);
+            c.detail.rectTransform.sizeDelta = new Vector2(task >= 0 ? 226f : 282f, 32f);
+            if (task < 0) return;
+            bool done = _tasks.IsDone(task);
+            var picture = done && _thumbOf != null ? _thumbOf(task) : null;
+            c.slotPicture.texture = picture;
+            SetActive(c.slotRing, !done);
+            SetActive(c.slotPictureFrame, picture != null);
+            SetActive(c.slotDone, done && picture == null);
         }
 
         // The third line of a card: where it lives (unknown), what is missing (seen) or how it is doing on the island.

@@ -9,11 +9,31 @@ namespace Drift.Islands
         public Island target;
         public float distanceBehind = 7f;
         public float height = 9f;
+        [Tooltip("Feste Blickrichtung: die Kamera dreht sich nie mit der Insel (Norden bleibt oben). Gilt für die Richtungssteuerung; mit der alten Lenksteuerung schaut die Kamera wie früher der Insel hinterher.")]
+        public bool fixedOrientation = true;
+        [Tooltip("In welche Richtung die feste Kamera schaut (Grad, 0 = nach Norden / +Z). Der Abenteuer-Ring erwartet 0.")]
+        [Range(0f, 360f)] public float viewYawDeg = 0f;
+
+        [Header("Kamera dreht mit (Gemütlich)")]
+        [Tooltip("Wie schnell sich die Kamera in die Fahrtrichtung dreht: 1 = in etwa einer Sekunde eingeschwenkt. 0 = feste Nordsicht wie bisher.")]
+        [Range(0f, 3f)] public float courseFollow = 1f;
+        [Tooltip("Höchstes Drehtempo der Kamera (Grad pro Sekunde), damit eine Kehrtwende nie ruckt.")]
+        [Range(5f, 180f)] public float courseTurnMax = 90f;
+        [Tooltip("Erst ab diesem Tempo (u/s) dreht die Kamera mit; langsamer und im Stand bleibt sie stehen.")]
+        [Range(0f, 4f)] public float courseMinSpeed = 1.2f;
+        [Tooltip("Abenteuer-Ring: so viele Grad schaut die Kamera nach oben, damit der aufsteigende Ring im Bild ist.")]
+        [Range(0f, 30f)] public float ringPitchUp = 16f;
+        [Tooltip("Abenteuer-Ring: wie stark die Kamera entlang der Strecke statt hinter die Insel schaut (0 = nur Inselrichtung).")]
+        [Range(0f, 1f)] public float ringAlongBias = 0.7f;
+        [Tooltip("Abenteuer-Ring: Mindestabstand der Kamera zu den Randwänden.")]
+        [Range(0f, 10f)] public float ringWallMargin = 3f;
         public float followLerp = 5f;
         public float lookLerp = 7f;
         public float referenceRadius = 3f;
         public float zoomExponent = 0.85f;
-        public float shakeAmount = 0.12f;
+        // Halved when the shake stopped being fed back into the smoothed pose: the old loop re-shook an
+        // already shaken position, which roughly doubled every impact before it decayed.
+        public float shakeAmount = 0.07f;
         public float shakeDecay = 3f;
 
         public float zoomMin = 0.08f;
@@ -25,6 +45,34 @@ namespace Drift.Islands
         public float scrollZoomSpeed = 0.0012f;
         public float keyZoomSpeed = 1.2f;
         public float zoomSmooth = 8f;
+
+        [Header("Tempogefühl")]
+        [Tooltip("Tempogefühl der Kamera: Blickwinkel und Abstand wachsen mit dem Tempo, bei Höchsttempo wackelt das Bild ganz leicht, in Kurven legt es sich etwas. Aus = ruhige Kamera wie bisher.")]
+        public bool speedFeelEnabled = true;
+        [Tooltip("Grundblickwinkel der Kamera in Grad. 0 = der Wert, den die Kamera beim Start hat.")]
+        [Range(0f, 90f)] public float baseFieldOfView = 0f;
+        [Tooltip("So viele Grad öffnet der Blickwinkel bei vollem Tempo zusätzlich. 0 = aus.")]
+        [Range(0f, 25f)] public float speedFovGain = 4f;
+        [Tooltip("Um diesen Anteil zieht sich die Kamera bei vollem Tempo weiter zurück (0,3 = 30 % mehr Abstand).")]
+        [Range(0f, 1f)] public float speedPullBack = 0.14f;
+        [Tooltip("Wie schnell Blickwinkel und Abstand dem Tempo folgen (klein = träge, groß = sofort).")]
+        [Range(0.5f, 10f)] public float speedFeelResponse = 3.5f;
+        [Tooltip("Stärke des leichten Rüttelns bei Höchsttempo. 0 = aus.")]
+        [Range(0f, 0.5f)] public float speedShake = 0.018f;
+        [Tooltip("Ab diesem Anteil des Höchsttempos fängt das Rütteln an (1 = erst ab eigenem Höchsttempo, darüber trägt die Strömung).")]
+        [Range(0f, 1.4f)] public float speedShakeStart = 0.75f;
+        [Tooltip("Wie weit sich das Bild in eine Kurve legt (Grad). 0 = aus.")]
+        [Range(0f, 10f)] public float turnRoll = 1.2f;
+
+        [Header("Verschmelzen")]
+        [Tooltip("Blickwinkel-Stoß beim Verschmelzen (Grad).")]
+        [Range(0f, 20f)] public float mergeFovKick = 6f;
+        [Tooltip("Wie weit die Kamera beim Verschmelzen kurz heranfährt (Anteil des Abstands).")]
+        [Range(0f, 0.5f)] public float mergeZoomIn = 0.12f;
+        [Tooltip("Wie kräftig die Kamera beim Verschmelzen wackelt. 0 = nur das übliche Rütteln.")]
+        [Range(0f, 1.5f)] public float mergeShake = 0.8f;
+        [Tooltip("In wie vielen Sekunden der Stoß beim Verschmelzen abklingt.")]
+        [Range(0.05f, 1.5f)] public float mergeKickSeconds = 0.35f;
 
         float _shake;
         float _zoom = 1f;
@@ -38,8 +86,52 @@ namespace Drift.Islands
         float _easeT = 1f, _easeSeconds = 0.6f, _easeFromClose;
         Vector3 _easeFromOffset;
         Quaternion _easeFromRot;
+        readonly SpeedFeel.Tracker _feel = new();
+        float _framing, _mergeKick, _turnRateDeg, _lastHeadingDeg, _capturedFov = 60f;
+        bool _hasHeading, _hasCapturedFov;
+        // The smoothed chase position WITHOUT the shake: the shake is an offset added on top of it every frame.
+        // Adding it to the transform and smoothing from there again makes the amplitude frame-rate dependent,
+        // and at dt = 0 (Time.timeScale 0 while the pause menu is up) nothing pulls the camera back at all -
+        // it walked away from the island for as long as the menu stayed open.
+        Vector3 _pose;
+        bool _hasPose;
+        float _viewYaw, _steerYaw;
 
         public float Zoom => _zoom;
+        // True while the view does not turn with the island's body: the island never turns under the direct
+        // steering, so the view follows a compass direction of its own (north, or the course). The old
+        // steering wheel needs the camera behind the heading instead.
+        public bool ViewIsFixed => fixedOrientation && Island.DirectionSteering;
+        // The cozy open sea swings the view onto the course; the adventure ring must keep looking along the
+        // track (viewYawDeg 0 plus ringAlongBias), so it never follows.
+        public bool CourseFollowActive =>
+            FollowsCourse(ViewIsFixed, courseFollow, RingWorld.Active != null, GameModes.Current == GameMode.Cozy);
+
+        public static bool FollowsCourse(bool viewIsFixed, float courseFollow, bool onRing, bool cozy) =>
+            viewIsFixed && courseFollow > 0f && !onRing && cozy;
+        // Where the camera looks (degrees). Read from the intent, not from the transform: the ring's pitch and
+        // the turn roll leak into transform.eulerAngles.y.
+        public float ViewYawDeg => ViewIsFixed ? _viewYaw : transform.eulerAngles.y;
+        public Vector3 ViewForward => Quaternion.Euler(0f, ViewYawDeg, 0f) * Vector3.forward;
+        // The yaw the steering maps screen directions through - NOT the view yaw while a direction is held.
+        // The view swings onto the course, and a frame that swung with it would turn the very direction being
+        // held: the island would circle for ever. So the frame is frozen for as long as the player points
+        // somewhere and only catches up with the view once the stick (or the phone) is let go - by then the
+        // view looks along the course, so "up the screen" is where the island is going.
+        public float SteerYawDeg => ViewIsFixed ? _steerYaw : transform.eulerAngles.y;
+        // Set every frame by whoever feeds the direction (SessionScreens): true while a direction is given.
+        public bool SteerHeld { get; set; }
+        // courseFollow 1 settles the view in about a second.
+        public float CourseResponse => 3f * Mathf.Max(0f, courseFollow);
+        // The speed feel this camera is showing, for tests and for anyone who wants to match it.
+        public float SpeedDrive => _feel.Drive;
+        public float FlowAmount => _feel.Flow;
+        public float SurfAmount => _feel.Surf;
+        public float TurnRateDegPerSec => _turnRateDeg;
+        public float MergeKick => _mergeKick;
+        public float BaseFieldOfView => baseFieldOfView > 0f ? baseFieldOfView : _capturedFov;
+        // What the camera would set the field of view to right now (base + speed + merge kick).
+        public float FieldOfViewTarget => BaseFieldOfView + speedFovGain * _framing + mergeFovKick * _mergeKick;
         public bool HasFollowOverride => _followPos != null;
         public Island FollowGround => _followGround;
         // While suspended the camera transform is left alone (photo mode drives it directly); the LOD
@@ -62,6 +154,12 @@ namespace Drift.Islands
             _easeSeconds = seconds;
             _easeT = 0f;
         }
+
+        // One smoothing step of the shake-free pose. At dt <= 0 - the pause menu holds Time.timeScale at 0 -
+        // it stands still instead of snapping, and the shake is added to the RESULT of this, never fed back
+        // into it: otherwise nothing pulls the camera back and it drifts off the island frame by frame.
+        public static Vector3 SmoothPose(Vector3 pose, Vector3 desired, float lerpPerSecond, float dt) =>
+            dt > 0f ? Vector3.Lerp(pose, desired, 1f - Mathf.Exp(-lerpPerSecond * dt)) : pose;
 
         public static void EasePose(Vector3 fromPos, Quaternion fromRot, Vector3 toPos, Quaternion toRot, float t, out Vector3 pos, out Quaternion rot)
         {
@@ -125,6 +223,18 @@ namespace Drift.Islands
         void OnEnable()
         {
             Island.Impact += OnImpact;
+            Island.Merged += OnMerged;
+            if (_cam == null) _cam = GetComponent<Camera>();
+            // Only ever read once: the finale re-enables this component after it has written its own field of
+            // view, and capturing that would ratchet the base up run after run.
+            if (_cam != null && !_hasCapturedFov) { _capturedFov = _cam.fieldOfView; _hasCapturedFov = true; }
+            _feel.Reset();
+            _framing = 0f;
+            _mergeKick = 0f;
+            _hasHeading = false;
+            _hasPose = false;
+            _viewYaw = _steerYaw = viewYawDeg;
+            SteerHeld = false;
             LifeLod.DistanceProvider = PlanarDistance;
             LifeEnvironment.ViewDistanceProvider = ViewDistance;
             LifeEnvironment.PointOfInterest = NearestOtherIsland;
@@ -133,6 +243,8 @@ namespace Drift.Islands
         void OnDisable()
         {
             Island.Impact -= OnImpact;
+            Island.Merged -= OnMerged;
+            if (_cam != null) _cam.fieldOfView = BaseFieldOfView;
             if (LifeLod.DistanceProvider == (System.Func<Vector3, float>)PlanarDistance) LifeLod.DistanceProvider = null;
             if (LifeEnvironment.ViewDistanceProvider == (System.Func<Vector3, float>)ViewDistance) LifeEnvironment.ViewDistanceProvider = null;
             if (LifeEnvironment.PointOfInterest == (LifeEnvironment.PointOfInterestProvider)NearestOtherIsland) LifeEnvironment.PointOfInterest = null;
@@ -177,6 +289,103 @@ namespace Drift.Islands
             _shake = Mathf.Max(_shake, intensity);
         }
 
+        // The player's own merge is the highlight: a short field-of-view punch, a dolly kick towards the
+        // contact and extra shake - no slow motion.
+        void OnMerged(Island host, Island guest, float energy)
+        {
+            if (target == null || (host != target && guest != target)) return;
+            float k = Mathf.Clamp01(0.45f + energy / 220f);
+            _mergeKick = Mathf.Max(_mergeKick, k);
+            _shake = Mathf.Max(_shake, mergeShake * k);
+        }
+
+        // Signed yaw rate of the course, measured here so the camera needs nothing private from Island. Under
+        // direct-direction steering the heading never turns - the course the island is actually driven along
+        // is what a curve looks like, so that is what the bank reads.
+        void UpdateTurnRate(float dt)
+        {
+            Vector3 f = target.Forward;
+            bool moving = true;
+            if (Island.DirectionSteering)
+            {
+                Vector2 v = target.SelfVelocity;
+                moving = v.sqrMagnitude > 0.04f;
+                if (moving) f = new Vector3(v.x, 0f, v.y);
+            }
+            // Drifting to a halt must not spin the measured course: the last real one is held.
+            float ang = moving ? Mathf.Atan2(f.x, f.z) * Mathf.Rad2Deg : _lastHeadingDeg;
+            if (_hasHeading && dt > 1e-5f)
+            {
+                float raw = Mathf.DeltaAngle(_lastHeadingDeg, ang) / dt;
+                _turnRateDeg = Mathf.Lerp(_turnRateDeg, raw, 1f - Mathf.Exp(-6f * dt));
+            }
+            else if (!_hasHeading) _turnRateDeg = 0f;
+            _lastHeadingDeg = ang;
+            _hasHeading = true;
+        }
+
+        // The course the view swings onto: the direction the island is really travelling in. Below minSpeed
+        // there is no course to speak of, so the view holds still instead of spinning while the island glides
+        // to a stop. Reading the VELOCITY (not the input) is what keeps the loop stable: the steering frame is
+        // fed back from the view, so a view that chased the input would chase itself.
+        public static bool CourseYaw(Vector2 velocity, float minSpeed, out float yawDeg)
+        {
+            yawDeg = 0f;
+            float min = Mathf.Max(0.01f, minSpeed);
+            if (velocity.sqrMagnitude < min * min) return false;
+            yawDeg = Mathf.Atan2(velocity.x, velocity.y) * Mathf.Rad2Deg;
+            return true;
+        }
+
+        // One smoothing step towards targetYaw: exponential (response 3 settles in about a second) and capped
+        // at maxDegPerSecond so even a full turnabout stays a slow swing.
+        public static float FollowYaw(float yaw, float targetYaw, float response, float maxDegPerSecond, float dt)
+        {
+            if (dt <= 0f) return yaw;
+            float step = Mathf.DeltaAngle(yaw, targetYaw) * (1f - Mathf.Exp(-Mathf.Max(0f, response) * dt));
+            float cap = Mathf.Max(0f, maxDegPerSecond) * dt;
+            return Mathf.Repeat(yaw + Mathf.Clamp(step, -cap, cap), 360f);
+        }
+
+        const float SteerCatchUp = 8f;
+
+        // The steering frame: frozen while a direction is held (so a held direction is a straight line),
+        // catching up with the view within a few tenths of a second after it is released.
+        public static float SteerYaw(float steerYaw, float viewYaw, bool held, float dt) =>
+            held ? steerYaw : FollowYaw(steerYaw, viewYaw, SteerCatchUp, 720f, dt);
+
+        void StepViewYaw(float dt)
+        {
+            // In the Editor the slider IS the view: nothing is driving, so nothing would ever pull the yaw back.
+            if (!CourseFollowActive || !Application.isPlaying)
+            {
+                _viewYaw = _steerYaw = viewYawDeg;
+                return;
+            }
+            if (CourseYaw(target.SelfVelocity, courseMinSpeed, out float course))
+                _viewYaw = FollowYaw(_viewYaw, course, CourseResponse, courseTurnMax, dt);
+            _steerYaw = SteerYaw(_steerYaw, _viewYaw, SteerHeld, dt);
+        }
+
+        void StepFeel(float dt)
+        {
+            _feel.Step(target, dt);
+            float want = speedFeelEnabled && _followPos == null ? SpeedFeel.Framing(_feel.Drive) * (1f - CloseBlend(_zoom)) : 0f;
+            _framing = dt > 0f ? Mathf.Lerp(_framing, want, 1f - Mathf.Exp(-speedFeelResponse * dt)) : want;
+            if (_mergeKick > 0f)
+                _mergeKick = dt > 0f ? _mergeKick * Mathf.Exp(-dt / Mathf.Max(0.05f, mergeKickSeconds)) : _mergeKick;
+            if (_mergeKick < 0.001f) _mergeKick = 0f;
+            UpdateTurnRate(dt);
+            StepViewYaw(dt);
+        }
+
+        void ApplyFov()
+        {
+            if (_cam == null) _cam = GetComponent<Camera>();
+            if (_cam == null) return;
+            _cam.fieldOfView = Mathf.Clamp(FieldOfViewTarget, 5f, 170f);
+        }
+
         void LateUpdate()
         {
             if (target == null) return;
@@ -184,23 +393,45 @@ namespace Drift.Islands
             {
                 ApplyNearClip(Mathf.Clamp01(SuspendedClose));
                 _hasLastFocus = false;
+                _hasHeading = false;
                 _easeT = 1f;
+                _framing = 0f;
+                _mergeKick = 0f;
+                _feel.Reset();
+                _hasPose = false;
+                if (_cam == null) _cam = GetComponent<Camera>();
+                if (_cam != null) _cam.fieldOfView = BaseFieldOfView;
                 return;
             }
 
-            if (Application.isPlaying) ReadZoomInput(Time.deltaTime);
+            float feelDt = Application.isPlaying ? Time.deltaTime : 0f;
+            // Paused (Time.timeScale 0): the world stands still, so the camera does too. Stepping the speed
+            // feel here would snap the framing to the frozen velocity, and every smoothing step below is a
+            // no-op at dt = 0 while the shake offset would keep pushing - that is what pulled the view away
+            // from the island as soon as a menu opened.
+            if (Application.isPlaying && feelDt <= 0f)
+            {
+                ApplyFov();
+                return;
+            }
+            if (Application.isPlaying) ReadZoomInput(feelDt);
+            StepFeel(feelDt);
+            ApplyFov();
 
             DesiredPose(out Vector3 desiredPos, out Quaternion desiredRot, out float scale, out Vector3 focus);
+            if (!_hasPose) { _pose = transform.position; _hasPose = true; }
 
             if (_easeT < 1f)
             {
                 // Capped so a hitch on the hand-back frame cannot turn the ease into a snap.
                 _easeT = Mathf.Min(1f, _easeT + Mathf.Min(Time.unscaledDeltaTime, 0.05f) / Mathf.Max(0.01f, _easeSeconds));
                 EasePose(focus + _easeFromOffset, _easeFromRot, desiredPos, desiredRot, _easeT, out Vector3 easedPos, out Quaternion easedRot);
+                _pose = easedPos;
                 transform.SetPositionAndRotation(easedPos, easedRot);
                 _lastFocus = focus;
                 _hasLastFocus = true;
                 ApplyNearClip(Mathf.Lerp(_easeFromClose, CloseBlend(_zoom), Mathf.SmoothStep(0f, 1f, _easeT)));
+                ReportView();
                 return;
             }
 
@@ -210,24 +441,43 @@ namespace Drift.Islands
             if (_hasLastFocus && close > 0f)
             {
                 Vector3 carried = focus - _lastFocus;
-                if (carried.sqrMagnitude < 25f) transform.position += carried * close;
+                if (carried.sqrMagnitude < 25f) _pose += carried * close;
             }
             _lastFocus = focus;
             _hasLastFocus = true;
             ApplyNearClip(close);
 
-            float posT = 1f - Mathf.Exp(-followLerp * Time.deltaTime);
-            float rotT = 1f - Mathf.Exp(-lookLerp * Time.deltaTime);
-            transform.position = Vector3.Lerp(transform.position, desiredPos, posT);
-            transform.rotation = Quaternion.Slerp(transform.rotation, desiredRot, rotT);
+            _pose = SmoothPose(_pose, desiredPos, followLerp, feelDt);
+            Quaternion rot = Quaternion.Slerp(transform.rotation, desiredRot, 1f - Mathf.Exp(-lookLerp * feelDt));
 
+            Vector3 shake = Vector3.zero;
             if (_shake > 0.001f)
             {
                 float t = Time.time * 28f;
                 Vector3 offset = new Vector3(Mathf.PerlinNoise(t, 0f) - 0.5f, Mathf.PerlinNoise(0f, t) - 0.5f, Mathf.PerlinNoise(t, t) - 0.5f);
-                transform.position += offset * (_shake * shakeAmount * scale);
-                _shake *= Mathf.Exp(-shakeDecay * Time.deltaTime);
+                shake += offset * (_shake * shakeAmount * scale);
+                _shake *= Mathf.Exp(-shakeDecay * feelDt);
             }
+
+            // Top-speed motion: slow (6.5 Hz) and only sideways/up in view space, so it reads as the island
+            // working against the water and never as a handheld camera.
+            float rumble = speedFeelEnabled ? SpeedFeel.ShakeAmount(_framing, speedShakeStart) * speedShake : 0f;
+            if (rumble > 1e-4f)
+            {
+                float t = Time.time * 6.5f;
+                Vector3 o = new Vector3(Mathf.PerlinNoise(t, 3.7f) - 0.5f, (Mathf.PerlinNoise(5.1f, t) - 0.5f) * 0.6f, 0f);
+                shake += rot * o * (rumble * scale);
+            }
+            transform.SetPositionAndRotation(_pose + shake, rot);
+            ReportView();
+        }
+
+        // The vegetation calms its wind by how close the view is; the chase camera knows its own distance
+        // exactly. Only while it really drives: suspended, the watch tools (or the fly-over) report their own.
+        void ReportView()
+        {
+            if (target != null)
+                Drift.Life.IslandLifeSystem.ReportViewDistance(Vector3.Distance(transform.position, target.transform.position));
         }
 
         void ApplyNearClip(float close)
@@ -252,8 +502,35 @@ namespace Drift.Islands
             else if (close > 0f)
                 focus.y += Mathf.Max(0f, target.SampleHeight(Vector2.zero)) * close;
 
-            // back = -heading: the body may turn under the camera (merges, drift), the view never does.
-            FollowPose(focus, ground.Normal, -ground.Forward, radius, referenceRadius, zoomExponent, height, distanceBehind, _zoom, out pos, out rot, out scale);
+            // With the direct-direction steering the view is nailed to a compass direction: the island drifts
+            // any way it likes and never turns, so there is no "behind it" to sit in - and a view that turned
+            // would turn the frame the steering is given in and make a held direction curve for ever.
+            // Otherwise back = -heading: the body may turn under the camera (merges, drift), the view never does.
+            Vector3 back = ViewIsFixed ? -ViewForward : -ground.Forward;
+            var ring = _followPos == null ? RingWorld.Active : null;
+            if (ring != null)
+            {
+                // On the ring the camera looks mostly along the track: across it, it would sit outside the band in
+                // the rim walls and see the climbing ring rolled sideways.
+                float along = back.z >= 0f ? 1f : -1f;
+                back = Vector3.Slerp(back, new Vector3(0f, back.y, along), ringAlongBias).normalized;
+            }
+            // Speed framing: the camera drops back and lifts a little while the island really runs, and the
+            // merge kick dollies it in for a moment. Both leave the ring clamp and the terrain clamp below alone.
+            float kick = 1f - mergeZoomIn * _mergeKick;
+            float dist = distanceBehind * (1f + speedPullBack * _framing) * kick;
+            float high = height * (1f + 0.45f * speedPullBack * _framing) * kick;
+            FollowPose(focus, ground.Normal, back, radius, referenceRadius, zoomExponent, high, dist, _zoom, out pos, out rot, out scale);
+            if (ring != null)
+            {
+                var g = ring.Geometry;
+                float x = Mathf.Clamp(pos.x, g.MinX + ringWallMargin, g.MaxX - ringWallMargin);
+                if (x != pos.x)
+                {
+                    pos.x = x;
+                    rot = Quaternion.LookRotation((focus - pos).normalized, ground.Normal);
+                }
+            }
 
             Vector3 look = focus + ground.Normal * (0.4f * _zoom);
             float need = RequiredHeight(ground, pos, look, Mathf.Lerp(groundClearance, closeGroundClearance, close), close);
@@ -261,6 +538,16 @@ namespace Drift.Islands
             {
                 pos.y = need;
                 rot = Quaternion.LookRotation((look - pos).normalized, ground.Normal);
+            }
+            // On the adventure ring the view tilts up so the band climbing into the sky ahead is in the picture
+            // (portrait phones otherwise see only sea). Part of the pose, so tap picking and labels stay right.
+            if (_followPos == null && RingWorld.Active != null) rot *= Quaternion.Euler(-ringPitchUp * (1f - close), 0f, 0f);
+
+            // Lean into the turn. Last, because the clamps above rebuild the rotation from scratch.
+            if (speedFeelEnabled && turnRoll > 0f && _followPos == null)
+            {
+                float roll = SpeedFeel.Bank(_turnRateDeg, Mathf.Max(1f, target.turnRateDegPerSec), _framing, turnRoll) * (1f - close);
+                if (Mathf.Abs(roll) > 0.01f) rot *= Quaternion.Euler(0f, 0f, roll);
             }
         }
 
@@ -312,9 +599,21 @@ namespace Drift.Islands
         public void SnapToTarget()
         {
             if (target == null) return;
+            _feel.Reset();
+            _framing = 0f;
+            _mergeKick = 0f;
+            _hasHeading = false;
+            _turnRateDeg = 0f;
+            // A snap happens when a world is (re)started or loaded: with the island at rest there is no course
+            // to keep, so the view goes back to its compass direction. Under way (a hand-back from photo mode)
+            // it keeps the course it had.
+            if (!CourseFollowActive || !CourseYaw(target.SelfVelocity, courseMinSpeed, out _)) _viewYaw = _steerYaw = viewYawDeg;
+            ApplyFov();
             DesiredPose(out Vector3 pos, out Quaternion rot, out _, out Vector3 focus);
             transform.position = pos;
             transform.rotation = rot;
+            _pose = pos;
+            _hasPose = true;
             _lastFocus = focus;
             _hasLastFocus = true;
             ApplyNearClip(CloseBlend(_zoom));

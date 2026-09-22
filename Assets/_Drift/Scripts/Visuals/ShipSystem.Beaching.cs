@@ -206,13 +206,17 @@ namespace Drift.Visuals
             if (s.state == ShipState.Moored) CastOff(ref s);
             s.squeeze += dt;
             SeaKind sk = SeaKindOf(s.kind);
-            bool may = s.grace <= 0f && s.fade > 0.5f && !over.IsEmerging;
+            // Adventure: ships are obstacles, never a reward. Running one down costs speed and shoves the hull out
+            // of the line - and it must never end up beached on the player, riding along like a prize.
+            bool bump = _onRing && over == _player;
+            if (bump) Bump(idx, outward);
+            bool may = s.grace <= 0f && s.fade > 0.5f && !over.IsEmerging && !bump;
             if (may && SeaMath.ShouldBeach(sk, closing, s.squeeze, BeachedOn(over), maxBeachedPerIsland) && TryBeach(idx, over, closing))
                 return true;
 
             float islandSpeed = Vel(over).magnitude;
             bool gentle = may && closing < SeaMath.BeachClosingSpeed(sk);
-            float push = gentle ? SeaMath.EvadeSpeed(sk) : 3f + islandSpeed;
+            float push = bump ? shipHitPush + _playerSpeed : gentle ? SeaMath.EvadeSpeed(sk) : 3f + islandSpeed;
             Vector2 dirn = outward;
             if (s.kind == ShipKind.TradingCog && islandSpeed > 0.5f)
             {
@@ -225,6 +229,27 @@ namespace Drift.Visuals
             }
             s.pos += dirn * (push * dt);
             return false;
+        }
+
+        // The player rammed this hull (Adventure): once per shipHitCooldown it reports the bump - spray, a heavy
+        // roll, and Encounters takes the speed off the island (Island.Stagger). Never a reward of any kind.
+        public static int ShipHitTotal { get; private set; }
+
+        void Bump(int idx, Vector2 outward)
+        {
+            ref Ship s = ref _ships[idx];
+            s.heel = Mathf.Clamp(s.heel + 0.45f, -0.7f, 0.7f);
+            s.wakeBobTarget = 1f;
+            s.wakeBob = 1f;
+            s.grace = 6f;
+            if (outward.sqrMagnitude > 1e-4f) s.dir = Vector2.Lerp(s.dir, outward.normalized, 0.35f).normalized;
+            if (s.hitCool > 0f) return;
+            s.hitCool = Mathf.Max(0.2f, shipHitCooldown);
+            ShipHitTotal++;
+            Vector3 at = new Vector3(s.pos.x, 0.1f, s.pos.y);
+            if (seaLife != null && seaLife.isActiveAndEnabled) seaLife.SprayAt(s.pos, 1.3f, 16);
+            else if (water != null) water.Splash(s.pos, 1.2f);
+            Encounters.NotifyShipHit(s.kind, at);
         }
 
         // ---- running aground ----

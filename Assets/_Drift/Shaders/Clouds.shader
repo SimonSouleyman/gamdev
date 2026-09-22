@@ -92,7 +92,16 @@ Shader "Drift/Clouds"
                 float3 pos = float3(xz.x, _CloudHeight + h, xz.y);
 
                 float grid = 1.0 - smoothstep(_CloudGridHalf - 2.5, _CloudGridHalf - 0.6, length(c - fq));
-                float alpha = _Alpha * grid * DriftPuffClearView(pos, size);
+                // The adventure ring ends at its rims: DriftCurveWS folds anything beyond onto the lip, where the clumps
+                // of the whole grid would pile up as a wall of cloud hanging out over the edge into space. A puff
+                // fades as soon as its own billboard would reach past the rim, so the cover ends inside the band.
+                float band = 1.0;
+                if (_CurveRing.x > 0.0)
+                {
+                    float over = abs(xz.x - _CurveRing.y) + size * 2.0 + 2.0 - _CurveRing.z;
+                    band = 1.0 - smoothstep(-2.0, 2.0, over);
+                }
+                float alpha = _Alpha * grid * band * DriftPuffClearView(pos, size);
                 size *= 0.55 + 0.45 * alpha / max(_Alpha, 1e-3);
 
                 OUT.positionHCS = TransformWorldToHClip(DriftPuffCorner(pos, IN.uv1.xy, size * step(0.004, alpha)));

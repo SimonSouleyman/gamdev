@@ -25,12 +25,19 @@ namespace Drift.SaveSystem
         public int bestStage;
     }
 
-    // The collection album of one run. Every entry of CollectionCatalog goes unknown -> seen (it was near the
-    // camera focus) -> collected (it lives, or has lived, on the player's island) and never back; next to that
-    // the run times of both steps, the best count ever on the island and the count right now. Pure C#, saved
-    // as one block of the save file; a file without the block starts empty.
+    // The collection album. Every entry of CollectionCatalog goes unknown -> seen (it was near the camera focus) ->
+    // collected (it lives, or has lived, on the player's island) and never back; next to that the run times of both
+    // steps, the best count ever on the island and the count right now. Pure C#, saved as one block of the save file;
+    // a file without the block starts empty.
+    // Two layers: the run layer (RunStateOf, RunSeenCount, ...: what this run met, which is what the save file holds)
+    // and the album layer (StateOf, SeenCount, ...: what the UI shows). Without a JournalBook both are the same. With
+    // one attached (AttachBook) the album layer is everything ever met across runs: Reset and Restore only clear the
+    // run layer and the album keeps the book, and whatever a run or an old save adds flows into the book.
     public sealed class DiscoveryJournal
     {
+        // Real-world clock for the album dates; tests pin it.
+        public static Func<DateTime> Clock = () => DateTime.Now;
+
         static readonly LifeKind[] LegacyLife =
         {
             LifeKind.Hare, LifeKind.Sheep, LifeKind.Goat, LifeKind.Ox, LifeKind.Bird, LifeKind.Seabird,
@@ -38,10 +45,13 @@ namespace Drift.SaveSystem
         };
 
         readonly int _n = CollectionCatalog.Count;
-        readonly byte[] _state;
+        readonly byte[] _state, _run;
+        // Run times; -1 when the step happened in an earlier run (known from the book).
         readonly float[] _seenAt, _collectedAt;
+        readonly DateTime[] _seenOn, _collectedOn;
         readonly int[] _best, _current;
-        ulong _unseenLife, _present;
+        ulong _unseenLife, _runUnseenLife, _present;
+        JournalBook _book;
 
         public int YoungBorn { get; private set; }
         public int FiresSeen { get; private set; }
@@ -51,11 +61,21 @@ namespace Drift.SaveSystem
         public int Version { get; private set; }
         public int SeenCount { get; private set; }
         public int CollectedCount { get; private set; }
+        // This run only: entries met, entries that lived on the island, and entries met for the very first time
+        // ("neu in diesem Durchgang"; counted since the run was started or loaded).
+        public int RunSeenCount { get; private set; }
+        public int RunCollectedCount { get; private set; }
+        public int NewThisRun { get; private set; }
+        public JournalBook Book => _book;
+        public bool HasBook => _book != null;
         // False until the first ReportPresence after a Reset or Restore: what the island holds at that moment is
         // where the run starts from, not news.
         public bool Baselined { get; private set; }
         // Bit (int)LifeKind of the catalogued life kinds nobody has seen yet; 0 lets a scan skip the islands.
         public ulong UnseenLifeMask => _unseenLife;
+        // The same for this run: what a sighting scan still has to look for.
+        public ulong RunUnseenLifeMask => _runUnseenLife;
+        public bool RunAllSeen => RunSeenCount == _n;
         // Bit (int)LifeKind of what the last ReportPresence found on the island.
         public ulong PresentMask => _present;
         public bool AllSeen => SeenCount == _n;
@@ -64,11 +84,51 @@ namespace Drift.SaveSystem
         public DiscoveryJournal()
         {
             _state = new byte[_n];
+            _run = new byte[_n];
             _seenAt = new float[_n];
             _collectedAt = new float[_n];
+            _seenOn = new DateTime[_n];
+            _collectedOn = new DateTime[_n];
             _best = new int[_n];
             _current = new int[_n];
-            _unseenLife = CollectionCatalog.LifeMask;
+            _unseenLife = _runUnseenLife = CollectionCatalog.LifeMask;
+        }
+
+        // Links the cross-run book: what it knows joins the album at once, and what the album knows goes into the book.
+        public void AttachBook(JournalBook book)
+        {
+            if (book == _book) return;
+            _book = book;
+            if (book == null) return;
+            book.Absorb(this);
+            LearnFromBook();
+            Version++;
+        }
+
+        void LearnFromBook()
+        {
+            for (int i = 0; i < _n; i++)
+            {
+                var st = _book.StateOf(i);
+                if (st == CollectState.Unknown) continue;
+                if (_state[i] == (byte)CollectState.Unknown)
+                {
+                    _state[i] = (byte)CollectState.Seen;
+                    _seenAt[i] = -1f;
+                    _seenOn[i] = _book.SeenOn(i);
+                    SeenCount++;
+                    var e = CollectionCatalog.At(i);
+                    if (e.hasLife) _unseenLife &= ~(1UL << (int)e.life);
+                }
+                if (st == CollectState.Collected && _state[i] != (byte)CollectState.Collected && CollectionCatalog.At(i).collectible)
+                {
+                    _state[i] = (byte)CollectState.Collected;
+                    _collectedAt[i] = -1f;
+                    _collectedOn[i] = _book.CollectedOn(i);
+                    CollectedCount++;
+                }
+                _best[i] = Mathf.Max(_best[i], _book.BestOf(i));
+            }
         }
 
         public static int LegacyIndex(JournalSpecies s) =>
@@ -76,6 +136,12 @@ namespace Drift.SaveSystem
             : (int)s >= 0 && (int)s < LegacyLife.Length ? CollectionCatalog.IndexOf(LegacyLife[(int)s]) : -1;
 
         public CollectState StateOf(int index) => (CollectState)_state[index];
+        public CollectState RunStateOf(int index) => (CollectState)_run[index];
+        // Seen or collected in an earlier run only (the run times are then unknown; SeenOn/CollectedOn hold the day).
+        public bool SeenBefore(int index) => _state[index] != 0 && _seenAt[index] < 0f;
+        public bool CollectedBefore(int index) => _state[index] == (byte)CollectState.Collected && _collectedAt[index] < 0f;
+        public DateTime SeenOn(int index) => _seenOn[index];
+        public DateTime CollectedOn(int index) => _collectedOn[index];
         public CollectState StateOf(LifeKind kind) => StateOfOrUnknown(CollectionCatalog.IndexOf(kind));
         public CollectState StateOf(SeaKind kind) => StateOfOrUnknown(CollectionCatalog.IndexOf(kind));
         CollectState StateOfOrUnknown(int index) => index >= 0 ? (CollectState)_state[index] : CollectState.Unknown;
@@ -115,11 +181,13 @@ namespace Drift.SaveSystem
             }
         }
 
+        // True only for a first sighting ever (album layer); a kind known from an earlier run is still noted for this run.
         public bool MarkSeen(int index, float time)
         {
-            if (index < 0 || index >= _n || _state[index] != (byte)CollectState.Unknown) return false;
+            if (index < 0 || index >= _n || _run[index] != (byte)CollectState.Unknown) return false;
+            bool fresh = _state[index] == (byte)CollectState.Unknown;
             Promote(index, CollectState.Seen, time);
-            return true;
+            return fresh;
         }
 
         public bool MarkSeen(LifeKind kind, float time) => MarkSeen(CollectionCatalog.IndexOf(kind), time);
@@ -129,15 +197,15 @@ namespace Drift.SaveSystem
         public ulong MarkSeen(ulong lifeMask, float time)
         {
             ulong fresh = lifeMask & _unseenLife;
-            for (ulong rest = fresh; rest != 0; rest &= rest - 1) MarkSeen(CollectionCatalog.IndexOf((LifeKind)LowestBit(rest)), time);
+            for (ulong rest = lifeMask & _runUnseenLife; rest != 0; rest &= rest - 1) MarkSeen(CollectionCatalog.IndexOf((LifeKind)LowestBit(rest)), time);
             return fresh;
         }
 
-        // False for what cannot live on an island and for what is collected already. Collecting something
-        // nobody had seen before counts as seeing it in the same moment.
+        // False for what cannot live on an island and for what this run collected already (true is news for the island
+        // even when an earlier run had the kind). Collecting something nobody had seen counts as seeing it too.
         public bool MarkCollected(int index, float time)
         {
-            if (index < 0 || index >= _n || _state[index] == (byte)CollectState.Collected) return false;
+            if (index < 0 || index >= _n || _run[index] == (byte)CollectState.Collected) return false;
             if (!CollectionCatalog.At(index).collectible) return false;
             Promote(index, CollectState.Collected, time);
             return true;
@@ -145,22 +213,39 @@ namespace Drift.SaveSystem
 
         public bool MarkCollected(LifeKind kind, float time) => MarkCollected(CollectionCatalog.IndexOf(kind), time);
 
+        // Raises both layers to at least `to`.
         void Promote(int index, CollectState to, float time)
         {
             time = Mathf.Max(0f, time);
+            var e = CollectionCatalog.At(index);
+            ulong bit = e.hasLife ? 1UL << (int)e.life : 0UL;
             if (_state[index] == (byte)CollectState.Unknown)
             {
+                _state[index] = (byte)CollectState.Seen;
                 _seenAt[index] = time;
+                _seenOn[index] = Clock();
                 SeenCount++;
-                var e = CollectionCatalog.At(index);
-                if (e.hasLife) _unseenLife &= ~(1UL << (int)e.life);
+                NewThisRun++;
+                _unseenLife &= ~bit;
             }
-            if (to == CollectState.Collected)
+            if (to == CollectState.Collected && _state[index] != (byte)CollectState.Collected)
             {
+                _state[index] = (byte)CollectState.Collected;
                 _collectedAt[index] = time;
+                _collectedOn[index] = Clock();
                 CollectedCount++;
             }
-            _state[index] = (byte)to;
+            if (_run[index] == (byte)CollectState.Unknown)
+            {
+                _run[index] = (byte)CollectState.Seen;
+                RunSeenCount++;
+                _runUnseenLife &= ~bit;
+            }
+            if (to == CollectState.Collected && _run[index] != (byte)CollectState.Collected)
+            {
+                _run[index] = (byte)CollectState.Collected;
+                RunCollectedCount++;
+            }
             Version++;
         }
 
@@ -224,16 +309,21 @@ namespace Drift.SaveSystem
             Version++;
         }
 
+        // A new run. With a book attached the album keeps everything (the run's news goes into the book first) and
+        // only the run layer starts empty.
         public void Reset()
         {
+            if (_book != null) _book.Absorb(this);
             for (int i = 0; i < _n; i++)
             {
-                _state[i] = 0;
+                _state[i] = _run[i] = 0;
                 _seenAt[i] = _collectedAt[i] = 0f;
+                _seenOn[i] = _collectedOn[i] = DateTime.MinValue;
                 _best[i] = _current[i] = 0;
             }
-            SeenCount = CollectedCount = 0;
-            _unseenLife = CollectionCatalog.LifeMask;
+            SeenCount = CollectedCount = RunSeenCount = RunCollectedCount = NewThisRun = 0;
+            _unseenLife = _runUnseenLife = CollectionCatalog.LifeMask;
+            if (_book != null) LearnFromBook();
             _present = 0;
             Baselined = false;
             YoungBorn = 0;
@@ -242,9 +332,10 @@ namespace Drift.SaveSystem
             Version++;
         }
 
+        // The run layer (what this run met); the album of a book-backed journal lives in the book.
         public JournalSaveData Capture()
         {
-            int n = SeenCount;
+            int n = RunSeenCount;
             var d = new JournalSaveData
             {
                 ids = new int[n], states = new int[n], seenAt = new float[n], collectedAt = new float[n], best = new int[n],
@@ -253,11 +344,11 @@ namespace Drift.SaveSystem
             int k = 0;
             for (int i = 0; i < _n; i++)
             {
-                if (_state[i] == (byte)CollectState.Unknown) continue;
+                if (_run[i] == (byte)CollectState.Unknown) continue;
                 d.ids[k] = CollectionCatalog.At(i).id;
-                d.states[k] = _state[i];
-                d.seenAt[k] = _seenAt[i];
-                d.collectedAt[k] = _collectedAt[i];
+                d.states[k] = _run[i];
+                d.seenAt[k] = Mathf.Max(0f, _seenAt[i]);
+                d.collectedAt[k] = Mathf.Max(0f, _collectedAt[i]);
                 d.best[k] = _best[i];
                 k++;
             }
@@ -275,13 +366,13 @@ namespace Drift.SaveSystem
                 for (int k = 0; k < d.ids.Length; k++)
                 {
                     int i = CollectionCatalog.IndexOfId(d.ids[k]);
-                    if (i < 0 || _state[i] != 0) continue;
+                    if (i < 0 || _run[i] != 0) continue;
                     int state = Mathf.Clamp(At(d.states, k, (int)CollectState.Seen), (int)CollectState.Seen, (int)CollectState.Collected);
                     if (state == (int)CollectState.Collected && !CollectionCatalog.At(i).collectible) state = (int)CollectState.Seen;
                     float seen = Mathf.Max(0f, At(d.seenAt, k, 0f));
                     Promote(i, CollectState.Seen, seen);
                     if (state == (int)CollectState.Collected) Promote(i, CollectState.Collected, Mathf.Max(seen, At(d.collectedAt, k, 0f)));
-                    _best[i] = Mathf.Max(0, At(d.best, k, 0));
+                    _best[i] = Mathf.Max(_best[i], At(d.best, k, 0));
                 }
             }
             else if (d.species != null)

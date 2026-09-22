@@ -11,7 +11,21 @@ namespace Drift.Visuals
         public Renderer waterRenderer;
         public Island player;
         public string waterObjectName = "Ground";
-        [Range(0f, 2f)] public float currentStreakStrength = 0.35f;
+        [Header("Strömung im Wasser")]
+        [Tooltip("Stärke der Schaumflocken, die mit der Plattenströmung treiben (Richtung und Tempo zeigen, wohin das Meer die Insel schiebt).")]
+        [Range(0f, 2f)] public float currentStreakStrength = 0.6f;
+        [Tooltip("Zusätzliche Betonung der Flocken um die Spielerinsel, je stärker die Strömung sie gerade mitnimmt.")]
+        [Range(0f, 2f)] public float currentPlayerEmphasis = 0.6f;
+        [Tooltip("Kantenlänge des Strömungsfelds um den Blickpunkt (Welteinheiten). Außerhalb blenden die Flocken aus.")]
+        public float currentFieldSize = 320f;
+        [Tooltip("Auflösung des Strömungsfelds (Texel pro Kante).")]
+        public int currentFieldResolution = 64;
+        [Tooltip("Wie oft pro Sekunde das Strömungsfeld aus den Platten neu berechnet wird.")]
+        public float currentFieldRate = 4f;
+        [Tooltip("Breite der Grenzzone (Brandung) beiderseits einer Plattengrenze, in der die Flocken dichter werden.")]
+        public float currentEdgeWidth = 10f;
+        [Tooltip("Plattentempo, das die Textur höchstens abbildet (Einheiten/s); schneller wird abgeschnitten.")]
+        public float currentFieldMaxSpeed = 8f;
         public float currentSmoothing = 4f;
         public bool wakeRelativeToCurrent = true;
         public float stormSmoothing = 1.5f;
@@ -27,10 +41,29 @@ namespace Drift.Visuals
         public float wakeEdgeSmoothing = 8f;
         public float reachRefreshInterval = 0.5f;
         public float reachMinInterval = 0.1f;
+        [Tooltip("Schaum und Tempolinien folgen der echten Küstenlinie (Abstandsfeld). Aus = nur Bugwelle und Kielwasserlinien.")]
+        public bool coastField = true;
+        [Tooltip("Wie weit von der Küste weg die Strömungsflocken um die Insel betont werden (Welteinheiten).")]
+        [Range(2f, 30f)] public float coastEmphasisRange = 12f;
+
+        [Header("Tempogefühl im Wasser")]
+        [Tooltip("Tempogefühl im Wasser: Bugwelle, Gischt, Tempolinien und die Strömungs-Rückmeldung. Aus = Wasser wie bisher.")]
+        public bool speedFeelEnabled = true;
+        [Tooltip("Wie viel kräftiger Bugwelle und Kielwasser bei vollem Tempo werden.")]
+        [Range(0f, 2f)] public float speedWakeBoost = 0.8f;
+        [Tooltip("Stärke der Tempolinien, die bei Fahrt neben der Insel vorbeiziehen. 0 = aus.")]
+        [Range(0f, 2f)] public float speedLineStrength = 0.45f;
+        [Tooltip("Wie viel heller und länger die Schaumflocken werden, wenn du mit der Strömung fährst (Strömungsgefühl).")]
+        [Range(0f, 2f)] public float flowFoamBoost = 1f;
+        [Tooltip("Wie deutlich eine Plattengrenze aufleuchtet, während du darauf surfst.")]
+        [Range(0f, 2f)] public float surfFoamStrength = 1f;
+        [Tooltip("Stärke des Gischtrings beim Verschmelzen. 0 = aus.")]
+        [Range(0f, 1f)] public float mergeSprayStrength = 0.9f;
+        [Tooltip("Wie lange der Gischtring beim Verschmelzen zu sehen ist (Sekunden).")]
+        [Range(0.2f, 2f)] public float sprayLife = 0.9f;
 
         static readonly int PlayerPosId = Shader.PropertyToID("_PlayerPos");
         static readonly int PlayerVelId = Shader.PropertyToID("_PlayerVel");
-        static readonly int PlayerRadiusId = Shader.PropertyToID("_PlayerRadius");
         static readonly int RingPosId = Shader.PropertyToID("_RingPos");
         static readonly int RingAgeId = Shader.PropertyToID("_RingAge");
         static readonly int RingStrengthId = Shader.PropertyToID("_RingStrength");
@@ -42,17 +75,20 @@ namespace Drift.Visuals
         static readonly int StormId = Shader.PropertyToID("_Storm");
         static readonly int WindDirId = Shader.PropertyToID("_WindDir");
         static readonly int SplashPosId = Shader.PropertyToID("_SplashPos");
-        static readonly int IslandDataId = Shader.PropertyToID("_IslandData");
-        static readonly int PlayerReachId = Shader.PropertyToID("_PlayerReach");
-        static readonly int PlayerBodyYawId = Shader.PropertyToID("_PlayerBodyYaw");
+        static readonly int CoastFieldId = Shader.PropertyToID("_CoastField");
+        static readonly int CoastParamsId = Shader.PropertyToID("_CoastParams");
+        static readonly int CoastRotId = Shader.PropertyToID("_CoastRot");
         static readonly int PlayerWakeEdgeId = Shader.PropertyToID("_PlayerWakeEdge");
         static readonly int PlayerWakeId = Shader.PropertyToID("_PlayerWake");
-        const int IslandSlots = 8;
+        static readonly int CurrentFieldId = Shader.PropertyToID("_CurrentField");
+        static readonly int CurrentFieldParamsId = Shader.PropertyToID("_CurrentFieldParams");
+        static readonly int CurrentEmphasisId = Shader.PropertyToID("_CurrentEmphasis");
+        static readonly int SpeedFeelId = Shader.PropertyToID("_SpeedFeel");
+        static readonly int SpeedFeelGainsId = Shader.PropertyToID("_SpeedFeelGains");
+        static readonly int SprayPosId = Shader.PropertyToID("_SprayPos");
         public const int ReachSlots = 32;
 
         MaterialPropertyBlock _block;
-        readonly Vector4[] _islandData = new Vector4[IslandSlots];
-        readonly float[] _islandDist = new float[IslandSlots];
         Vector4 _ringPos, _ringAge, _ringStrength;
         Vector2 _currentDir = Vector2.right;
         float _currentSpeed;
@@ -71,8 +107,16 @@ namespace Drift.Visuals
         int _reachVersion = -1;
         float _reachAge;
         float _reachMax;
+        readonly CoastField _coast = new();
+        Vector4 _coastParams;
         Vector4 _wakeEdge, _wake;
         bool _hasWakeEdge;
+        CurrentField _field;
+        float _fieldAge = float.MaxValue;
+        Vector4 _fieldParams, _emphasis;
+        readonly SpeedFeel.Tracker _feel = new();
+        Vector2 _sprayPos;
+        float _sprayAge = 10f, _sprayStrength;
 
         public Vector2 PlayerPos { get; private set; }
         public Vector2 PlayerVel { get; private set; }
@@ -95,6 +139,20 @@ namespace Drift.Visuals
         public Vector4 WakeParams => _wake;
         public int ReachRefreshCount { get; private set; }
         public Renderer Water => waterRenderer;
+        public CurrentField Field => _field;
+        // The signed-distance field of the player island's coastline (body space) the water reads.
+        public CoastField Coast => _coast;
+        public Vector4 CoastParams => _coastParams;
+        // 0..1.4 how much the island is under way, 0..1 how long it has been riding the current, 0..1 surf.
+        public float SpeedDrive => _feel.Drive;
+        public float FlowAmount => _feel.Flow;
+        public float SurfAmount => _feel.Surf;
+        public float CurrentAlignment => _feel.Alignment;
+        public Vector4 SpeedFeelVector { get; private set; }
+        public Vector4 SprayVector { get; private set; }
+        // The plate current actually carrying the player island (Island._carry in Play Mode, the plate under it otherwise).
+        public Vector2 CarryVelocity { get; private set; }
+        public Vector4 CurrentEmphasis => _emphasis;
 
         System.Func<Vector2> _windProvider;
         System.Func<float> _stormProvider;
@@ -108,13 +166,22 @@ namespace Drift.Visuals
             _stormProvider = () => _storm;
             Drift.Core.LifeEnvironment.WindProvider = _windProvider;
             Drift.Core.LifeEnvironment.StormProvider = _stormProvider;
+            Island.Merged += OnMerged;
         }
 
         void OnDisable()
         {
+            Island.Merged -= OnMerged;
             if (Drift.Core.LifeEnvironment.WindProvider == _windProvider) Drift.Core.LifeEnvironment.WindProvider = null;
             if (Drift.Core.LifeEnvironment.StormProvider == _stormProvider) Drift.Core.LifeEnvironment.StormProvider = null;
             if (waterRenderer != null) waterRenderer.SetPropertyBlock(null);
+            _field?.Release();
+            _field = null;
+            _fieldAge = float.MaxValue;
+            _coast.Release();
+            _coastParams = Vector4.zero;
+            _reachOwner = null;
+            _reachVersion = -1;
         }
 
         void LateUpdate()
@@ -141,6 +208,24 @@ namespace Drift.Visuals
             _splashPos = pos;
             _splashAge = 0f;
             _splashStrength = Mathf.Clamp01(strength);
+        }
+
+        // A wide, fast ring of spray, thrown where two islands meet. Its own slot, so the fish splashes above
+        // keep working during a merge.
+        public void Spray(Vector2 pos, float strength)
+        {
+            strength = Mathf.Clamp01(strength);
+            if (strength <= 0f) return;
+            _sprayPos = pos;
+            _sprayAge = 0f;
+            _sprayStrength = strength;
+        }
+
+        void OnMerged(Island host, Island guest, float energy)
+        {
+            if (!speedFeelEnabled || mergeSprayStrength <= 0f || host == null || guest == null) return;
+            Vector2 contact = (host.PlanarPosition + guest.PlanarPosition) * 0.5f;
+            Spray(contact, mergeSprayStrength * Mathf.Clamp01(0.45f + energy / 220f));
         }
 
         public void SetSky(Color sky, Color deep)
@@ -173,35 +258,10 @@ namespace Drift.Visuals
             }
         }
 
-        // The eight islands nearest the player, as (x, z, boundingRadius, 1); unused slots have w = 0.
-        void CollectIslands()
-        {
-            int n = 0;
-            var all = Island.All;
-            for (int i = 0; i < all.Count; i++)
-            {
-                var isl = all[i];
-                if (isl == null || !isl.isActiveAndEnabled || isl.IsSunk) continue;
-                Vector2 c = isl.PlanarPosition;
-                float r = isl.BoundingRadius;
-                float d = (c - PlayerPos).magnitude - r;
-                if (n == IslandSlots && d >= _islandDist[n - 1]) continue;
-                int k = n < IslandSlots ? n++ : IslandSlots - 1;
-                while (k > 0 && _islandDist[k - 1] > d)
-                {
-                    _islandDist[k] = _islandDist[k - 1];
-                    _islandData[k] = _islandData[k - 1];
-                    k--;
-                }
-                _islandDist[k] = d;
-                _islandData[k] = new Vector4(c.x, c.y, r, 1f);
-            }
-            for (int i = n; i < IslandSlots; i++) _islandData[i] = Vector4.zero;
-        }
-
-        // Body-space radial outline, lightly blurred (the raw profile steps by half a heightfield cell) with its
-        // angular derivative. Costs a few thousand heightfield samples, so only on a shape change or twice a second.
-        void RefreshReach(Island p, float dt)
+        // The island's outline, in body space, on a shape change or twice a second: the radial profile (used only
+        // to find the two widest points the V lines leave from) and the coast distance field the water samples.
+        // Both are body space, so nothing has to be rebuilt while the island only moves or turns.
+        void RefreshOutline(Island p, float dt)
         {
             _reachAge += dt;
             bool changed = p != _reachOwner || p.Version != _reachVersion;
@@ -223,10 +283,17 @@ namespace Drift.Visuals
             float inv = n / (4f * Mathf.PI);
             for (int k = 0; k < n; k++)
                 _reach[k].y = (_reach[(k + 1) % n].x - _reach[(k + n - 1) % n].x) * inv;
+            // The distance field is the expensive half (a height sample per texel), and in body space it only goes
+            // stale when the shape itself does - which Island.Version already reports, sinking included. So it is
+            // rebuilt on a version change only, never on the idle half-second tick.
+            if (!changed && _coastParams.w > 0f) return;
+            _coastParams = coastField && _coast.Refresh(p)
+                ? new Vector4(_coast.Origin.x, _coast.Origin.y, 1f / _coast.Size, 1f)
+                : Vector4.zero;
         }
 
-        // The widest outline points across the velocity (where the V lines start and between which the
-        // turbulent wake lies), found in body space so no trigonometry runs per entry.
+        // The two widest outline points across the velocity - where the V lines leave the island - found in body
+        // space so no trigonometry runs per entry. The churned wake itself follows the coast field, not this box.
         void UpdateWake(Island p, float dt)
         {
             float speed = PlayerVel.magnitude;
@@ -262,10 +329,94 @@ namespace Drift.Visuals
             _wakeEdge = Vector4.Lerp(_wakeEdge, edge, k2);
             _hasWakeEdge = true;
             float width = Mathf.Max(0.5f, _wakeEdge.y - _wakeEdge.w);
-            float wakeLen = 1.5f * width + 1f;
+            // How far astern the churn reaches, measured from the shore - never past the coast field, whose
+            // border fade would otherwise cut the foam off along a straight line.
+            float wakeLen = Mathf.Min(0.9f * width + 2f, 0.72f * (_coastParams.w > 0f ? _coast.Margin : 1e4f));
             float veeLen = 2.4f * width + 4f;
             _wake = new Vector4(wakeLen, veeLen, _reachMax + veeLen + 2f, Mathf.Clamp(width / 8f, 0.6f, 1.25f));
         }
+
+        // The view's centre on the water: the camera's look ray on the sea plane, else the player.
+        Vector2 FieldCentre()
+        {
+            var cam = Camera.main;
+            if (cam != null)
+            {
+                Transform t = cam.transform;
+                Vector3 f = t.forward;
+                if (f.y < -0.05f)
+                {
+                    float s = Mathf.Min(-t.position.y / f.y, currentFieldSize * 0.3f);
+                    return new Vector2(t.position.x + f.x * s, t.position.z + f.z * s);
+                }
+                Vector2 f2 = new Vector2(f.x, f.z);
+                if (f2.sqrMagnitude > 1e-6f) return new Vector2(t.position.x, t.position.z) + f2.normalized * (currentFieldSize * 0.3f);
+            }
+            return PlayerPos;
+        }
+
+        void UpdateField(PlateSystem plates, float dt)
+        {
+            int res = Mathf.Clamp(currentFieldResolution, 8, 128);
+            if (_field == null || _field.Resolution != res)
+            {
+                _field?.Release();
+                _field = new CurrentField(res);
+                _fieldAge = float.MaxValue;
+            }
+            _fieldAge += dt;
+            float interval = currentFieldRate > 0f ? 1f / currentFieldRate : 0f;
+            if (plates == null)
+            {
+                _fieldParams = Vector4.zero;
+                return;
+            }
+            if (dt > 0f && _fieldAge < interval) return;
+            _fieldAge = 0f;
+            float size = Mathf.Max(16f, currentFieldSize);
+            _field.Refresh(plates, FieldCentre(), size, Mathf.Max(0.5f, currentFieldMaxSpeed), currentEdgeWidth);
+            _fieldParams = new Vector4(_field.Origin.x, _field.Origin.y, 1f / _field.Size, _field.MaxSpeed);
+        }
+
+        // Flecks around the player get brighter the harder the current carries the island, and more so when it
+        // pushes against the way the player is steering (the "why am I not getting anywhere" case).
+        void UpdateEmphasis(Island p)
+        {
+            if (p == null || currentPlayerEmphasis <= 0f)
+            {
+                _emphasis = Vector4.zero;
+                return;
+            }
+            float carry = CarryVelocity.magnitude;
+            float against = 0f;
+            Vector2 self = p.SelfVelocity;
+            if (carry > 1e-3f && self.sqrMagnitude > 1e-4f)
+                against = Mathf.Clamp01(-Vector2.Dot(CarryVelocity / carry, self.normalized));
+            float strength = currentPlayerEmphasis * Mathf.Clamp01(carry / 2.5f) * (1f + against);
+            // x is a distance from the COASTLINE, not a radius: around a branched island a circle put the
+            // emphasis on open water between the arms and missed the water right off the outer shores.
+            _emphasis = new Vector4(Mathf.Max(coastEmphasisRange, 1f), strength, against, 0f);
+        }
+
+        // Drive / flow / surf for the shader. In edit mode dt is 0, so the tracker snaps to the island's
+        // current state - which is exactly what an edit-mode render wants to show.
+        void UpdateSpeedFeel(Island p, float dt)
+        {
+            _feel.Step(p, dt);
+            if (!speedFeelEnabled)
+            {
+                SpeedFeelVector = Vector4.zero;
+                SprayVector = Vector4.zero;
+                return;
+            }
+            SpeedFeelVector = new Vector4(SpeedFeel.Framing(_feel.Drive), _feel.Flow, _feel.Surf, _feel.Speed);
+            // z is the ring's age as a share of its life, so the slider really sets how long it takes.
+            SprayVector = new Vector4(_sprayPos.x, _sprayPos.y, _sprayAge / Mathf.Max(0.05f, sprayLife), _sprayStrength);
+        }
+
+        Vector4 SpeedFeelGains => speedFeelEnabled
+            ? new Vector4(speedLineStrength, speedWakeBoost, flowFoamBoost, surfFoamStrength)
+            : Vector4.zero;
 
         public void Step(float dt)
         {
@@ -279,6 +430,7 @@ namespace Drift.Visuals
 
             var plates = PlateSystem.Instance;
             RawCurrent = plates != null ? plates.SampleVelocity(PlayerPos) : Vector2.zero;
+            UpdateField(plates, dt);
 
             if (alive)
             {
@@ -292,14 +444,18 @@ namespace Drift.Visuals
                 PlayerRadius = p.BoundingRadius;
                 Vector3 bf = p.BodyForward;
                 BodyYawRad = Mathf.Atan2(bf.x, bf.z);
-                RefreshReach(p, dt);
+                RefreshOutline(p, dt);
             }
             else
             {
                 PlayerVel = Vector2.zero;
                 PlayerRadius = 0f;
+                _coastParams = Vector4.zero;
+                _reachOwner = null;
             }
             UpdateWake(alive ? p : null, dt);
+            CarryVelocity = !alive ? Vector2.zero : Application.isPlaying ? p.PlanarVelocity - p.WaterVelocity : RawCurrent;
+            UpdateEmphasis(alive ? p : null);
             float rawSpeed = RawCurrent.magnitude;
             Vector2 rawDir = rawSpeed > 1e-4f ? RawCurrent / rawSpeed : _currentDir;
             float k = dt > 0f ? 1f - Mathf.Exp(-currentSmoothing * dt) : 1f;
@@ -328,11 +484,12 @@ namespace Drift.Visuals
 
             _splashAge += dt;
             if (_splashAge > splashLife) _splashStrength = 0f;
-            CollectIslands();
+            _sprayAge += dt;
+            if (_sprayAge > sprayLife) _sprayStrength = 0f;
+            UpdateSpeedFeel(alive ? p : null, dt);
 
             _block.SetVector(PlayerPosId, new Vector4(PlayerPos.x, PlayerPos.y, 0f, 0f));
             _block.SetVector(PlayerVelId, new Vector4(PlayerVel.x, PlayerVel.y, 0f, 0f));
-            _block.SetFloat(PlayerRadiusId, PlayerRadius);
             _block.SetVector(RingPosId, _ringPos);
             _block.SetVector(RingAgeId, _ringAge);
             _block.SetVector(RingStrengthId, _ringStrength);
@@ -343,11 +500,17 @@ namespace Drift.Visuals
             Vector2 wd = WindDir;
             _block.SetVector(WindDirId, new Vector4(wd.x, wd.y, WindSpeed, 0f));
             _block.SetVector(SplashPosId, new Vector4(_splashPos.x, _splashPos.y, _splashAge, _splashStrength));
-            _block.SetVectorArray(IslandDataId, _islandData);
-            _block.SetVectorArray(PlayerReachId, _reach);
-            _block.SetFloat(PlayerBodyYawId, BodyYawRad);
+            _block.SetVector(CoastParamsId, _coastParams);
+            _block.SetVector(CoastRotId, new Vector4(Mathf.Cos(BodyYawRad), Mathf.Sin(BodyYawRad), 0f, 0f));
             _block.SetVector(PlayerWakeEdgeId, _wakeEdge);
             _block.SetVector(PlayerWakeId, _wake);
+            _block.SetVector(CurrentFieldParamsId, _fieldParams);
+            _block.SetVector(CurrentEmphasisId, _emphasis);
+            _block.SetVector(SpeedFeelId, SpeedFeelVector);
+            _block.SetVector(SpeedFeelGainsId, SpeedFeelGains);
+            _block.SetVector(SprayPosId, SprayVector);
+            if (_field != null && _field.Texture != null) _block.SetTexture(CurrentFieldId, _field.Texture);
+            if (_coast.Texture != null) _block.SetTexture(CoastFieldId, _coast.Texture);
             if (_hasSky)
             {
                 _block.SetColor(SkyColorId, _sky);

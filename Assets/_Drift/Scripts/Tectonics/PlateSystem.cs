@@ -105,6 +105,9 @@ namespace Drift.Tectonics
 
         public static PlateSystem Instance { get; private set; }
 
+        // Fired at the end of Restore (a new game, a restart, a load): listeners rebuild what depends on the world.
+        public static event System.Action Restored;
+
         public static void Register(IPlateRider rider)
         {
             if (!Riders.Contains(rider)) Riders.Add(rider);
@@ -117,6 +120,36 @@ namespace Drift.Tectonics
         public int gridPeriod = 6;
         public float jitter = 0.25f;
         public int seed = 4242;
+
+        [Header("Ringwelt (Abenteuer)")]
+        [Tooltip("So viele Surfspuren liegen nebeneinander über dem Band: ihre Grenzen laufen längs der Strecke.")]
+        [Range(1, 5)] public int ringLanes = 3;
+        [Tooltip("Länge eines Spurabschnitts entlang des Rings. An seinen Enden versetzen sich die Spuren seitlich.")]
+        [Range(30f, 300f)] public float ringPlateLength = 110f;
+        [Tooltip("Zufälliger seitlicher Versatz der Spuren relativ zum normalen Versatz.")]
+        [Range(0f, 1f)] public float ringJitter = 0.2f;
+        [Tooltip("Wie weit die Spuren seitlich wandern (Anteil einer Spurbreite). Rücken zwei zusammen, verschmelzen sie; laufen sie auseinander, teilt sich die Bahn.")]
+        [Range(0f, 0.45f)] public float ringLaneShift = 0.3f;
+        [Tooltip("Sekunden für ein Hin und Her der seitlichen Wanderung.")]
+        [Range(5f, 180f)] public float ringLaneShiftPeriod = 34f;
+        [Tooltip("Wie weit die Versatzstellen der Spuren entlang des Rings wandern (Anteil einer Abschnittslänge).")]
+        [Range(0f, 0.4f)] public float ringRowDrift = 0.2f;
+        [Tooltip("Sekunden für ein Hin und Her dieser Wanderung.")]
+        [Range(10f, 300f)] public float ringRowPeriod = 70f;
+        [Tooltip("Strömung (u/s) entlang einer Spur. Spuren mit verschiedener Strömung gleiten aneinander vorbei – dort surft es sich am besten.")]
+        [Range(0f, 8f)] public float ringFlowSpeed = 2.2f;
+        [Tooltip("Sekunden, in denen die Strömung einer Spur einmal wechselt.")]
+        [Range(5f, 300f)] public float ringFlowPeriod = 45f;
+        [Tooltip("Surf-Schub an einer ruhigen Grenze (beide Spuren gleich schnell), Anteil des vollen Schubs.")]
+        [Range(0f, 1f)] public float ringCalmSurf = 0.45f;
+        [Tooltip("Ab diesem Gleittempo (u/s) der beiden Spuren gibt eine Grenze den vollen Surf-Schub.")]
+        [Range(0.2f, 8f)] public float ringSlideFull = 2.5f;
+
+        [Header("Abenteuer-Fahrt (Surfspuren)")]
+        [Tooltip("Halbe Breite einer Surfspur im Abenteuer (statt der gemütlichen Breite). Breiter = die Spur ist leichter zu treffen und zu halten.")]
+        [Range(1f, 30f)] public float ringSurfWidth = 13f;
+        [Tooltip("Wie viel mehr Schub eine Surfspur im Abenteuer gibt (Faktor auf das Surf-Tempo).")]
+        [Range(1f, 3f)] public float ringSurfBoost = 1.7f;
 
         [Header("Plattenbewegung")]
         [Tooltip("Wie weit jede Platte hin und her wandert. Mehr = Grenzen verschieben sich stärker, Platten fahren tiefer ineinander.")]
@@ -194,12 +227,68 @@ namespace Drift.Tectonics
         List<Vector2> _clipVerts = new(), _clipOut = new();
         List<int> _clipTags = new(), _clipOutTags = new();
 
+        // Ring layout (adventure): lanes of cells _ringCellX wide across the band starting at _ringX0, _ringCellZ long,
+        // periodic along z with _ringPeriodZ cells = one circumference. Runtime only, set by RingWorld.
+        [System.NonSerialized] bool _ring;
+        [System.NonSerialized] float _ringX0, _ringCellX, _ringCellZ, _ringHalfWidth, _ringCircumference;
+        [System.NonSerialized] int _ringPeriodZ, _ringLanesUsed;
+        const float RingOuterPush = 1.5f;
+        const int RingSalt = 0x3C6EF372;
+
         public int PlateCount => _cores.Count;
 
         public int SeamVertexCount => _vCount;
         public int SeamIndexCount => _iCount;
 
         public float WorldSize => gridPeriod > 0 ? gridPeriod * cellSize : 0f;
+
+        public bool RingLayout => _ring;
+        public float RingCellLength => _ringCellZ;
+
+        public bool RingMatches(float centerX, float halfWidth, float circumference) =>
+            _ring && Mathf.Approximately(_ringX0, centerX - halfWidth) && Mathf.Approximately(_ringHalfWidth, halfWidth)
+            && Mathf.Approximately(_ringCircumference, circumference) && _ringLanesUsed == Mathf.Max(1, ringLanes);
+
+        // Plates of the adventure ring: ringLanes columns of sites across the band, in rows of ringPlateLength along
+        // it, a whole number of rows per circumference. A Voronoi edge between two neighbouring columns only runs
+        // along the track while the two sites share their position along it, so a row moves as one (ringRowDrift)
+        // and all the life is sideways: each site swings across the band on its own (ringLaneShift), which slides the
+        // lane boundaries sideways, pinches a lane shut where two boundaries meet and opens it again.
+        // The plate velocity is not the movement of the site but the lane's own current along the track
+        // (ringFlowSpeed): neighbouring lanes slide past each other, which is what makes a boundary a surf lane, and
+        // the water carries islands and foam along it. Boundaries inside a column would cross the track, so they are
+        // left out; columns outside the band are pushed further out, and every border is clipped to the band.
+        public void SetRingLayout(float centerX, float halfWidth, float circumference)
+        {
+            _ring = true;
+            _ringLanesUsed = Mathf.Max(1, ringLanes);
+            _ringHalfWidth = Mathf.Max(1f, halfWidth);
+            _ringCircumference = Mathf.Max(10f, circumference);
+            _ringX0 = centerX - _ringHalfWidth;
+            _ringCellX = 2f * _ringHalfWidth / _ringLanesUsed;
+            _ringPeriodZ = Mathf.Max(3, Mathf.RoundToInt(_ringCircumference / Mathf.Max(1f, ringPlateLength)));
+            _ringCellZ = _ringCircumference / _ringPeriodZ;
+            RebuildLayout();
+        }
+
+        public void ClearRingLayout()
+        {
+            if (!_ring) return;
+            _ring = false;
+            RebuildLayout();
+        }
+
+        void RebuildLayout()
+        {
+            _plates.Clear();
+            _cores.Clear();
+            _dynamic.Clear();
+            ResetEvents();
+            ComputeBorders();
+            RebuildBorderMesh();
+        }
+
+        int WrapRing(int c) => ((c % _ringPeriodZ) + _ringPeriodZ) % _ringPeriodZ;
 
         public PlateSaveData Capture()
         {
@@ -231,6 +320,7 @@ namespace Drift.Tectonics
             RestoreEvents(d);
             ComputeBorders();
             RebuildBorderMesh();
+            Restored?.Invoke();
         }
 
         void OnEnable()
@@ -284,6 +374,7 @@ namespace Drift.Tectonics
             var key = new Vector2Int(wx, wz);
             if (!_cores.TryGetValue(key, out var c))
             {
+                if (_ring) return _cores[key] = RingCore(key);
                 var rnd = new System.Random(Hash(seed, wx, wz));
                 float ang = Rand(rnd, 0f, Mathf.PI * 2f);
                 c = new PlateCore
@@ -305,12 +396,12 @@ namespace Drift.Tectonics
             var key = new Vector2Int(cx, cz);
             if (!_plates.TryGetValue(key, out var p))
             {
-                int wx = Wrap(cx), wz = Wrap(cz);
+                int wx = _ring ? cx : Wrap(cx), wz = _ring ? WrapRing(cz) : Wrap(cz);
                 p = new Plate
                 {
                     core = GetCore(wx, wz),
                     cell = key,
-                    shift = new Vector2(cx - wx, cz - wz) * cellSize
+                    shift = _ring ? new Vector2(0f, (cz - wz) * _ringCellZ) : new Vector2(cx - wx, cz - wz) * cellSize
                 };
                 _plates[key] = p;
             }
@@ -320,8 +411,51 @@ namespace Drift.Tectonics
 
         static float Rand(System.Random r, float a, float b) => a + (float)r.NextDouble() * (b - a);
 
+        PlateCore RingCore(Vector2Int key)
+        {
+            int wx = key.x, wz = key.y;
+            var rnd = new System.Random(Hash(seed ^ RingSalt, wx, wz));
+            float jx = Rand(rnd, -jitter, jitter) * ringJitter;
+            float push = wx < 0 ? -RingOuterPush : wx >= _ringLanesUsed ? RingOuterPush : 0f;
+            return new PlateCore
+            {
+                // No jitter along the ring: a row has to keep one line, or its lane boundaries run across the track.
+                id = key,
+                home = new Vector2(_ringX0 + (wx + 0.5f + jx + push) * _ringCellX, (wz + 0.5f) * _ringCellZ),
+                dir = Vector2.up,
+                ampK = Rand(rnd, 0.6f, 1.4f),
+                omegaK = Rand(rnd, 0.7f, 1.3f),
+                phase = Rand(rnd, 0f, Mathf.PI * 2f)
+            };
+        }
+
+        const float Tau = Mathf.PI * 2f;
+
+        // The ring's own movement: the site swings across the band, the whole row drifts along it, and the velocity
+        // is the lane current, not the site's motion.
+        void RefreshRing(Plate p)
+        {
+            var c = p.core;
+            float lateral = ringLaneShift * _ringCellX * c.ampK
+                * Mathf.Sin(c.omegaK * _time * Tau / Mathf.Max(1f, ringLaneShiftPeriod) + c.phase);
+            float along = ringRowDrift * _ringCellZ
+                * Mathf.Sin(_time * Tau / Mathf.Max(1f, ringRowPeriod) + Hash01(seed ^ RingSalt, c.id.y, 7) * Tau);
+            p.position = c.home + p.shift + new Vector2(lateral, along) + c.offset;
+            float w = Tau / Mathf.Max(1f, ringFlowPeriod);
+            float flow = ringFlowSpeed * (0.7f * Mathf.Sin(_time * w + Hash01(seed ^ RingSalt, c.id.x, 13) * Tau)
+                + 0.3f * Mathf.Sin(c.omegaK * _time * w + c.phase));
+            p.velocity = (new Vector2(0f, flow) + c.pushVel) * timeScale;
+        }
+
+        int RingColumn(float x) => Mathf.Clamp(Mathf.FloorToInt((x - _ringX0) / _ringCellX), -1, _ringLanesUsed);
+
         void Refresh(Plate p)
         {
+            if (_ring)
+            {
+                RefreshRing(p);
+                return;
+            }
             var c = p.core;
             float angle = c.omegaK * _waveClock + c.phase;
             float s = Mathf.Sin(angle);
@@ -333,8 +467,8 @@ namespace Drift.Tectonics
 
         public Plate NearestPlate(Vector2 pos)
         {
-            int cx = Mathf.FloorToInt(pos.x / cellSize);
-            int cz = Mathf.FloorToInt(pos.y / cellSize);
+            int cx = _ring ? RingColumn(pos.x) : Mathf.FloorToInt(pos.x / cellSize);
+            int cz = Mathf.FloorToInt(pos.y / (_ring ? _ringCellZ : cellSize));
             Plate best = null;
             float bestD = float.MaxValue;
             for (int dx = -1; dx <= 1; dx++)
@@ -363,7 +497,7 @@ namespace Drift.Tectonics
         {
             strength = 0f;
             if (drive <= 0f || (surfSpeed <= 0f && surfPlateGain <= 0f)) return Vector2.zero;
-            float width = Mathf.Max(0.5f, surfWidth + surfRadiusShare * Mathf.Max(0f, radius));
+            float width = Mathf.Max(0.5f, (_ring ? ringSurfWidth : surfWidth) + surfRadiusShare * Mathf.Max(0f, radius));
             if (!NearestSeam(pos, width, out var b, out float t, out Vector2 q)) return Vector2.zero;
             Vector2 tan = SeamTangent(b, t);
             float cos = Vector2.Dot(heading, tan);
@@ -377,8 +511,18 @@ namespace Drift.Tectonics
             strength = Mathf.Clamp01(align * falloff * kind * Mathf.Clamp01(drive));
             if (strength <= 0f) return Vector2.zero;
             float slide = Mathf.Abs(Vector2.Dot(b.a.velocity - b.b.velocity, tan));
-            Vector2 along = tan * (Mathf.Sign(cos) * (surfSpeed + surfPlateGain * slide));
+            // In the ring a lane boundary only carries while the two lanes really slide past each other: where their
+            // currents have come together the lanes have merged and the line is worth little.
+            float push = _ring ? surfSpeed * ringSurfBoost * Mathf.Lerp(ringCalmSurf, 1f, SlideShare(slide)) : surfSpeed;
+            Vector2 along = tan * (Mathf.Sign(cos) * (push + surfPlateGain * slide));
             return (along + toSeam * surfPull) * strength;
+        }
+
+        // 0..1: how far the two lanes of a ring seam are sliding past each other (ringSlideFull = fully).
+        public float SlideShare(float slide)
+        {
+            float x = Mathf.Clamp01(slide / Mathf.Max(0.05f, ringSlideFull));
+            return x * x * (3f - 2f * x);
         }
 
         public float ConvergenceAt(Vector2 pos)
@@ -424,7 +568,8 @@ namespace Drift.Tectonics
 
             float damp = Mathf.Exp(-pushDamping * gdt);
             float spring = Mathf.Exp(-springBack * gdt);
-            float maxOffset = cellSize * 0.45f;
+            // In the ring a pushed plate must not leave its column, or a lane boundary jumps past its neighbour.
+            float maxOffset = _ring ? _ringCellX * 0.2f : cellSize * 0.45f;
             _dynamicScratch.Clear();
             foreach (var p in _dynamic) _dynamicScratch.Add(p);
             foreach (var p in _dynamicScratch)
@@ -467,25 +612,41 @@ namespace Drift.Tectonics
             _active.Clear();
             Vector2 f = FocusPoint();
             float R = viewRadius;
-            int cx0 = Mathf.FloorToInt((f.x - R) / cellSize) - 1;
-            int cx1 = Mathf.FloorToInt((f.x + R) / cellSize) + 1;
-            int cz0 = Mathf.FloorToInt((f.y - R) / cellSize) - 1;
-            int cz1 = Mathf.FloorToInt((f.y + R) / cellSize) + 1;
+            float xMin = f.x - R, xMax = f.x + R;
+            int cx0, cx1, cz0, cz1;
+            float near;
+            if (_ring)
+            {
+                xMin = _ringX0;
+                xMax = _ringX0 + 2f * _ringHalfWidth;
+                cx0 = -1;
+                cx1 = _ringLanesUsed;
+                cz0 = Mathf.FloorToInt((f.y - R) / _ringCellZ) - 1;
+                cz1 = Mathf.FloorToInt((f.y + R) / _ringCellZ) + 1;
+                near = Mathf.Max(_ringCellX * (1f + 2f * RingOuterPush), _ringCellZ) * 2.6f;
+            }
+            else
+            {
+                cx0 = Mathf.FloorToInt((f.x - R) / cellSize) - 1;
+                cx1 = Mathf.FloorToInt((f.x + R) / cellSize) + 1;
+                cz0 = Mathf.FloorToInt((f.y - R) / cellSize) - 1;
+                cz1 = Mathf.FloorToInt((f.y + R) / cellSize) + 1;
+                near = cellSize * 2.6f;
+            }
             for (int cx = cx0; cx <= cx1; cx++)
                 for (int cz = cz0; cz <= cz1; cz++)
                     _active.Add(GetPlate(cx, cz));
 
-            float near = cellSize * 2.6f;
             for (int i = 0; i < _active.Count; i++)
             {
                 var verts = _clipVerts;
                 var tags = _clipTags;
                 verts.Clear();
                 tags.Clear();
-                verts.Add(f + new Vector2(-R, -R)); tags.Add(-1);
-                verts.Add(f + new Vector2(R, -R)); tags.Add(-1);
-                verts.Add(f + new Vector2(R, R)); tags.Add(-1);
-                verts.Add(f + new Vector2(-R, R)); tags.Add(-1);
+                verts.Add(new Vector2(xMin, f.y - R)); tags.Add(-1);
+                verts.Add(new Vector2(xMax, f.y - R)); tags.Add(-1);
+                verts.Add(new Vector2(xMax, f.y + R)); tags.Add(-1);
+                verts.Add(new Vector2(xMin, f.y + R)); tags.Add(-1);
                 for (int j = 0; j < _active.Count && verts.Count > 0; j++)
                 {
                     if (j == i) continue;
@@ -507,6 +668,8 @@ namespace Drift.Tectonics
                     if ((b - a).sqrMagnitude < 0.0004f) continue;
 
                     Plate pa = _active[i], pb = _active[tag];
+                    // In the ring only the boundaries between lanes are seams; the ones inside a lane cross the track.
+                    if (_ring && pa.cell.x == pb.cell.x) continue;
                     Vector2 nrm = (pb.position - pa.position).normalized;
                     float closing = -Vector2.Dot(pb.velocity - pa.velocity, nrm);
                     BoundaryKind kind = closing > transformThreshold ? BoundaryKind.Convergent
@@ -708,6 +871,8 @@ namespace Drift.Tectonics
 
             float strength = Mathf.Clamp01((pa.velocity - pb.velocity).magnitude / 3f);
             float hw = seamWidth * 0.5f * (0.85f + 0.15f * strength);
+            // A ring lane that has come to rest beside its neighbour draws a thin line: the two have merged.
+            if (_ring) hw *= Mathf.Lerp(0.4f, 1f, SlideShare((pa.velocity - pb.velocity).magnitude));
             hw *= Mathf.Lerp(0.4f, 1f, Mathf.Clamp01(b.length / (3f * hw)));
             float closing = b.closing / Mathf.Max(transformThreshold, 0.01f);
 

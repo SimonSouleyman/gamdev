@@ -14,6 +14,9 @@ namespace Drift.UI
 
         public bool forceShowTouch;
         public bool inputEnabled = true;
+        // Off while the tilt steering drives: the thumbstick disappears and every tap counts as a tap again,
+        // but the two-finger pinch zoom keeps working.
+        public bool stickEnabled = true;
         public bool editorPreview;
         public float stickRadius = 150f;
         public float knobRadius = 70f;
@@ -39,6 +42,8 @@ namespace Drift.UI
         bool _pinching;
         float _pinchDist;
         float _pendingPinch = 1f;
+        int _lookId = int.MinValue;
+        Vector2 _lookLast, _lookDelta;
 
         public Vector2 Move { get; private set; }
         public bool StickActive => _stickId != int.MinValue;
@@ -56,6 +61,17 @@ namespace Drift.UI
             return f;
         }
 
+        // The fly-over over the finished Pangäa reads a drag as "look around". Only the movement of a finger
+        // that is not on the stick is reported; nothing is swallowed, so tapping an animal keeps working.
+        public bool lookEnabled;
+
+        public Vector2 ConsumeLookDelta()
+        {
+            Vector2 d = _lookDelta;
+            _lookDelta = Vector2.zero;
+            return d;
+        }
+
         public void Release()
         {
             _stickId = int.MinValue;
@@ -63,6 +79,8 @@ namespace Drift.UI
             Move = Vector2.zero;
             _pinching = false;
             _pendingPinch = 1f;
+            _lookId = int.MinValue;
+            _lookDelta = Vector2.zero;
             SetVisible(false);
         }
 
@@ -93,7 +111,46 @@ namespace Drift.UI
             }
             CollectPointers();
             UpdatePinch();
-            UpdateStick();
+            if (stickEnabled) UpdateStick();
+            else if (StickActive || Move != Vector2.zero) ReleaseStick();
+            if (lookEnabled) UpdateLook();
+            else if (_lookId != int.MinValue || _lookDelta != Vector2.zero) { _lookId = int.MinValue; _lookDelta = Vector2.zero; }
+        }
+
+        // The look finger: the first one that starts outside the stick and off the UI. Two fingers are a pinch,
+        // never a look.
+        void UpdateLook()
+        {
+            if (_pinching) { _lookId = int.MinValue; return; }
+            if (_lookId != int.MinValue)
+            {
+                for (int i = 0; i < _pointers.Count; i++)
+                    if (_pointers[i].id == _lookId)
+                    {
+                        _lookDelta += _pointers[i].pos - _lookLast;
+                        _lookLast = _pointers[i].pos;
+                        return;
+                    }
+                _lookId = int.MinValue;
+                return;
+            }
+            for (int i = 0; i < _pointers.Count; i++)
+            {
+                var p = _pointers[i];
+                if (!p.began || IsPointerOnStick(p.id)) continue;
+                if (IsOverUi(p.id) || OverGraphic(p.pos)) continue;
+                _lookId = p.id;
+                _lookLast = p.pos;
+                break;
+            }
+        }
+
+        void ReleaseStick()
+        {
+            _stickId = int.MinValue;
+            StickDeflected = false;
+            Move = Vector2.zero;
+            SetVisible(false);
         }
 
         void CollectPointers()
@@ -168,7 +225,9 @@ namespace Drift.UI
                 var p = _pointers[i];
                 if (!p.began) continue;
                 if (p.pos.x > Screen.width * stickZoneWidth) continue;
-                if (IsOverUi(p.id)) continue;
+                // IsPointerOverGameObject answers for the previous UI update on the Began frame, so a finger that
+                // starts on a floating button (the photo cue) would still grab the stick: raycast the UI right now.
+                if (IsOverUi(p.id) || OverGraphic(p.pos)) continue;
                 _stickId = p.id;
                 StickDeflected = false;
                 _stickOrigin = p.pos;
@@ -178,6 +237,23 @@ namespace Drift.UI
                 PlaceKnob(p.pos);
                 break;
             }
+        }
+
+        // A fresh UI raycast at this screen point: true when a raycastable graphic (button) is under it.
+        static readonly List<RaycastResult> _uiHits = new List<RaycastResult>();
+
+        static bool OverGraphic(Vector2 screen)
+        {
+            var es = EventSystem.current;
+            if (es == null) return false;
+            _uiHits.Clear();
+            es.RaycastAll(new PointerEventData(es) { position = screen }, _uiHits);
+            for (int i = 0; i < _uiHits.Count; i++)
+            {
+                var go = _uiHits[i].gameObject;
+                if (go != null && go.GetComponentInParent<TouchControls>() == null) return true;
+            }
+            return false;
         }
 
         static bool IsOverUi(int pointerId)

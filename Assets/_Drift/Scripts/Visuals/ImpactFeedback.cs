@@ -37,6 +37,7 @@ namespace Drift.Visuals
         {
             Island.Impact += OnImpact;
             Island.Merged += OnMerged;
+            Island.Bumped += OnBumped;
             ResolveWater();
         }
 
@@ -44,6 +45,7 @@ namespace Drift.Visuals
         {
             Island.Impact -= OnImpact;
             Island.Merged -= OnMerged;
+            Island.Bumped -= OnBumped;
             EndSlowMo();
         }
 
@@ -61,6 +63,16 @@ namespace Drift.Visuals
         void OnImpact(float intensity)
         {
             _lastImpactIntensity = Mathf.Max(_lastImpactIntensity, intensity);
+        }
+
+        // Adventure: bouncing off an obstacle island. The ring and the splash sit on the contact point, so the hit
+        // reads where it happened.
+        void OnBumped(Island hit, Island obstacle, Vector2 contact, float strength)
+        {
+            _lastImpactIntensity = 0f;
+            TriggerAt(contact, strength);
+            if (water == null) ResolveWater();
+            if (water != null) water.Splash(contact, 0.4f + 0.6f * Mathf.Clamp01(strength));
         }
 
         void OnMerged(Island host, Island guest, float energy)

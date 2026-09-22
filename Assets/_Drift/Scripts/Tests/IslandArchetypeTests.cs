@@ -112,22 +112,24 @@ namespace Drift.Tests
             }
         }
 
-        WorldStreamer MakeStreamer(int seed)
+        WorldStreamer MakeStreamer(int seed, int layout = WorldStreamer.WorldGenVersion)
         {
             var go = new GameObject("TestStreamer");
             go.SetActive(false);
             _objects.Add(go);
             var ws = go.AddComponent<WorldStreamer>();
             ws.seed = seed;
+            ws.UseLayout(layout);
             ws.RestoreState(new Vector2(3f, 4f), null);
             return ws;
         }
 
         [Test]
-        public void Plan_IsDeterministicPerWorldSeedAndSlot()
+        public void Plan_IsDeterministicPerWorldSeedAndSlot(
+            [Values(WorldStreamer.WorldGenVersion, WorldStreamer.LegacyWorldGenVersion)] int layout)
         {
-            var a = MakeStreamer(4242).WorldSlots();
-            var b = MakeStreamer(4242).WorldSlots();
+            var a = MakeStreamer(4242, layout).WorldSlots();
+            var b = MakeStreamer(4242, layout).WorldSlots();
             Assert.AreEqual(a.Count, b.Count);
             for (int i = 0; i < a.Count; i++)
             {
@@ -135,14 +137,16 @@ namespace Drift.Tests
                 Assert.AreEqual(a[i].radius, b[i].radius);
                 Assert.AreEqual(a[i].archetype, b[i].archetype);
             }
-            var c = MakeStreamer(4243).WorldSlots();
+            var c = MakeStreamer(4243, layout).WorldSlots();
             Assert.That(a.Count != c.Count || Enumerable.Range(0, a.Count).Any(i => a[i].pos != c[i].pos));
         }
 
         [Test]
+        // The big world of old saves (the small world has its own counts, CozyWorldTests).
         public void Plan_HasManyIslets_AFewLargeIslands_AndEveryArchetype()
         {
-            var ws = MakeStreamer(777);
+            var ws = MakeStreamer(777, WorldStreamer.LegacyWorldGenVersion);
+            Assert.AreEqual(660f, ws.WorldSize);
             var slots = ws.WorldSlots();
             int tiny = slots.Count(s => s.radius < 2f);
             int large = slots.Count(s => s.radius >= 9f);
@@ -157,9 +161,10 @@ namespace Drift.Tests
         }
 
         [Test]
-        public void Plan_KeepsIslandsApart_AlsoAcrossChunkAndWorldEdges()
+        public void Plan_KeepsIslandsApart_AlsoAcrossChunkAndWorldEdges(
+            [Values(WorldStreamer.WorldGenVersion, WorldStreamer.LegacyWorldGenVersion)] int layout)
         {
-            var ws = MakeStreamer(777);
+            var ws = MakeStreamer(777, layout);
             var slots = ws.WorldSlots();
             float w = ws.WorldSize;
             for (int i = 0; i < slots.Count; i++)
@@ -173,7 +178,7 @@ namespace Drift.Tests
         }
 
         [Test]
-        public void Save_CarriesTheWorldGenVersion_AndAnotherLayoutIsNotContinuable()
+        public void Save_CarriesTheWorldGenVersion_OldLayoutsStayContinuable_UnknownOnesNot()
         {
             Assert.AreEqual(0, JsonUtility.FromJson<SaveGame>("{\"version\":5,\"worldSeed\":7}").worldGenVersion, "old files read 0");
 
@@ -188,9 +193,17 @@ namespace Drift.Tests
                 File.WriteAllText(path, JsonUtility.ToJson(save));
                 Assert.IsTrue(SaveManager.Peek(path, out _, out _));
 
-                save.worldGenVersion = WorldStreamer.WorldGenVersion - 1;
+                // A world started before the small world keeps playing in its big layout.
+                save.worldGenVersion = WorldStreamer.LegacyWorldGenVersion;
                 File.WriteAllText(path, JsonUtility.ToJson(save));
-                Assert.IsFalse(SaveManager.Peek(path, out _, out _));
+                Assert.IsTrue(SaveManager.Peek(path, out _, out _));
+
+                foreach (int unknown in new[] { 0, 1, WorldStreamer.WorldGenVersion + 1 })
+                {
+                    save.worldGenVersion = unknown;
+                    File.WriteAllText(path, JsonUtility.ToJson(save));
+                    Assert.IsFalse(SaveManager.Peek(path, out _, out _), "layout " + unknown);
+                }
             }
             finally
             {

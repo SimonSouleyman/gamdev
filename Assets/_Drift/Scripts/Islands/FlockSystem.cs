@@ -60,6 +60,12 @@ namespace Drift.Islands
         [Tooltip("Seevögel kreisen im Uhrzeigersinn einzeln hintereinander auf einer Kette um die Klippe (die Singvögel als dichter Pulk gegen den Uhrzeigersinn): Abstand zweier Seevögel auf dem Kreis in Grad.")]
         [Range(5f, 60f)] public float seabirdChainSpacing = 26f;
 
+        [Header("Meilenstein: Seevögel über deinen Bergen")]
+        [Tooltip("So viele Seevogelschwärme bleiben bei der Heimatinsel und kreisen über ihrem höchsten Punkt. Setzt der Meilenstein bei 10 Inseln; 0 = aus.")]
+        [Range(0, 4)] public int homeSeabirdFlocks;
+        [Tooltip("Wie eng die Heimat-Seevögel um den Gipfel kreisen (Anteil des Inselradius).")]
+        [Range(0.15f, 1f)] public float homeOrbitRadius = 0.5f;
+
         // A struct: a flock re-spawns every time it falls behind a fast island, and a class allocated one object
         // per bird per re-spawn (the largest steady source of garbage while driving).
         struct Bird
@@ -74,7 +80,7 @@ namespace Drift.Islands
 
         class Flock
         {
-            public Vector2 pos, vel;
+            public Vector2 pos, vel, orbitCenter;
             public float height, yaw, roll, orbitAngle, orbitTime, perchTime;
             public FlockState state;
             public Island target;
@@ -85,6 +91,8 @@ namespace Drift.Islands
             // visit had its murmur already.
             public float orbitR, form, murmurT, diveWait = -1f;
             public bool murmured;
+            // Stays with the home island and circles its summit instead of drifting from island to island.
+            public bool home;
             public readonly List<Bird> birds = new();
         }
 
@@ -96,6 +104,14 @@ namespace Drift.Islands
             public float peak;
         }
 
+        // Where the summit of the home island is; only scanned when a home flock asks and the shape changed.
+        struct PeakInfo
+        {
+            public Island island;
+            public int version;
+            public Vector2 local;
+        }
+
         readonly List<Flock> _flocks = new();
         readonly List<CliffInfo> _cliffs = new();
         readonly TemplateBatch _batch = new();
@@ -104,6 +120,8 @@ namespace Drift.Islands
         Mesh _mesh;
         float _clock, _meshTimer;
         bool _init;
+        Island _home;
+        PeakInfo _peak;
 
         public int FlockCount => _flocks.Count;
         public int MeshBuilds { get; private set; }
@@ -152,6 +170,65 @@ namespace Drift.Islands
         }
 
         public FlockState StateOf(int index) => _flocks[index].state;
+        public bool IsHomeFlock(int index) => _flocks[index].home;
+        public Island SeabirdHome => _home;
+
+        public int HomeFlockCount
+        {
+            get
+            {
+                int n = 0;
+                foreach (var f in _flocks) if (f.home) n++;
+                return n;
+            }
+        }
+
+        // The milestone "Berge und Seevögel": from now on `flocks` of the seabird flocks stay with this island
+        // and circle its highest ground. Idempotent - the director simply keeps asking for it.
+        public void SetSeabirdHome(Island island, int flocks)
+        {
+            _home = island;
+            homeSeabirdFlocks = Mathf.Clamp(flocks, 0, seabirdFlocks);
+            ApplyHomeFlags();
+        }
+
+        void ApplyHomeFlags()
+        {
+            int want = _home != null ? Mathf.Clamp(homeSeabirdFlocks, 0, seabirdFlocks) : 0;
+            int seen = 0;
+            foreach (var f in _flocks)
+            {
+                if (!f.seabird) continue;
+                bool home = seen++ < want;
+                if (home == f.home) continue;
+                f.home = home;
+                f.target = null;
+                f.state = FlockState.Cruise;
+            }
+        }
+
+        // Where the home flocks circle: the island's summit in world space.
+        public Vector2 SummitOf(Island island) => island != null ? island.ToWorld(PeakLocal(island)) : Vector2.zero;
+
+        // Highest point of an island in its own frame, on a coarse grid (cached per shape Version).
+        Vector2 PeakLocal(Island island)
+        {
+            if (_peak.island == island && _peak.version == island.Version) return _peak.local;
+            Rect b = island.LocalBounds;
+            float step = Mathf.Max(0.8f, Mathf.Max(b.width, b.height) / 24f);
+            float best = float.MinValue;
+            Vector2 local = Vector2.zero;
+            for (float z = b.yMin; z <= b.yMax; z += step)
+                for (float x = b.xMin; x <= b.xMax; x += step)
+                {
+                    float h = island.SampleHeight(new Vector2(x, z));
+                    if (h <= best) continue;
+                    best = h;
+                    local = new Vector2(x, z);
+                }
+            _peak = new PeakInfo { island = island, version = island.Version, local = local };
+            return local;
+        }
         public int Dives { get; private set; }
         public int Murmurs { get; private set; }
         public bool IsDiving(int index, int bird) => _flocks[index].birds[bird].dive > 0f;
@@ -235,6 +312,7 @@ namespace Drift.Islands
                 Respawn(f);
                 _flocks.Add(f);
             }
+            ApplyHomeFlags();
             RebuildMesh();
         }
 
@@ -244,6 +322,7 @@ namespace Drift.Islands
             Vector2 p = player.PlanarPosition + new Vector2(Mathf.Cos(ang), Mathf.Sin(ang)) * Rand(spawnMin, spawnMax);
             f.pos = p;
             f.vel = Vector2.zero;
+            f.orbitCenter = p;
             f.height = altitude * Rand(0.8f, 1.3f);
             f.target = null;
             f.state = FlockState.Cruise;
@@ -290,6 +369,7 @@ namespace Drift.Islands
 
         Island PickTarget(Flock f)
         {
+            if (f.home && _home != null && _home.isActiveAndEnabled) return _home;
             var all = Island.All;
             if (f.seabird)
             {
@@ -457,7 +537,14 @@ namespace Drift.Islands
                 {
                     Vector2 tp = f.target.PlanarPosition;
                     float orbitR = f.target.BoundingRadius + (f.seabird ? seabirdOrbitMargin : 4f);
+                    // Home seabirds circle the summit itself, well inside the island's outline.
+                    if (f.home && f.seabird)
+                    {
+                        tp = f.target.ToWorld(PeakLocal(f.target));
+                        orbitR = Mathf.Max(2f, f.target.BoundingRadius * homeOrbitRadius);
+                    }
                     f.orbitR = orbitR;
+                    f.orbitCenter = tp;
                     if (f.seabird) targetHeight = Mathf.Max(altitude * 0.6f, f.target.transform.position.y + Peak(f.target) + seabirdAltitude);
                     switch (f.state)
                     {
@@ -617,7 +704,7 @@ namespace Drift.Islands
                 {
                     float a = f.orbitAngle + index * seabirdChainSpacing * Mathf.Deg2Rad;
                     float r = f.orbitR * (1f + 0.1f * Mathf.Sin(_clock * 0.45f + b.phase));
-                    Vector2 ring = f.target.PlanarPosition + new Vector2(Mathf.Cos(a), Mathf.Sin(a)) * r;
+                    Vector2 ring = f.orbitCenter + new Vector2(Mathf.Cos(a), Mathf.Sin(a)) * r;
                     float ringYaw = Mathf.Atan2(Mathf.Sin(a), -Mathf.Cos(a)) * Mathf.Rad2Deg;
                     float k = Mathf.SmoothStep(0f, 1f, f.form);
                     world = Vector2.Lerp(world, ring, k);

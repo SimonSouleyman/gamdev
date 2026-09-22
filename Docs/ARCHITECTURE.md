@@ -1942,3 +1942,68 @@ Structural rules that new content has to follow:
   errands, cancelled by startle/fire/water/storm/night). **Critters**: states Wave/Nest/Spiral, firefly `_SyncWave`,
   flock dive + `Murmur`. **Markings** (`Life/Markings.cs`, `Shaders/DriftMarkings.hlsl`): marking id + body coords in UV3,
   procedural patterns, no texture reads; after editing the .hlsl reimport Animal.shader and Critter.shader.
+
+## Game modes, Pangäa, ring world (2026-09-22, second parallel round)
+
+- `Drift.Core.GameModes` (Cozy/Adventure) is the single mode switch; `GameSession.StartNewGame(mode)` sets it and the
+  per-mode save file (`GameModes.SaveFile`: cozy keeps `drift_save.json`). Leaving Play Mode resets it to Cozy.
+  Adventure never saves (`SaveManager.Save` returns early), never auto-restarts after sinking.
+- Cozy: `State.RunComplete` via `GameSession.CompleteRun()` (called by `Bridge/PangaeaFinale` once
+  `WorldStreamer.Progress` reports 0 islands left for 1.5 s); the finale drives `CurvedWorld`/camera/sky through public
+  fields and restores them on the next state change, then `RunJournal.Add` (run_journal.json + RunJournal/*.png,
+  `RunJournalPanel` UI, sortingOrder 40 > finale 20). Cozy sinking = size regulator on current area with a floor that
+  rises with `RunProgress` (Island "Sinken (Gemütlich)"); world = 4×90 u chunks, 20 planned islands (layout v3; v2 saves
+  keep their big world). PlateSystem gridPeriod 4 × 90 must match.
+- Cross-run books in persistentDataPath: `drift_journal.json` (JournalBook: all-time discoveries; the save keeps only the
+  run layer), `drift_phototasks.json` + PhotoTasks/ (19 signature-move photo tasks, `Bridge/PhotoSubjects` judges
+  photos), `drift_best_times.json` (BestTimes), PlayerPrefs `drift_adventure_tutorial_done`.
+- Adventure: `Islands/RingWorld` (+ `RingIslandSpawner`, `Visuals/RingRims`) disables the WorldStreamer, sets
+  `Island.PositionConstraint`, lays plates along the band; `DriftCurve.hlsl` ring bend (upward along z, walls fold the
+  sea beyond the band), `CurvedWorld` culling box. `IslandChaseCamera` in the ring: `ringPitchUp`, `ringAlongBias`,
+  `ringWallMargin` keep the view along the track and inside the band. Island merge boost `Boosting/BoostFactor`,
+  `SpeedBoost`, `AddBuoyancy` (flotsam rewards via `Visuals/Encounters.ApplyReward`).
+- Travel: `Visuals/Encounters` (pacer + dolphins/whale/route flotsam), `Visuals/CurrentField` (64² current texture for
+  the water's drifting foam comets), `Bridge/IslandHints` (cozy destination hints). Adventure tutorial:
+  `AdventureTutorialModel/Guide`, Tilda `TildaAccessory.SportShades`.
+
+## Feel, milestones, events, ring rebuild, tilt (2026-09-22, third round)
+
+- **Direct-direction steering**: `Island.DirectionProvider` (world XZ, length 0..1) + `Island.DirectionSteering`.
+  `Tick(input, driveDir, dt)` drives along `_driveDir` without turning; the heading only follows when
+  `directionHeadingFollow > 0` (default 0, so the chase camera stands still). `UI/TiltSteering` + `Core/TiltMath`
+  (calibrated neutral, dead zone, smoothing, drift-follow, `editorFakeTilt` for the Editor), settings screen in
+  `UI/TiltSettingsScreen`, PlayerPrefs `drift_tilt_*`. Keyboard can use the same scheme (`KeysToDirection`).
+- **Speed feel**: `Islands/SpeedFeel` (pure curves) drives `IslandChaseCamera` (FOV/pull-back/shake/roll/merge kick),
+  `WaterFeedback` + `Water.shader` (`_SpeedFeel`, speed lines, spray ring), `AudioDirector`/`SfxSynth`
+  (flow + surf voices), `Visuals/DriveFeel` (surf kick + flow push via `Island.SpeedBoost`, cozy only).
+  `Island.leanIntoTurns` rolls only the transform, never the planar body basis.
+- **Milestones** (cozy): `SaveSystem/Milestones` (3/6/10/15, derived from `Stats.islandsAbsorbed`, mask in the save),
+  `Bridge/MilestoneToasts` (toast + Tilda line `milestone_*`), landmarks through
+  `IslandSettlementSystem.TryBuildLandmark` (landmark village), `FlockSystem.SetSeabirdHome`, evening `Festival`
+  lanterns. `Milestones.MapRange` gates `WorldHud.DrawMap`; the HUD shows `Milestones.NextText`.
+- **World events** (cozy): `Visuals/WorldEvents` (scheduler + director), `RainbowArc` + `Shaders/Rainbow.shader`,
+  aurora/meteors as guarded branches in `DriftSky.hlsl` (globals are 0 when idle), whale migration in `SeaLifeSystem`.
+- **Adventure rebuild**: no merging (`IslandWorld` adventure branch → `Island.Bump`, `Island.Bumped` event,
+  buoyancy loss), flotsam is the only refloat (`Encounters.LayTrack` along the ring), plate lanes run along the track
+  and move (`PlateSystem` ring params), difficulty over `RingWorld.RunSeconds`/`Level`. Waterfall edges replace the
+  rims (`Visuals/RingFalls` + `Shaders/RingFall.shader`, ring bend in `DriftCurve.hlsl`); the player is unclamped and
+  can fall (`Island.LostOverEdge`, `EdgeWarning`), obstacle islands stay clamped.
+- **Merge tint**: `Island.MergeFrom` calls `IslandLifeSystem.RefreshAfterMerge()` (a `LateUpdate` net covers other
+  paths) so the merged mesh is never drawn with white vertex colours.
+
+## Steering, coast field, two-step Pangäa (2026-09-22, fourth round)
+
+- Direct-direction steering is the default: `SessionScreens` installs `Island.DirectionProvider` and sets
+  `Island.DirectionSteering` from `UI/SteerSettings` (PlayerPrefs `drift_steer_direct`, pause menu "Steuerung").
+  `IslandChaseCamera.fixedOrientation` + `viewYawDeg` keep a north-fixed view (`ViewIsFixed`/`ViewForward`, used by
+  `WatchTools.SetFollowHome` too); the shake is an offset on the smoothed pose and everything freezes at `dt <= 0`
+  (that loop was the "camera drifts away in the menu" bug). Deflection scales the speed cap
+  (`Island.directionMinSpeedShare`), while cruise and boost keep the unscaled cap.
+- `Visuals/CoastField` builds a signed-distance field of the player island's coastline in body space (rebuilt on
+  `Island.Version`) and pushes `_CoastField`/`_CoastParams`/`_CoastRot`; bow foam, wake churn, speed lines and the
+  fleck emphasis read it, so foam follows notches. `_IslandData` and `_PlayerReach`-based shore distance are gone.
+- Cozy end: `SessionModel.PangaeaReached` (free look, sinking held, banner in `PangaeaFinale`) and only its "Weiter"
+  calls `CompleteRun()`. `SaveSystem/IslandNames` gives every finished Pangäa a generated name (seeded by the world
+  seed, never a real island name verbatim); `RunRecord.name`, shown in the finale and the run journal.
+- One watch mode: `WatchTools.BeginWatch(WatchSubject)` for animal tap, discovery toast, journal card and photo cue;
+  the cue tap is answered by WatchTools' own press pipeline (`Press.onCue`, `CueContains`) with a >= 90 px hit rect.

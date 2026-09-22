@@ -1,3 +1,4 @@
+using Drift.Core;
 using Drift.Islands;
 using UnityEngine;
 using UnityEngine.Rendering;
@@ -56,6 +57,18 @@ namespace Drift.Visuals
         public float baitBallRadius = 1.7f;
         public float baitBallSpin = 1.3f;
 
+        [Header("Abenteuer-Beute")]
+        [Tooltip("So viele Fischschwärme dürfen gleichzeitig neben der Insel herschwimmen.")]
+        [Range(0, 3)] public int maxEscortSchools = 1;
+        [Tooltip("So viele Schwärme warten höchstens gleichzeitig auf der Bahn.")]
+        [Range(0, 3)] public int maxPickupSchools = 1;
+        [Tooltip("So lange (s) begleitet ein eingesammelter Schwarm die Insel.")]
+        [Range(5f, 60f)] public float escortSeconds = 22f;
+        [Tooltip("Abstand (u) zwischen Inselrand und begleitendem Schwarm.")]
+        [Range(1f, 12f)] public float escortGap = 2.5f;
+        [Tooltip("Zusätzliche Reichweite (u) um den Inselrand, in der ein wartender Schwarm eingesammelt wird.")]
+        [Range(0f, 8f)] public float pickupGrab = 2.5f;
+
         const string ObjName = "FishSchools";
         const int VertsPerFish = 7;
         const int IndicesPerFish = 9;
@@ -78,6 +91,9 @@ namespace Drift.Visuals
             public FishSpecies species;
             public float size;
             public bool ball;
+            // Adventure: waiting on the track to be run over, then escorting the island for `escort` seconds.
+            public bool pickup;
+            public float escort, side;
         }
 
         public enum FishSpecies { Sardine, Gold, Mackerel }
@@ -95,7 +111,7 @@ namespace Drift.Visuals
         float _clock, _rebuildTimer, _spawnTimer;
         int _editTick;
         bool _dirty;
-        Vector2 _playerPos;
+        Vector2 _playerPos, _playerVel, _playerFwd = Vector2.up;
         float _playerRadius, _playerSpeed;
 
         public float Clock => _clock;
@@ -115,6 +131,31 @@ namespace Drift.Visuals
         public FishSpecies SchoolSpecies(int i) => _schools[i].species;
         public int SchoolFishCount(int i) => _schools[i].active ? _schools[i].count : 0;
         public bool IsBaitBall(int i) => _schools[i].active && _schools[i].ball;
+        const float PickupKeepRadius = 130f;
+
+        public bool SchoolIsPickup(int i) => _schools != null && _schools[i].active && _schools[i].pickup;
+        public bool SchoolIsEscort(int i) => _schools != null && _schools[i].active && _schools[i].escort > 0f;
+        public int PickupsCollected { get; private set; }
+
+        public int PickupSchoolCount
+        {
+            get
+            {
+                int n = 0;
+                if (_schools != null) for (int i = 0; i < _schools.Length; i++) if (_schools[i].active && _schools[i].pickup) n++;
+                return n;
+            }
+        }
+
+        public int EscortCount
+        {
+            get
+            {
+                int n = 0;
+                if (_schools != null) for (int i = 0; i < _schools.Length; i++) if (_schools[i].active && _schools[i].escort > 0f) n++;
+                return n;
+            }
+        }
 
         public int BaitBallCount
         {
@@ -357,11 +398,16 @@ namespace Drift.Visuals
             for (int i = 0; i < _schools.Length; i++)
             {
                 if (!_schools[i].active) continue;
-                if ((_schools[i].pos - _playerPos).sqrMagnitude > far2)
+                // A shoal laid on the track waits further out than the seeded ones, and an escort is glued to the
+                // island: neither may be recycled at the ordinary range.
+                float keep = _schools[i].pickup || _schools[i].escort > 0f ? PickupKeepRadius * PickupKeepRadius : far2;
+                if ((_schools[i].pos - _playerPos).sqrMagnitude > keep)
                 {
                     MarkSpent(_schools[i].key);
                     _schools[i].active = false;
                     _schools[i].island = null;
+                    _schools[i].pickup = false;
+                    _schools[i].escort = 0f;
                     _dirty = true;
                 }
             }
@@ -476,6 +522,79 @@ namespace Drift.Visuals
             return slot;
         }
 
+        // ---- adventure: a shoal to pick up on the track (Encounters lays it out) ----
+
+        // A shoal waiting on the band: it drifts slowly, never scatters, and joins the island when run over.
+        // -1 when there is no room for another one.
+        public int SpawnPickupShoal(Vector2 pos, Vector2 dir)
+        {
+            EnsureArrays();
+            if (maxPickupSchools <= 0 || PickupSchoolCount >= maxPickupSchools) return -1;
+            int slot = -1;
+            float far = -1f;
+            for (int i = 0; i < _schools.Length; i++)
+            {
+                if (!_schools[i].active) { slot = i; break; }
+                if (_schools[i].pickup || _schools[i].escort > 0f) continue;
+                float d = (_schools[i].pos - _playerPos).sqrMagnitude;
+                if (d > far) { far = d; slot = i; }
+            }
+            if (slot < 0) return -1;
+            uint h = Hash((uint)seed + 909u, (uint)(pos.x * 13f + pos.y * 7f));
+            ref School s = ref _schools[slot];
+            s = default;
+            s.active = true;
+            s.key = long.MinValue + 200 + slot;
+            s.seed = h;
+            s.pos = pos;
+            s.dir = dir.sqrMagnitude > 1e-6f ? dir.normalized : Vector2.up;
+            s.orbitSign = Rand(h, 4) < 0.5f ? -1f : 1f;
+            s.count = Mathf.Clamp(maxFish, minFish, maxFish);
+            s.species = FishSpecies.Gold;
+            s.size = 1.8f;
+            s.pickup = true;
+            s.jumpT = -1f;
+            s.jumpTimer = jumpIntervalMin * 0.5f;
+            s.retarget = 1e6f;
+            s.color = goldColor;
+            _dirty = true;
+            return slot;
+        }
+
+        // Adventure only: every waiting shoal the island has reached starts escorting it. Returns how many joined.
+        public int CollectPickups() => CollectPickupsAt(_playerPos, _playerRadius);
+
+        public int CollectPickupsAt(Vector2 pos, float radius)
+        {
+            if (_schools == null) return 0;
+            int joined = 0;
+            for (int i = 0; i < _schools.Length; i++)
+            {
+                ref School s = ref _schools[i];
+                if (!s.active || !s.pickup) continue;
+                if (EscortCount >= maxEscortSchools) break;
+                float reach = radius + pickupGrab + 1.5f;
+                if ((s.pos - pos).sqrMagnitude > reach * reach) continue;
+                s.pickup = false;
+                s.escort = Mathf.Max(2f, escortSeconds);
+                s.side = EscortSideTaken(1f) ? -1f : 1f;
+                s.scatter = 0f;
+                PickupsCollected++;
+                joined++;
+                if (water != null) water.Splash(s.pos, 0.6f);
+                Encounters.NotifyCompanion(CompanionKind.FishShoal, new Vector3(s.pos.x, 0.05f, s.pos.y));
+                _dirty = true;
+            }
+            return joined;
+        }
+
+        bool EscortSideTaken(float side)
+        {
+            for (int i = 0; i < _schools.Length; i++)
+                if (_schools[i].active && _schools[i].escort > 0f && _schools[i].side == side) return true;
+            return false;
+        }
+
         // Starts a jump in the given school right away (debug / verification); returns false if inactive.
         public bool TriggerJump(int school)
         {
@@ -538,12 +657,16 @@ namespace Drift.Visuals
             {
                 _playerPos = p.PlanarPosition;
                 _playerRadius = p.BoundingRadius;
-                _playerSpeed = Application.isPlaying ? p.PlanarVelocity.magnitude : 0f;
+                _playerVel = Application.isPlaying ? p.PlanarVelocity : Vector2.zero;
+                _playerSpeed = _playerVel.magnitude;
+                _playerFwd = _playerSpeed > 0.05f ? _playerVel / _playerSpeed : new Vector2(p.BodyForward.x, p.BodyForward.z);
+                if (_playerFwd.sqrMagnitude < 1e-6f) _playerFwd = Vector2.up;
             }
             else
             {
                 _playerRadius = 0f;
                 _playerSpeed = 0f;
+                _playerVel = Vector2.zero;
             }
 
             _spawnTimer -= dt;
@@ -556,6 +679,7 @@ namespace Drift.Visuals
             if (dt > 0f)
                 for (int i = 0; i < _schools.Length; i++)
                     if (_schools[i].active) StepSchool(i, dt);
+            if (GameModes.IsAdventure && _playerRadius > 0f) CollectPickups();
 
             _rebuildTimer += dt;
             float interval = rebuildRate > 0f ? 1f / rebuildRate : 0f;
@@ -570,6 +694,7 @@ namespace Drift.Visuals
         void StepSchool(int idx, float dt)
         {
             ref School s = ref _schools[idx];
+            bool escortish = s.pickup || s.escort > 0f;
 
             s.retarget -= dt;
             if (s.retarget <= 0f)
@@ -580,7 +705,7 @@ namespace Drift.Visuals
 
             Vector2 dp = s.pos - _playerPos;
             float pr = _playerRadius + scatterRadius;
-            if (s.scatter <= 0f && _playerSpeed > playerMoveThreshold && dp.sqrMagnitude < pr * pr)
+            if (!escortish && s.scatter <= 0f && _playerSpeed > playerMoveThreshold && dp.sqrMagnitude < pr * pr)
             {
                 s.scatter = 1f;
                 s.scatterFrom = _playerPos;
@@ -588,7 +713,33 @@ namespace Drift.Visuals
 
             Vector2 desired;
             float speed;
-            if (s.scatter > 0f)
+            // Adventure: a shoal waiting on the track must not flee the island (it could never be collected), and
+            // an escorting one holds its lane beside the bow until its time is up.
+            if (escortish)
+            {
+                if (s.escort > 0f)
+                {
+                    s.escort -= dt;
+                    if (s.escort <= 0f || _playerRadius <= 0f) { s.escort = 0f; s.island = null; }
+                }
+                if (s.escort > 0f)
+                {
+                    Vector2 right = new Vector2(_playerFwd.y, -_playerFwd.x);
+                    float lane = _playerRadius + escortGap;
+                    Vector2 goal = _playerPos + right * (s.side * lane)
+                                 + _playerFwd * (lane * 0.55f + Mathf.Sin(_clock * 0.5f + s.seed % 7u) * 2f);
+                    Vector2 to = goal - s.pos;
+                    float d = to.magnitude;
+                    desired = d > 0.3f ? to / d : _playerFwd;
+                    speed = Mathf.Min(d / Mathf.Max(0.016f, dt), _playerSpeed + 4f);
+                }
+                else
+                {
+                    desired = s.dir;
+                    speed = schoolSpeed * (s.pickup ? 0.5f : 1f);
+                }
+            }
+            else if (s.scatter > 0f)
             {
                 s.scatter = Mathf.Max(0f, s.scatter - dt / Mathf.Max(0.1f, scatterDuration));
                 Vector2 away = s.pos - s.scatterFrom;
@@ -639,6 +790,8 @@ namespace Drift.Visuals
                     s.jumpT = 0f;
                     s.jumper = (int)(Rand(s.seed, 500 + Mathf.FloorToInt(_clock)) * s.count) % s.count;
                     s.jumpTimer = Mathf.Lerp(jumpIntervalMin, jumpIntervalMax, Rand(s.seed, 700 + Mathf.FloorToInt(_clock)));
+                    // A shoal lying on the track keeps jumping: that flicker is what you steer towards.
+                    if (s.pickup) s.jumpTimer = 1.2f + 1.2f * Rand(s.seed, 900 + Mathf.FloorToInt(_clock));
                     Vector2 w = FishWorld(ref s, s.jumper, out _, out _, out _);
                     if (water != null) water.Splash(w, 0.5f);
                 }

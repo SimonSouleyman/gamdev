@@ -62,6 +62,12 @@ namespace Drift.Visuals
         public float earlyTackLead = 1.5f;
         public float playerDockMaxSpeed = 0.4f;
 
+        [Header("Schiffe im Abenteuer")]
+        [Tooltip("Kürzester Abstand (s) zwischen zwei Remplern gegen dasselbe Schiff.")]
+        [Range(0.5f, 6f)] public float shipHitCooldown = 1.5f;
+        [Tooltip("Wie schnell (u/s) ein gerammtes Schiff aus der Bahn geschoben wird.")]
+        [Range(2f, 14f)] public float shipHitPush = 6f;
+
         // Edit mode treats every island as standing still; verification turns the real velocities on.
         [System.NonSerialized] public bool debugLiveVelocity;
         [System.NonSerialized] public float debugNight = -1f;
@@ -91,6 +97,8 @@ namespace Drift.Visuals
             public int beachPhase;
             public float beachT, beachDuration, restRoll, restPitch, squeeze, grace, overdue, react, wakeBob, wakeBobTarget, net;
             public bool hauling;
+            // Adventure: seconds until this hull may report another bump against the player.
+            public float hitCool;
         }
 
         Ship[] _ships;
@@ -113,6 +121,9 @@ namespace Drift.Visuals
         Vector2 _playerPos, _playerVel, _wind;
         float _playerRadius, _playerSpeed, _night, _period;
         bool _playerDockOpen, _anyMover;
+        // Adventure: the ring band the hulls have to stay inside (the bend folds anything past the rim).
+        RingGeometry _ringGeo;
+        bool _onRing;
 
         static SeaTemplate _tSailHull, _tSailRig, _tMainSail, _tJib, _tFishHull, _tFishRig, _tFishSail, _tCogHull, _tCogRig, _tCogSail,
             _tRowHull, _tRower, _tOar, _tLantern, _tFlag;
@@ -517,6 +528,7 @@ namespace Drift.Visuals
                 for (int cx = x0; cx <= x1; cx++)
                 {
                     if (!CellContent(cx, cy, out ShipKind kind, out Vector2 sp, out uint h)) continue;
+                    if (_onRing) sp = BandPoint(sp, kind, h);
                     float d2 = (sp - _playerPos).sqrMagnitude;
                     if (d2 > near * near || (_scanned && d2 < near * near * respawnMinRange * respawnMinRange)) continue;
                     long key = SeaMath.Key(cx, cy);
@@ -532,6 +544,21 @@ namespace Drift.Visuals
                 }
             _scanned = true;
         }
+
+        // Adventure: the ring bend folds everything past a rim onto the band's edge plane, so a hull that sticks
+        // out over the rim is drawn sliced (owner: "die schiffe an der seite sehen falsch aus"). Ships therefore
+        // live on the band like the obstacle islands, with their whole length inside it.
+        public static float ShipBandMargin(ShipKind k) => HalfLength(k) + 0.8f;
+
+        // A seeded cell point mapped onto the band: across it by the cell's own hash, along it near the player.
+        Vector2 BandPoint(Vector2 sp, ShipKind kind, uint h)
+        {
+            float m = ShipBandMargin(kind);
+            return new Vector2(Mathf.Lerp(_ringGeo.MinX + m, _ringGeo.MaxX - m, SeaMath.Rand(h, 11)),
+                _ringGeo.WrapNear(sp.y, _playerPos.y));
+        }
+
+        public bool KeepsHullsOnTheBand => _onRing;
 
         void Activate(int slot, long key, Vector2 sp, uint h, ShipKind kind)
         {
@@ -666,6 +693,17 @@ namespace Drift.Visuals
             _night = debugNight >= 0f ? debugNight : LifeEnvironment.NightAmount;
             _wind = water != null ? water.Wind : LifeEnvironment.Wind;
 
+            _onRing = false;
+            if (GameModes.IsAdventure)
+            {
+                var ring = RingWorld.Active;
+                if (ring != null && ring.IsApplied)
+                {
+                    _ringGeo = ring.Geometry;
+                    _onRing = true;
+                }
+            }
+
             _obstacleTimer -= dt;
             if (_obstacleTimer <= 0f || dt <= 0f)
             {
@@ -750,6 +788,7 @@ namespace Drift.Visuals
             if (s.cooldown > 0f) s.cooldown -= dt;
             if (s.grace > 0f) s.grace -= dt;
             if (s.react > 0f) s.react -= dt;
+            if (s.hitCool > 0f) s.hitCool -= dt;
             s.timer -= dt;
             s.wakeBob = Mathf.MoveTowards(s.wakeBob, s.wakeBobTarget, dt * 0.8f);
             s.net = Mathf.MoveTowards(s.net, s.state == ShipState.Fishing && !s.hauling ? 1f : 0f, dt * 0.45f);
@@ -819,6 +858,7 @@ namespace Drift.Visuals
             else s.speed = 0f;
 
             if (Contact(idx, dt)) return;
+            if (_onRing) s.pos = _ringGeo.ClampAcross(s.pos, ShipBandMargin(s.kind));
 
             Vector2 right = new Vector2(s.dir.y, -s.dir.x);
             float wr = Vector2.Dot(_wind, right);

@@ -6,6 +6,28 @@ using UnityEngine;
 
 namespace Drift.Visuals
 {
+    // What a lightning strike on the player island costs, kept pure so the rule can be tested without a scene.
+    // Nothing here stops or sinks the island: a hit brakes it for a moment and takes a little buoyancy.
+    public static class StormStrike
+    {
+        // Below this the island is only at the fringe of the storm and the bolts stay over the open sea.
+        public const float MinIntensity = 0.05f;
+
+        // Does this bolt of a storm go for the island instead of the water? One roll (0..1) per bolt; the harder the
+        // storm blows over the island, the likelier it is, and never while the cooldown after the last hit runs.
+        public static bool AimsAtIsland(float intensityOnIsland, float cooldownLeft, float share, float roll) =>
+            intensityOnIsland > MinIntensity && cooldownLeft <= 0f && share > 0f && roll < share * intensityOnIsland;
+
+        // Where such a bolt comes down: somewhere on the island, the square root spreading the draws evenly over it.
+        public static Vector2 Point(Vector2 island, float radius, float angle, float unit) =>
+            island + new Vector2(Mathf.Cos(angle), Mathf.Sin(angle)) * (Mathf.Max(0f, radius) * 0.75f * Mathf.Sqrt(Mathf.Clamp01(unit)));
+
+        // A far-off, weak bolt costs half of what a full strike costs.
+        public static float Scale(float strength) => 0.5f + 0.5f * Mathf.Clamp01(strength);
+        public static float SlowSeconds(float seconds, float strength) => Mathf.Max(0f, seconds) * Scale(strength);
+        public static float BuoyancyLoss(float loss, float strength) => Mathf.Max(0f, loss) * Scale(strength);
+    }
+
     // Makes the storms of StormSystem visible from afar: an irregular cluster of dark, churning cloud clumps (the
     // puffs of the fair-weather clouds, see CloudShadows), rain shafts under them, rougher and darker water (the water
     // shader reads _DriftStorms) and lightning. Over the player island the
@@ -56,12 +78,27 @@ namespace Drift.Visuals
         [Tooltip("Ab dieser Entfernung zur Kamera ist das Aufleuchten nicht mehr zu spüren.")]
         [Range(20f, 400f)] public float flashRange = 160f;
 
+        [Header("Blitzeinschlag auf die Insel (Abenteuer)")]
+        [Tooltip("Anteil der Blitze, die auf die Spielerinsel gehen, solange sie im Sturm fährt (0 = nie).")]
+        [Range(0f, 1f)] public float playerStrikeShare = 0.55f;
+        [Tooltip("Sekunden, die ein Treffer die Insel ausbremst.")]
+        [Range(0f, 4f)] public float strikeSlowSeconds = 1.2f;
+        [Tooltip("Auf so viel vom Tempo bremst ein Treffer (0,75 = ein Viertel langsamer).")]
+        [Range(0.2f, 1f)] public float strikeSlowFactor = 0.75f;
+        [Tooltip("Anteil des Auftriebs, den ein Treffer kostet – die Insel sackt leicht ab.")]
+        [Range(0f, 0.2f)] public float strikeBuoyancyLoss = 0.03f;
+        [Tooltip("Kürzeste Zeit zwischen zwei Treffern auf die Insel.")]
+        [Range(0.5f, 20f)] public float strikeCooldown = 5f;
+
         public const int MaxStorms = 4;
         const int RainSegments = 12;
 
         // 0..1 scene flash of the brightest live bolt, read by DayNightCycle (and the shaders as _LightningFlash).
         public static float Flash { get; private set; }
         public int BoltsStruck { get; private set; }
+        // Bolts that came down on the player island (they slow it and cost it a little buoyancy).
+        public int PlayerStrikes { get; private set; }
+        public float StrikeCooldownLeft => _strikeCooldown;
         // The storms shown this frame (x, z centre, radius, 0..1 intensity), for the minimap.
         public static int StormCount { get; private set; }
         static readonly Vector4[] Shown = new Vector4[MaxStorms];
@@ -93,6 +130,7 @@ namespace Drift.Visuals
         int _shownStorms = -1;
         System.Random _rnd = new System.Random(7717);
         Island _player;
+        float _strikeCooldown;
 
         void OnEnable()
         {
@@ -151,6 +189,7 @@ namespace Drift.Visuals
                 Shader.SetGlobalVector(EyeId, new Vector4(p.x, p.y, r + eyeMargin * 0.5f, r + eyeMargin * 1.5f + 2f));
             }
 
+            _strikeCooldown = Mathf.Max(0f, _strikeCooldown - dt);
             if (dt > 0f) ScheduleStrikes(n, dt);
 
             _rebuildTimer -= dt;
@@ -175,9 +214,28 @@ namespace Drift.Visuals
                 _strikeAcc[i] -= lightningRate * d.w * dt;
                 if (_strikeAcc[i] > 0f) continue;
                 _strikeAcc[i] = -Mathf.Log(1f - 0.999f * (float)_rnd.NextDouble());
+                float strength = Mathf.Clamp01(0.6f + 0.4f * d.w);
+                // Inside the storm the island itself is the tallest thing around: some of the bolts go for it.
+                if (StormStrike.AimsAtIsland(IntensityOnPlayer(d), _strikeCooldown, playerStrikeShare, (float)_rnd.NextDouble()))
+                {
+                    Vector2 hit = StormStrike.Point(_player.PlanarPosition, _player.BoundingRadius,
+                        (float)_rnd.NextDouble() * Mathf.PI * 2f, (float)_rnd.NextDouble());
+                    LifeEnvironment.ReportLightning(new Vector3(hit.x, 0f, hit.y), strength);
+                    continue;
+                }
                 if (TrySeaPoint(new Vector2(d.x, d.y), d.z * 0.8f, out Vector2 at))
-                    LifeEnvironment.ReportLightning(new Vector3(at.x, 0f, at.y), Mathf.Clamp01(0.6f + 0.4f * d.w));
+                    LifeEnvironment.ReportLightning(new Vector3(at.x, 0f, at.y), strength);
             }
+        }
+
+        // How hard this storm blows over the player island (0 = the island is not in it). Only in Adventure: in the
+        // cozy game a storm is weather, and nothing it does may cost the player anything.
+        float IntensityOnPlayer(Vector4 storm)
+        {
+            if (_player == null || !GameModes.IsAdventure) return 0f;
+            float d = Vector2.Distance(_player.PlanarPosition, new Vector2(storm.x, storm.y));
+            if (d >= storm.z) return 0f;
+            return storm.w * (1f - Mathf.SmoothStep(0.45f, 1f, d / Mathf.Max(1e-3f, storm.z)));
         }
 
         bool TrySeaPoint(Vector2 c, float r, out Vector2 p)
@@ -208,6 +266,7 @@ namespace Drift.Visuals
         {
             if (!isActiveAndEnabled) return;
             BoltsStruck++;
+            StrikePlayer(new Vector2(at.x, at.z), strength);
             if (_bolts.Count >= 8) _bolts.RemoveAt(0);
             float jitter = 2.5f;
             _bolts.Add(new Bolt
@@ -217,6 +276,19 @@ namespace Drift.Visuals
                 strength = Mathf.Clamp01(strength),
                 seed = _rnd.Next(),
             });
+        }
+
+        // A bolt that came down on the player island: it staggers (a short brake, never a stop) and the island loses
+        // a little buoyancy, so it rides lower for a while. Adventure only, and never twice within strikeCooldown.
+        void StrikePlayer(Vector2 at, float strength)
+        {
+            if (_player == null || _strikeCooldown > 0f || !GameModes.IsAdventure) return;
+            float reach = _player.BoundingRadius;
+            if ((at - _player.PlanarPosition).sqrMagnitude > reach * reach) return;
+            _strikeCooldown = strikeCooldown;
+            PlayerStrikes++;
+            _player.Stagger(StormStrike.SlowSeconds(strikeSlowSeconds, strength), strikeSlowFactor);
+            _player.RemoveBuoyancy(StormStrike.BuoyancyLoss(strikeBuoyancyLoss, strength));
         }
 
         // Three quick pulses: the classic flicker of a return stroke.

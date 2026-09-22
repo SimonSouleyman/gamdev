@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Text;
+using Drift.Core;
 using Drift.Islands;
 using NUnit.Framework;
 using UnityEngine;
@@ -182,6 +183,8 @@ namespace Drift.Tests
             var isl = go.AddComponent<Island>();
             isl.useKeyboardInput = player;
             isl.sinkEnabled = player;
+            // The sink timer is the Adventure rule (Cozy only regulates the size, see CozyWorldTests).
+            isl.ModeOverride = GameMode.Adventure;
             isl.landRadius = radius;
             isl.cellSize = IslandArchetypes.CellSize(radius);
             isl.shapeSeed = seed;
@@ -427,6 +430,9 @@ namespace Drift.Tests
             go.SetActive(false);
             ws = go.AddComponent<WorldStreamer>();
             ws.player = player;
+            // The difficulty curve was designed and measured on the big world (166 islands); the small cozy world
+            // has no sink timer and its runs are covered by CozyWorldTests.
+            ws.UseLayout(WorldStreamer.LegacyWorldGenVersion);
             objects.Add(go);
             return SinkRunSimulator.FromStreamer(ws);
         }

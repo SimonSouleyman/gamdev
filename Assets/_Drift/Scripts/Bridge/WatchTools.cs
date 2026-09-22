@@ -22,7 +22,7 @@ namespace Drift.Bridge
     [DisallowMultipleComponent]
     public class WatchTools : MonoBehaviour
     {
-        public enum EditorPreview { None, Popup, Journal, Photo, Album, AlbumPhoto }
+        public enum EditorPreview { None, Popup, Journal, Photo, Album, AlbumPhoto, JournalTasks }
 
         const string CanvasName = "WatchToolsCanvas";
         const float ToastSeconds = 3f;
@@ -66,6 +66,25 @@ namespace Drift.Bridge
         public float panRadiusFactor = 1.5f;
         public float returnEaseSeconds = 0.6f;
 
+        [Tooltip("Das Tagebuch der Arten bleibt über alle Reisen erhalten (eigene Datei drift_journal.json); aus = nur die laufende Reise.")]
+        public bool keepJournal = true;
+
+        [Header("Fotoaufgaben")]
+        [Tooltip("Fotoaufgaben im Tagebuch: jede Art mit eigener Bewegung einmal dabei fotografieren. Der Fortschritt bleibt über alle Reisen erhalten.")]
+        public bool photoTasks = true;
+        [Tooltip("So groß muss ein Tier mindestens im Bild sein (Anteil an der kurzen Bildseite), damit das Foto die Aufgabe erfüllt.")]
+        [Range(0.005f, 0.1f)] public float photoTaskMinSize = 0.015f;
+        [Tooltip("Abstand zum Bildrand (Anteil der Bildbreite/-höhe), innerhalb dessen ein Tier nicht als \"im Bild\" zählt.")]
+        [Range(0f, 0.2f)] public float photoTaskMargin = 0.04f;
+        [Tooltip("In diesem Umkreis um den Kamerafokus zeigt ein kleines Kamera-Symbol über dem Tier, dass gerade eine offene Fotoaufgabe zu sehen ist.")]
+        [Range(5f, 80f)] public float photoTaskHintRange = 30f;
+        [Tooltip("Höchstens so oft (Sekunden) erscheint zusätzlich ein Hinweis wie \"Die Flamingos tanzen im Schlamm!\".")]
+        [Range(30f, 900f)] public float photoTaskHintInterval = 180f;
+        [Tooltip("Größe des gezeichneten Kamera-Symbols über dem Tier.")]
+        [Range(64f, 160f)] public float cueSize = 96f;
+        [Tooltip("Fingerfläche um das Kamera-Symbol: so weit daneben zählt ein Tippen noch als Treffer (halbe Kantenlänge).")]
+        [Range(45f, 120f)] public float cueTapRadius = 64f;
+
         static readonly string[] Moods = { "grast", "schaut auf", "wandert", "ruht", "schläft", "spielt" };
         static readonly string[] CritterMoods = { "schaut sich um", "ist unterwegs", "gräbt sich ein", "versteckt sich", "ruht", "winkt mit den Scheren", "gräbt ein Nest", "tanzt im Spiralflug" };
 
@@ -92,9 +111,10 @@ namespace Drift.Bridge
 
         GameObject _followButton, _followChip;
         Text _followChipText;
+        // The one thing being watched, whichever entry point started it; null = not watching. A herd brings its
+        // system along (chip, popup, herd framing), anything else a focus function.
+        WatchSubject _watch;
         IslandHerdSystem _followHerds;
-        // Anything else being watched (a plant, a critter, a flock, a whale, a boat); null while a herd is followed.
-        WatchSubject _observe;
         Island _followIsland;
         int _followHerd = -1, _followHerdCount;
         LifeKind _followKind;
@@ -152,6 +172,8 @@ namespace Drift.Bridge
             public Vector2 pos;
             public float time;
             public TapPress flags;
+            // The press went down on the photo-task cue; the release no longer has to land on it.
+            public bool onCue;
         }
 
         Press _mousePress, _touchPress;
@@ -163,10 +185,30 @@ namespace Drift.Bridge
         readonly Dictionary<IslandHerdSystem, int> _birthsSeen = new();
         readonly Dictionary<IslandLifeSystem, int> _firesSeen = new();
 
+        JournalBook _journalBook;
+        int _journalBookSaved = -1;
+        float _journalBookTimer;
+        PhotoTaskBook _photoTasks, _sampleTasks;
+        int _tasksVersion = -1;
+        readonly Dictionary<int, Texture2D> _taskThumbs = new();
+        readonly List<PhotoSubject> _subjects = new();
+        readonly List<int> _judgedTasks = new();
+        readonly List<Vector2> _judgedCentres = new();
+        PhotoSubject _cue;
+        bool _cueActive, _noticePhoto;
+        float _cueTimer, _hintToastTimer;
+        GameObject _cueButton;
+        RectTransform _cueRect, _cueHit;
+        // Screen position of the drawn icon, refreshed every frame: a tap is measured against it, not against a
+        // rect the finger has to hit twice.
+        Vector2 _cueScreen;
+        float _cueHitSize = -1f;
+
         public bool PhotoActive => _photoActive;
         public bool JournalOpen => _journalOpen;
-        public bool Following => _followHerds != null || _observe != null;
-        public bool Observing => _observe != null;
+        public bool Following => _watch != null;
+        public bool Observing => _watch != null && _followHerds == null;
+        public WatchSubject Watched => _watch;
         public bool AlbumOpen => _album.IsOpen;
         public bool Capturing => _capturing;
         public PhotoAlbum Album => _album;
@@ -197,6 +239,80 @@ namespace Drift.Bridge
                 return _lifeBook;
             }
         }
+        // Photo tasks done across all runs. Loaded from persistentDataPath on first use in Play Mode; in Edit Mode an
+        // empty book that is never written. Tests put their own (temporary folder) book in.
+        public PhotoTaskBook PhotoTasks
+        {
+            get
+            {
+                if (_photoTasks == null)
+                {
+                    _photoTasks = new PhotoTaskBook(Application.isPlaying ? PhotoTaskBook.DefaultDirectory : null);
+                    _photoTasks.Load();
+                }
+                return _photoTasks;
+            }
+            set
+            {
+                _photoTasks = value;
+                ClearTaskThumbs();
+                _tasksVersion = -1;
+            }
+        }
+        // The species journal across runs; attached to the save manager's journal in Play Mode (see Resolve).
+        public JournalBook JournalBook
+        {
+            get
+            {
+                if (_journalBook == null)
+                {
+                    _journalBook = new JournalBook(Application.isPlaying ? JournalBook.DefaultDirectory : null);
+                    _journalBook.Load();
+                    _journalBookSaved = _journalBook.Version;
+                }
+                return _journalBook;
+            }
+            set
+            {
+                _journalBook = value;
+                _journalBookSaved = value != null ? value.Version : -1;
+            }
+        }
+
+        // Writes what the run added to the cross-run journal; cheap when nothing changed.
+        public void FlushJournalBook()
+        {
+            var j = Journal;
+            if (_journalBook == null || j == null || j.Book != _journalBook) return;
+            _journalBook.Absorb(j);
+            if (_journalBook.Version == _journalBookSaved) return;
+            if (_journalBook.Save()) _journalBookSaved = _journalBook.Version;
+        }
+
+        void UpdateJournalBook(float dt)
+        {
+            // An adventure run must not add a line to the cozy books, so it never even attaches to them.
+            if (!keepJournal || saveManager == null || !WatchRules.Allowed(WatchFeature.DiscoveryRecord)) return;
+            var j = saveManager.Journal;
+            if (j.Book == null) j.AttachBook(JournalBook);
+            _journalBookTimer -= dt;
+            if (_journalBookTimer > 0f) return;
+            _journalBookTimer = 5f;
+            FlushJournalBook();
+        }
+
+        void OnApplicationPause(bool paused)
+        {
+            if (paused && Application.isPlaying) FlushJournalBook();
+        }
+
+        void OnApplicationQuit() => FlushJournalBook();
+
+        public bool PhotoCueVisible => _cueButton != null && _cueButton.activeSelf;
+        public int PhotoCueTask => _cueActive ? _cue.task : -1;
+        public Vector2 PhotoCueScreen => _cueScreen;
+        public RectTransform PhotoCueHitRect => _cueHit;
+        public RectTransform PhotoCueIconRect => _cueRect;
         public Vector3 FollowFocus => _followFocus;
         public PhotoRig Rig => _rig;
         public bool CameraDriven => _driving;
@@ -219,6 +335,8 @@ namespace Drift.Bridge
             _album.Close();
             _albumPreview = EditorPreview.None;
             HudHidden = false;
+            ClearTaskThumbs();
+            if (Application.isPlaying) FlushJournalBook();
         }
 
         // Scene-wide searches are only retried once a second so a legitimately absent reference does not
@@ -252,6 +370,7 @@ namespace Drift.Bridge
             }
 
             Resolve();
+            UpdateJournalBook(Time.unscaledDeltaTime);
             if (session == null) return;
             var s = session.Current;
 
@@ -273,7 +392,7 @@ namespace Drift.Bridge
                 }
                 else
                 {
-                    if (!_photoActive) UpdateTap();
+                    if (!_photoActive && WatchRules.Allowed(WatchFeature.Watch)) UpdateTap();
                     if (_driving && !_capturing) GatherInput();
                 }
                 UpdateFollow();
@@ -288,12 +407,13 @@ namespace Drift.Bridge
             bool playing = s == GameSession.State.Playing;
             UpdateNews(playing && !_photoActive && !_journalOpen && !_album.IsOpen, Time.unscaledDeltaTime);
             bool hudButtons = playing && !_photoActive && !_journalOpen && !_album.IsOpen;
-            SetActive(_bookButton, hudButtons);
-            SetActive(_cameraButton, hudButtons);
+            SetActive(_bookButton, hudButtons && WatchRules.Allowed(WatchFeature.Journal));
+            SetActive(_cameraButton, hudButtons && WatchRules.Allowed(WatchFeature.PhotoMode));
             SetActive(_followButton, playing && Following && !_photoActive);
             SetActive(_followChip, playing && Following && !_photoActive);
             SetActive(_photo, _photoActive && !_album.IsOpen);
             UpdateHint(playing && _driving && !_journalOpen && !_album.IsOpen, _photoActive);
+            UpdatePhotoCue(playing && !_journalOpen && !_album.IsOpen && !_capturing, Time.unscaledDeltaTime);
             HudHidden = _photoActive;
         }
 
@@ -336,13 +456,28 @@ namespace Drift.Bridge
         // Collection toasts wait while photo mode, the journal or the album is up and never outlive their run.
         float _noticeTimer;
 
-        void OnNewsTapped()
+        // The news chip was tapped (public so tests and eval take the same route as a finger).
+        public void OnNewsTapped()
         {
             var t = _toasts.Current;
-            if (_noticeTimer > 0f || !_toasts.Showing || t.count <= 0) return;
+            if (_noticeTimer > 0f)
+            {
+                if (!_noticePhoto) return;
+                _noticePhoto = false;
+                _noticeTimer = 0f;
+                SetActive(_newsChip, false);
+                PhotographCue();
+                return;
+            }
+            if (!_toasts.Showing || t.count <= 0) return;
             _toasts.Dismiss();
             SetActive(_newsChip, false);
-            if (t.count == 1) Watch(t.first);
+            if (t.photo)
+            {
+                OpenJournal();
+                _journalPanel.ShowTask(PhotoTaskCatalog.IndexOfEntry(t.first));
+            }
+            else if (t.count == 1) Watch(t.first);
             else
             {
                 OpenJournal();
@@ -352,6 +487,14 @@ namespace Drift.Bridge
 
         void UpdateNews(bool visible, float dt)
         {
+            // A mode without the collection has no news chip at all - a line queued in the previous run goes too.
+            if (!WatchRules.Allowed(WatchFeature.DiscoveryToast))
+            {
+                _toasts.Clear();
+                _noticeTimer = 0f;
+                SetActive(_newsChip, false);
+                return;
+            }
             if (_noticeTimer > 0f)
             {
                 _noticeTimer -= dt;
@@ -385,7 +528,8 @@ namespace Drift.Bridge
             _newsText.text = toast.text ?? "";
             _newsText.fontSize = toast.strong ? 34 : 30;
             _newsText.color = toast.strong ? UiStyle.Sand : UiStyle.CreamSoft;
-            _newsIcon.color = toast.strong ? UiStyle.Sand : UiStyle.Muted;
+            _newsIcon.color = toast.strong || toast.photo ? UiStyle.Sand : UiStyle.Muted;
+            _newsIcon.sprite = UiSprites.Icon(toast.photo ? UiIcon.Camera : UiIcon.Book);
         }
 
         void SetToast(string text)
@@ -402,6 +546,10 @@ namespace Drift.Bridge
         // ---------------------------------------------------------------- tap
 
         float CanvasScale => _canvas != null && _canvas.scaleFactor > 0f ? _canvas.scaleFactor : 1f;
+
+        // The game always draws this canvas as an overlay, which takes a null camera; an Edit Mode capture may put
+        // it on a camera for one shot, and then every screen <-> canvas conversion needs that camera.
+        Camera UiCamera => _canvas != null && _canvas.renderMode != RenderMode.ScreenSpaceOverlay ? _canvas.worldCamera : null;
 
         float PixelsPerUnit
         {
@@ -452,12 +600,20 @@ namespace Drift.Bridge
             press.time = Time.unscaledTime;
             press.flags = default;
             press.flags.overUi = UiBlocks(pos, out _);
+            press.onCue = CueContains(pos);
         }
 
         void TrackPress(ref Press press)
         {
-            if (touch == null) return;
-            if (touch.IsPointerOnStick(press.id) && touch.StickDeflected) press.flags.steered = true;
+            if (touch == null || !touch.IsPointerOnStick(press.id)) return;
+            // A finger that went down on the cue is aiming at the cue, not at the thumbstick underneath it: the
+            // stick lets go, so the island neither turns away nor swings the icon out from under the finger.
+            if (press.onCue)
+            {
+                touch.Release();
+                return;
+            }
+            if (touch.StickDeflected) press.flags.steered = true;
         }
 
         void EndPress(ref Press press, Vector2 releasePos)
@@ -465,7 +621,7 @@ namespace Drift.Bridge
             press.tracking = false;
             press.flags.seconds = Time.unscaledTime - press.time;
             press.flags.movedPixels = (releasePos - press.pos).magnitude;
-            Release(press.flags, releasePos);
+            Release(press.flags, releasePos, press.onCue || CueContains(releasePos));
         }
 
         // Mouse and touchscreen are read side by side: a laptop with a touch display reports a Touchscreen even
@@ -523,17 +679,29 @@ namespace Drift.Bridge
         }
 
         // The end of a press: gates it and, if it was a tap, picks. Public so it can be driven without input devices.
-        public TapReject Release(TapPress press, Vector2 screenPos)
+        public TapReject Release(TapPress press, Vector2 screenPos) => Release(press, screenPos, false);
+
+        // onCue: the press went down on (or came up on) the photo-task cue. The cue is UI, so the gate would throw
+        // the tap away as overUi; it is also a target that walks off under the finger, so it is answered here
+        // instead of by Unity's button.
+        public TapReject Release(TapPress press, Vector2 screenPos, bool onCue)
         {
             bool playing = !Application.isPlaying || (session != null && session.Current == GameSession.State.Playing && !_photoActive && !_journalOpen && !_album.IsOpen);
-            var reject = TapPicker.Gate(playing, press, tapHoldSeconds, tapSlop * PixelsPerUnit);
+            var gated = press;
+            if (onCue) gated.overUi = false;
+            var reject = TapPicker.Gate(playing, gated, tapHoldSeconds, tapSlop * PixelsPerUnit);
             if (reject == TapReject.None)
             {
                 // A simulated touchscreen (or an OS that mirrors touch to the mouse) reports the same tap twice.
                 if (Time.unscaledTime - _lastTapTime < 0.12f && (screenPos - _lastTapPos).sqrMagnitude < 400f) return LastReject;
                 _lastTapTime = Time.unscaledTime;
                 _lastTapPos = screenPos;
-                if (!Tap(screenPos)) reject = TapReject.NothingNear;
+                if (onCue)
+                {
+                    if (debugTaps) Debug.Log($"WatchTools tap at {screenPos}: photo cue for task {PhotoCueTask}");
+                    PhotographCue();
+                }
+                else if (!Tap(screenPos)) reject = TapReject.NothingNear;
             }
             else if (debugTaps)
             {
@@ -549,7 +717,7 @@ namespace Drift.Bridge
         public bool Tap(Vector2 screenPos)
         {
             var cam = Camera.main;
-            if (cam == null) return false;
+            if (cam == null || !WatchRules.Allowed(WatchFeature.Watch)) return false;
             float radius = pickRadius * PixelsPerUnit;
             float best = float.MaxValue, bestCritter = float.MaxValue;
             IslandHerdSystem bestHerds = null;
@@ -626,7 +794,7 @@ namespace Drift.Bridge
         void Ripple(Vector2 screenPos, bool hit)
         {
             if (_ripple == null) return;
-            RectTransformUtility.ScreenPointToLocalPointInRectangle(_root, screenPos, null, out var local);
+            RectTransformUtility.ScreenPointToLocalPointInRectangle(_root, screenPos, UiCamera, out var local);
             _ripple.anchoredPosition = local;
             _ripple.localScale = new Vector3(0.5f, 0.5f, 1f);
             _rippleImage.color = UiStyle.WithAlpha(hit ? UiStyle.Sand : UiStyle.Cream, 0.7f);
@@ -638,6 +806,7 @@ namespace Drift.Bridge
 
         public void ShowPopup(Island island, IslandHerdSystem herds, int herd, int member)
         {
+            if (!WatchRules.Allowed(WatchFeature.Watch)) return;
             _popupIsland = island;
             _popupHerds = herds;
             _popupCritters = null;
@@ -649,6 +818,7 @@ namespace Drift.Bridge
 
         public void ShowCritterPopup(Island island, IslandCrittersSystem critters, int index)
         {
+            if (!WatchRules.Allowed(WatchFeature.Watch)) return;
             _popupIsland = island;
             _popupHerds = null;
             _popupCritters = critters;
@@ -663,7 +833,7 @@ namespace Drift.Bridge
             _popupTimer = popupSeconds + popupFadeSeconds;
             _shownState = _shownSize = _shownYoung = -1;
             SetActive(_popupFollow, canFollow);
-            string origin = canFollow && _popupHerds != null && _popupHerds.IsForeign(_popupKind) ? OriginLine(_popupKind) : "";
+            string origin = _popupHerds != null && _popupHerds.IsForeign(_popupKind) ? OriginLine(_popupKind) : "";
             LayoutPopup(canFollow, origin);
             _popup.SetActive(true);
             _marker.gameObject.SetActive(true);
@@ -783,7 +953,7 @@ namespace Drift.Bridge
         float PlaceMarker(Vector3 screen, float bodyPixels, float alpha)
         {
             if (screen.z <= 0f) { _markerGroup.alpha = 0f; return 0f; }
-            RectTransformUtility.ScreenPointToLocalPointInRectangle(_root, screen, null, out var local);
+            RectTransformUtility.ScreenPointToLocalPointInRectangle(_root, screen, UiCamera, out var local);
             float diameter = Mathf.Clamp(bodyPixels * 2.6f / CanvasScale, 46f, 240f);
             float pulse = 0.5f + 0.5f * Mathf.Sin(Time.unscaledTime * 4f);
             _marker.anchoredPosition = local;
@@ -795,7 +965,7 @@ namespace Drift.Bridge
         void PlacePopup(Vector3 screen, float lift)
         {
             if (screen.z <= 0f) { _popupGroup.alpha = 0f; return; }
-            RectTransformUtility.ScreenPointToLocalPointInRectangle(_root, screen, null, out var local);
+            RectTransformUtility.ScreenPointToLocalPointInRectangle(_root, screen, UiCamera, out var local);
             var rect = _root.rect;
             var size = _popupRect.sizeDelta;
             // While following, the return button and the herd chip own the top centre: the card then hangs below the animal.
@@ -812,30 +982,55 @@ namespace Drift.Bridge
         {
             if (_popupHerds == null || !PopupValid) return;
             FollowHerd(_popupIsland, _popupHerds, _popupHerdIndex);
-            HidePopup();
         }
 
         // The camera leaves the island and orbits the herd; the island is not steered and does not sink meanwhile.
-        public void FollowHerd(Island island, IslandHerdSystem herds, int herd)
+        public void FollowHerd(Island island, IslandHerdSystem herds, int herd) =>
+            BeginWatch(WatchSubjects.OfHerd(island, herds, herd));
+
+        // THE watch mode ("Tier beobachten"). Every way in — tapping an animal, a discovery toast, a journal card or
+        // a photo-task cue — builds a WatchSubject and comes through here, so all of them end in exactly the same
+        // state: menus closed, the game running, input and sinking held, the orbit rig on the subject at the chase
+        // framing, and the creature's own card telling the player what is being watched.
+        public bool BeginWatch(WatchSubject subject)
         {
-            if (island == null || herds == null || herd < 0 || herd >= herds.HerdCount) return;
+            if (subject == null || !WatchRules.Allowed(WatchFeature.Watch)) return false;
             Resolve();
-            if (chaseCamera == null) return;
-            _followIsland = island;
-            _followHerds = herds;
-            _followHerd = herd;
-            _followHerdCount = herds.HerdCount;
-            _followCenter = herds.HerdCenter(herd);
-            _followKind = herds.HerdKind(herd);
-            _followRadius = TargetFollowRadius();
-            _chipSize = _chipMood = -1;
-            _chipTimer = 0f;
+            if (chaseCamera == null) return false;
+            if (_journalOpen) CloseJournal();
+            if (_album.IsOpen) _album.Close();
+            if (_photoActive) ExitPhotoMode();
+            if (session != null && session.Current == GameSession.State.Paused) session.Resume();
+            if (Following) ReturnToIsland();
+            HidePopup();
+
+            _watch = subject;
+            _followIsland = subject.ground;
+            _followHerds = subject.herds;
+            _followHerd = subject.herd;
+            if (_followHerds != null)
+            {
+                if (_followHerd < 0 || _followHerd >= _followHerds.HerdCount) { _watch = null; _followHerds = null; return false; }
+                _followHerdCount = _followHerds.HerdCount;
+                _followCenter = _followHerds.HerdCenter(_followHerd);
+                _followKind = _followHerds.HerdKind(_followHerd);
+                _followRadius = TargetFollowRadius();
+                _chipSize = _chipMood = -1;
+                _chipTimer = 0f;
+            }
+            else
+            {
+                if (subject.focus == null || !subject.focus(out Vector3 focus)) { _watch = null; return false; }
+                _followFocus = focus;
+                _followRadius = subject.radius;
+                if (_followChipText != null) _followChipText.text = subject.label;
+            }
             UpdateFollow();
-            if (!Following) return;
+            if (!Following) return false;
             if (!BeginDrive())
             {
                 ReturnToIsland();
-                return;
+                return false;
             }
             SetFollowHome();
             _rig.GoHome();
@@ -845,13 +1040,43 @@ namespace Drift.Bridge
                 session.FollowSinkHold = true;
             }
             if (touch != null) touch.Release();
+            ShowWatchPopup();
+            return true;
         }
 
-        // Watch the nearest example of a journal entry (a herd is followed with its herd chip). Closes the journal and
+        // The same card a tap on the creature gives, minus the follow button (it is already being followed): it
+        // hangs under the animal while watching, so every entry point names what the camera went to.
+        void ShowWatchPopup()
+        {
+            if (_watch == null) return;
+            if (_followHerds != null)
+            {
+                if (_followHerd < 0 || _followHerd >= _followHerds.HerdCount || _followHerds.HerdSize(_followHerd) == 0) return;
+                _popupIsland = _followIsland;
+                _popupHerds = _followHerds;
+                _popupCritters = null;
+                _popupHerdIndex = _followHerd;
+                _popupMember = 0;
+                _popupKind = _followKind;
+                OpenPopup(false);
+                return;
+            }
+            var critters = _watch.critters;
+            if (critters == null || _watch.critter < 0 || _watch.critter >= critters.CritterCount) return;
+            _popupIsland = _watch.ground;
+            _popupHerds = null;
+            _popupCritters = critters;
+            _popupHerdIndex = -1;
+            _popupMember = _watch.critter;
+            _popupKind = critters.KindOf(_watch.critter);
+            OpenPopup(false);
+        }
+
+        // Watch the nearest example of a journal entry (a journal card or a discovery toast). Closes the journal and
         // the pause menu. False when there is none in reach right now; the news chip then says so.
         public bool Watch(int catalogIndex)
         {
-            if (catalogIndex < 0 || catalogIndex >= CollectionCatalog.Count) return false;
+            if (catalogIndex < 0 || catalogIndex >= CollectionCatalog.Count || !WatchRules.Allowed(WatchFeature.Watch)) return false;
             Resolve();
             if (player == null || chaseCamera == null) return false;
             var e = CollectionCatalog.At(catalogIndex);
@@ -861,52 +1086,24 @@ namespace Drift.Bridge
                 ShowNotice(e.name + " ist gerade nicht in der Nähe");
                 return false;
             }
-            if (_journalOpen) CloseJournal();
-            if (_album.IsOpen) _album.Close();
-            if (_photoActive) ExitPhotoMode();
-            if (session != null && session.Current == GameSession.State.Paused) session.Resume();
-            if (Following) ReturnToIsland();
-            HidePopup();
-            if (subject.herds != null)
-            {
-                FollowHerd(subject.ground, subject.herds, subject.herd);
-                return Following;
-            }
-            if (subject.focus == null || !subject.focus(out Vector3 focus)) return false;
-            _observe = subject;
-            _followIsland = subject.ground;
-            _followFocus = focus;
-            _followRadius = subject.radius;
-            if (_followChipText != null) _followChipText.text = subject.label;
-            if (!BeginDrive())
-            {
-                ReturnToIsland();
-                return false;
-            }
-            SetFollowHome();
-            _rig.GoHome();
-            if (session != null)
-            {
-                session.FollowInputHold = true;
-                session.FollowSinkHold = true;
-            }
-            if (touch != null) touch.Release();
-            return true;
+            return BeginWatch(subject);
         }
 
-        // A one-line message in the news chip, outside the collection queue.
-        void ShowNotice(string text)
+        // A one-line message in the news chip, outside the collection queue. A photo hint can be tapped: it takes the
+        // camera to the creature it is about and opens photo mode.
+        void ShowNotice(string text, bool photoHint = false)
         {
             _toasts.Dismiss();
-            _noticeTimer = 2.6f;
-            ShowNews(new CollectionToast { text = text, strong = false });
+            _noticeTimer = photoHint ? 4f : 2.6f;
+            _noticePhoto = photoHint;
+            ShowNews(new CollectionToast { text = text, strong = photoHint, photo = photoHint, count = photoHint ? 1 : 0 });
             SetActive(_newsChip, true);
         }
 
         public void ReturnToIsland()
         {
             if (!Following) return;
-            _observe = null;
+            _watch = null;
             _followHerds = null;
             _followIsland = null;
             _followHerd = -1;
@@ -929,7 +1126,10 @@ namespace Drift.Bridge
         {
             float zoom = Mathf.Max(chaseCamera.zoomMin, followZoomLevel);
             var basis = _followIsland != null ? _followIsland : player;
-            Vector3 back = basis != null ? -basis.Forward : Vector3.back;
+            // With the fixed north view the chase camera no longer sits behind the island's heading, so the watch
+            // orbit starts from the same basis - otherwise watching would swing the view to a different side.
+            Vector3 back = chaseCamera != null && chaseCamera.ViewIsFixed ? -chaseCamera.ViewForward
+                         : basis != null ? -basis.Forward : Vector3.back;
             IslandChaseCamera.FollowPose(Vector3.zero, Vector3.up, back, _followRadius, chaseCamera.referenceRadius,
                 chaseCamera.zoomExponent, chaseCamera.height, chaseCamera.distanceBehind, zoom, out Vector3 pos, out _, out _);
             float yaw = 0f, pitch = 40f, dist = 4f;
@@ -977,20 +1177,20 @@ namespace Drift.Bridge
         void UpdateFollow()
         {
             if (!Following) return;
-            if (_observe != null)
+            if (_followHerds == null)
             {
-                if (!_observe.focus(out Vector3 f))
+                if (!_watch.focus(out Vector3 f))
                 {
                     // Sea life is recycled beyond its range from the player and critters leave: say so instead
                     // of silently cutting back to the island.
-                    string gone = _observe.label + " ist weitergezogen";
+                    string gone = _watch.label + " ist weitergezogen";
                     ReturnToIsland();
                     ShowNotice(gone);
                     return;
                 }
                 _followFocus = f;
                 float odt = Application.isPlaying ? Time.unscaledDeltaTime : 0f;
-                _followRadius = Mathf.Lerp(_followRadius, _observe.radius, 1f - Mathf.Exp(-1.5f * odt));
+                _followRadius = Mathf.Lerp(_followRadius, _watch.radius, 1f - Mathf.Exp(-1.5f * odt));
                 return;
             }
             if (!ResolveFollowHerd()) { ReturnToIsland(); return; }
@@ -1013,9 +1213,9 @@ namespace Drift.Bridge
         // Asked again in LateUpdate, after the islands have moved this frame.
         Vector3 FollowFocusOf()
         {
-            if (_observe != null)
+            if (_followHerds == null)
             {
-                if (_observe.focus(out Vector3 f)) _followFocus = f;
+                if (_watch != null && _watch.focus != null && _watch.focus(out Vector3 f)) _followFocus = f;
                 return _followFocus;
             }
             if (_followHerds != null && _followIsland != null && _followHerd >= 0 && _followHerd < _followHerds.HerdCount) _followFocus = HerdFocus();
@@ -1064,6 +1264,7 @@ namespace Drift.Bridge
 
         void UpdateDiscovery()
         {
+            if (!WatchRules.Allowed(WatchFeature.DiscoveryRecord)) return;
             _discoverTimer -= Time.unscaledDeltaTime;
             if (_discoverTimer > 0f) return;
             _discoverTimer = discoverInterval;
@@ -1096,10 +1297,12 @@ namespace Drift.Bridge
         // It only reads the simulation; a species mask that holds nothing new costs one compare.
         public void Scan(DiscoveryJournal journal, Vector2 focus, float time)
         {
+            // A mode without the collection records nothing at all: an adventure run must not fill the cozy album.
+            if (!WatchRules.Allowed(WatchFeature.DiscoveryRecord)) return;
             // The first scan of a run (new or loaded) is where it starts from, not news.
             bool first = !journal.Baselined;
             if (player != null) ScanPlayerIsland(journal, time);
-            bool all = journal.AllSeen;
+            bool all = journal.RunAllSeen;
             float range = discoverRange, range2 = range * range;
             var islands = Island.All;
             for (int n = 0; n < islands.Count; n++)
@@ -1112,7 +1315,7 @@ namespace Drift.Bridge
                 if (island.TryGetComponent(out IslandHerdSystem herds))
                 {
                     journal.AddYoungBorn(Delta(_birthsSeen, herds, herds.Births));
-                    if (!all && island != player && herds.Tier == LifeTier.Near && (herds.SpeciesPresent & journal.UnseenLifeMask) != 0)
+                    if (!all && island != player && herds.Tier == LifeTier.Near && (herds.SpeciesPresent & journal.RunUnseenLifeMask) != 0)
                     {
                         int hn = herds.HerdCount;
                         for (int h = 0; h < hn; h++)
@@ -1128,9 +1331,9 @@ namespace Drift.Bridge
                 if (island.TryGetComponent(out IslandLifeSystem life))
                 {
                     journal.AddFiresSeen(Delta(_firesSeen, life, life.IgnitionCount));
-                    if (island != player && (journal.UnseenLifeMask & CollectionCatalog.PlantMask) != 0) NoteSeen(journal, life.PlantsPresent, time);
+                    if (island != player && (journal.RunUnseenLifeMask & CollectionCatalog.PlantMask) != 0) NoteSeen(journal, life.PlantsPresent, time);
                 }
-                if (all || island == player || (journal.UnseenLifeMask & CollectionCatalog.CritterMask) == 0) continue;
+                if (all || island == player || (journal.RunUnseenLifeMask & CollectionCatalog.CritterMask) == 0) continue;
                 if (!island.TryGetComponent(out IslandCrittersSystem critters) || critters.Tier != LifeTier.Near) continue;
                 int cn = critters.CritterCount;
                 for (int i = 0; i < cn; i++)
@@ -1257,7 +1460,7 @@ namespace Drift.Bridge
         // Opening from the running game pauses it; the pause menu stays underneath and the game resumes on close.
         public void OpenJournal()
         {
-            if (_journalOpen) return;
+            if (_journalOpen || !WatchRules.Allowed(WatchFeature.Journal)) return;
             Resolve();
             _journalPausedSession = Application.isPlaying && session != null && session.Current == GameSession.State.Playing && session.Model.Pause();
             _journalOpen = true;
@@ -1265,6 +1468,7 @@ namespace Drift.Bridge
             _journalTimer = 0f;
             HidePopup();
             if (Application.isPlaying && Journal != null) RefreshPlantCounts(Journal);
+            _tasksVersion = -1;
             _journal.SetActive(true);
             UpdateJournal();
         }
@@ -1286,10 +1490,204 @@ namespace Drift.Bridge
             var j = Journal;
             if (j == null) return;
             _journalTimer -= Time.unscaledDeltaTime;
+            var tasks = photoTasks ? PhotoTasks : null;
+            int tv = tasks != null ? tasks.Version : -2;
+            if (tv != _tasksVersion)
+            {
+                _tasksVersion = tv;
+                _journalPanel.SetPhotoTasks(tasks, TaskThumb);
+            }
             if (j.Version == _journalVersion && _journalTimer > 0f) return;
             _journalTimer = journalRefresh;
             _journalVersion = j.Version;
             _journalPanel.Fill(j, lifeBook ? LifeBook : null, IslandInfo());
+        }
+
+        // ---------------------------------------------------------------- photo tasks
+
+        // The picture of a done task: loaded once from its file (or null when there is none).
+        Texture TaskThumb(int task)
+        {
+            if (_taskThumbs.TryGetValue(task, out var tex)) return tex;
+            var book = _photoTasks;
+            tex = book != null && book.IsDone(task) ? PhotoLibrary.LoadTexture(book.ThumbPath(task)) : null;
+            _taskThumbs[task] = tex;
+            return tex;
+        }
+
+        void ClearTaskThumbs()
+        {
+            foreach (var t in _taskThumbs.Values) PhotoLibrary.Dispose(t);
+            _taskThumbs.Clear();
+        }
+
+        // Which open photo tasks a picture taken now with this camera fulfils; they are marked done (with a square
+        // crop of the saved photo around the subject as their picture) and announced. Returns how many.
+        public int CheckPhotoTasks(in PhotoView view, string photoPath)
+        {
+            if (!photoTasks || !WatchRules.Allowed(WatchFeature.PhotoTaskRecord)) return 0;
+            var book = PhotoTasks;
+            if (book.OpenMask == 0) return 0;
+            _subjects.Clear();
+            PhotoSubjects.Gather(new Vector2(view.position.x, view.position.z), photoTaskHintRange * 2f, book.OpenMask, flocks, _subjects);
+            int n = PhotoSubjects.Judge(view, _subjects, photoTaskMinSize, photoTaskMargin, _judgedTasks, _judgedCentres);
+            if (n == 0) return 0;
+            Texture2D photo = string.IsNullOrEmpty(photoPath) ? null : PhotoLibrary.LoadTexture(photoPath);
+            var now = DateTime.Now;
+            int done = 0;
+            for (int i = 0; i < n; i++)
+            {
+                int task = _judgedTasks[i];
+                if (!book.Complete(task, now)) continue;
+                done++;
+                _toasts.PhotoTaskDone(task);
+                if (photo != null) StoreTaskThumb(book, task, photo, _judgedCentres[i]);
+            }
+            PhotoLibrary.Dispose(photo);
+            if (done > 0 && Application.isPlaying) book.Save();
+            return done;
+        }
+
+        void StoreTaskThumb(PhotoTaskBook book, int task, Texture2D photo, Vector2 centre)
+        {
+            string path = book.NewThumbPath(task);
+            Texture2D thumb = null;
+            try
+            {
+                thumb = PhotoSubjects.MakeThumb(photo, PhotoSubjects.CropAround(photo.width, photo.height, centre, 0.5f), 192);
+                if (path != null)
+                {
+                    System.IO.Directory.CreateDirectory(book.ThumbDirectory);
+                    System.IO.File.WriteAllBytes(path, thumb.EncodeToPNG());
+                    book.SetThumb(task, System.IO.Path.GetFileName(path));
+                }
+                if (_taskThumbs.TryGetValue(task, out var old)) PhotoLibrary.Dispose(old);
+                _taskThumbs[task] = thumb;
+                thumb = null;
+            }
+            catch (Exception e)
+            {
+                Debug.LogWarning("WatchTools: photo task picture failed: " + e.Message);
+            }
+            finally
+            {
+                PhotoLibrary.Dispose(thumb);
+            }
+        }
+
+        // The close-range cue: a small camera button over the nearest creature (in view, around the camera focus)
+        // that is performing the move of an open photo task, and now and then a hint in the news chip. Rescans twice a
+        // second; the button follows its creature every frame.
+        // Lift of the icon above the creature, in canvas units.
+        const float CueLift = 64f;
+
+        void UpdatePhotoCue(bool visible, float dt)
+        {
+            if (_hintToastTimer > 0f && visible && !_photoActive) _hintToastTimer -= dt;
+            var cam = Camera.main;
+            if (!visible || !photoTasks || cam == null || !WatchRules.Allowed(WatchFeature.PhotoTaskCue) || PhotoTasks.OpenMask == 0)
+            {
+                _cueActive = false;
+                SetActive(_cueButton, false);
+                return;
+            }
+            var view = PhotoView.Of(cam);
+            if (_cueActive && (!PhotoSubjects.Refresh(ref _cue) || !PhotoTasks.IsOpen(PhotoTaskCatalog.At(_cue.task).kind) || !OnScreen(view, _cue.world))) _cueActive = false;
+            _cueTimer -= dt;
+            if (!_cueActive && _cueTimer <= 0f)
+            {
+                _cueTimer = 0.5f;
+                FindCue(view);
+            }
+            // Inside photo mode there is nothing left to do with it, so it steps aside instead of sitting there dead.
+            SetActive(_cueButton, _cueActive && !_photoActive);
+            if (!_cueActive) return;
+            Vector3 screen = cam.WorldToScreenPoint(_cue.world);
+            RectTransformUtility.ScreenPointToLocalPointInRectangle(_root, screen, UiCamera, out var local);
+            float bob = Application.isPlaying ? Mathf.Sin(Time.unscaledTime * 3f) * 6f : 0f;
+            PlaceCue(local + new Vector2(0f, CueLift + bob));
+
+            if (_hintToastTimer <= 0f && !_photoActive && !_toasts.Showing && _noticeTimer <= 0f)
+            {
+                _hintToastTimer = photoTaskHintInterval;
+                ShowNotice(PhotoTaskCatalog.At(_cue.task).hint, true);
+            }
+        }
+
+        // The icon goes where it is told; the finger area keeps up with the size slider and the screen position is
+        // remembered for the tap test.
+        void PlaceCue(Vector2 local)
+        {
+            if (_cueRect == null) return;
+            if (_cueRect.sizeDelta.x != cueSize) _cueRect.sizeDelta = new Vector2(cueSize, cueSize);
+            _cueRect.anchoredPosition = local;
+            float hit = CueHitSize(cueTapRadius);
+            if (_cueHit != null && _cueHitSize != hit)
+            {
+                _cueHitSize = hit;
+                _cueHit.Center(Vector2.zero, new Vector2(hit, hit));
+            }
+            // The canvas is an overlay, so a RectTransform's world position already is its screen position.
+            _cueScreen = RectTransformUtility.WorldToScreenPoint(UiCamera, _cueRect.position);
+        }
+
+        // A square around the icon, never smaller than the 90 px a finger needs on a 1080p screen.
+        public static float CueHitSize(float tapRadius) => Mathf.Max(90f, tapRadius * 2f);
+
+        // Puts a cue up without the live scan, so tests and eval can drive the cue path in Edit Mode.
+        public void SetPhotoCue(PhotoSubject subject)
+        {
+            _cue = subject;
+            _cueActive = subject.task >= 0 && WatchRules.Allowed(WatchFeature.PhotoTaskCue)
+                && (subject.herds != null || subject.critters != null || subject.flocks != null);
+            SetActive(_cueButton, _cueActive && !_photoActive);
+            var cam = Camera.main;
+            if (!_cueActive || cam == null) return;
+            Vector3 screen = cam.WorldToScreenPoint(_cue.world);
+            RectTransformUtility.ScreenPointToLocalPointInRectangle(_root, screen, UiCamera, out var local);
+            PlaceCue(local + new Vector2(0f, CueLift));
+        }
+
+        // Whether a press at that screen point counts as a tap on the cue. Measured against where the icon is right
+        // now rather than through Unity's button, which needs press AND release on the same rect — a rect that
+        // travels with a dashing hare and a drifting island, which is why the cue used to do nothing.
+        public bool CueContains(Vector2 screenPos)
+        {
+            if (!_cueActive || _cueButton == null || !_cueButton.activeSelf) return false;
+            // Never tighter than the square that is drawn, and never below the 1080p pixel size on a small screen.
+            float reach = CueHitSize(cueTapRadius) * 0.5f * Mathf.Max(PixelsPerUnit, CanvasScale);
+            Vector2 d = screenPos - _cueScreen;
+            return Mathf.Abs(d.x) <= reach && Mathf.Abs(d.y) <= reach;
+        }
+
+        static bool OnScreen(in PhotoView view, Vector3 world) =>
+            view.Project(world, out Vector2 vp, out _) && vp.x > 0.03f && vp.x < 0.97f && vp.y > 0.03f && vp.y < 0.9f;
+
+        void FindCue(in PhotoView view)
+        {
+            _subjects.Clear();
+            Vector3 focus = _driving ? SubjectPosition() : player != null ? player.transform.position : view.position;
+            PhotoSubjects.Gather(new Vector2(focus.x, focus.z), photoTaskHintRange, PhotoTasks.OpenMask, flocks, _subjects);
+            float best = float.MaxValue;
+            for (int i = 0; i < _subjects.Count; i++)
+            {
+                var sub = _subjects[i];
+                if (!OnScreen(view, sub.world)) continue;
+                float d = (sub.world - view.position).sqrMagnitude;
+                if (d >= best) continue;
+                best = d;
+                _cue = sub;
+                _cueActive = true;
+            }
+        }
+
+        // The cue (or its hint) was tapped: the creature goes into the one watch mode — a herd, a critter, a flock,
+        // whatever the cue is about — and photo mode opens on it from there.
+        public void PhotographCue()
+        {
+            if (_photoActive) return;
+            if (_cueActive && PhotoSubjects.Refresh(ref _cue)) BeginWatch(WatchSubjects.OfCue(_cue));
+            EnterPhotoMode();
         }
 
         readonly System.Text.StringBuilder _buildingLine = new System.Text.StringBuilder(160);
@@ -1348,7 +1746,7 @@ namespace Drift.Bridge
         // the herd stays the subject and the orbit carries over; Back then returns to following.
         public void EnterPhotoMode()
         {
-            if (_photoActive) return;
+            if (_photoActive || !WatchRules.Allowed(WatchFeature.PhotoMode)) return;
             Resolve();
             if (chaseCamera == null || Camera.main == null) return;
             if (Application.isPlaying)
@@ -1378,6 +1776,7 @@ namespace Drift.Bridge
             HudHidden = true;
             ResetPointers();
             SetToast("");
+            SetActive(_cueButton, false);
             _photo.SetActive(true);
             if (touch != null) touch.Release();
         }
@@ -1396,6 +1795,7 @@ namespace Drift.Bridge
                 session.PhotoInputHold = false;
             }
             ResetPointers();
+            SetActive(_cueButton, _cueActive);
             if (Following) ConfigureRig();
             else EndDrive();
         }
@@ -1426,11 +1826,16 @@ namespace Drift.Bridge
 
             Texture2D shot = null;
             bool ok = false;
+            int tasksDone = 0;
+            var cam = Camera.main;
+            // The camera as it was for this very frame: the photo is judged against the picture that was taken.
+            var view = cam != null ? PhotoView.Of(cam) : default;
             try
             {
                 shot = ScreenCapture.CaptureScreenshotAsTexture();
-                PhotoLibrary.Save(shot, PhotoDirectory, DateTime.Now);
+                var entry = PhotoLibrary.Save(shot, PhotoDirectory, DateTime.Now);
                 ok = true;
+                if (cam != null) tasksDone = CheckPhotoTasks(view, entry.path);
             }
             catch (Exception e)
             {
@@ -1444,8 +1849,8 @@ namespace Drift.Bridge
                 _captureRoutine = null;
             }
             if (ok) _flashT = 1f;
-            SetToast(ok ? "Foto gespeichert" : "Speichern fehlgeschlagen");
-            _toastTimer = ToastSeconds;
+            SetToast(!ok ? "Speichern fehlgeschlagen" : tasksDone == 1 ? "Fotoaufgabe erfüllt!" : tasksDone > 1 ? tasksDone + " Fotoaufgaben erfüllt!" : "Foto gespeichert");
+            _toastTimer = tasksDone > 0 ? ToastSeconds * 1.5f : ToastSeconds;
         }
 
         void AbortCapture()
@@ -1697,6 +2102,9 @@ namespace Drift.Bridge
             }
             cam.transform.SetPositionAndRotation(pos, rot);
             if (chaseCamera != null) chaseCamera.SuspendedClose = close;
+            // The orbit camera knows exactly how close it stands to what it watches; the vegetation calms its wind
+            // by that distance instead of guessing from the view ray.
+            IslandLifeSystem.ReportViewDistance((pos - pivot).magnitude);
         }
 
         public static string OrbitHint(bool touchInput, bool photo)
@@ -1725,11 +2133,16 @@ namespace Drift.Bridge
 
         void EditorPreviewUpdate()
         {
-            bool pop = editorPreview == EditorPreview.Popup, jr = editorPreview == EditorPreview.Journal, ph = editorPreview == EditorPreview.Photo;
-            bool album = editorPreview == EditorPreview.Album || editorPreview == EditorPreview.AlbumPhoto;
+            var preview = editorPreview;
+            bool album = preview == EditorPreview.Album || preview == EditorPreview.AlbumPhoto;
+            // An edit-mode frame of the adventure mode shows none of this either - only the album, which belongs to
+            // no run.
+            if (!WatchRules.Enabled && !album) preview = EditorPreview.None;
+            bool pop = preview == EditorPreview.Popup, ph = preview == EditorPreview.Photo;
+            bool jr = preview == EditorPreview.Journal || preview == EditorPreview.JournalTasks;
             // A popup or a followed herd staged from eval stays up (and live) so it can be looked at in Edit Mode.
             // Photo mode entered from eval counts too; the camera only moves when eval calls StepCamera.
-            bool staged = editorPreview == EditorPreview.None && (Following || _photoActive || _popupHerds != null || _popupCritters != null);
+            bool staged = preview == EditorPreview.None && (Following || _photoActive || _cueActive || _popupHerds != null || _popupCritters != null);
             if (staged)
             {
                 UpdateFollow();
@@ -1739,6 +2152,7 @@ namespace Drift.Bridge
                 SetActive(_bookButton, !_photoActive);
                 SetActive(_cameraButton, !_photoActive);
                 SetActive(_photo, _photoActive);
+                SetActive(_cueButton, _cueActive && !_photoActive);
                 UpdateHint(_driving, _photoActive);
                 HudHidden = _photoActive;
                 return;
@@ -1754,16 +2168,18 @@ namespace Drift.Bridge
             SetActive(_bookButton, pop);
             SetActive(_cameraButton, pop);
             SetActive(_ripple.gameObject, pop);
-            if (_albumPreview != editorPreview)
+            if (_albumPreview != preview)
             {
-                _albumPreview = editorPreview;
+                _albumPreview = preview;
                 _album.Close();
-                if (album) _album.OpenSample(editorPreview == EditorPreview.AlbumPhoto);
+                if (album) _album.OpenSample(preview == EditorPreview.AlbumPhoto);
             }
             if (album) _album.Tick();
             SetActive(_newsChip, pop);
+            SetActive(_cueButton, pop);
             if (pop)
             {
+                PlaceCue(new Vector2(-250f, 120f));
                 _popupGroup.alpha = 1f;
                 SetActive(_popupFollow, true);
                 LayoutPopup(true, OriginLine(LifeKind.Flamingo));
@@ -1782,8 +2198,12 @@ namespace Drift.Bridge
             if (jr)
             {
                 if (_sampleJournal == null) _sampleJournal = SampleJournal(_sampleBook);
+                if (_sampleTasks == null) _sampleTasks = SampleTasks();
+                if (_journalPanel.PhotoTasks != _sampleTasks) _journalPanel.SetPhotoTasks(_sampleTasks, SampleThumb);
                 _journalPanel.Fill(_sampleJournal, _sampleBook, SampleIsland);
+                if (_journalPreviewShown != preview) _journalPanel.SetTab(preview == EditorPreview.JournalTasks ? JournalPanel.TasksTab : 0);
             }
+            _journalPreviewShown = preview;
             if (ph) SetToast("Foto gespeichert");
         }
 
@@ -1794,6 +2214,38 @@ namespace Drift.Bridge
         };
 
         readonly LifeBook _sampleBook = new();
+        EditorPreview _journalPreviewShown = EditorPreview.None;
+
+        // Edit Mode preview only: a few tasks done, with a soft two-tone square in the species colour as their picture.
+        static PhotoTaskBook SampleTasks()
+        {
+            var book = new PhotoTaskBook(null);
+            var when = new DateTime(2026, 9, 22, 18, 30, 0);
+            foreach (var k in new[] { LifeKind.Hare, LifeKind.Sheep, LifeKind.Flamingo, LifeKind.Crab, LifeKind.Butterfly })
+                book.Complete(PhotoTaskCatalog.IndexOf(k), when);
+            return book;
+        }
+
+        Texture SampleThumb(int task)
+        {
+            if (_taskThumbs.TryGetValue(task, out var tex)) return tex;
+            const int n = 48;
+            tex = new Texture2D(n, n, TextureFormat.RGB24, false) { hideFlags = HideFlags.HideAndDontSave, wrapMode = TextureWrapMode.Clamp };
+            Color sw = JournalPanel.SwatchOf(CollectionCatalog.At(PhotoTaskCatalog.At(task).entry));
+            Color sky = new Color(0.55f, 0.78f, 0.9f), ground = new Color(0.42f, 0.62f, 0.36f);
+            var px = new Color[n * n];
+            for (int y = 0; y < n; y++)
+                for (int x = 0; x < n; x++)
+                {
+                    Color c = y > n * 0.55f ? Color.Lerp(sky, Color.white, (y - n * 0.55f) / n) : ground;
+                    float d = new Vector2(x - n * 0.5f, (y - n * 0.45f) * 1.4f).magnitude;
+                    px[y * n + x] = d < n * 0.22f ? sw : c;
+                }
+            tex.SetPixels(px);
+            tex.Apply(false);
+            _taskThumbs[task] = tex;
+            return tex;
+        }
 
         static ulong Bits(params LifeKind[] kinds)
         {
@@ -1869,6 +2321,7 @@ namespace Drift.Bridge
             _photo = BuildPhoto(_root);
             _newsChip = BuildNews(_root);
             _hintChip = BuildHint(_root);
+            _cueButton = BuildPhotoCue(_root);
             _album.Build(_root, null);
             _albumPreview = EditorPreview.None;
 
@@ -1883,6 +2336,23 @@ namespace Drift.Bridge
             _hintChip.SetActive(false);
             _bookButton.SetActive(false);
             _cameraButton.SetActive(false);
+            _cueButton.SetActive(false);
+            _cueActive = false;
+        }
+
+        // Sits above the creature, over the creature card (a button must not hide under a label) but under the
+        // return button, the chip and the full-screen panels. The drawn button stays small and light; a
+        // transparent square around it takes the tap, so the finger has at least 90 px to aim at.
+        GameObject BuildPhotoCue(RectTransform root)
+        {
+            var b = UiStyle.IconButton(root, "PhotoTaskCue", cueSize, UiIcon.Camera, PhotographCue);
+            _cueRect = (RectTransform)b.transform;
+            _cueRect.Center(Vector2.zero, new Vector2(cueSize, cueSize));
+            _cueHitSize = CueHitSize(cueTapRadius);
+            _cueHit = UiStyle.Shape(b.transform, "Hit", null, UiStyle.WithAlpha(Color.white, 0f), true).rectTransform;
+            _cueHit.Center(Vector2.zero, new Vector2(_cueHitSize, _cueHitSize));
+            if (_popup != null) _cueRect.SetSiblingIndex(_popup.transform.GetSiblingIndex() + 1);
+            return b.gameObject;
         }
 
         // The round buttons stack under the pause button of SessionScreens (120 wide, top right): book, then camera.

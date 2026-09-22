@@ -4,14 +4,17 @@ using UnityEngine;
 
 namespace Drift.Visuals
 {
-    // Decorative flotsam, seeded per wrapped world cell and drawn into the ship mesh: driftwood, barrels, message
-    // bottles, palm logs with a coconut (only near islands) and flagged buoys on the bank of a nearby island.
-    // Everything floats, so an island that runs over a piece just shoves it aside. Rock stacks were left out on
+    // Flotsam, seeded per wrapped world cell in Cozy and drawn into the ship mesh: driftwood, barrels, message bottles, palm
+    // logs with a coconut (only near islands) and flagged buoys on the bank of a nearby island, plus the crates and
+    // cargo Encounters lays on the player's course ("route" pieces that wink in the sun). The player collects every
+    // piece but the buoys by running it over (hop, splash, golden sparkle, Encounters.FlotsamCollected); other
+    // islands just shove it aside. In Adventure the seeded pieces stay away: there Encounters lays a steady stream of
+    // route flotsam along the ring, and collecting it is the only way back up. Rock stacks were left out on
     // purpose: a static rock cannot be kept from clipping through the (ever growing) player island or a drifting
     // AI island without either a collider or making it vanish, and both would read as a bug.
     public partial class ShipSystem
     {
-        public enum FlotsamKind { Driftwood, Barrel, Buoy, Bottle, PalmLog }
+        public enum FlotsamKind { Driftwood, Barrel, Buoy, Bottle, PalmLog, Crate }
 
         public int flotsamSeed = 59;
         public float flotsamCell = 22f;
@@ -19,8 +22,18 @@ namespace Drift.Visuals
         public float flotsamRecycleRadius = 84f;
         [Range(0f, 1f)] public float flotsamDensity = 0.55f;
         public int maxFlotsam = 12;
+        [Tooltip("Im Abenteuer liegt das Treibgut als Strom auf der Bahn (Encounters) – dafür braucht es mehr Plätze.")]
+        [Range(0, 32)] public int adventureMaxFlotsam = 28;
         public float flotsamDrift = 0.05f;
         public int maxBuoys = 3;
+        [Tooltip("Die Spielerinsel sammelt Treibgut ein, wenn sie darüberfährt (sonst wird es nur beiseitegeschoben).")]
+        public bool collectFlotsam = true;
+        [Tooltip("Sekunden, die das eingesammelte Stück hüpft und schrumpft.")]
+        public float collectSeconds = 0.6f;
+        [Tooltip("Abstand (s) zwischen zwei Glitzern auf Treibgut, das eine Begegnung auf den Kurs gelegt hat.")]
+        public float routeGlintInterval = 1.6f;
+
+        public const float FlotsamCollectHeight = -0.62f;
 
         struct Flotsam
         {
@@ -30,16 +43,34 @@ namespace Drift.Visuals
             public FlotsamKind kind;
             public Vector2 pos;
             public float fade, heading;
+            // Encounter cargo on the player's course; collect >= 0 = being picked up (0..1).
+            public bool route;
+            public float collect, glint;
         }
 
         Flotsam[] _flotsam;
         readonly long[] _flotSpent = new long[32];
         int _flotSpentCount;
 
-        static SeaTemplate _tLog, _tBarrel, _tBuoy, _tBottle, _tPalmLog;
+        static SeaTemplate _tLog, _tBarrel, _tBuoy, _tBottle, _tPalmLog, _tCrate;
 
         public int FlotsamSlots => _flotsam != null ? _flotsam.Length : 0;
         public bool FlotsamActive(int i) => _flotsam[i].active;
+        public bool FlotsamIsRoute(int i) => _flotsam[i].active && _flotsam[i].route;
+        public bool FlotsamCollecting(int i) => _flotsam[i].active && _flotsam[i].collect >= 0f;
+        public int FlotsamCollectedTotal { get; private set; }
+        public static bool IsCollectible(FlotsamKind k) => k != FlotsamKind.Buoy;
+
+        // Encounter cargo still floating (not yet collected or drifted out of range).
+        public int RouteFlotsamLeft
+        {
+            get
+            {
+                int n = 0;
+                if (_flotsam != null) for (int i = 0; i < _flotsam.Length; i++) if (_flotsam[i].active && _flotsam[i].route && _flotsam[i].collect < 0f) n++;
+                return n;
+            }
+        }
         public FlotsamKind FlotsamKindOf(int i) => _flotsam[i].kind;
         public Vector2 FlotsamPosition(int i) => _flotsam[i].pos;
 
@@ -68,6 +99,7 @@ namespace Drift.Visuals
                 case FlotsamKind.Barrel: return SeaKind.Barrel;
                 case FlotsamKind.Buoy: return SeaKind.Buoy;
                 case FlotsamKind.Bottle: return SeaKind.Bottle;
+                case FlotsamKind.Crate: return SeaKind.Barrel;
                 default: return SeaKind.PalmLog;
             }
         }
@@ -75,7 +107,8 @@ namespace Drift.Visuals
         void EnsureFlotsam()
         {
             maxFlotsam = Mathf.Clamp(maxFlotsam, 0, 32);
-            if (_flotsam == null || _flotsam.Length != maxFlotsam) _flotsam = new Flotsam[maxFlotsam];
+            int slots = GameModes.IsAdventure ? Mathf.Clamp(Mathf.Max(maxFlotsam, adventureMaxFlotsam), 0, 32) : maxFlotsam;
+            if (_flotsam == null || _flotsam.Length != slots) _flotsam = new Flotsam[slots];
         }
 
         static void BuildFlotsamTemplates()
@@ -133,6 +166,14 @@ namespace Drift.Visuals
             pl.SheetTri(new Vector3(0f, 0.06f, 0.8f), new Vector3(-0.1f, 0.03f, 1.5f), new Vector3(-0.6f, 0.03f, 1.2f), frondDry, Vector3.up);
             pl.SheetTri(new Vector3(0f, 0.06f, 0.8f), new Vector3(0.75f, 0.03f, 0.95f), new Vector3(0.55f, 0.03f, 1.25f), frond, Vector3.up);
             _tPalmLog = pl.Build();
+
+            var cr = new SeaShape();
+            Color plank = new Color(0.72f, 0.54f, 0.32f), slat = new Color(0.46f, 0.32f, 0.19f), rope = new Color(0.86f, 0.78f, 0.56f);
+            cr.Box(new Vector3(0f, 0.02f, 0f), new Vector3(0.56f, 0.44f, 0.56f), plank, true);
+            cr.Box(new Vector3(0f, 0.2f, 0f), new Vector3(0.6f, 0.07f, 0.6f), slat);
+            cr.Box(new Vector3(0f, -0.13f, 0f), new Vector3(0.6f, 0.07f, 0.6f), slat);
+            cr.Box(new Vector3(0f, 0.25f, 0f), new Vector3(0.08f, 0.02f, 0.62f), rope);
+            _tCrate = cr.Build();
         }
 
         bool FlotOccupied(long key)
@@ -196,6 +237,9 @@ namespace Drift.Visuals
                 _flotSpentCount--;
             }
 
+            // The ring lays out its own stream of flotsam along the track (Encounters): no seeded pieces on top of it.
+            if (GameModes.IsAdventure) return;
+
             float near = flotsamSpawnRadius + _playerRadius;
             int x0 = Mathf.FloorToInt((_playerPos.x - near) / flotsamCell), x1 = Mathf.FloorToInt((_playerPos.x + near) / flotsamCell);
             int y0 = Mathf.FloorToInt((_playerPos.y - near) / flotsamCell), y1 = Mathf.FloorToInt((_playerPos.y + near) / flotsamCell);
@@ -227,14 +271,24 @@ namespace Drift.Visuals
                     _flotsam[slot] = new Flotsam
                     {
                         active = true, key = key, seed = h, kind = kind, pos = sp, fade = 0f,
-                        heading = SeaMath.Rand(h, 4) * Mathf.PI * 2f
+                        heading = SeaMath.Rand(h, 4) * Mathf.PI * 2f, collect = -1f
                     };
                     _dirty = true;
                 }
         }
 
         // Places a piece at a spot, replacing the farthest one if the pool is full (verification).
-        public int SpawnFlotsamAt(FlotsamKind kind, Vector2 pos)
+        public int SpawnFlotsamAt(FlotsamKind kind, Vector2 pos) => PlaceFlotsam(kind, pos, false);
+
+        // Encounter cargo on the player's course: fades in, winks in the sun until collected. -1 when the spot is on land.
+        public int SpawnRouteFlotsam(FlotsamKind kind, Vector2 pos)
+        {
+            EnsureArrays();
+            if (_obstacles.Shallow(pos, FlotsamCollectHeight, out _)) return -1;
+            return PlaceFlotsam(kind, pos, true);
+        }
+
+        int PlaceFlotsam(FlotsamKind kind, Vector2 pos, bool route)
         {
             EnsureArrays();
             if (_flotsam.Length == 0) return -1;
@@ -243,13 +297,39 @@ namespace Drift.Visuals
             for (int i = 0; i < _flotsam.Length; i++)
             {
                 if (!_flotsam[i].active) { slot = i; break; }
+                if (_flotsam[i].route && !route) continue;
                 float d = (_flotsam[i].pos - _playerPos).sqrMagnitude;
                 if (d > far) { far = d; slot = i; }
             }
+            if (slot < 0) return -1;
             uint h = SeaMath.Hash((uint)flotsamSeed, (uint)(pos.x * 13f + pos.y * 7f) + (uint)kind);
-            _flotsam[slot] = new Flotsam { active = true, key = long.MinValue + 100 + slot, seed = h, kind = kind, pos = pos, fade = 1f, heading = SeaMath.Rand(h, 4) * 6.28f };
+            _flotsam[slot] = new Flotsam
+            {
+                active = true, key = long.MinValue + 100 + slot, seed = h, kind = kind, pos = pos, fade = route ? 0f : 1f,
+                heading = SeaMath.Rand(h, 4) * 6.28f, route = route, collect = -1f, glint = route ? 0.4f + SeaMath.Rand(h, 5) : 0f
+            };
             _dirty = true;
             return slot;
+        }
+
+        // The player picks a piece up: it hops out of the water and shrinks away with a splash and a golden sparkle.
+        public bool CollectFlotsam(int i)
+        {
+            if (_flotsam == null || i < 0 || i >= _flotsam.Length) return false;
+            ref Flotsam fl = ref _flotsam[i];
+            if (!fl.active || fl.collect >= 0f || !IsCollectible(fl.kind)) return false;
+            fl.collect = 0f;
+            FlotsamCollectedTotal++;
+            _dirty = true;
+            Vector3 at = new Vector3(fl.pos.x, 0.05f, fl.pos.y);
+            if (seaLife != null && seaLife.isActiveAndEnabled)
+            {
+                seaLife.SprayAt(fl.pos, 0.35f, 5);
+                seaLife.Sparkle(at, fl.kind == FlotsamKind.Bottle ? 1.2f : 1f, fl.kind == FlotsamKind.Bottle ? 12 : 9);
+            }
+            else if (water != null) water.Splash(fl.pos, 0.35f);
+            Encounters.NotifyCollected(fl.kind, at, fl.seed);
+            return true;
         }
 
         bool StepFlotsam(float dt)
@@ -260,14 +340,39 @@ namespace Drift.Visuals
                 if (!_flotsam[i].active) continue;
                 any = true;
                 ref Flotsam fl = ref _flotsam[i];
+                if (fl.collect >= 0f)
+                {
+                    if (dt <= 0f) continue;
+                    fl.collect += dt / Mathf.Max(0.05f, collectSeconds);
+                    fl.pos += _playerVel * dt;
+                    fl.heading += 5f * dt;
+                    if (fl.collect >= 1f)
+                    {
+                        if (!fl.route) FlotMarkSpent(fl.key);
+                        fl.active = false;
+                        _dirty = true;
+                    }
+                    continue;
+                }
                 float edge = (fl.pos - _playerPos).magnitude - _playerRadius;
                 float target = SeaMath.EdgeFade(edge, flotsamSpawnRadius - 12f, flotsamSpawnRadius);
                 fl.fade = dt > 0f ? Mathf.MoveTowards(fl.fade, target, dt * 0.9f) : target;
                 if (dt <= 0f) continue;
                 if (fl.kind != FlotsamKind.Buoy) fl.pos += _wind * (flotsamDrift * dt);
                 fl.heading += Mathf.Sin(_clock * 0.17f + i) * 0.05f * dt;
-                if (_obstacles.Shallow(fl.pos, -0.62f, out Island over))
+                if (fl.route)
                 {
+                    fl.glint -= dt;
+                    if (fl.glint <= 0f)
+                    {
+                        fl.glint = routeGlintInterval * (0.8f + 0.4f * SeaMath.Rand(fl.seed, (int)(_clock * 3f)));
+                        if (seaLife != null && seaLife.isActiveAndEnabled && fl.fade > 0.5f)
+                            seaLife.Sparkle(new Vector3(fl.pos.x, 0.12f, fl.pos.y), 0.45f, 2);
+                    }
+                }
+                if (_obstacles.Shallow(fl.pos, FlotsamCollectHeight, out Island over))
+                {
+                    if (over == _player && collectFlotsam && IsCollectible(fl.kind) && CollectFlotsam(i)) continue;
                     Vector2 away = fl.pos - over.PlanarPosition;
                     float l = away.magnitude;
                     away = l > 1e-3f ? away / l : Vector2.right;
@@ -284,12 +389,19 @@ namespace Drift.Visuals
             {
                 if (!_flotsam[i].active || _flotsam[i].fade <= 0.01f) continue;
                 ref Flotsam fl = ref _flotsam[i];
-                if (fl.kind == FlotsamKind.Bottle && LifeLod.Distance(new Vector3(fl.pos.x, 0f, fl.pos.y)) > detailDistance) continue;
+                if (fl.kind == FlotsamKind.Bottle && !fl.route && LifeLod.Distance(new Vector3(fl.pos.x, 0f, fl.pos.y)) > detailDistance) continue;
                 Vector2 d = new Vector2(Mathf.Cos(fl.heading), Mathf.Sin(fl.heading));
                 float h0 = SeaMath.Swell(fl.pos, _clock), h1 = SeaMath.Swell(fl.pos + d * 0.6f, _clock);
                 float ph = (fl.seed & 0xFFu) * 0.0245f;
                 float k = fl.fade;
                 Vector3 p = new Vector3(fl.pos.x, h0 * 0.06f, fl.pos.y);
+                if (fl.collect >= 0f)
+                {
+                    float c = Mathf.Clamp01(fl.collect);
+                    p.y += 0.9f * Mathf.Sin(c * Mathf.PI * 0.85f);
+                    k *= 1f - Mathf.SmoothStep(0f, 1f, (c - 0.35f) / 0.65f);
+                    if (k <= 0.01f) continue;
+                }
                 float pitch = (h1 - h0) * 0.25f, roll = Mathf.Sin(_clock * 0.9f + ph) * 0.12f;
                 SeaTemplate t;
                 switch (fl.kind)
@@ -298,6 +410,7 @@ namespace Drift.Visuals
                     case FlotsamKind.Buoy: t = _tBuoy; pitch = Mathf.Sin(_clock * 1.1f + ph) * 0.14f; roll = Mathf.Cos(_clock * 0.8f + ph) * 0.14f; break;
                     case FlotsamKind.Bottle: t = _tBottle; pitch += 0.55f; p.y += 0.02f + 0.03f * Mathf.Sin(_clock * 1.6f + ph); break;
                     case FlotsamKind.PalmLog: t = _tPalmLog; p.y += 0.02f; break;
+                    case FlotsamKind.Crate: t = _tCrate; p.y += 0.04f; roll *= 0.6f; break;
                     default: t = _tLog; p.y += 0.02f; break;
                 }
                 SeaBatch.Basis(d, pitch, roll, out Vector3 r, out Vector3 u, out Vector3 f);

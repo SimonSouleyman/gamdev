@@ -79,6 +79,15 @@ Shader "Drift/Storm"
                 OUT.color = IN.color;
                 OUT.uv0 = IN.uv0;
                 OUT.uv1 = IN.uv1;
+                // The adventure ring ends at its rims: everything past the lip is folded onto it, so cloud and rain
+                // outside the band would pile up there as a curtain hanging over the edge. Each one fades as soon as
+                // it would reach past the rim itself, so the storm ends inside the band.
+                if (kind < 1.5 && _CurveRing.x > 0.0)
+                {
+                    float reach = kind < 0.5 ? IN.uv1.z : 1.0;
+                    float over = abs(posWS.x - _CurveRing.y) + reach * 2.0 + 2.0 - _CurveRing.z;
+                    OUT.color.a *= 1.0 - smoothstep(-2.0, 2.0, over);
+                }
                 if (kind < 0.5)
                 {
                     float radius = IN.uv1.z;

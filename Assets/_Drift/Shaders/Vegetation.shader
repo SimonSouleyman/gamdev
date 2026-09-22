@@ -79,6 +79,10 @@ Shader "Drift/Vegetation"
             CBUFFER_END
 
             float4 _LifeWind;
+            // (sway amplitude, gust phase, flutter phase, flutter amplitude) from IslandLifeSystem.PushWind: the
+            // sway calms down as the camera comes close. x <= 0 means nobody pushed it (material preview), and the
+            // old _Time-driven sway is used unchanged.
+            float4 _LifeWindSway;
 
             float PerLayer(float4 v, float layer)
             {
@@ -104,9 +108,14 @@ Shader "Drift/Vegetation"
                 float phase = IN.sway.y;
                 float storm = saturate(_LifeWind.z);
                 float2 wind = _LifeWind.xy;
-                float gust = 0.55 + 0.45 * sin(t * 0.6 + posWS.x * 0.12 + posWS.z * 0.09 + phase * 0.5);
-                float flutter = sin(t * (3.2 + 3.0 * storm) + phase + posWS.x * 1.7 + posWS.z * 1.1) * (_WindFlutter + 0.5 * storm);
-                float bend = w * w * IN.sway.z * _WindBend;
+                bool pushed = _LifeWindSway.x > 0.0;
+                float gustPhase = pushed ? _LifeWindSway.y : t * 0.6;
+                float flutterPhase = pushed ? _LifeWindSway.z : t * (3.2 + 3.0 * storm);
+                float swayAmp = pushed ? _LifeWindSway.x : 1.0;
+                float flutterAmp = pushed ? _LifeWindSway.w : 1.0;
+                float gust = 0.55 + 0.45 * sin(gustPhase + posWS.x * 0.12 + posWS.z * 0.09 + phase * 0.5);
+                float flutter = sin(flutterPhase + phase + posWS.x * 1.7 + posWS.z * 1.1) * (_WindFlutter + 0.5 * storm) * flutterAmp;
+                float bend = w * w * IN.sway.z * _WindBend * swayAmp;
                 float2 lean = wind * (gust + flutter) + float2(-wind.y, wind.x) * flutter * 0.35;
                 posWS.xz += lean * bend;
                 posWS.y -= length(lean) * bend * w * 0.25;

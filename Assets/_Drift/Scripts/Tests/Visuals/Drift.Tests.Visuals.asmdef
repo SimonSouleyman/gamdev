@@ -5,6 +5,8 @@
         "UnityEngine.TestRunner",
         "UnityEditor.TestRunner",
         "Drift.Core",
+        "Drift.Islands",
+        "Drift.Tectonics",
         "Drift.Visuals"
     ],
     "includePlatforms": [

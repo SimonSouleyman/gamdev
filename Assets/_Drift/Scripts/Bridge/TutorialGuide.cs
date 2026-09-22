@@ -1,4 +1,5 @@
 using Drift.Audio;
+using Drift.Core;
 using Drift.Islands;
 using Drift.SaveSystem;
 using Drift.UI;
@@ -104,7 +105,7 @@ namespace Drift.Bridge
             PlayerPrefs.DeleteKey(DoneKey);
             PlayerPrefs.Save();
             _savedDone = false;
-            if (session != null && session.Model.InGame)
+            if (session != null && session.Model.InGame && session.Mode == GameMode.Cozy)
             {
                 _model.Begin();
                 _replayRequested = false;
@@ -121,9 +122,11 @@ namespace Drift.Bridge
 
         // A remark during play (no menu, so no big Tilda to say it): the tutorial's bubble borrows itself out, unless
         // the tutorial is using it.
+        bool _wasCozy = true;
+
         void OnLineStarted(TildaLine line)
         {
-            if (line.shown || !Application.isPlaying || _bubble == null || _model.Active) return;
+            if (line.shown || !Application.isPlaying || _bubble == null || _model.Active || AdventureTutorialGuide.Running) return;
             if (session == null || session.Current != GameSession.State.Playing) return;
             if (watch != null && (watch.PhotoActive || watch.JournalOpen)) return;
             line.shown = true;
@@ -147,7 +150,7 @@ namespace Drift.Bridge
 
         void OnMerged(Island host, Island guest, float energy)
         {
-            if (!Application.isPlaying || host == null || host != player) return;
+            if (!Application.isPlaying || host == null || host != player || GameModes.IsAdventure) return;
             _model.ReportMerge();
         }
 
@@ -196,9 +199,12 @@ namespace Drift.Bridge
             if (session == null) { Show(false); return; }
 
             var s = session.Current;
+            // This is the cozy tutorial; Abenteuer has its own guide. A cozy tutorial left unfinished waits (hidden,
+            // sinking not held) until the next cozy game.
+            bool cozy = session.Mode == GameMode.Cozy;
             if (s != _lastState)
             {
-                bool begins = s == GameSession.State.Playing && session.Stats.timeSurvived < 0.5f && session.Stats.islandsAbsorbed == 0;
+                bool begins = cozy && s == GameSession.State.Playing && session.Stats.timeSurvived < 0.5f && session.Stats.islandsAbsorbed == 0;
                 _lastState = s;
                 _hasLastPos = false;
                 if (begins && (!_model.Done || _replayRequested))
@@ -208,12 +214,15 @@ namespace Drift.Bridge
                 }
             }
 
-            bool inGame = s == GameSession.State.Playing || s == GameSession.State.Paused;
+            bool inGame = cozy && (s == GameSession.State.Playing || s == GameSession.State.Paused);
             if (_model.Active && inGame && watch != null && (watch.PopupVisible || watch.JournalOpen)) _model.ReportWatched();
-            bool visible = _model.Active && s == GameSession.State.Playing && !(watch != null && (watch.PhotoActive || watch.JournalOpen));
+            bool visible = cozy && _model.Active && s == GameSession.State.Playing && !(watch != null && (watch.PhotoActive || watch.JournalOpen));
             if (visible) Feed();
 
-            session.SinkingSuspended = _model.SinkingSuspended;
+            // Only the cozy guide owns the hold; in Adventure the adventure guide sets it, so leave it alone there.
+            if (cozy) session.SinkingSuspended = _model.SinkingSuspended;
+            else if (_wasCozy) session.SinkingSuspended = false;
+            _wasCozy = cozy;
             if (_model.Done && !_savedDone)
             {
                 _savedDone = true;
@@ -290,16 +299,20 @@ namespace Drift.Bridge
         static string K(string word) => TildaBubble.Key(word);
 
         // Rich text: TildaBubble.Key marks the one or two words a step is about.
-        public static string TextFor(TutorialStep step, bool touchDevice)
+        public static string TextFor(TutorialStep step, bool touchDevice) => TextFor(step, touchDevice, GameModes.Current);
+
+        // Gemuetlich has no game over: the bar there is the calm "Tiefgang"; only Abenteuer warns about sinking.
+        public static string TextFor(TutorialStep step, bool touchDevice, GameMode mode)
         {
+            bool adventure = mode == GameMode.Adventure;
             switch (step)
             {
                 case TutorialStep.Greeting:
                     return "Hallo! Ich bin " + K("Tilda") + ", ein kleiner Vulkan. Schön, dass du da bist! Ich zeige dir, wie deine Insel wächst.";
                 case TutorialStep.Move:
                     return touchDevice
-                        ? "Probier es gleich aus: Leg den " + K("Daumen links") + " aufs Wasser und zieh. Nach oben gibt Tempo, zur Seite lenkt."
-                        : "Probier es gleich aus: " + K("W") + " gibt Tempo, " + K("S") + " bremst, mit " + K("A") + " und " + K("D") + " lenkst du. Fahr einfach ein Stück los!";
+                        ? "Probier es gleich aus: Leg den " + K("Daumen links") + " aufs Wasser und zieh. Deine Insel treibt genau dorthin – drehen muss sie sich nie."
+                        : "Probier es gleich aus: " + K("W") + ", " + K("A") + ", " + K("S") + " und " + K("D") + " zeigen die Richtung, deine Insel treibt einfach dorthin. Fahr ein Stück los!";
                 case TutorialStep.Zoom:
                     return touchDevice
                         ? "Prima, du fährst! Zieh " + K("zwei Finger") + " auseinander oder zusammen, dann siehst du näher hin oder mehr vom Meer."
@@ -307,9 +320,13 @@ namespace Drift.Bridge
                 case TutorialStep.Ram:
                     return "Siehst du den " + K("Pfeil") + "? Dort treibt eine Insel. Fahr mitten hinein und " + K("ramme") + " sie – dann wächst sie an deine an.";
                 case TutorialStep.Buoyancy:
-                    return "Juhu, bei mir sprühen die Funken! Deine Insel ist gewachsen. Ab jetzt sinkt sie langsam. Behalte den Balken " + K("„Auftrieb“") + " im Blick: Jede neue Insel hebt dich wieder.";
+                    return adventure
+                        ? "Juhu, bei mir sprühen die Funken! Deine Insel ist gewachsen. Ab jetzt sinkt sie langsam. Behalte den Balken " + K("„Auftrieb“") + " im Blick: Jede neue Insel hebt dich wieder."
+                        : "Juhu, bei mir sprühen die Funken! Deine Insel ist gewachsen. Der Balken " + K("„Tiefgang“") + " zeigt, wie schwer sie im Wasser liegt. Keine Sorge: Untergehen kann sie nicht.";
                 case TutorialStep.Form:
-                    return "Daneben steht die " + K("Form") + ". Runde Inseln schwimmen gut, längliche sinken schneller. Beim Rammen " + K("dreht sich") + " deine Insel, damit sie rund wächst.";
+                    return adventure
+                        ? "Daneben steht die " + K("Form") + ". Runde Inseln schwimmen gut, längliche sinken schneller. Beim Rammen " + K("dreht sich") + " deine Insel, damit sie rund wächst."
+                        : "Daneben steht die " + K("Form") + ". Runde Inseln schwimmen gut, längliche liegen tiefer. Beim Rammen " + K("dreht sich") + " deine Insel, damit sie rund wächst.";
                 case TutorialStep.Watch:
                     return touchDevice
                         ? "Auf den Inseln ist viel los! " + K("Tippe ein Tier an") + ", um es kennenzulernen, oder schau ins " + K("Tagebuch") + " oben rechts."

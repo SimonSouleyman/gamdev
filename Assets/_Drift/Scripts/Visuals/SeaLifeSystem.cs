@@ -74,6 +74,30 @@ namespace Drift.Visuals
         public Color whaleColor = new Color(0.2f, 0.27f, 0.36f);
         public Color seaweedColor = new Color(0.16f, 0.42f, 0.2f);
 
+        [Header("Walwanderung (Schauspiel)")]
+        [Tooltip("Tempo (u/s) der Wale, solange sie in der Reihe wandern; unterwegs sind sie zügiger als beim Bummeln.")]
+        [Range(0.6f, 4f)] public float whaleMigrationSpeed = 1.8f;
+        [Tooltip("Kürzeste und längste Tauchzeit (s) einer wandernden Gruppe: kurz genug, dass die Reihe immer irgendwo bläst.")]
+        public Vector2 whaleMigrationDive = new Vector2(7f, 15f);
+
+        [Header("Abenteuer-Beute")]
+        [Tooltip("So viele Meerestiere dürfen gleichzeitig neben der Insel herschwimmen (der Fischschwarm zählt extra).")]
+        [Range(0, 4)] public int maxCompanions = 2;
+        [Tooltip("So viele eingesammelte Tiere warten höchstens gleichzeitig auf der Bahn.")]
+        [Range(0, 4)] public int maxPickups = 2;
+        [Tooltip("So lange (s) begleitet ein eingesammeltes Tier die Insel.")]
+        [Range(5f, 60f)] public float companionSeconds = 22f;
+        [Tooltip("Abstand (u) zwischen Inselrand und Begleiter.")]
+        [Range(1f, 12f)] public float companionGap = 3.5f;
+        [Tooltip("Wie weit der Begleiter vorausschwimmt (Anteil des Seitenabstands): 0 = genau daneben, 1 = weit vorn.")]
+        [Range(0f, 1.5f)] public float companionLead = 0.55f;
+        [Tooltip("Höchsttempo (u/s), mit dem ein Begleiter aufschließt.")]
+        [Range(4f, 30f)] public float companionCatchUp = 16f;
+        [Tooltip("Zusätzliche Reichweite (u) um den Inselrand, in der ein wartendes Tier eingesammelt wird.")]
+        [Range(0f, 8f)] public float pickupGrab = 2.5f;
+        [Tooltip("Tempo (u/s), mit dem ein wartendes Tier auf der Bahn treibt.")]
+        [Range(0f, 3f)] public float pickupDrift = 0.5f;
+
         [System.NonSerialized] public Vector2 debugPlayerVelocity;
         [System.NonSerialized] public float debugNight = -1f;
 
@@ -93,16 +117,20 @@ namespace Drift.Visuals
             public int state, count;
             public float timer, cooldown, phase, jump, wander;
             public Island target;
-            // Whales: flags bit 0 = the pod has a calf, bit 1 = this dive is synchronized; breach = seconds until
+            // Whales: flags bit 0 = the pod has a calf, bit 1 = this dive is synchronized, bit 5 (MigrateFlag) =
+            // part of a migrating line, and then jump holds its fixed heading as an angle; breach = seconds until
             // a bull may leap again; depth 0..1 = dived deep to let something pass overhead.
             public int flags;
             public float breach, depth;
+            // Adventure: seconds left as a companion swimming alongside the player (CompanionFlag).
+            public float companion;
         }
 
         struct Puff
         {
             public Vector3 pos, vel;
             public float age, life, size, gravity;
+            public Color color;
         }
 
         Group[] _groups;
@@ -634,6 +662,9 @@ namespace Drift.Visuals
             for (int i = 0; i < _groups.Length; i++)
             {
                 if (!_groups[i].active) continue;
+                // A migrating line is kept whole: its trailing groups are still on their way in, and they are
+                // released to the usual recycling again the moment the spectacle ends.
+                if ((_groups[i].flags & MigrateFlag) != 0) continue;
                 if ((_groups[i].pos - _playerPos).sqrMagnitude > far * far)
                 {
                     MarkSpent(_groups[i].key);
@@ -775,6 +806,7 @@ namespace Drift.Visuals
                 if (dt > 0f && !circles && IsWhale(_groups[i].kind)) { BuildWhaleCircles(); circles = true; }
                 StepGroup(ref _groups[i], dt);
             }
+            if (GameModes.IsAdventure && _player != null) CollectPickups();
             if (dt > 0f)
             {
                 StepFlyingFish(dt);
@@ -825,6 +857,9 @@ namespace Drift.Visuals
             g.fade = dt > 0f ? Mathf.MoveTowards(g.fade, target, dt * 0.9f) : target;
             if (dt <= 0f) return;
             if (g.cooldown > 0f) g.cooldown -= dt;
+            // A pickup waiting on the track and a companion swimming alongside keep their own animation (a whale
+            // still breathes) but never their own course: their position is driven, see StepEscort.
+            bool escort = (g.flags & (PickupFlag | CompanionFlag)) != 0;
 
             switch (g.kind)
             {
@@ -872,6 +907,7 @@ namespace Drift.Visuals
                     break;
                 }
             }
+            if (escort) StepEscort(ref g, dt);
         }
 
         void StepDolphins(ref Group g, float dt, float edge)
@@ -886,6 +922,13 @@ namespace Drift.Visuals
                     g.timer -= dt;
                     Vector2 side = new Vector2(velDir.y, -velDir.x) * (Mathf.Sin(_clock * 0.4f + g.phase) * 2.5f);
                     Vector2 goal = _playerPos + velDir * (_playerRadius + 5f) + side;
+                    if ((g.flags & EscortFlag) != 0)
+                    {
+                        // Escorting pods weave between the bow wave and the front flanks so they stay in view.
+                        float weave = Mathf.Sin(_clock * 0.22f + g.phase);
+                        Vector2 flank = new Vector2(velDir.y, -velDir.x) * (weave * (2.5f + 0.55f * _playerRadius));
+                        goal = _playerPos + velDir * (_playerRadius * (1f - 0.35f * Mathf.Abs(weave)) + 4.5f) + flank;
+                    }
                     Vector2 to = goal - g.pos;
                     float d = to.magnitude;
                     want = d > 1.5f ? (to / d + velDir * 0.4f).normalized : velDir;
@@ -895,8 +938,9 @@ namespace Drift.Visuals
                     {
                         g.state = 2;
                         g.timer = 5f;
-                        g.cooldown = 25f;
+                        g.cooldown = (g.flags & EscortFlag) != 0 ? 60f : 25f;
                         g.wander = 0f;
+                        g.flags &= ~EscortFlag;
                     }
                     break;
                 }
@@ -1057,23 +1101,35 @@ namespace Drift.Visuals
         void StepWhale(ref Group g, float dt)
         {
             bool pod = g.kind == Kind.WhalePod;
+            bool migrate = (g.flags & MigrateFlag) != 0;
             float reach = WhaleReach(ref g);
+            // An adventure pickup/companion stays up where you can see it: the island right beside it is not a
+            // threat to dive from, it never breaches and the breathing cycle just keeps running.
+            bool escort = (g.flags & (PickupFlag | CompanionFlag)) != 0;
+            if (escort)
+            {
+                if (g.state != 1) { g.state = 1; g.wander = 0f; }
+                if (g.wander > 2f * WhaleBreath) g.wander -= WhaleBreath;
+                g.timer = Mathf.Max(g.timer, 2f);
+            }
             // Something came closer than the whales allow (a fast island, a ship): dive deep and let it pass overhead.
-            bool threat = WhaleThreat(ref g);
+            bool threat = !escort && WhaleThreat(ref g);
             g.depth = Mathf.MoveTowards(g.depth, threat ? 1f : 0f, dt * (threat ? 0.9f : 0.3f));
 
             float playerEdge = (_playerPos - g.pos).magnitude - _playerRadius;
             if (g.state != 3)
             {
-                Vector2 want = Wander(ref g, 0.2f);
-                if (_player != null && playerEdge > whaleHomeRange)
+                // A migrating line keeps its heading (stored in jump): it only bends round what is in the way and
+                // comes back onto the course afterwards, and it never drifts home to the player.
+                Vector2 want = migrate ? new Vector2(Mathf.Cos(g.jump), Mathf.Sin(g.jump)) : Wander(ref g, 0.2f);
+                if (!migrate && _player != null && playerEdge > whaleHomeRange)
                 {
                     Vector2 home = (_playerPos - g.pos).normalized;
                     want = (want + home * (0.9f * Mathf.Clamp01((playerEdge - whaleHomeRange) / 25f))).normalized;
                 }
                 // The formation trails behind the leader, so the leader keeps the clearance plus most of its reach.
                 Vector2 s = SeaMath.SteerAvoid(g.pos, want, _whaleCircles, _whaleCircleCount, 24f + reach, SeaMath.WhaleClearance + 0.7f * reach);
-                Turn(ref g, s, 0.5f, dt);
+                Turn(ref g, s, migrate ? 0.35f : 0.5f, dt);
                 g.pos += g.dir * (g.speed * (g.state == 2 ? 0.5f : threat ? 1.5f : 1f) * dt);
             }
 
@@ -1082,7 +1138,7 @@ namespace Drift.Visuals
             {
                 case 0:
                     if (threat) g.timer = Mathf.Max(g.timer, 4f);
-                    if (!pod)
+                    if (!pod && !migrate)
                     {
                         g.breach -= dt;
                         if (g.breach <= 0f)
@@ -1146,7 +1202,9 @@ namespace Drift.Visuals
                     if (g.timer <= 0f)
                     {
                         g.state = 0;
-                        g.timer = Mathf.Lerp(whaleDeepSecondsMin, whaleDeepSecondsMax, SeaMath.Rand(g.seed, 80 + (int)_clock));
+                        g.timer = migrate
+                            ? Mathf.Lerp(whaleMigrationDive.x, Mathf.Max(whaleMigrationDive.x, whaleMigrationDive.y), SeaMath.Rand(g.seed, 80 + (int)_clock))
+                            : Mathf.Lerp(whaleDeepSecondsMin, whaleDeepSecondsMax, SeaMath.Rand(g.seed, 80 + (int)_clock));
                     }
                     break;
                 }
@@ -1517,7 +1575,11 @@ namespace Drift.Visuals
             }
         }
 
-        void EmitPuff(Vector3 pos, Vector3 vel, float life, float size, float gravity)
+        static readonly Color SprayColor = new Color(1.25f, 1.3f, 1.35f, 1f);
+
+        void EmitPuff(Vector3 pos, Vector3 vel, float life, float size, float gravity) => EmitPuff(pos, vel, life, size, gravity, SprayColor);
+
+        void EmitPuff(Vector3 pos, Vector3 vel, float life, float size, float gravity, Color color)
         {
             int slot = -1;
             float oldest = -1f;
@@ -1527,7 +1589,7 @@ namespace Drift.Visuals
                 float k = _puffs[i].age / _puffs[i].life;
                 if (k > oldest) { oldest = k; slot = i; }
             }
-            _puffs[slot] = new Puff { pos = pos, vel = vel, age = 0f, life = life, size = size, gravity = gravity };
+            _puffs[slot] = new Puff { pos = pos, vel = vel, age = 0f, life = life, size = size, gravity = gravity, color = color };
         }
 
         void StepPuffs(float dt)
@@ -1592,6 +1654,375 @@ namespace Drift.Visuals
             return any;
         }
 
+        // ---- travel encounters (Encounters.cs directs, these place the animals) ----
+
+        const int EscortFlag = 16;
+
+        public bool GroupIsEscort(int i) => _groups[i].active && _groups[i].kind == Kind.Dolphins && (_groups[i].flags & EscortFlag) != 0;
+
+        // A pod joins the moving player at the bow for `seconds`: an idle pod in range is recruited, otherwise a new
+        // one arrives from behind on one flank (sprinting to catch up). Returns the group slot or -1.
+        public int StartDolphinEscort(float seconds, bool rightSide)
+        {
+            EnsureArrays();
+            if (_player == null) return -1;
+            Vector2 fwd = PlayerCourse();
+            int slot = -1;
+            float best = float.MaxValue;
+            for (int i = 0; i < _groups.Length; i++)
+            {
+                ref Group g = ref _groups[i];
+                if (!g.active || g.kind != Kind.Dolphins || g.state == 2) continue;
+                float d = (g.pos - _playerPos).magnitude - _playerRadius;
+                if (d > spawnRadius * 0.8f || d >= best) continue;
+                best = d;
+                slot = i;
+            }
+            if (slot < 0)
+            {
+                Vector2 right = new Vector2(fwd.y, -fwd.x);
+                for (int attempt = 0; attempt < 4 && slot < 0; attempt++)
+                {
+                    float sgn = ((attempt & 1) == 0) == rightSide ? 1f : -1f;
+                    float back = attempt < 2 ? 12f : 4f;
+                    Vector2 p = _playerPos - fwd * (_playerRadius * 0.3f + back) + right * (sgn * (_playerRadius + 16f));
+                    if (Island.PositionConstraint != null) p = Island.PositionConstraint(p);
+                    if (_obstacles.Inside(p, 3f)) continue;
+                    slot = SpawnAt(Kind.Dolphins, p, fwd);
+                    _groups[slot].fade = 0f;
+                }
+                if (slot < 0) return -1;
+            }
+            ref Group e = ref _groups[slot];
+            e.state = 1;
+            e.timer = Mathf.Max(4f, seconds);
+            e.cooldown = 0f;
+            e.wander = 0f;
+            e.flags |= EscortFlag;
+            if (e.jump < 0f) e.jump = Mathf.Max(e.jump, -1.5f);
+            _dirty = true;
+            return slot;
+        }
+
+        Vector2 PlayerCourse()
+        {
+            Vector2 fwd = _playerSpeed > 0.05f ? _playerVel / _playerSpeed : new Vector2(_player.BodyForward.x, _player.BodyForward.z);
+            return fwd.sqrMagnitude > 1e-6f ? fwd.normalized : Vector2.up;
+        }
+
+        // A whale (a solitary bull, or a pod with a chance of a calf) surfaces beside the player's course: `lead` ahead
+        // of the bow and `lateral` beyond the whale clearance off its flank, breathing after `surfaceIn` seconds, then
+        // the fluke dive. A whale already in range ahead is asked to come up instead. Returns the group slot or -1
+        // when there was no open water for it.
+        public int StartWhaleEncounter(float lead, float lateral, float surfaceIn, bool pod, bool rightSide)
+        {
+            EnsureArrays();
+            if (_player == null) return -1;
+            Vector2 fwd = PlayerCourse();
+            for (int i = 0; i < _groups.Length; i++)
+            {
+                ref Group g = ref _groups[i];
+                if (!g.active || !IsWhale(g.kind) || g.fade < 0.3f) continue;
+                Vector2 to = g.pos - _playerPos;
+                if (to.magnitude - _playerRadius > 70f || Vector2.Dot(to, fwd) < -10f) continue;
+                if (g.state == 0) g.timer = Mathf.Min(g.timer, surfaceIn);
+                return i;
+            }
+            Kind kind = pod ? Kind.WhalePod : Kind.Whale;
+            if (!SeaMath.WhaleSpawnAllowed(pod, WhalePodCount, WhaleLonerCount, maxWhalePods, maxWhales))
+            {
+                kind = pod ? Kind.Whale : Kind.WhalePod;
+                if (!SeaMath.WhaleSpawnAllowed(!pod, WhalePodCount, WhaleLonerCount, maxWhalePods, maxWhales)) return -1;
+            }
+            float reach = kind == Kind.WhalePod ? 2.7f * whaleLength : whaleLength * whaleBullScale;
+            Vector2 right = new Vector2(fwd.y, -fwd.x);
+            float side0 = rightSide ? 1f : -1f;
+            for (int attempt = 0; attempt < 6; attempt++)
+            {
+                float sgn = (attempt & 1) == 0 ? side0 : -side0;
+                float l = lead * (attempt < 2 ? 1f : attempt < 4 ? 0.7f : 1.35f);
+                Vector2 p = _playerPos + fwd * (_playerRadius + l) + right * (sgn * (_playerRadius + SeaMath.WhaleClearance + lateral));
+                if (_obstacles.Inside(p, SeaMath.WhaleClearance + reach)) continue;
+                int slot = SpawnAt(kind, p, Rotate(fwd, sgn * -0.25f));
+                ref Group g = ref _groups[slot];
+                g.fade = 0f;
+                g.state = 0;
+                g.timer = Mathf.Max(0.5f, surfaceIn);
+                g.breach = Mathf.Max(g.breach, 30f);
+                return slot;
+            }
+            return -1;
+        }
+
+        // ---- adventure: sea animals to pick up and to be escorted by (Encounters lays them on the track) ----
+
+        // A pickup swims slowly along the band waiting to be run over; from then on it is a companion that swims
+        // alongside the island and pushes it on (Encounters turns the count into the boost). Flag 4 = right flank.
+        const int PickupFlag = 64;
+        const int CompanionFlag = 128;
+        const int RightFlag = 4;
+
+        public bool GroupIsPickup(int i) => _groups != null && _groups[i].active && (_groups[i].flags & PickupFlag) != 0;
+        public bool GroupIsCompanion(int i) => _groups != null && _groups[i].active && (_groups[i].flags & CompanionFlag) != 0;
+        public float CompanionSecondsLeft(int i) => GroupIsCompanion(i) ? Mathf.Max(0f, _groups[i].companion) : 0f;
+        public int PickupsCollected { get; private set; }
+
+        public int PickupCount => CountFlag(PickupFlag);
+        public int CompanionCount => CountFlag(CompanionFlag);
+
+        int CountFlag(int flag)
+        {
+            int n = 0;
+            if (_groups != null)
+                for (int i = 0; i < _groups.Length; i++)
+                    if (_groups[i].active && (_groups[i].flags & flag) != 0) n++;
+            return n;
+        }
+
+        // How far the animals of a group reach out from its position (the lane beside the island, the grab range).
+        float EscortReach(ref Group g) => IsWhale(g.kind) ? WhaleReach(ref g) : 0.7f;
+
+        // Lays a whale or a sea turtle on the track, waiting to be collected. -1 when there is no room for it.
+        public int SpawnPickup(Kind kind, Vector2 pos, Vector2 dir)
+        {
+            EnsureArrays();
+            if (kind != Kind.Whale && kind != Kind.Turtle) return -1;
+            if (PickupCount >= maxPickups) return -1;
+            int slot = SpawnAt(kind, pos, dir);
+            if (slot < 0) return -1;
+            ref Group g = ref _groups[slot];
+            g.flags |= PickupFlag;
+            g.fade = 0f;
+            g.depth = 0f;
+            g.wander = 0f;
+            g.breach = 1e6f;
+            g.target = null;
+            if (IsWhale(kind)) { g.state = 1; g.timer = 1e6f; }
+            else { g.state = 0; g.timer = 1e6f; }
+            _dirty = true;
+            return slot;
+        }
+
+        // The player ran a waiting animal over: it swims up to a free flank and stays for `seconds`.
+        public bool MakeCompanion(int slot, float seconds)
+        {
+            if (_groups == null || slot < 0 || slot >= _groups.Length || !_groups[slot].active) return false;
+            ref Group g = ref _groups[slot];
+            if ((g.flags & CompanionFlag) != 0) return false;
+            g.flags &= ~PickupFlag;
+            g.flags |= CompanionFlag;
+            if (RightFlankTaken()) g.flags &= ~RightFlag; else g.flags |= RightFlag;
+            g.companion = Mathf.Max(2f, seconds);
+            g.cooldown = 0f;
+            g.target = null;
+            PickupsCollected++;
+            Vector3 at = new Vector3(g.pos.x, 0.05f, g.pos.y);
+            Splash(g.pos, IsWhale(g.kind) ? 1f : 0.6f, IsWhale(g.kind) ? 14 : 8);
+            Sparkle(at, 1f, 10);
+            Encounters.NotifyCompanion(IsWhale(g.kind) ? CompanionKind.Whale : CompanionKind.Turtle, at);
+            _dirty = true;
+            return true;
+        }
+
+        bool RightFlankTaken()
+        {
+            for (int i = 0; i < _groups.Length; i++)
+                if (_groups[i].active && (_groups[i].flags & CompanionFlag) != 0 && (_groups[i].flags & RightFlag) != 0) return true;
+            return false;
+        }
+
+        // Adventure only: every waiting animal the island has reached becomes a companion. Returns how many joined.
+        public int CollectPickups() => _player != null ? CollectPickupsAt(_playerPos, _playerRadius) : 0;
+
+        public int CollectPickupsAt(Vector2 pos, float radius)
+        {
+            if (_groups == null) return 0;
+            int joined = 0;
+            for (int i = 0; i < _groups.Length; i++)
+            {
+                ref Group g = ref _groups[i];
+                if (!g.active || (g.flags & PickupFlag) == 0) continue;
+                if (CompanionCount >= maxCompanions) break;
+                float reach = radius + pickupGrab + EscortReach(ref g);
+                if ((g.pos - pos).sqrMagnitude > reach * reach) continue;
+                if (MakeCompanion(i, companionSeconds)) joined++;
+            }
+            return joined;
+        }
+
+        // Pickups and companions are driven straight to a goal instead of steering for themselves: a pickup that
+        // dodged the island could never be collected, and a companion has to hold its lane beside the bow.
+        void StepEscort(ref Group g, float dt)
+        {
+            bool companion = (g.flags & CompanionFlag) != 0;
+            Vector2 fwd = _player != null ? PlayerCourse() : g.dir;
+            Vector2 goal;
+            float speed;
+            if (companion)
+            {
+                g.companion -= dt;
+                if (g.companion <= 0f || _player == null) { EndCompanion(ref g); return; }
+                Vector2 right = new Vector2(fwd.y, -fwd.x);
+                float lane = _playerRadius + companionGap + EscortReach(ref g);
+                float sway = Mathf.Sin(_clock * 0.35f + g.phase);
+                // A little ahead of the bow, not exactly abreast: from the chase camera that is where you see it.
+                goal = _playerPos + right * (((g.flags & RightFlag) != 0 ? 1f : -1f) * lane)
+                     + fwd * (lane * companionLead + sway * 2.5f);
+                speed = Mathf.Min(companionCatchUp, Mathf.Max(2f, _playerSpeed + 3f));
+            }
+            else
+            {
+                goal = g.pos + g.dir * 4f;
+                speed = pickupDrift;
+            }
+            Vector2 to = goal - g.pos;
+            float d = to.magnitude;
+            Vector2 want = d > 0.2f ? to / d : fwd;
+            Turn(ref g, companion && d < 3f ? fwd : want, companion ? 3.5f : 1.2f, dt);
+            g.pos += want * Mathf.Min(d, speed * dt);
+            if (Island.PositionConstraint != null) g.pos = Island.PositionConstraint(g.pos);
+        }
+
+        // The escort is over: the animal turns back into an ordinary one and leaves the way dolphins do.
+        void EndCompanion(ref Group g)
+        {
+            g.flags &= ~(CompanionFlag | PickupFlag);
+            g.companion = 0f;
+            g.cooldown = 30f;
+            g.breach = Mathf.Max(20f, g.breach > 1e5f ? 30f : g.breach);
+            g.timer = IsWhale(g.kind) ? 2f : 0f;
+            _dirty = true;
+        }
+
+        // ---- whale migration (WorldEvents directs it) ----
+
+        const int MigrateFlag = 32;
+
+        public bool GroupIsMigrating(int i) => _groups != null && _groups[i].active && (_groups[i].flags & MigrateFlag) != 0;
+
+        // Groups of the line that are still drawn (they fade out as they leave the range).
+        public int MigrationGroups
+        {
+            get
+            {
+                int n = 0;
+                if (_groups != null)
+                    for (int i = 0; i < _groups.Length; i++)
+                        if (_groups[i].active && (_groups[i].flags & MigrateFlag) != 0 && _groups[i].fade > 0.05f) n++;
+                return n;
+            }
+        }
+
+        // Middle of the line, for a hint / an edge arrow. Zero while nothing migrates.
+        public Vector2 MigrationCenter
+        {
+            get
+            {
+                Vector2 sum = Vector2.zero;
+                int n = 0;
+                if (_groups != null)
+                    for (int i = 0; i < _groups.Length; i++)
+                        if (_groups[i].active && (_groups[i].flags & MigrateFlag) != 0) { sum += _groups[i].pos; n++; }
+                return n > 0 ? sum / n : Vector2.zero;
+            }
+        }
+
+        // A line of whale pods and bulls crossing the sea ahead of the player: they hold one heading, surface one
+        // group after the other (a row of spouts you can see from far off) and never breach out of the line.
+        // `side` picks the flank, `lateral` how far off the course the line passes. Returns how many groups were
+        // placed (0 = no room at all).
+        public int StartWhaleMigration(Vector2 course, float side, int groups, float spacing, float lateral, float seconds)
+        {
+            EnsureArrays();
+            if (_player == null) return 0;
+            Vector2 f = course.sqrMagnitude > 1e-6f ? course.normalized : Vector2.up;
+            Vector2 right = new Vector2(f.y, -f.x);
+            float sgn = side >= 0f ? 1f : -1f;
+            // About 55 degrees across the course: the line comes past from one side and carries on ahead, so
+            // following it is a real detour but never a chase.
+            Vector2 heading = Rotate(f, sgn * -0.95f);
+            float angle = Mathf.Atan2(heading.y, heading.x);
+            int n = Mathf.Clamp(groups, 2, 6);
+            float step = Mathf.Max(8f, spacing);
+            uint h0 = SeaMath.Hash((uint)seed + 77u, (uint)Mathf.Abs(_clock * 7f) + 1u);
+            Vector2 centre = _playerPos + f * (_playerRadius + 24f) + right * (sgn * Mathf.Max(12f, lateral));
+            int placed = 0;
+            for (int i = 0; i < n; i++)
+            {
+                bool pod = SeaMath.Rand(h0, i * 5 + 2) < 0.7f;
+                float clear = SeaMath.WhaleClearance + (pod ? 1.4f : 0.6f) * whaleLength;
+                // Shifted back along the heading, so most of the line still has to come past; an island in the
+                // way only moves that one animal a little further along the line.
+                Vector2 p = Vector2.zero;
+                bool room = false;
+                for (int attempt = 0; attempt < 4 && !room; attempt++)
+                {
+                    float slide = attempt == 0 ? 0f : (attempt == 1 ? 0.45f : attempt == 2 ? -0.45f : 0.9f);
+                    p = centre + heading * ((i - (n - 1) * 0.6f + slide) * step)
+                      + right * ((SeaMath.Rand(h0, i * 5 + 1) - 0.5f) * 9f);
+                    if (Island.PositionConstraint != null) p = Island.PositionConstraint(p);
+                    room = !_obstacles.Inside(p, clear);
+                }
+                if (!room) continue;
+                int slot = SpawnAt(pod ? Kind.WhalePod : Kind.Whale, p, heading);
+                ref Group g = ref _groups[slot];
+                g.flags |= MigrateFlag;
+                if (pod)
+                {
+                    g.count = 2 + (int)(SeaMath.Rand(h0, i * 5 + 3) * 2.999f);
+                    if (SeaMath.Rand(h0, i * 5 + 4) < 0.6f) g.flags |= 1;
+                }
+                g.jump = angle;
+                g.speed = whaleMigrationSpeed * (pod ? 0.95f : 1.05f);
+                g.fade = 0f;
+                g.state = 0;
+                g.depth = 0f;
+                g.breach = Mathf.Max(60f, seconds);
+                // The groups blow one after the other, from the head of the line backwards.
+                g.timer = 2f + i * 3.5f;
+                placed++;
+            }
+            _dirty = true;
+            MigrationSpawned = placed;
+            return placed;
+        }
+
+        // How many groups the last migration managed to place (verification / tuning).
+        public int MigrationSpawned { get; private set; }
+
+        // Lets the line go: the whales keep swimming, but from now on as ordinary whales (they wander, drift back
+        // to the player and are recycled at the range edge like any other group).
+        public void EndWhaleMigration()
+        {
+            if (_groups == null) return;
+            for (int i = 0; i < _groups.Length; i++)
+            {
+                if (!_groups[i].active || (_groups[i].flags & MigrateFlag) == 0) continue;
+                _groups[i].flags &= ~MigrateFlag;
+                _groups[i].jump = -1f;
+                _groups[i].speed = _groups[i].kind == Kind.WhalePod ? whaleSpeed * 0.9f : whaleSpeed;
+                _groups[i].breach = Mathf.Max(_groups[i].breach, 30f);
+            }
+        }
+
+        // Golden glints rising from the water (flotsam collected, a bottle winking in the sun).
+        public void Sparkle(Vector3 pos, float strength, int count)
+        {
+            if (LifeLod.Distance(pos) > splashDistance) return;
+            float glow = 1f + 3f * _night;
+            Color gold = new Color(3.4f * glow, 2.7f * glow, 1.2f * glow, 1f);
+            for (int i = 0; i < count; i++)
+            {
+                uint h = SeaMath.Hash((uint)(pos.x * 17f) + (uint)i * 613u, (uint)(_clock * 60f) + 5u);
+                float a = i * (Mathf.PI * 2f / Mathf.Max(1, count)) + SeaMath.Rand(h, 0);
+                float r = (0.3f + 0.5f * SeaMath.Rand(h, 1)) * strength;
+                Vector3 p = pos + new Vector3(Mathf.Cos(a) * r, 0.1f + 0.3f * SeaMath.Rand(h, 3), Mathf.Sin(a) * r);
+                Vector3 vel = new Vector3(Mathf.Cos(a) * 0.35f, 0.9f + 0.9f * SeaMath.Rand(h, 2), Mathf.Sin(a) * 0.35f) * strength;
+                EmitPuff(p, vel, 0.8f + 0.5f * SeaMath.Rand(h, 4), (0.05f + 0.04f * SeaMath.Rand(h, 5)) * Mathf.Max(0.6f, strength), -0.3f, gold);
+            }
+            _dirty = true;
+        }
+
         // Places a pod of a given make-up at a spot (verification).
         public int SpawnWhalePod(Vector2 pos, Vector2 dir, int count, bool calf)
         {
@@ -1607,12 +2038,19 @@ namespace Drift.Visuals
             EnsureArrays();
             int slot = -1;
             float far = -1f;
+            int fallback = 0;
+            float fallbackFar = -1f;
             for (int i = 0; i < _groups.Length; i++)
             {
                 if (!_groups[i].active) { slot = i; break; }
                 float d = (_groups[i].pos - _playerPos).sqrMagnitude;
+                if (d > fallbackFar) { fallbackFar = d; fallback = i; }
+                // The line of a running migration is the spectacle, a companion is the player's own reward:
+                // replace anything else first.
+                if ((_groups[i].flags & (MigrateFlag | CompanionFlag)) != 0) continue;
                 if (d > far) { far = d; slot = i; }
             }
+            if (slot < 0) slot = fallback;
             uint h = SeaMath.Hash((uint)seed, (uint)(pos.x * 13f + pos.y * 7f) + (uint)kind);
             Activate(slot, long.MinValue + slot, pos, h, kind);
             _groups[slot].dir = dir.sqrMagnitude > 1e-6f ? dir.normalized : Vector2.right;
@@ -1648,12 +2086,11 @@ namespace Drift.Visuals
             if (ships != null && _night > 0.3f) DrawLanternGlow();
             if (_ffActive) DrawFlyingFish();
             if (_gullFade > 0.01f) DrawBaitGulls();
-            Color spray = new Color(1.25f, 1.3f, 1.35f, 1f);
             for (int i = 0; i < _puffs.Length; i++)
             {
                 if (_puffs[i].life <= 0f) continue;
                 float k = _puffs[i].age / _puffs[i].life;
-                _above.Octa(_puffs[i].pos, _puffs[i].size * (k < 0.2f ? 0.5f + 2.5f * k : 1f - 0.8f * (k - 0.2f) / 0.8f), spray);
+                _above.Octa(_puffs[i].pos, _puffs[i].size * (k < 0.2f ? 0.5f + 2.5f * k : 1f - 0.8f * (k - 0.2f) / 0.8f), _puffs[i].color);
             }
 
             float ext = (recycleRadius + _playerRadius) * 2f + 20f;

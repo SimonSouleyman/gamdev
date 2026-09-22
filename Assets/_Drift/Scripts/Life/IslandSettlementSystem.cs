@@ -14,6 +14,9 @@ namespace Drift.Life
         // number is kept for the journal.
         public const int VillageStride = 4;
         public const int BuildingStride = 6;
+        // 1 per village that only carries a milestone landmark (Leuchtturm, Hafen) and never grows. Absent in
+        // every older file, which reads null = no landmark villages.
+        public int[] vLandmark;
         public int[] vStage;
         public float[] v;
         public int[] bKind, bVariant, bState, bVillage, bFrom;
@@ -132,6 +135,22 @@ namespace Drift.Life
         public float shelterStorm = 0.35f;
         public float celebrateTime = 30f;
         public float partyRunTime = 10f;
+
+        [Header("Fest mit Lampions (Meilenstein)")]
+        [Tooltip("Feiern die Insulaner abends ein Fest? Setzt der Meilenstein „Fest“ (15 Inseln); sonst aus.")]
+        public bool festivals;
+        [Tooltip("Ab welcher Abenddämmerung (0 = heller Tag, 1 = tiefe Nacht) das Fest beginnt.")]
+        [Range(0f, 1f)] public float festivalStartNight = 0.45f;
+        [Tooltip("Bis zu welcher Nachttiefe gefeiert wird; danach gehen alle schlafen.")]
+        [Range(0f, 1f)] public float festivalEndNight = 0.96f;
+        [Tooltip("Wie viele Lampions im Kreis um den Festplatz stehen (dazwischen hängen kleine Lichterketten).")]
+        [Range(4, 12)] public int lanternPoles = 8;
+        [Tooltip("Wie weit der Lampionkreis um den Festplatz steht, über die Größe der tanzenden Gruppe hinaus.")]
+        [Range(0f, 1f)] public float lanternMargin = 0.28f;
+
+        [Header("Meilenstein-Bauwerke")]
+        [Tooltip("Bauzeit-Faktor für Leuchtturm und Hafen aus einem Meilenstein: kleiner = der Spieler sieht sie gleich wachsen.")]
+        [Range(0.02f, 1f)] public float landmarkBuildScale = 0.12f;
         // Streamed islands start with some history: a seeded share of prehistoryMax seconds is simulated in
         // Repopulate (the player's island should have this off).
         public bool prehistory = true;
@@ -146,6 +165,12 @@ namespace Drift.Life
         static readonly Color WindowHaloColor = new Color(1.05f, 0.62f, 0.2f);
         static readonly Color LampHaloColor = new Color(1.3f, 1.05f, 0.5f);
         static readonly Color FireHaloColor = new Color(1.2f, 0.45f, 0.1f);
+        static readonly Color LanternGlow = new Color(6.5f, 3.2f, 1.1f);
+        // Paper colours of the lanterns, in the order they hang round the festival ground.
+        static readonly Color[] LanternPaper =
+        {
+            new Color(1f, 0.72f, 0.3f), new Color(1f, 0.45f, 0.35f), new Color(1f, 0.86f, 0.5f), new Color(0.95f, 0.55f, 0.6f)
+        };
         static readonly Color FireGroundColor = new Color(0.3f, 0.12f, 0.03f);
         static readonly string[] StageNames = { "Unbesiedelt", "Lager", "Weiler", "Dorf", "Stadt" };
         static readonly int[] StageSettlers = { 0, 4, 8, 16, 24 };
@@ -178,6 +203,9 @@ namespace Drift.Life
             // although their homes are gone (until new homes hold them again).
             public float restT;
             public int keep;
+            // Holds nothing but a milestone landmark: no plan, no stage, no folk, and it does not keep a real
+            // village from being founded next to it.
+            public bool landmark;
         }
 
         class Building
@@ -189,6 +217,8 @@ namespace Drift.Life
             public float yaw, progress, baked, timer, burn, phase;
             public BuildingState state;
             public Village village;
+            // A milestone building: it goes up quickly and the island caps never take it away again.
+            public bool landmark;
         }
 
         class Settler
@@ -217,6 +247,10 @@ namespace Drift.Life
         float _celebrate, _sailAngle, _waveTimer, _matureCache, _matureTimer, _potential = -1f;
         bool _staticDirty, _staticBuilt, _staticFar;
         Vector2 _meet;
+        bool _festival;
+        // World position of every lit lantern plus its paper colour index in w; filled with the static mesh and
+        // read again by the glow mesh right after it.
+        readonly List<Vector4> _lanterns = new();
 
         GameObject _staticGo, _folkGo, _glowGo;
         MeshRenderer _staticRenderer, _folkRenderer, _glowRenderer;
@@ -234,6 +268,11 @@ namespace Drift.Life
         public int VillageCount => _villages.Count;
         public float FoundTimer => _foundTimer;
         public bool Celebrating => _celebrate > 0f;
+        // The evening festival is on: the folk dance round the lantern ring instead of going to bed.
+        public bool Festival => _festival;
+        public int FestivalsHeld { get; private set; }
+        public int LanternCount => _lanterns.Count;
+        public Vector2 FestivalGround => _meet;
         public int StaticVertexCount => _staticMesh != null ? _staticMesh.vertexCount : 0;
         public int FolkVertexCount => _folkMesh != null ? _folkMesh.vertexCount : 0;
         public int MeshVertexCount => StaticVertexCount + FolkVertexCount;
@@ -454,6 +493,8 @@ namespace Drift.Life
             _villages.Clear();
             _buildings.Clear();
             _settlers.Clear();
+            _lanterns.Clear();
+            _festival = false;
             _foundTimer = 0f;
             _celebrate = 0f;
             _potential = -1f;
@@ -551,9 +592,19 @@ namespace Drift.Life
 
         // ---------------------------------------------------------------- founding and placement
 
+        int RealVillageCount
+        {
+            get
+            {
+                int n = 0;
+                foreach (var v in _villages) if (!v.landmark) n++;
+                return n;
+            }
+        }
+
         bool TryFound()
         {
-            if (_villages.Count >= maxVillages) return false;
+            if (RealVillageCount >= maxVillages) return false;
             Rect b = _surface.LocalBounds;
             float best = float.MinValue;
             Vector2 site = default;
@@ -564,7 +615,7 @@ namespace Drift.Life
                 Vector2 p = new Vector2(b.xMin + Rand() * b.width, b.yMin + Rand() * b.height);
                 if (evaluated >= 12) break;
                 bool far = true;
-                foreach (var v in _villages) if ((v.center - p).sqrMagnitude < 36f) far = false;
+                foreach (var v in _villages) if (!v.landmark && (v.center - p).sqrMagnitude < 36f) far = false;
                 if (!far || !IsValidSite(p, r)) continue;
                 evaluated++;
                 int room = 0;
@@ -667,6 +718,62 @@ namespace Drift.Life
             if (!FindPlace(v, kind, out Vector2 pos, out float yaw)) return false;
             AddBuilding(v, kind, pos, yaw);
             return true;
+        }
+
+        // A milestone landmark (Leuchtturm, Hafen) on the player's island. It joins the village that is already
+        // there - a harbour belongs to its folk - and otherwise gets a village of its own that never grows, so
+        // it is placed on valid ground, saved, sunk and rebuilt exactly like every other building. True when one
+        // stands or is going up; the milestone director simply asks again later if the ground was not ready.
+        public bool TryBuildLandmark(BuildingKind kind)
+        {
+            if (!Bind()) return false;
+            if (CountOf(kind) > 0) return true;
+            Village host = null;
+            foreach (var v in _villages)
+            {
+                if (v.dormant || v.landmark) continue;
+                if (host == null || v.center.sqrMagnitude < host.center.sqrMagnitude) host = v;
+            }
+            if (host == null)
+                foreach (var v in _villages) if (v.landmark && !v.dormant) { host = v; break; }
+            if (host != null && StartBuilding(host, kind))
+            {
+                MarkLandmark(kind);
+                return true;
+            }
+            // A landmark village whose building sank with the ground has nothing left to hold: it goes, and the
+            // site is picked again. Without this the retry would add one empty village every time.
+            for (int i = _villages.Count - 1; i >= 0; i--)
+                if (_villages[i].landmark && CountIn(_villages[i]) == 0) _villages.RemoveAt(i);
+            Rect b = _surface.LocalBounds;
+            float r = 0.3f * buildingScale;
+            float best = float.MinValue;
+            Vector2 site = default;
+            for (int t = 0; t < 48; t++)
+            {
+                Vector2 p = new Vector2(b.xMin + Rand() * b.width, b.yMin + Rand() * b.height);
+                if (!IsValidSite(p, r)) continue;
+                float score = H(p) - p.magnitude * 0.02f;
+                if (score <= best) continue;
+                best = score;
+                site = p;
+            }
+            if (best == float.MinValue) return false;
+            var own = new Village { center = site, stage = SettlementStage.None, landmark = true };
+            _villages.Add(own);
+            if (!StartBuilding(own, kind))
+            {
+                _villages.Remove(own);
+                return false;
+            }
+            MarkLandmark(kind);
+            return true;
+        }
+
+        void MarkLandmark(BuildingKind kind)
+        {
+            for (int i = _buildings.Count - 1; i >= 0; i--)
+                if (_buildings[i].kind == kind) { _buildings[i].landmark = true; return; }
         }
 
         bool FindPlace(Village v, BuildingKind kind, out Vector2 pos, out float yaw)
@@ -814,9 +921,7 @@ namespace Drift.Life
             float area = _surface.LandArea;
             if (_villages.Count == 0)
             {
-                if (area < foundingArea || CachedMature(dt) < matureFraction) { _foundTimer = 0f; return; }
-                _foundTimer += dt;
-                if (_foundTimer >= foundingDelay && !TryFound()) _foundTimer = foundingDelay - 30f;
+                StepFounding(dt, area, CachedMature(dt));
                 return;
             }
 
@@ -828,7 +933,7 @@ namespace Drift.Life
                 {
                     case BuildingState.Site:
                     case BuildingState.Upgrading:
-                        b.progress += dt / Mathf.Max(1f, spec.buildTime * buildTimeScale);
+                        b.progress += dt / Mathf.Max(1f, spec.buildTime * buildTimeScale * (b.landmark ? landmarkBuildScale : 1f));
                         if (b.progress >= 1f)
                         {
                             b.progress = b.baked = 1f;
@@ -876,9 +981,12 @@ namespace Drift.Life
             }
 
             float mature = CachedMature(dt);
+            // A milestone landmark alone is no settlement: the folk still have to find the island themselves.
+            if (RealVillageCount == 0) StepFounding(dt, area, mature);
             for (int vi = _villages.Count - 1; vi >= 0; vi--)
             {
                 var v = _villages[vi];
+                if (v.landmark) continue;
                 v.age += dt;
                 v.stageAge += dt;
                 v.retry -= dt;
@@ -896,6 +1004,13 @@ namespace Drift.Life
                 if (k < 0) continue;
                 if (!StartBuilding(v, (BuildingKind)k)) v.blocked |= 1 << k;
             }
+        }
+
+        void StepFounding(float dt, float area, float mature)
+        {
+            if (area < foundingArea || mature < matureFraction) { _foundTimer = 0f; return; }
+            _foundTimer += dt;
+            if (_foundTimer >= foundingDelay && !TryFound()) _foundTimer = foundingDelay - 30f;
         }
 
         void TryAdvance(Village v, float area, float mature)
@@ -1128,6 +1243,7 @@ namespace Drift.Life
                 _growTimer = 0f;
             }
             if (_celebrate > 0f) _celebrate -= dt;
+            StepFestival(dt);
             if (_villages.Count == 0 && _buildings.Count == 0 && _settlers.Count == 0)
             {
                 if (_staticDirty && _staticBuilt) RebuildMeshes();
@@ -1164,6 +1280,101 @@ namespace Drift.Life
                 _folkTimer = 0f;
                 RebuildFolk();
             }
+        }
+
+        // ---------------------------------------------------------------- festival
+
+        // Once the milestone is reached the folk celebrate every evening: from dusk until deep night they dance
+        // round a ring of lanterns on the festival ground instead of going home. Keeping _celebrate topped up is
+        // what moves them (the same party the folk throw after a merge).
+        void StepFestival(float dt)
+        {
+            bool on = festivals && _settlers.Count > 0 && _night >= festivalStartNight && _night <= festivalEndNight
+                      && _surface.StormIntensity <= shelterStorm;
+            if (on != _festival)
+            {
+                _festival = on;
+                _staticDirty = true;
+                if (on)
+                {
+                    FestivalsHeld++;
+                    UpdateMeet();
+                }
+                else _lanterns.Clear();
+            }
+            if (_festival) _celebrate = Mathf.Max(_celebrate, 1f);
+        }
+
+        // Where the folk gather: the middle of the real villages, pulled onto standable ground.
+        void UpdateMeet()
+        {
+            Vector2 sum = Vector2.zero;
+            int n = 0;
+            foreach (var v in _villages) if (!v.landmark) { sum += v.center; n++; }
+            if (n == 0) return;
+            _meet = sum / n;
+            Vector2 fallback = _meet;
+            foreach (var v in _villages) if (!v.landmark) { fallback = v.center; break; }
+            for (int k = 0; k < 8 && !IsStandable(_meet); k++) _meet = Vector2.Lerp(_meet, fallback, 0.25f);
+        }
+
+        // Radius of the lantern ring: outside the dancing circle of the whole settlement.
+        float LanternRadius => (0.2f + 0.035f * Mathf.Max(6, _settlers.Count)) * buildingScale + lanternMargin * buildingScale;
+
+        // The poles with their lantern, plus two small lanterns on the line to the next pole. Only spots the
+        // ground carries get one, so the ring opens up where the island falls away.
+        void AddLanterns()
+        {
+            _lanterns.Clear();
+            int poles = Mathf.Clamp(lanternPoles, 4, 12);
+            float k = buildingScale, r = LanternRadius;
+            float top = SettlementMeshes.LanternPoleHeight;
+            Vector3 prev = default;
+            bool prevOk = false, firstOk = false;
+            Vector3 first = default;
+            for (int i = 0; i <= poles; i++)
+            {
+                bool wrap = i == poles;
+                int index = wrap ? 0 : i;
+                float a = index * Mathf.PI * 2f / poles;
+                Vector2 p = _meet + new Vector2(Mathf.Cos(a), Mathf.Sin(a)) * r;
+                bool ok = IsStandable(p);
+                Vector3 lamp = default;
+                if (ok)
+                {
+                    float g = GroundY(p);
+                    lamp = new Vector3(p.x, g + top * k, p.y);
+                    if (!wrap)
+                    {
+                        _batch.AddPlant(SettlementMeshes.LanternPole, new Vector3(p.x, g, p.y), a * Mathf.Rad2Deg, k, 0f, 0f, Color.white, default, 0f);
+                        AddLantern(lamp, index, 1f);
+                        if (!firstOk) { first = lamp; firstOk = true; }
+                    }
+                    else if (firstOk) lamp = first;
+                    else ok = false;
+                }
+                if (ok && prevOk)
+                    for (int s = 1; s <= 2; s++)
+                    {
+                        float t = s / 3f;
+                        Vector3 q = Vector3.Lerp(prev, lamp, t);
+                        // The line sags between the poles; a lantern that would hang in the ground is dropped.
+                        q.y -= Mathf.Sin(t * Mathf.PI) * 0.16f * k + 0.04f * k;
+                        Vector2 flat = new Vector2(q.x, q.z);
+                        if (!IsStandable(flat) || q.y < GroundY(flat) + 0.04f * k) continue;
+                        AddLantern(q, index * 2 + s, 0.72f);
+                    }
+                prev = lamp;
+                prevOk = ok;
+            }
+        }
+
+        void AddLantern(Vector3 pos, int index, float size)
+        {
+            Color paper = LanternPaper[((index % LanternPaper.Length) + LanternPaper.Length) % LanternPaper.Length];
+            float glow = 0.25f + 0.55f * Smooth(0.25f, 0.6f, _night);
+            _batch.AddPlant(SettlementMeshes.Lantern, pos, index * 47f, buildingScale * size, 0f, 0f, paper, LanternGlow, glow);
+            _lanterns.Add(new Vector4(pos.x, pos.y, pos.z, index % LanternPaper.Length));
         }
 
         // ---------------------------------------------------------------- settlers
@@ -1208,7 +1419,7 @@ namespace Drift.Life
                 foreach (var s in _settlers) if (s.village == v && !s.leaving) have++;
                 int cap = Capacity(vi);
                 if (cap >= v.keep) v.keep = 0;
-                int want = v.dormant ? 0 : Mathf.Max(cap, Mathf.Min(v.keep, maxSettlers));
+                int want = v.dormant || v.landmark ? 0 : Mathf.Max(cap, Mathf.Min(v.keep, maxSettlers));
                 while (have < want && total < maxSettlers)
                 {
                     Building home = FreeHome(v);
@@ -1420,13 +1631,8 @@ namespace Drift.Life
             bool waveCheck = false;
             _waveTimer -= dt;
             if (_waveTimer <= 0f) { _waveTimer = 0.5f; waveCheck = Tier == LifeTier.Near; }
-            if (party && _villages.Count > 0)
-            {
-                _meet = Vector2.zero;
-                foreach (var v in _villages) _meet += v.center;
-                _meet /= _villages.Count;
-                for (int k = 0; k < 8 && !IsStandable(_meet); k++) _meet = Vector2.Lerp(_meet, _villages[0].center, 0.25f);
-            }
+            // The lantern ring stands where the folk gather, so a festival keeps the ground it started on.
+            if (party && !_festival) UpdateMeet();
 
             for (int i = _settlers.Count - 1; i >= 0; i--)
             {
@@ -1691,6 +1897,7 @@ namespace Drift.Life
                 }
                 if (_staticFar && b.state == BuildingState.Done) AddProps(b, pos, true);
             }
+            if (_festival) AddLanterns(); else _lanterns.Clear();
             _batch.Apply(_staticMesh);
             RebuildGlow();
         }
@@ -1726,6 +1933,23 @@ namespace Drift.Life
                     _glow.AddHalo(new Vector3(b.pos.x, y, b.pos.y), radius, (lamp || b.kind == BuildingKind.Shrine ? LampHaloColor : WindowHaloColor) * g,
                         b.phase, 0f, 0f, 0.12f, -1f, lamp ? lampMinAngle : windowMinAngle);
                 }
+            // The lanterns carry their own light: they glow from dusk on, before the houses light up.
+            if (_lanterns.Count > 0)
+            {
+                var mat = IslandCrittersSystem.SharedGlowMaterial;
+                if (mat != null)
+                {
+                    material = mat;
+                    // Kept well below the campfire: a ring of two dozen halos at full colour washes out white.
+                    float lit = 0.22f + 0.38f * Smooth(0.2f, 0.55f, _night);
+                    for (int i = 0; i < _lanterns.Count; i++)
+                    {
+                        Vector4 l = _lanterns[i];
+                        Color paper = LanternPaper[(int)l.w % LanternPaper.Length];
+                        _glow.AddHalo(new Vector3(l.x, l.y, l.z), 0.16f * buildingScale, paper * lit, i * 0.7f, 0f, 0f, 0.2f, -1f, windowMinAngle);
+                    }
+                }
+            }
             if (_glow.VertexCount == 0 && _glowMesh == null && !HasChild(GlowName)) return;
             EnsureObject(GlowName, ref _glowGo, ref _glowRenderer, ref _glowMesh, material != null ? material : IslandCrittersSystem.SharedGlowMaterial);
             _glow.Apply(_glowMesh, 1.5f);
@@ -1906,7 +2130,7 @@ namespace Drift.Life
                 {
                     var b = _buildings[i];
                     var spec = SettlementMeshes.Spec(b.kind);
-                    if (b.state == BuildingState.Sinking || b.kind == BuildingKind.Campfire) continue;
+                    if (b.state == BuildingState.Sinking || b.kind == BuildingKind.Campfire || b.landmark) continue;
                     // Unfinished work and tents go first, finished houses only if that was not enough.
                     if (pass == 0 && !spec.plot && b.state == BuildingState.Done && b.kind != BuildingKind.Tent) continue;
                     if (spec.plot ? plots <= maxPlots : structures <= maxStructures) continue;
@@ -1931,7 +2155,7 @@ namespace Drift.Life
             int nv = _villages.Count, nb = _buildings.Count;
             var d = new SettlementSaveData
             {
-                vStage = new int[nv], v = new float[nv * SettlementSaveData.VillageStride],
+                vStage = new int[nv], vLandmark = new int[nv], v = new float[nv * SettlementSaveData.VillageStride],
                 bKind = new int[nb], bVariant = new int[nb], bState = new int[nb], bVillage = new int[nb], bFrom = new int[nb],
                 b = new float[nb * SettlementSaveData.BuildingStride], foundTimer = _foundTimer, settlers = _settlers.Count,
                 scale = buildingScale
@@ -1941,6 +2165,7 @@ namespace Drift.Life
                 var v = _villages[i];
                 int o = i * SettlementSaveData.VillageStride;
                 d.vStage[i] = (int)v.stage;
+                d.vLandmark[i] = v.landmark ? 1 : 0;
                 d.v[o] = v.center.x; d.v[o + 1] = v.center.y; d.v[o + 2] = v.age; d.v[o + 3] = v.stageAge;
             }
             for (int i = 0; i < nb; i++)
@@ -1971,9 +2196,13 @@ namespace Drift.Life
                 for (int i = 0; i < nv; i++)
                 {
                     int o = i * SettlementSaveData.VillageStride;
+                    bool landmark = d.vLandmark != null && i < d.vLandmark.Length && d.vLandmark[i] != 0;
                     _villages.Add(new Village
                     {
-                        stage = (SettlementStage)Mathf.Clamp(d.vStage[i], 1, 4),
+                        // Only a landmark village may stand at stage None; an older file without a stage
+                        // describes a real village, which is at least a camp.
+                        stage = (SettlementStage)Mathf.Clamp(d.vStage[i], landmark ? 0 : 1, 4),
+                        landmark = landmark,
                         center = new Vector2(d.v[o], d.v[o + 1]), age = d.v[o + 2], stageAge = d.v[o + 3]
                     });
                 }
@@ -1993,6 +2222,9 @@ namespace Drift.Life
                         phase = Rand(0f, 6.28f)
                     };
                     b.baked = b.progress;
+                    // A building alone in a landmark village is the milestone landmark; one that joined a real
+                    // village is simply one of its buildings again.
+                    b.landmark = b.village.landmark;
                     if (b.state == BuildingState.Upgrading && b.from < 0) b.state = BuildingState.Site;
                     _buildings.Add(b);
                 }
