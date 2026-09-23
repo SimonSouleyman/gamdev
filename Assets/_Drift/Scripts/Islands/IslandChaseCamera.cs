@@ -169,6 +169,12 @@ namespace Drift.Islands
         public float SteerYawDeg => ViewIsFixed ? _steerYaw : transform.eulerAngles.y;
         // Set every frame by whoever feeds the direction (SessionScreens): true while a direction is given.
         public bool SteerHeld { get; set; }
+        // Set every frame by SessionScreens: true while the tilt steers. A phone is never "let go" the way a stick
+        // is, so the frozen steering frame and a view swinging onto the course drifted apart: the same tilt then
+        // pointed somewhere else on the screen and the view turned like a boat's (owner, phone test v0.6.2: "als ob
+        // die Insel erst noch drehen muss"). Held, the view keeps its compass direction and every screen direction
+        // stays where it is.
+        public bool HoldCourse { get; set; }
         // courseFollow 1 settles the view in about a second.
         public float CourseResponse => 3f * Mathf.Max(0f, courseFollow);
         // The speed feel this camera is showing, for tests and for anyone who wants to match it.
@@ -312,6 +318,7 @@ namespace Drift.Islands
             _hasPose = false;
             _viewYaw = _steerYaw = viewYawDeg;
             SteerHeld = false;
+            HoldCourse = false;
             LifeLod.DistanceProvider = PlanarDistance;
             LifeEnvironment.ViewDistanceProvider = ViewDistance;
             LifeEnvironment.PointOfInterest = NearestOtherIsland;
@@ -481,6 +488,16 @@ namespace Drift.Islands
         public static float SteerYaw(float steerYaw, float viewYaw, bool held, float dt) =>
             held ? steerYaw : FollowYaw(steerYaw, viewYaw, SteerCatchUp, 720f, dt);
 
+        // One frame of the course follow: the view swings onto the travel, the steering frame stays frozen while a
+        // direction is held. holdCourse (the tilt) keeps the view where it is; the frame then simply is the view.
+        public static void StepYaws(ref float viewYaw, ref float steerYaw, Vector2 velocity, bool held, bool holdCourse,
+            float minSpeed, float response, float maxDegPerSecond, float dt)
+        {
+            if (!holdCourse && CourseYaw(velocity, minSpeed, out float course))
+                viewYaw = FollowYaw(viewYaw, course, response, maxDegPerSecond, dt);
+            steerYaw = SteerYaw(steerYaw, viewYaw, held && !holdCourse, dt);
+        }
+
         void StepViewYaw(float dt)
         {
             // In the Editor the slider IS the view: nothing is driving, so nothing would ever pull the yaw back.
@@ -489,9 +506,7 @@ namespace Drift.Islands
                 _viewYaw = _steerYaw = viewYawDeg;
                 return;
             }
-            if (CourseYaw(target.SelfVelocity, courseMinSpeed, out float course))
-                _viewYaw = FollowYaw(_viewYaw, course, CourseResponse, courseTurnMax, dt);
-            _steerYaw = SteerYaw(_steerYaw, _viewYaw, SteerHeld, dt);
+            StepYaws(ref _viewYaw, ref _steerYaw, target.SelfVelocity, SteerHeld, HoldCourse, courseMinSpeed, CourseResponse, courseTurnMax, dt);
         }
 
         void StepFeel(float dt)

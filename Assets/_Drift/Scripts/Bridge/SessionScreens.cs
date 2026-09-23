@@ -426,7 +426,13 @@ namespace Drift.Bridge
             // The fly-over over the finished Pangäa: the island is locked, so the same stick, keys and tilt fly
             // the camera instead, a drag looks around and the pinch changes the height.
             bool flyOver = session.PangaeaFreeLook && !photo && !journal && !album && !(watch != null && watch.Following);
-            if (chaseCamera != null) chaseCamera.SteerHeld = !flyOver && Time.frameCount - _steerFrame <= 1;
+            if (chaseCamera != null)
+            {
+                chaseCamera.SteerHeld = !flyOver && Time.frameCount - _steerFrame <= 1;
+                // The tilt keeps the view still: with a phone that is never quite let go, a view that swings onto the
+                // course moves the screen directions away under the hand that is holding one.
+                chaseCamera.HoldCourse = tilt != null && tilt.Active;
+            }
 
             if (touch != null)
             {
@@ -636,7 +642,7 @@ namespace Drift.Bridge
             if (_pauseButton != null) _pauseButton.SetActive(pauseButton);
         }
 
-        // Abenteuer scores the distance and waits for "Nochmal" / "Zum Titel"; the cozy path (no longer reachable in
+        // Abenteuer scores the distance and waits for "Nochmal" / "Home"; the cozy path (no longer reachable in
         // normal play) keeps its stats and the automatic new island. Called every frame of the screen: the texts are
         // only rebuilt when something they show has changed.
         void FillGameOver(SessionStats st, float countdown, GameMode mode, BestDistances.Result result)
@@ -969,7 +975,7 @@ namespace Drift.Bridge
             Primary(panel, "Resume", "Fortsetzen", -244f, () => session?.Resume());
             var wide = new Vector2(ButtonWidth, UiStyle.ButtonHeight);
             _pauseRestartLabel = UiStyle.LabelOf(Secondary(panel, "Restart", ModeTexts.RestartLabel(GameMode.Cozy), new Vector2(0f, -408f), wide, OnRestartPressed));
-            UiStyle.ButtonIcon(Secondary(panel, "Title", "Zum Titel", new Vector2(0f, -572f), wide, () => session?.ReturnToTitle()), UiIcon.Home);
+            UiStyle.ButtonIcon(Secondary(panel, "Title", PangaeaFinale.HomeLabel, new Vector2(0f, -572f), wide, () => session?.ReturnToTitle()), UiIcon.Home);
             // The smaller extras: three rows of 116 at a 132 step below the three big buttons. Watching,
             // photographing and the species journal are the cozy game, so the adventure menu simply leaves them
             // out (WatchTools refuses them there) and the rest closes the gap.
@@ -1028,7 +1034,7 @@ namespace Drift.Bridge
             var half = new Vector2(328f, UiStyle.ButtonHeight);
             var again = UiStyle.PrimaryButton(row, "Again", "Nochmal", half, () => session?.StartNewGame(GameMode.Adventure));
             ((RectTransform)again.transform).TopCenter(new Vector2(-176f, 0f), half);
-            UiStyle.ButtonIcon(Secondary(row, "Title", "Zum Titel", new Vector2(176f, 0f), half, () => session?.ReturnToTitle()), UiIcon.Home);
+            UiStyle.ButtonIcon(Secondary(row, "Title", PangaeaFinale.HomeLabel, new Vector2(176f, 0f), half, () => session?.ReturnToTitle()), UiIcon.Home);
             _recordText.gameObject.SetActive(false);
             _overAdventureRow.SetActive(false);
             _overMode = GameMode.Cozy;

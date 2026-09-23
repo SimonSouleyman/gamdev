@@ -4,11 +4,10 @@ namespace Drift.Islands
 {
     // The camera the player flies over their finished Pangäa. Once the last island is merged the island itself
     // stops taking any steering (GameSession locks it and PangaeaFinale pins it) and this drives the main camera
-    // instead: the stick, W/A/S/D and the tilt slide the view across the island, a drag looks around it, pinch
-    // and Q/E change the height.
-    // What the input really moves is the FOCUS - the spot on the island the camera looks at - and the camera is
-    // placed above and behind it. So whatever the player does, the island stays in the middle of the screen
-    // instead of being left behind, and the bounds only have to keep the focus near the coast.
+    // instead: a free flight. The stick, W/A/S/D and the tilt fly the CAMERA across the island (up the screen is
+    // straight ahead), a drag turns the view where the camera stands, pinch and Q/E change the flying height.
+    // The first version moved a focus point and kept the camera behind it: a drag then orbited that point, which at
+    // the start is the middle of the island - on the phone it felt nailed to the island centre (owner, v0.6.2).
     // A plain class, not a component: PangaeaFinale owns one, drives it from its own LateUpdate and hands the
     // camera back to IslandChaseCamera when the free look ends.
     public sealed class FlyOverCamera
@@ -17,70 +16,74 @@ namespace Drift.Islands
         {
             // Screen direction of the stick / keys / tilt, length 0..1.
             public Vector2 move;
-            // Drag since the last frame, in pixels. The view follows the finger: dragging right swings the view
-            // round to the left, dragging up lifts it towards the horizon.
+            // Drag since the last frame, in pixels. Dragging right swings the view round to the left (the finger
+            // pulls the world along), dragging up lifts it towards the horizon.
             public Vector2 look;
-            // Pinch / scroll / Q-E as a factor on the height (> 1 = further away), 0 = untouched.
+            // Pinch / scroll / Q-E as a factor on the height (> 1 = higher), 0 = untouched.
             public float zoomFactor;
         }
 
         [System.Serializable]
         public class Settings
         {
-            [Tooltip("Wie schnell der Blick über die Insel gleitet (Einheiten pro Sekunde in halber Höhe).")]
-            [Range(2f, 40f)] public float moveSpeed = 11f;
+            [Tooltip("Fluggeschwindigkeit (Einheiten pro Sekunde) in der Bezugshöhe; höher oben fliegt die Kamera entsprechend schneller, damit das Bild gleich schnell vorbeizieht.")]
+            [Range(2f, 40f)] public float moveSpeed = 12f;
+            [Tooltip("Bezugshöhe für die Fluggeschwindigkeit.")]
+            [Range(4f, 60f)] public float speedHeight = 15f;
             [Tooltip("Wie träge die Bewegung anfährt und ausrollt (klein = sehr sanft).")]
-            [Range(0.5f, 8f)] public float moveResponse = 2.4f;
+            [Range(0.5f, 8f)] public float moveResponse = 3f;
             [Tooltip("Wie weit ein Ziehen über den Bildschirm dreht (Grad pro Pixel).")]
-            [Range(0.02f, 0.6f)] public float lookDegPerPixel = 0.13f;
+            [Range(0.02f, 0.6f)] public float lookDegPerPixel = 0.12f;
             [Tooltip("Wie träge der Blick dem Ziehen folgt.")]
-            [Range(1f, 20f)] public float lookResponse = 9f;
-            [Tooltip("Flachster Blickwinkel nach unten (Grad): kleiner = die Kamera steht weiter hinten.")]
-            [Range(10f, 45f)] public float minPitch = 25f;
-            [Tooltip("Steilster Blickwinkel nach unten (Grad): 90 wäre senkrecht von oben.")]
-            [Range(45f, 85f)] public float maxPitch = 78f;
-            [Tooltip("Geringste Flughöhe über der Insel.")]
-            [Range(2f, 30f)] public float minHeight = 6f;
-            [Tooltip("Größte Flughöhe: mindestens so hoch, sonst gut zwei Inselradien (eine große Pangäa passt also ganz ins Bild).")]
-            [Range(20f, 400f)] public float maxHeight = 45f;
-            [Tooltip("Wie weit der Blick über die Küste hinausgleiten darf (Vielfaches des Inselradius).")]
-            [Range(1f, 3f)] public float reachFactor = 1.15f;
+            [Range(1f, 20f)] public float lookResponse = 12f;
+            [Tooltip("Flachster Blick nach unten (Grad): klein = fast bis zum Horizont.")]
+            [Range(0f, 45f)] public float minPitch = 8f;
+            [Tooltip("Steilster Blick nach unten (Grad): 90 wäre senkrecht von oben.")]
+            [Range(45f, 89f)] public float maxPitch = 85f;
+            [Tooltip("Geringste Flughöhe über dem Meer (über Bergen bleibt die Kamera immer darüber).")]
+            [Range(1f, 30f)] public float minHeight = 3f;
+            [Tooltip("Größte Flughöhe: mindestens so hoch, sonst zweieinhalb Inselradien (eine große Pangäa passt also ganz ins Bild).")]
+            [Range(20f, 400f)] public float maxHeight = 60f;
+            [Tooltip("Wie weit die Kamera über die Insel hinaus fliegen darf (Vielfaches des Inselradius, vom Inselmittelpunkt aus).")]
+            [Range(1f, 3f)] public float reach = 1.25f;
             [Tooltip("Zusätzlicher Spielraum über die Küste hinaus (Einheiten).")]
-            [Range(0f, 60f)] public float reachPad = 10f;
+            [Range(0f, 100f)] public float reachMargin = 30f;
             [Tooltip("Mindestabstand der Kamera über dem Boden.")]
-            [Range(0.5f, 10f)] public float clearance = 2.5f;
+            [Range(0.5f, 10f)] public float clearance = 2f;
         }
 
         // Replaced by PangaeaFinale with its own serialized instance, so the sliders live in the inspector.
         public Settings settings = new Settings();
 
-        Vector2 _focus, _vel;
-        float _height, _yaw, _pitch, _yawTarget, _pitchTarget;
+        Vector2 _pos, _vel;
+        float _height, _yaw, _pitch, _yawTarget, _pitchTarget, _floor;
+        bool _hasFloor;
 
         public Vector3 Position { get; private set; }
         public Quaternion Rotation { get; private set; }
+        // Where the view meets sea level (what the vegetation calms its wind by).
         public Vector3 LookPoint { get; private set; }
+        // Flying height above sea level, the value pinch changes.
         public float Height => _height;
         public float Yaw => _yaw;
         public float Pitch => _pitch;
-        // The spot on the island the camera looks at - this is what the stick moves.
-        public Vector2 Focus => _focus;
-        public Vector2 PlanarPosition => new Vector2(Position.x, Position.z);
+        // Where the camera itself is over the map - this is what the stick moves.
+        public Vector2 PlanarPosition => _pos;
 
-        // Takes over exactly where the chase camera stands, so the hand-over is not a cut: same height, same
-        // direction, and the focus is where that view already meets the ground.
+        // Takes over exactly where the chase camera stands, so the hand-over is not a cut.
         public void Reset(Vector3 camPos, Quaternion camRot, float groundY)
         {
             Vector3 f = camRot * Vector3.forward;
+            _pos = new Vector2(camPos.x, camPos.z);
             _height = Mathf.Max(settings.minHeight, camPos.y - groundY);
             _yaw = _yawTarget = Mathf.Atan2(f.x, f.z) * Mathf.Rad2Deg;
             float pitch = -Mathf.Asin(Mathf.Clamp(f.y, -1f, 1f)) * Mathf.Rad2Deg;
             _pitch = _pitchTarget = Mathf.Clamp(pitch, settings.minPitch, settings.maxPitch);
-            _focus = new Vector2(camPos.x, camPos.z) + Forward(_yaw) * Distance(_height, _pitch);
             _vel = Vector2.zero;
+            _hasFloor = false;
             Position = camPos;
             Rotation = camRot;
-            LookPoint = new Vector3(_focus.x, groundY, _focus.y);
+            LookPoint = camPos + f * Distance(camPos.y - groundY, _pitch);
         }
 
         // island is the finished Pangäa: its centre and radius give the bounds, its heightfield the floor.
@@ -101,25 +104,22 @@ namespace Drift.Islands
             _pitch = Mathf.Lerp(_pitch, _pitchTarget, Step01(settings.lookResponse, dt));
 
             Vector2 want = Screen2World(Vector2.ClampMagnitude(input.move, 1f), _yaw) *
-                           SpeedAt(_height, settings.minHeight, top, settings.moveSpeed);
+                           SpeedAt(_height, settings.speedHeight, settings.moveSpeed);
             _vel = Vector2.Lerp(_vel, want, Step01(settings.moveResponse, dt));
-            _focus += _vel * dt;
-            _focus = ClampToReach(_focus, centre, Reach(radius, settings.reachFactor, settings.reachPad));
+            _pos = ClampToReach(_pos + _vel * dt, centre, Reach(radius, settings.reach, settings.reachMargin));
 
-            // The focus sits on the land (sea level over water), so flying over a mountain keeps it centred.
-            float surface = island != null ? Mathf.Max(0f, island.SampleHeight(island.ToLocal(_focus))) : 0f;
-            var look = new Vector3(_focus.x, groundY + surface, _focus.y);
-            Vector2 back = _focus - Forward(_yaw) * Distance(_height, _pitch);
-            var pos = new Vector3(back.x, groundY + surface + _height, back.y);
-            // Never inside the hill the camera is flying over.
-            if (island != null)
-            {
-                float need = IslandChaseCamera.RequiredHeight(island, pos, look, settings.clearance, 0f);
-                if (need > float.MinValue && pos.y < need) pos.y = need;
-            }
+            // Never inside the hill below: the floor rises at once and sinks back gently, so a ridge passing
+            // underneath lifts the view instead of cutting through it.
+            float ground = island != null ? Mathf.Max(0f, island.SampleHeight(island.ToLocal(_pos))) : 0f;
+            float floor = groundY + ground + settings.clearance;
+            _floor = !_hasFloor || floor > _floor ? floor : Mathf.Lerp(_floor, floor, Step01(1.5f, dt));
+            _hasFloor = true;
+
+            var pos = new Vector3(_pos.x, Mathf.Max(groundY + _height, _floor), _pos.y);
+            var rot = Quaternion.Euler(_pitch, _yaw, 0f);
             Position = pos;
-            LookPoint = look;
-            Rotation = Quaternion.LookRotation((look - pos).normalized, Vector3.up);
+            Rotation = rot;
+            LookPoint = pos + rot * Vector3.forward * Distance(pos.y - groundY, _pitch);
         }
 
         // ---------------------------------------------------------------- pure helpers
@@ -135,7 +135,7 @@ namespace Drift.Islands
             return new Vector2(Mathf.Sin(rad), Mathf.Cos(rad));
         }
 
-        // A screen direction through the camera's own yaw: up the screen is away from the camera.
+        // A screen direction through the camera's own yaw: up the screen is straight ahead.
         public static Vector2 Screen2World(Vector2 screen, float yawDeg)
         {
             Vector2 f = Forward(yawDeg);
@@ -143,22 +143,19 @@ namespace Drift.Islands
             return r * screen.x + f * screen.y;
         }
 
-        // How far behind the focus the camera sits for a given height and downward pitch.
+        // How far along the view the sea is for a given height and downward pitch.
         public static float Distance(float height, float pitchDeg) =>
-            Mathf.Max(0f, height) / Mathf.Tan(Mathf.Clamp(pitchDeg, 5f, 89f) * Mathf.Deg2Rad);
+            Mathf.Max(0f, height) / Mathf.Sin(Mathf.Clamp(pitchDeg, 5f, 90f) * Mathf.Deg2Rad);
 
-        // High up the island slides by slowly, so the fly-over speeds up with the height.
-        public static float SpeedAt(float height, float minHeight, float maxHeight, float speed)
-        {
-            float t = Mathf.InverseLerp(minHeight, Mathf.Max(minHeight + 1f, maxHeight), height);
-            return speed * Mathf.Lerp(0.45f, 1.6f, t);
-        }
+        // The picture slides by at the same pace at any height: the speed grows with the height.
+        public static float SpeedAt(float height, float speedHeight, float speed) =>
+            speed * Mathf.Clamp(height / Mathf.Max(1f, speedHeight), 0.4f, 8f);
 
-        public static float MaxHeight(float radius, float floor) => Mathf.Max(floor, 2.2f * Mathf.Max(0f, radius));
+        public static float MaxHeight(float radius, float floor) => Mathf.Max(floor, 2.5f * Mathf.Max(0f, radius));
 
         public static float Reach(float radius, float factor, float pad) => Mathf.Max(0f, radius) * Mathf.Max(1f, factor) + Mathf.Max(0f, pad);
 
-        // Stay over the island: past the reach the view simply stops sliding, it is never pushed back.
+        // Stay near the island: past the reach the camera simply stops, it is never pushed back.
         public static Vector2 ClampToReach(Vector2 pos, Vector2 centre, float reach)
         {
             Vector2 d = pos - centre;

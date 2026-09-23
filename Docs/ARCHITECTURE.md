@@ -680,7 +680,7 @@ Start → `StartNewGame(seed)`. On the first title frame a readable save is load
 preview shows the island "Weiter" continues; no second load) or a random seed is applied
 (`randomSeedOnFirstTitle`). `Bridge.IslandPreview` renders the player island top-down into a 512² RT
 with a throttled second Base camera (enabled only on render frames), shown on the title (4 fps) and
-game over (once). Pause has "Zum Titel" (saves) and "Beenden" only off-mobile.
+game over (once). Pause has "Home" (back to the title, saves; labelled "Zum Titel" before v0.6.3) and "Beenden" only off-mobile.
 `IslandChaseCamera.SnapToTarget()` jumps the camera after loads/resets.
 Backgrounding auto-pauses: `GameSession.OnApplicationPause(true)` (device) and `OnApplicationFocus(false)`
 (Editor/desktop only) save via `SaveManager.Save()` and then `SessionModel.EnterBackground()` (= `Pause()`,
@@ -1042,7 +1042,7 @@ line „Fremde Art von tropischen Inseln" (`WatchTools.OriginLine` ← `Collecti
 that makes the card 40 units higher and slides the follow button down (`LayoutPopup`, `PopupOrigin`);
 critters: „Lebt am Strand" + what it is doing, no follow button, shorter card) re-places itself above the
 creature every frame (below it while following, so it stays clear of the return button), clamps to the safe area,
-refreshes its text only when state/size/young changed, fades over `popupFadeSeconds` after `popupSeconds` 4 and is
+refreshes its text only when state/size/young changed, fades over `popupFadeSeconds` after `popupShowSeconds` 7 (4 before v0.6.3) and is
 validated each frame. Only its „Herde folgen" button takes raycasts, so an animal half under the card can be tapped; a
 miss closes it.
 *Orbit camera (2026-09-20, owner: "the photo camera pulls away from the island; let me rotate around the herd with
@@ -2087,3 +2087,24 @@ Structural rules that new content has to follow:
 - Cozy plates: `PlateSystem.cellSize` 102, `gridPeriod` 3 (3x3 plates in the 306 u world). Islands feel
   `CarryVelocity` = `interiorCurrentShare` of the plate motion, capped at `interiorCurrentCap` x their top speed;
   boundaries get `cozySurfBoost`. The ring keeps the full carry.
+
+
+## v0.6.3 additions (2026-09-24)
+
+- **Screen stays awake**: `PlatformSetup` sets `Screen.sleepTimeout = NeverSleep` on mobile (tilt/watching never touch the screen).
+- **Chase camera hand-over**: `PangaeaFinale.HandOffChase/HandBackChase` record and restore the chase camera's enabled state;
+  `GameSession.SnapCamera()` re-enables a disabled chase camera outside the finale. (The finale used to leave it off, so every
+  later run had a frozen camera.)
+- **Tilt keeps the view still**: `IslandChaseCamera.HoldCourse` (set by `SessionScreens` while the tilt steers) suspends the cozy
+  course swing, so a physical tilt always names the same screen direction (`StepYaws`).
+- **Pangäa free flight**: `FlyOverCamera` moves the camera itself (stick/tilt/WASD fly, drag turns the view in place, pinch/Q-E
+  height 3..max(60, 2.5 r), reach 1.25 r + 30); settings live in `PangaeaFinale.freeFlight`.
+- **Milestones are watchable**: `MilestoneToasts` toasts are tappable while their landmark exists (lighthouse, harbour jetty,
+  seabird flock, festival ground/village) and open `WatchTools` with a still-subject framing (`stillPitch`, `stillFill`, slow orbit).
+- **Notices +3 s**: news 7 s, first sightings / "weitergezogen" 5.6 s, animal card 7 s, milestone toast 8.5 s.
+- **TapSparkles** (`Bridge/TapSparkles.cs`, on SessionUI): every ~3.5 s a screen-space star glint on one tappable subject in view
+  (per-subject cooldown 12 s); shares the tap candidate list with `WatchSubjects`, which now also covers flocks, dolphins,
+  turtles, rays, surfaced whales and nearby lighthouses/docks.
+- **Adventure**: every ring boundary always surfs at full strength (`ringCalmSurf` removed; push = surfSpeed * ringSurfBoost +
+  surfPlateGain * ringSlideFull); `RingWorld.sinkSpeed` 1.15 on top of the level scaling; flotsam lines use
+  `trackLineStep` 7 and `trackScatter` 2.5 (lateral and ±30 % along-line jitter).

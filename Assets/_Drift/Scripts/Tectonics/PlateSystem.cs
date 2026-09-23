@@ -142,9 +142,7 @@ namespace Drift.Tectonics
         [Range(0f, 8f)] public float ringFlowSpeed = 2.2f;
         [Tooltip("Sekunden, in denen die Strömung einer Spur einmal wechselt.")]
         [Range(5f, 300f)] public float ringFlowPeriod = 45f;
-        [Tooltip("Surf-Schub an einer ruhigen Grenze (beide Spuren gleich schnell), Anteil des vollen Schubs.")]
-        [Range(0f, 1f)] public float ringCalmSurf = 0.45f;
-        [Tooltip("Ab diesem Gleittempo (u/s) der beiden Spuren gibt eine Grenze den vollen Surf-Schub.")]
+        [Tooltip("Gleittempo (u/s) der beiden Spuren, mit dem jede Grenze im Abenteuer rechnet: jede Grenze schiebt immer gleich stark, egal wie schnell ihre Spuren gerade aneinander vorbeigleiten.")]
         [Range(0.2f, 8f)] public float ringSlideFull = 2.5f;
 
         [Header("Abenteuer-Fahrt (Surfspuren)")]
@@ -556,22 +554,16 @@ namespace Drift.Tectonics
             float d = toSeam.magnitude;
             float x = d / width;
             float falloff = 1f - x * x;
-            float kind = b.kind == BoundaryKind.Transform ? 1f : surfOtherKinds;
+            float kind = _ring || b.kind == BoundaryKind.Transform ? 1f : surfOtherKinds;
             strength = Mathf.Clamp01(align * falloff * kind * Mathf.Clamp01(drive));
             if (strength <= 0f) return Vector2.zero;
             float slide = Mathf.Abs(Vector2.Dot(b.a.velocity - b.b.velocity, tan));
-            // In the ring a lane boundary only carries while the two lanes really slide past each other: where their
-            // currents have come together the lanes have merged and the line is worth little.
-            float push = _ring ? surfSpeed * ringSurfBoost * Mathf.Lerp(ringCalmSurf, 1f, SlideShare(slide)) : surfSpeed * cozySurfBoost;
-            Vector2 along = tan * (Mathf.Sign(cos) * (push + surfPlateGain * slide));
+            // Every ring boundary always carries in full (owner, v0.6.3: "die Plattengrenzen sollen immer Boost geben
+            // und nicht abwechselnd"). It used to scale with how fast its two lanes slid past each other, so a line
+            // went weak whenever the lane currents met - it felt like the boundaries took turns.
+            float push = _ring ? surfSpeed * ringSurfBoost + surfPlateGain * ringSlideFull : surfSpeed * cozySurfBoost + surfPlateGain * slide;
+            Vector2 along = tan * (Mathf.Sign(cos) * push);
             return (along + toSeam * surfPull) * strength;
-        }
-
-        // 0..1: how far the two lanes of a ring seam are sliding past each other (ringSlideFull = fully).
-        public float SlideShare(float slide)
-        {
-            float x = Mathf.Clamp01(slide / Mathf.Max(0.05f, ringSlideFull));
-            return x * x * (3f - 2f * x);
         }
 
         public float ConvergenceAt(Vector2 pos)
@@ -921,8 +913,6 @@ namespace Drift.Tectonics
 
             float strength = Mathf.Clamp01((pa.velocity - pb.velocity).magnitude / 3f);
             float hw = seamWidth * 0.5f * (0.85f + 0.15f * strength);
-            // A ring lane that has come to rest beside its neighbour draws a thin line: the two have merged.
-            if (_ring) hw *= Mathf.Lerp(0.4f, 1f, SlideShare((pa.velocity - pb.velocity).magnitude));
             hw *= Mathf.Lerp(0.4f, 1f, Mathf.Clamp01(b.length / (3f * hw)));
             float closing = b.closing / Mathf.Max(transformThreshold, 0.01f);
 

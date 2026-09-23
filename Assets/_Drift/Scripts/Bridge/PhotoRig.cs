@@ -41,6 +41,8 @@ namespace Drift.Bridge
         public float yaw, pitch = 45f, distance = 12f;
         public Vector2 offset;
         public float height;
+        // Raises the pivot above the eased ground height: a watched building is aimed at part way up, not at its foot.
+        public float pivotLift;
         public float yawTarget, pitchTarget = 45f, distanceTarget = 12f;
         public Vector2 offsetTarget;
         public float homeYaw, homePitch = 45f, homeDistance = 12f;
@@ -167,7 +169,7 @@ namespace Drift.Bridge
 
         public Vector2 PivotPlanar(Vector3 subject) => new Vector2(subject.x + offset.x, subject.z + offset.y);
 
-        public Vector3 Pivot(Vector3 subject) => new Vector3(subject.x + offset.x, height, subject.z + offset.y);
+        public Vector3 Pivot(Vector3 subject) => new Vector3(subject.x + offset.x, height + pivotLift, subject.z + offset.y);
 
         public void Pose(Vector3 subject, out Vector3 position, out Quaternion rotation)
         {
@@ -196,6 +198,14 @@ namespace Drift.Bridge
             float fit = Mathf.Max(0f, radius) / (Mathf.Clamp(fill, 0.05f, 1f) * t);
             if (body <= 0f || minBodyPixels <= 0f) return fit;
             return Mathf.Min(fit, body * 540f / (t * minBodyPixels));
+        }
+
+        // Degrees per second a still subject (a lighthouse, the harbour) is circled: nothing while the player moved
+        // the camera less than `delay` seconds ago, then easing up to `degPerSecond` over `rampSeconds`.
+        public static float StillOrbitRate(float idleSeconds, float delay, float rampSeconds, float degPerSecond)
+        {
+            float t = (idleSeconds - Mathf.Max(0f, delay)) / Mathf.Max(0.01f, rampSeconds);
+            return t <= 0f ? 0f : degPerSecond * Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(t));
         }
 
         // How many degrees the camera tilts up from looking straight at the pivot so the pivot is drawn at

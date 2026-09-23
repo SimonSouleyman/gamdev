@@ -27,6 +27,13 @@ namespace Drift.Bridge
         // The critter the watch popup names, when the subject is one (the kind comes from the system).
         public IslandCrittersSystem critters;
         public int critter = -1;
+        // Something that stands still (a lighthouse, the harbour, the festival ground): WatchTools frames it from a
+        // lower angle, circles it slowly while the player does not touch the camera and rings its base for a while.
+        public bool still;
+        // How far above the focus (its base on the ground) the camera aims - half a lighthouse, not its doorstep.
+        public float lift;
+        // The notice when it is gone; null = "<label> ist weitergezogen".
+        public string gone;
     }
 
     // Finds the nearest live example of a journal entry around a point: herds, plants and critters on the loaded
@@ -331,8 +338,14 @@ namespace Drift.Bridge
                 bestD = d;
                 best = i;
             }
-            if (best < 0) return null;
-            int index = best;
+            return best < 0 ? null : OfSeaGroup(e, sea, best, radius);
+        }
+
+        public static WatchSubject OfSeaGroup(CollectEntry e, SeaLifeSystem sea, int slot, float radius)
+        {
+            if (sea == null || slot < 0 || slot >= sea.GroupSlots || !sea.GroupActive(slot)) return null;
+            int index = slot;
+            var kind = sea.GroupKind(slot);
             return new WatchSubject
             {
                 label = e.name,
@@ -346,6 +359,194 @@ namespace Drift.Bridge
                     return true;
                 },
             };
+        }
+
+        // A sea group tapped in the water: its journal entry (a lone whale is the Walbulle) and framing radius.
+        public static WatchSubject OfSeaGroup(SeaLifeSystem sea, int slot)
+        {
+            if (sea == null || slot < 0 || slot >= sea.GroupSlots || !sea.GroupActive(slot)) return null;
+            var kind = sea.GroupKind(slot);
+            var seaKind = kind == SeaLifeSystem.Kind.Whale ? SeaKind.WhaleBull : SeaLifeSystem.SeaKindOf(kind);
+            int entry = CollectionCatalog.IndexOf(seaKind);
+            if (entry < 0) return null;
+            float radius = kind == SeaLifeSystem.Kind.WhalePod || kind == SeaLifeSystem.Kind.Whale ? 9f : kind == SeaLifeSystem.Kind.Dolphins ? 5f : 3f;
+            return OfSeaGroup(CollectionCatalog.At(entry), sea, slot, radius);
+        }
+
+        // A flock tapped in the air.
+        public static WatchSubject OfFlock(FlockSystem flocks, int index)
+        {
+            if (flocks == null || index < 0 || index >= flocks.FlockCount) return null;
+            int entry = CollectionCatalog.IndexOf(flocks.IsSeabird(index) ? LifeKind.Seabird : LifeKind.Bird);
+            return entry < 0 ? null : OfFlock(CollectionCatalog.At(entry), flocks, index);
+        }
+
+        // ---------------------------------------------------------------- landmarks and milestones
+
+        public static string LandmarkName(BuildingKind kind) => kind == BuildingKind.Lighthouse ? "Leuchtturm" : kind == BuildingKind.Dock ? "Hafen" : "";
+
+        // The buildings a tap (and the sparkle) can pick out of a settlement.
+        public static bool IsLandmark(BuildingKind kind) => kind == BuildingKind.Lighthouse || kind == BuildingKind.Dock;
+
+        // Index of the settlement's building of that kind that is still there (a finished one before a site), -1 if none.
+        public static int LandmarkIndex(IslandSettlementSystem settlement, BuildingKind kind)
+        {
+            if (settlement == null) return -1;
+            int best = -1;
+            for (int i = 0; i < settlement.BuildingCount; i++)
+            {
+                if (settlement.BuildingKindOf(i) != kind) continue;
+                var state = settlement.BuildingStateOf(i);
+                if (state == BuildingState.Sinking || state == BuildingState.Charred) continue;
+                if (state == BuildingState.Done) return i;
+                if (best < 0) best = i;
+            }
+            return best;
+        }
+
+        // Where a landmark stands in the settlement's (island's) frame: the lighthouse's foot, the middle of the
+        // harbour's jetty.
+        public static Vector3 LandmarkWorld(IslandSettlementSystem settlement, int index, out float height)
+        {
+            var tr = settlement.transform;
+            var surface = settlement.GetComponent<IIslandSurface>();
+            Vector2 local = settlement.BuildingPositionOf(index);
+            height = settlement.BuildingHeightOf(index);
+            float ground = surface != null ? Mathf.Max(0f, surface.SampleHeight(local)) : 0f;
+            Vector3 foot = tr.TransformPoint(local.x, ground, local.y);
+            if (settlement.BuildingKindOf(index) == BuildingKind.Dock && settlement.TryGetDockWorld(out Vector3 end, out _))
+            {
+                Vector3 mid = Vector3.Lerp(foot, end, 0.5f);
+                mid.y = Mathf.Max(foot.y * 0.5f, end.y);
+                return mid;
+            }
+            return foot;
+        }
+
+        public static WatchSubject OfLandmark(IslandSettlementSystem settlement, BuildingKind kind)
+        {
+            int index = LandmarkIndex(settlement, kind);
+            if (index < 0) return null;
+            var system = settlement;
+            var island = settlement.GetComponent<Island>();
+            LandmarkWorld(settlement, index, out float height);
+            string label = LandmarkName(kind);
+            return new WatchSubject
+            {
+                label = label,
+                ground = island,
+                still = true,
+                // A lighthouse is framed with the ground round its foot; the jetty with the water it reaches into.
+                radius = kind == BuildingKind.Dock ? Mathf.Max(0.5f, height * 2f) : Mathf.Max(0.6f, height * 1.2f),
+                lift = height * 0.45f,
+                gone = label + " ist nicht mehr da",
+                focus = (out Vector3 f) =>
+                {
+                    f = default;
+                    if (system == null || !system.isActiveAndEnabled || (island != null && (island.IsSunk || !island.isActiveAndEnabled))) return false;
+                    int i = LandmarkIndex(system, kind);
+                    if (i < 0) return false;
+                    f = LandmarkWorld(system, i, out _);
+                    return true;
+                },
+            };
+        }
+
+        // Where the folk hold their festival: the ground in the middle of the real villages while it runs, else the
+        // most grown village (a landmark-only village has stage None and is never chosen over a real one).
+        public static WatchSubject OfFestival(IslandSettlementSystem settlement)
+        {
+            if (settlement == null || settlement.VillageCount == 0 || !FestivalPlace(settlement, out _)) return null;
+            var system = settlement;
+            var island = settlement.GetComponent<Island>();
+            return new WatchSubject
+            {
+                label = "Festplatz",
+                ground = island,
+                still = true,
+                radius = 2.2f,
+                lift = 0.15f,
+                gone = "Das Dorf ist nicht mehr da",
+                focus = (out Vector3 f) =>
+                {
+                    f = default;
+                    if (system == null || !system.isActiveAndEnabled || (island != null && (island.IsSunk || !island.isActiveAndEnabled))) return false;
+                    if (!FestivalPlace(system, out Vector2 local)) return false;
+                    var surface = system.GetComponent<IIslandSurface>();
+                    f = system.transform.TransformPoint(local.x, surface != null ? Mathf.Max(0f, surface.SampleHeight(local)) : 0f, local.y);
+                    return true;
+                },
+            };
+        }
+
+        static bool FestivalPlace(IslandSettlementSystem s, out Vector2 local)
+        {
+            local = default;
+            if (s.Festival || s.LanternCount > 0)
+            {
+                local = s.FestivalGround;
+                return true;
+            }
+            int best = -1;
+            for (int v = 0; v < s.VillageCount; v++)
+                if (s.VillageStage(v) != SettlementStage.None && (best < 0 || s.VillageStage(v) > s.VillageStage(best))) best = v;
+            if (best < 0) return false;
+            local = s.VillageCenter(best);
+            return true;
+        }
+
+        // The seabirds that came with the milestone: a home flock of the player's island, else the nearest seabirds.
+        public static int HomeSeabirdFlock(FlockSystem flocks, Island player)
+        {
+            if (flocks == null || !flocks.isActiveAndEnabled) return -1;
+            Vector2 near = player != null ? player.PlanarPosition : Vector2.zero;
+            int best = -1;
+            float bestD = float.MaxValue;
+            for (int i = 0; i < flocks.FlockCount; i++)
+            {
+                if (!flocks.IsSeabird(i) || flocks.BirdCountOf(i) == 0) continue;
+                float d = (flocks.PositionOf(i) - near).sqrMagnitude;
+                if (flocks.IsHomeFlock(i) && (player == null || flocks.TargetOf(i) == player)) d -= 1e9f;
+                if (d >= bestD) continue;
+                bestD = d;
+                best = i;
+            }
+            return best;
+        }
+
+        // What a milestone toast shows when it is tapped; null when the milestone has nothing to look at right now
+        // (the lighthouse could not be placed yet, no seabirds are out, the island has no village) - the toast then
+        // offers no tap.
+        public static WatchSubject OfMilestone(Milestone m, Island player, FlockSystem flocks)
+        {
+            var settlement = player != null ? player.GetComponent<IslandSettlementSystem>() : null;
+            switch (m)
+            {
+                case Milestone.Lighthouse: return OfLandmark(settlement, BuildingKind.Lighthouse);
+                case Milestone.Harbour: return OfLandmark(settlement, BuildingKind.Dock);
+                case Milestone.Seabirds:
+                {
+                    var s = OfFlock(flocks, HomeSeabirdFlock(flocks, player));
+                    if (s != null) s.label = Milestones.ShortNameOf(Milestone.Seabirds);
+                    return s;
+                }
+                case Milestone.Festival: return OfFestival(settlement);
+            }
+            return null;
+        }
+
+        // The cheap question behind the toast's tap affordance (asked a few times a second).
+        public static bool MilestoneHasSubject(Milestone m, Island player, FlockSystem flocks)
+        {
+            var settlement = player != null ? player.GetComponent<IslandSettlementSystem>() : null;
+            switch (m)
+            {
+                case Milestone.Lighthouse: return LandmarkIndex(settlement, BuildingKind.Lighthouse) >= 0;
+                case Milestone.Harbour: return LandmarkIndex(settlement, BuildingKind.Dock) >= 0;
+                case Milestone.Seabirds: return HomeSeabirdFlock(flocks, player) >= 0;
+                case Milestone.Festival: return settlement != null && settlement.VillageCount > 0 && FestivalPlace(settlement, out _);
+            }
+            return false;
         }
 
         // Seals visit the coast of any island in view; the nearest one that is out is watched.

@@ -51,7 +51,10 @@ namespace Drift.Bridge
         public float tapHoldSeconds = 0.6f;
         // Islands whose edge is farther than this from both the camera and its focus are not searched.
         public float tapRange = 60f;
-        public float popupSeconds = 4f;
+        // Renamed from popupSeconds (4 s) when the owner asked for every creature notice to stay 3 s longer, so the
+        // old value serialized in the scene does not override the new default.
+        [Tooltip("So lange (Sekunden) bleibt die Karte eines angetippten Tiers stehen, bevor sie ausblendet.")]
+        public float popupShowSeconds = 7f;
         public float popupFadeSeconds = 0.6f;
         // Following a herd starts from (and R returns to) the chase framing at this zoom level.
         public float followZoomLevel = 0.3f;
@@ -79,6 +82,26 @@ namespace Drift.Bridge
         public bool watchClearView = true;
         [Tooltip("Wie schnell die Kamera der Mitte der Herde folgt (pro Sekunde). Kleiner = ruhiger, größer = enger an den Tieren.")]
         [Range(0.5f, 10f)] public float watchFocusFollow = 3f;
+
+        [Header("Beobachten: Bauwerke")]
+        [Tooltip("Neigung der Kamera, wenn ein Bauwerk (Leuchtturm, Hafen, Festplatz) beobachtet wird - flacher als bei Tieren, damit man den Turm von der Seite sieht.")]
+        [Range(10f, 70f)] public float stillPitch = 28f;
+        [Tooltip("So viel der halben kurzen Bildseite nimmt das Bauwerk zu Beginn ein (kleiner = mehr Umgebung).")]
+        [Range(0.1f, 1f)] public float stillFill = 0.55f;
+        [Tooltip("Grad pro Sekunde, mit denen die Kamera langsam um das Bauwerk kreist, solange niemand sie bewegt (0 = steht still).")]
+        [Range(0f, 30f)] public float stillOrbitDegPerSecond = 5f;
+        [Tooltip("So viele Sekunden nach der letzten eigenen Kamerabewegung beginnt das langsame Kreisen wieder.")]
+        [Range(0f, 10f)] public float stillOrbitDelay = 1.5f;
+
+        [Header("Meldungen")]
+        [Tooltip("Wie lange (Sekunden) eine Meldung „Neu auf deiner Insel …“ oder „Fotoaufgabe erfüllt“ stehen bleibt.")]
+        [Range(2f, 15f)] public float newsStrongSeconds = 7f;
+        [Tooltip("Wie lange (Sekunden) die leisere Meldung „Zum ersten Mal gesehen …“ stehen bleibt.")]
+        [Range(2f, 15f)] public float newsSubtleSeconds = 5.6f;
+        [Tooltip("Wie lange (Sekunden) ein Hinweis wie „… ist gerade nicht in der Nähe“ stehen bleibt.")]
+        [Range(2f, 15f)] public float noticeSeconds = 5.6f;
+        [Tooltip("Wie lange (Sekunden) ein antippbarer Fotoaufgaben-Hinweis stehen bleibt.")]
+        [Range(2f, 15f)] public float photoHintSeconds = 7f;
 
         [Tooltip("Das Tagebuch der Arten bleibt über alle Reisen erhalten (eigene Datei drift_journal.json); aus = nur die laufende Reise.")]
         public bool keepJournal = true;
@@ -349,6 +372,8 @@ namespace Drift.Bridge
             HudHidden = false;
             Build();
             _lookupTimer = 0f;
+            // The sparkle on tappable things; wired in the scene for tuning, added here when it is not.
+            if (Application.isPlaying && !TryGetComponent(out TapSparkles _)) gameObject.AddComponent<TapSparkles>();
         }
 
         void OnDisable()
@@ -421,6 +446,7 @@ namespace Drift.Bridge
                 }
                 UpdateFollow();
                 UpdatePopup();
+                UpdateStillMarker();
                 UpdateDiscovery();
             }
 
@@ -446,7 +472,15 @@ namespace Drift.Bridge
         {
             UpdateNearFade();
             if (!_driving || !Application.isPlaying) return;
-            StepCamera(_input, Mathf.Min(Time.unscaledDeltaTime, 0.1f));
+            float dt = Mathf.Min(Time.unscaledDeltaTime, 0.1f);
+            // A building does not move by itself: the camera circles it slowly while the player leaves it alone.
+            if (Following && _watch != null && _watch.still && !_photoActive)
+            {
+                _stillIdle = _input.Any ? 0f : _stillIdle + dt;
+                float rate = WatchFraming.StillOrbitRate(_stillIdle, stillOrbitDelay, 1.5f, stillOrbitDegPerSecond);
+                if (rate > 0f) _input.keyYaw += rate / Mathf.Max(1f, _rig.keyYawSpeed);
+            }
+            StepCamera(_input, dt);
             _input = default;
             // The island is not steered while a herd is followed; a finger in the stick half orbits instead.
             if (Following && !_photoActive && touch != null && touch.StickActive) touch.Release();
@@ -536,6 +570,8 @@ namespace Drift.Bridge
 
         void UpdateNews(bool visible, float dt)
         {
+            _toasts.strongSeconds = newsStrongSeconds;
+            _toasts.subtleSeconds = newsSubtleSeconds;
             // A mode without the collection has no news chip at all - a line queued in the previous run goes too.
             if (!WatchRules.Allowed(WatchFeature.DiscoveryToast))
             {
@@ -775,14 +811,10 @@ namespace Drift.Bridge
             int bestHerd = -1, bestMember = -1, bestIndex = -1, searched = 0;
             Vector3 c = cam.transform.position;
             Vector2 camXZ = new Vector2(c.x, c.z);
-            Vector2 focusXZ = Following ? new Vector2(_followFocus.x, _followFocus.z) : player != null ? player.PlanarPosition : camXZ;
+            Vector2 focusXZ = TapFocusXZ;
             foreach (var island in Island.All)
             {
-                if (island == null) continue;
-                float reach = tapRange + island.BoundingRadius;
-                Vector2 ip = island.PlanarPosition;
-                if ((ip - camXZ).sqrMagnitude > reach * reach && (ip - focusXZ).sqrMagnitude > reach * reach) continue;
-                var tr = island.transform;
+                if (island == null || !TapTargets.InReach(island, camXZ, focusXZ, tapRange)) continue;
                 var herds = island.GetComponent<IslandHerdSystem>();
                 if (herds != null && herds.isActiveAndEnabled && herds.Tier != LifeTier.Far)
                 {
@@ -790,13 +822,10 @@ namespace Drift.Bridge
                     for (int h = 0; h < hn; h++)
                     {
                         int mn = herds.HerdSize(h);
-                        float lift = herds.BodyLength(h) * 0.35f;
                         for (int m = 0; m < mn; m++)
                         {
                             searched++;
-                            Vector3 local = herds.AnimalLocalPosition(h, m);
-                            local.y += lift * herds.AnimalSizeFactor(h, m);
-                            if (!TapPicker.Consider(screenPos, cam.WorldToScreenPoint(tr.TransformPoint(local)), radius, ref best)) continue;
+                            if (!TapPicker.Consider(screenPos, cam.WorldToScreenPoint(TapTargets.AnimalWorld(island, herds, h, m)), radius, ref best)) continue;
                             bestHerds = herds; bestIsland = island; bestHerd = h; bestMember = m;
                         }
                     }
@@ -823,6 +852,19 @@ namespace Drift.Bridge
                 Ripple(screenPos, true);
                 return BeginWatch(WatchSubjects.OfSeal(seaLife, seal));
             }
+            // Flocks, dolphins, turtles, surfacing whales and the lighthouse or harbour are watched straight away too;
+            // an animal under the finger still wins unless the other one is clearly closer.
+            int extra = PickExtra(cam, screenPos, radius, camXZ, focusXZ, out float extraPx);
+            if (extra >= 0 && (!hit || extraPx * 1.3f < (critter ? bestCritter : best)))
+            {
+                var subject = TapTargets.SubjectOf(_tapExtras[extra]);
+                if (debugTaps) Debug.Log($"WatchTools tap at {screenPos}: picked {_tapExtras[extra].kind} at {extraPx:F0} px");
+                if (subject != null)
+                {
+                    Ripple(screenPos, true);
+                    return BeginWatch(subject);
+                }
+            }
             Ripple(screenPos, hit);
             if (debugTaps)
                 Debug.Log(hit
@@ -838,13 +880,35 @@ namespace Drift.Bridge
             return true;
         }
 
-        static bool CritterVisible(IslandCrittersSystem critters, int i) =>
-            !critters.DyingOf(i) && critters.FadeOf(i) >= 0.5f && critters.StateOf(i) != CritterState.Hidden;
+        static bool CritterVisible(IslandCrittersSystem critters, int i) => TapTargets.CritterVisible(critters, i);
 
-        static Vector3 CritterWorld(Island island, IslandCrittersSystem critters, int i)
+        static Vector3 CritterWorld(Island island, IslandCrittersSystem critters, int i) => TapTargets.CritterWorld(island, critters, i);
+
+        readonly List<TapTarget> _tapExtras = new(32);
+
+        // The flock, sea animal or landmark nearest to the tap on screen within radiusPx; -1 if none.
+        int PickExtra(Camera cam, Vector2 screenPos, float radiusPx, Vector2 camXZ, Vector2 focusXZ, out float distancePx)
         {
-            Vector2 p = critters.PositionOf(i);
-            return island.transform.TransformPoint(p.x, Mathf.Max(0f, island.SampleHeight(p)), p.y);
+            _tapExtras.Clear();
+            TapTargets.Gather(_tapExtras, camXZ, focusXZ, tapRange, flocks, seaLife, TapGather.Extras);
+            float bestPx = float.MaxValue;
+            int pick = -1;
+            for (int i = 0; i < _tapExtras.Count; i++)
+                if (TapPicker.Consider(screenPos, cam.WorldToScreenPoint(_tapExtras[i].world), radiusPx, ref bestPx)) pick = i;
+            distancePx = pick >= 0 ? bestPx : -1f;
+            return pick;
+        }
+
+        // Where the tap search is centred besides the camera: the watched subject, else the player's island.
+        public Vector2 TapFocusXZ
+        {
+            get
+            {
+                if (Following) return new Vector2(_followFocus.x, _followFocus.z);
+                if (player != null) return player.PlanarPosition;
+                var cam = Camera.main;
+                return cam != null ? new Vector2(cam.transform.position.x, cam.transform.position.z) : Vector2.zero;
+            }
         }
 
         void Ripple(Vector2 screenPos, bool hit)
@@ -886,7 +950,8 @@ namespace Drift.Bridge
 
         void OpenPopup(bool canFollow)
         {
-            _popupTimer = popupSeconds + popupFadeSeconds;
+            _popupTimer = popupShowSeconds + popupFadeSeconds;
+            _stillMarker = 0f;
             _shownState = _shownSize = _shownYoung = -1;
             SetActive(_popupFollow, canFollow);
             string origin = _popupHerds != null && _popupHerds.IsForeign(_popupKind) ? OriginLine(_popupKind) : "";
@@ -1098,8 +1163,37 @@ namespace Drift.Bridge
                 session.FollowSinkHold = true;
             }
             if (touch != null) touch.Release();
+            _stillIdle = 0f;
             ShowWatchPopup();
+            if (subject.still) _stillMarker = popupShowSeconds + popupFadeSeconds;
             return true;
+        }
+
+        // A watched building gets the same outline ring on the ground a tapped animal gets under its card, for as
+        // long as the card would stay.
+        float _stillMarker, _stillIdle;
+
+        void UpdateStillMarker()
+        {
+            if (_stillMarker <= 0f || _marker == null) return;
+            bool popup = _popupHerds != null || _popupCritters != null;
+            var cam = Camera.main;
+            if (popup || !Following || _watch == null || !_watch.still || cam == null)
+            {
+                _stillMarker = 0f;
+                if (!popup) SetActive(_marker.gameObject, false);
+                return;
+            }
+            _stillMarker -= Time.unscaledDeltaTime;
+            if (_stillMarker <= 0f)
+            {
+                SetActive(_marker.gameObject, false);
+                return;
+            }
+            Vector3 screen = cam.WorldToScreenPoint(_followFocus);
+            float px = (cam.WorldToScreenPoint(_followFocus + cam.transform.right * (_watch.radius * 0.45f)) - screen).magnitude;
+            SetActive(_marker.gameObject, true);
+            PlaceMarker(screen, px, Mathf.Clamp01(_stillMarker / Mathf.Max(0.01f, popupFadeSeconds)));
         }
 
         // The same card a tap on the creature gives, minus the follow button (it is already being followed): it
@@ -1152,7 +1246,7 @@ namespace Drift.Bridge
         void ShowNotice(string text, bool photoHint = false)
         {
             _toasts.Dismiss();
-            _noticeTimer = photoHint ? 4f : 2.6f;
+            _noticeTimer = photoHint ? photoHintSeconds : noticeSeconds;
             _noticePhoto = photoHint;
             ShowNews(new CollectionToast { text = text, strong = photoHint, photo = photoHint, count = photoHint ? 1 : 0 });
             SetActive(_newsChip, true);
@@ -1162,6 +1256,11 @@ namespace Drift.Bridge
         {
             if (!Following) return;
             _watch = null;
+            if (_stillMarker > 0f)
+            {
+                _stillMarker = 0f;
+                if (_popupHerds == null && _popupCritters == null && _marker != null) SetActive(_marker.gameObject, false);
+            }
             _followHerds = null;
             _followIsland = null;
             _followHerd = -1;
@@ -1203,6 +1302,13 @@ namespace Drift.Bridge
                 frameRadius = Mathf.Max(0.5f, _herdSpread + 0.3f);
                 dist = WatchFraming.Distance(frameRadius, _followHerds.BodyLength(_followHerd),
                     cam != null ? cam.fieldOfView : 60f, cam != null ? cam.aspect : 9f / 16f, watchFill, watchMinBodyPixels);
+            }
+            else if (_watch != null && _watch.still)
+            {
+                // A building: from the side at a lower angle, far enough to show the ground (or water) round it.
+                var cam = Camera.main;
+                pitch = stillPitch;
+                dist = WatchFraming.Distance(frameRadius, 0f, cam != null ? cam.fieldOfView : 60f, cam != null ? cam.aspect : 9f / 16f, stillFill, 0f);
             }
             dist = Mathf.Clamp(dist, _rig.minDistance, _rig.maxDistance);
             if (watchClearView) yaw = ClearestYaw(yaw, pitch, dist, frameRadius);
@@ -1340,7 +1446,7 @@ namespace Drift.Bridge
                 {
                     // Sea life is recycled beyond its range from the player and critters leave: say so instead
                     // of silently cutting back to the island.
-                    string gone = _watch.label + " ist weitergezogen";
+                    string gone = _watch.gone ?? _watch.label + " ist weitergezogen";
                     ReturnToIsland();
                     ShowNotice(gone);
                     return;
@@ -2067,6 +2173,7 @@ namespace Drift.Bridge
             var island = SubjectIsland;
             float islandRadius = island != null ? island.BoundingRadius : 3f;
             _rig.orbitDegPerPixel = orbitDegPerPixel;
+            _rig.pivotLift = Following && _watch != null && _watch.still ? _watch.lift : 0f;
             float pan = _photoActive ? islandRadius * panRadiusFactor : 0f;
             if (Following) _rig.SetLimits(Mathf.Max(_followRadius, islandRadius * 0.5f), photoMinDistance, pan);
             else _rig.SetLimits(islandRadius, photoMinDistance, pan);

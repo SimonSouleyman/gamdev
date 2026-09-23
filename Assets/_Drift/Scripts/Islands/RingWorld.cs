@@ -182,6 +182,8 @@ namespace Drift.Islands
         [Range(8f, 160f)] public float flotsamSpacingStart = 72f;
         [Tooltip("Abstand (u) zwischen zwei Treibgut-Gruppen bei höchster Stufe – Treibgut wird seltener.")]
         [Range(8f, 240f)] public float flotsamSpacingMax = 120f;
+        [Tooltip("Grundtempo des Sinkens im Abenteuer (Faktor auf allen Stufen; v0.6.3: 15 % schneller).")]
+        [Range(0.5f, 2f)] public float sinkSpeed = 1.15f;
         [Tooltip("Wie viel schneller die Insel bei höchster Stufe sinkt (Faktor).")]
         [Range(0.5f, 3f)] public float sinkScaleMax = 1.5f;
         [Tooltip("So nah (u zwischen den Inselrändern) zählt ein Vorbeifahren als knapp ausgewichen.")]
@@ -567,7 +569,7 @@ namespace Drift.Islands
             _odometer.Step(pp.y, running);
             float d = Difficulty;
             player.AdventureSpeedScale = PaceScale;
-            player.AdventureSinkScale = Mathf.Lerp(1f, sinkScaleMax, d);
+            player.AdventureSinkScale = Mathf.Max(0.1f, sinkSpeed) * Mathf.Lerp(1f, sinkScaleMax, d);
             player.AdventureCruise = racing ? Cruise : 0f;
             // The band runs along z; the race always goes that way, so the heading, the camera and the surf lanes
             // all agree on where "ahead" is.

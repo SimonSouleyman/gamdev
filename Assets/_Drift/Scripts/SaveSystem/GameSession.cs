@@ -579,6 +579,9 @@ namespace Drift.SaveSystem
             var cam = chaseCamera;
             if (cam == null) return;
             if (cam.target == null) cam.target = player;
+            // Only the finale's flight may leave the chase camera switched off; anywhere else a disabled one is a
+            // camera that stands still while the island drives away.
+            if (Application.isPlaying && !cam.enabled && Current != State.RunComplete) cam.enabled = true;
             cam.SnapToTarget();
         }
 

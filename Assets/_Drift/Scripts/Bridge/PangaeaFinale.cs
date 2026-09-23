@@ -45,8 +45,8 @@ namespace Drift.Bridge
         [Header("Hinweis „Pangäa vollendet“")]
         [Tooltip("Überschrift des kleinen Hinweises, der nach der letzten Insel erscheint.")]
         public string bannerTitle = "Pangäa vollendet!";
-        [Tooltip("Zweite Zeile des Hinweises: sie sagt, wie der Rundflug über die fertige Insel gesteuert wird.")]
-        public string bannerBody = DefaultBannerBody;
+        [Tooltip("Zweite Zeile des Hinweises: sie sagt, wie der Rundflug über die fertige Insel gesteuert wird. Leer = passend zur Steuerung (Stick, Kippen oder Tastatur).")]
+        public string bannerBody = "";
         [Tooltip("Beschriftung des kleinen Knopfes, der den Flug ins All startet.")]
         public string bannerButton = "Weiter";
         [Tooltip("Abstand des Hinweises vom oberen Bildrand.")]
@@ -55,9 +55,11 @@ namespace Drift.Bridge
         public bool editorBanner;
 
         [Header("Über die Insel fliegen")]
-        [Tooltip("Nach der letzten Insel steht die Pangäa still und du fliegst mit der Kamera über sie. Aus = die Kamera bleibt wie bisher an der Insel.")]
+        [Tooltip("Nach der letzten Insel steht die Pangäa still und du fliegst mit der Kamera frei über sie. Aus = die Kamera bleibt wie bisher an der Insel.")]
         public bool flyOverEnabled = true;
-        public FlyOverCamera.Settings flyOver = new FlyOverCamera.Settings();
+        // Renamed from flyOver when the fly-over became a free flight: the old values described an orbit around a
+        // focus point and must not carry over.
+        public FlyOverCamera.Settings freeFlight = new FlyOverCamera.Settings();
         [Tooltip("Wie sanft die Kamera zur Insel zurückblendet, wenn der Rundflug endet (Sekunden).")]
         [Range(0f, 2f)] public float flyReturnSeconds = 0.7f;
 
@@ -348,7 +350,7 @@ namespace Drift.Bridge
             var cam = Camera.main;
             _flying = true;
             _hasPinned = false;
-            _fly.settings = flyOver;
+            _fly.settings = freeFlight;
             _fly.Reset(cam.transform.position, cam.transform.rotation, player.transform.position.y);
             chaseCamera.Suspended = true;
         }
@@ -384,6 +386,11 @@ namespace Drift.Bridge
             bool show = ShowBanner(session.PangaeaReached, session.Current == GameSession.State.Playing, session.WatchInputHold, Active);
             if (!show && _bannerAlpha <= 0f) return;
             _bannerAlpha = Mathf.MoveTowards(_bannerAlpha, show ? 1f : 0f, Mathf.Max(0f, dt) / 0.3f);
+            if (show && _bannerBody != null)
+            {
+                string body = BannerBody;
+                if (_bannerBody.text != body) _bannerBody.text = body;
+            }
             SetBanner(_bannerAlpha > 0.001f, _bannerAlpha);
         }
 
@@ -428,7 +435,7 @@ namespace Drift.Bridge
 
             // Disable first: the chase camera widens the field of view with speed, and the saved state must be the
             // resting one, not a speed-widened frame.
-            if (chaseCamera != null) chaseCamera.enabled = false;
+            _chaseWasEnabled = HandOffChase(chaseCamera);
             SaveState();
 
             StartFlight(_cam);
@@ -559,7 +566,6 @@ namespace Drift.Bridge
                 _cloudCover = _clouds.coverOverride;
                 _cloudHeight = _clouds.heightRange;
             }
-            _chaseWasEnabled = chaseCamera == null || chaseCamera.enabled;
             _fov = _cam.fieldOfView;
             _near = _cam.nearClipPlane;
             _far = _cam.farClipPlane;
@@ -594,12 +600,27 @@ namespace Drift.Bridge
                 _clouds.coverOverride = _cloudCover;
                 _clouds.heightRange = _cloudHeight;
             }
-            if (camera && chaseCamera != null)
-            {
-                if (_chaseWasEnabled) chaseCamera.enabled = true;
-                if (chaseCamera.target == null) chaseCamera.target = player;
-                chaseCamera.SnapToTarget();
-            }
+            if (camera) HandBackChase(chaseCamera, _chaseWasEnabled, player);
+        }
+
+        // Switches the chase camera off for the flight and says whether it was running. The answer has to be read
+        // BEFORE switching it off: read afterwards (as it once was) it always said "off", the camera was never
+        // switched back on, and every later run in either mode had a camera that stood still (phone test v0.6.2).
+        public static bool HandOffChase(IslandChaseCamera chase)
+        {
+            if (chase == null) return true;
+            bool was = chase.enabled;
+            chase.enabled = false;
+            return was;
+        }
+
+        public static void HandBackChase(IslandChaseCamera chase, bool wasEnabled, Island player)
+        {
+            if (chase == null) return;
+            if (wasEnabled) chase.enabled = true;
+            chase.Suspended = false;
+            if (chase.target == null) chase.target = player;
+            chase.SnapToTarget();
         }
 
         // After CurvedWorld pushed this frame's palette (LateUpdate), before any camera renders: the zenith sinks
@@ -800,6 +821,8 @@ namespace Drift.Bridge
         // ---------------------------------------------------------------- overlay
 
         const float ButtonWidth = 680f;
+        // The button back to the title screen, with the house icon (was "Zum Titel").
+        public const string HomeLabel = "Home";
         static readonly Vector2 PanelSize = new Vector2(880f, 1540f);
         static readonly Vector2 BannerSize = new Vector2(880f, 188f);
         static readonly Vector2 BannerButton = new Vector2(248f, 96f);
@@ -839,7 +862,7 @@ namespace Drift.Bridge
             var j = UiStyle.SecondaryButton(panel, "RunJournal", "Durchgangs-Tagebuch", wide, () => RunJournal.RequestOpen());
             ((RectTransform)j.transform).TopCenter(new Vector2(0f, -1196f), wide);
             UiStyle.FitWidth(UiStyle.LabelOf(j));
-            var h = UiStyle.SecondaryButton(panel, "Title", "Zum Titel", wide, OnTitle);
+            var h = UiStyle.SecondaryButton(panel, "Title", HomeLabel, wide, OnTitle);
             ((RectTransform)h.transform).TopCenter(new Vector2(0f, -1356f), wide);
             UiStyle.ButtonIcon(h, UiIcon.Home);
 
@@ -877,11 +900,28 @@ namespace Drift.Bridge
         }
 
         // The scene still carries the old "look around in peace" line, which says nothing about flying the
-        // camera; like SessionScreens' tagline it is replaced until someone writes their own.
-        public const string DefaultBannerBody = "Flieg über deine Insel: Stick bewegt, Ziehen schaut um, Tiere antippen.";
-        const string LegacyBannerBody = "Schau dich in Ruhe um.";
+        // camera; like SessionScreens' tagline it is replaced (by the line for the input in use) until someone
+        // writes their own.
+        public const string DefaultBannerBody = "Stick fliegt, Ziehen schaut umher, Tiere antippen.";
+        public const string TiltBannerBody = "Kippen fliegt, Ziehen schaut umher, Tiere antippen.";
+        public const string KeyboardBannerBody = "WASD fliegt, Maus ziehen schaut umher, Q/E Höhe.";
+        static readonly string[] LegacyBannerBodies =
+        {
+            "Schau dich in Ruhe um.",
+            "Flieg über deine Insel: Stick bewegt, Ziehen schaut um, Tiere antippen.",
+        };
 
-        public string BannerBody => string.IsNullOrEmpty(bannerBody) || bannerBody == LegacyBannerBody ? DefaultBannerBody : bannerBody;
+        public string BannerBody
+        {
+            get
+            {
+                if (!string.IsNullOrEmpty(bannerBody) && System.Array.IndexOf(LegacyBannerBodies, bannerBody) < 0) return bannerBody;
+                return BannerBodyFor(screens != null && screens.tilt != null && screens.tilt.Active,
+                    InputMode.TouchPreferred || (screens != null && screens.touch != null && screens.touch.forceShowTouch));
+            }
+        }
+
+        public static string BannerBodyFor(bool tilt, bool touch) => tilt ? TiltBannerBody : touch ? DefaultBannerBody : KeyboardBannerBody;
 
         void ApplyBannerTexts()
         {

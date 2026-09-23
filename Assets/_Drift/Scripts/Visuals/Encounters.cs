@@ -269,7 +269,9 @@ namespace Drift.Visuals
         [Tooltip("Anteil der Gruppen, die entlang einer Plattengrenze liegen: einsammeln, während man surft.")]
         [Range(0f, 1f)] public float trackSeamLines = 0.3f;
         [Tooltip("Abstand (u) der einzelnen Teile innerhalb einer Linie.")]
-        [Range(2f, 12f)] public float trackLineStep = 4.5f;
+        [Range(2f, 14f)] public float trackLineStep = 7f;
+        [Tooltip("So weit (u) weichen die Teile einer Gruppe seitlich und in der Länge (Anteil davon) von ihrer Linie ab – die Gruppen liegen verstreut statt im Gleichschritt.")]
+        [Range(0f, 6f)] public float trackScatter = 2.5f;
 
         [Header("Abenteuer-Beute")]
         [Tooltip("Abstand (u) zwischen zwei Meerestieren auf der Bahn: Wal, Schildkröte oder Fischschwarm zum Einsammeln.")]
@@ -770,9 +772,10 @@ namespace Drift.Visuals
             if (!found) { PlaceLoose(g, z); return; }
             for (int k = -1; k <= 1; k++)
             {
-                float pz = z + k * trackLineStep * _trackDir;
+                float pz = z + (k * trackLineStep + ScatterAlong()) * _trackDir;
                 FreeSpans(g, pz, 1.5f);
-                Drop(g, new Vector2(NearestFree(x), pz), k == 0 ? ShipSystem.FlotsamKind.Crate : KindFor(Roll()));
+                // Through a gap the line can only wander half as far sideways, or it would leave the passage.
+                Drop(g, new Vector2(NearestFree(x + 0.5f * ScatterAcross()), pz), k == 0 ? ShipSystem.FlotsamKind.Crate : KindFor(Roll()));
             }
         }
 
@@ -803,9 +806,9 @@ namespace Drift.Visuals
             int placed = 0;
             for (int k = 0; k < 3; k++)
             {
-                Vector2 p = q + tan * (k * trackLineStep);
+                Vector2 p = q + tan * (k * trackLineStep + ScatterAlong());
                 FreeSpans(g, p.y, 1.5f);
-                p.x = NearestFree(p.x);
+                p.x = NearestFree(p.x + ScatterAcross());
                 if (Drop(g, p, KindFor(Roll()))) placed++;
             }
             return placed > 0;
@@ -819,10 +822,14 @@ namespace Drift.Visuals
             float x = Mathf.Lerp(span.x, span.y, Roll());
             Drop(g, new Vector2(x, z), KindFor(Roll()));
             if (Roll() >= 0.45f) return;
-            float pz = z + trackLineStep * _trackDir;
+            float pz = z + (trackLineStep + ScatterAlong()) * _trackDir;
             FreeSpans(g, pz, 1.5f);
-            Drop(g, new Vector2(NearestFree(x + (Roll() - 0.5f) * 6f), pz), KindFor(Roll()));
+            Drop(g, new Vector2(NearestFree(x + (Roll() - 0.5f) * 6f + ScatterAcross()), pz), KindFor(Roll()));
         }
+
+        // Owner (v0.6.3): the groups of three lay too neatly in a row - "ein bisschen weiter verstreut".
+        float ScatterAcross() => (Roll() * 2f - 1f) * trackScatter;
+        float ScatterAlong() => (Roll() * 2f - 1f) * 0.3f * trackLineStep * Mathf.Clamp01(trackScatter);
 
         static ShipSystem.FlotsamKind KindFor(float roll)
         {

@@ -1146,7 +1146,8 @@ MonoBehaviour:
   trackLookahead: 62
   trackGapLines: 0.45
   trackSeamLines: 0.3
-  trackLineStep: 4.5
+  trackLineStep: 7
+  trackScatter: 2.5
   animalSpacing: 110
   animalWhaleShare: 0.3
   animalTurtleShare: 0.3
@@ -1274,6 +1275,7 @@ MonoBehaviour:
   driftSpeedMax: 3.4
   flotsamSpacingStart: 72
   flotsamSpacingMax: 120
+  sinkSpeed: 1.15
   sinkScaleMax: 1.5
   dodgeGap: 6
   cruiseStart: 0.62
@@ -2276,7 +2278,6 @@ MonoBehaviour:
   ringRowPeriod: 70
   ringFlowSpeed: 2.2
   ringFlowPeriod: 45
-  ringCalmSurf: 0.45
   ringSlideFull: 2.5
   ringSurfWidth: 13
   ringSurfBoost: 1.7
@@ -2842,6 +2843,7 @@ GameObject:
   - component: {fileID: 2011694586}
   - component: {fileID: 2011694585}
   - component: {fileID: 2011694587}
+  - component: {fileID: 2011694588}
   m_Layer: 0
   m_Name: SessionUI
   m_TagString: Untagged
@@ -2950,7 +2952,7 @@ MonoBehaviour:
   tapSlop: 30
   tapHoldSeconds: 0.6
   tapRange: 60
-  popupSeconds: 4
+  popupShowSeconds: 7
   popupFadeSeconds: 0.6
   followZoomLevel: 0.2
   discoverRange: 25
@@ -2968,6 +2970,14 @@ MonoBehaviour:
   watchCenterBelowHud: 1
   watchClearView: 1
   watchFocusFollow: 3
+  stillPitch: 28
+  stillFill: 0.4
+  stillOrbitDegPerSecond: 5
+  stillOrbitDelay: 1.5
+  newsStrongSeconds: 7
+  newsSubtleSeconds: 5.6
+  noticeSeconds: 5.6
+  photoHintSeconds: 7
   keepJournal: 1
   photoTasks: 1
   photoTaskMinSize: 0.015
@@ -3094,18 +3104,19 @@ MonoBehaviour:
   bannerTop: 520
   editorBanner: 0
   flyOverEnabled: 1
-  flyOver:
-    moveSpeed: 11
-    moveResponse: 2.4
-    lookDegPerPixel: 0.13
-    lookResponse: 9
-    minPitch: 25
-    maxPitch: 78
-    minHeight: 6
-    maxHeight: 45
-    reachFactor: 1.15
-    reachPad: 10
-    clearance: 2.5
+  freeFlight:
+    moveSpeed: 12
+    speedHeight: 15
+    moveResponse: 3
+    lookDegPerPixel: 0.12
+    lookResponse: 12
+    minPitch: 8
+    maxPitch: 85
+    minHeight: 3
+    maxHeight: 60
+    reach: 1.25
+    reachMargin: 30
+    clearance: 2
   flyReturnSeconds: 0.7
   liftSeconds: 6
   orbitSeconds: 4
@@ -3168,8 +3179,9 @@ MonoBehaviour:
   saveManager: {fileID: 0}
   player: {fileID: 0}
   flocks: {fileID: 0}
+  watch: {fileID: 0}
   sortingOrder: 14
-  toastSeconds: 5.5
+  toastShowSeconds: 8.5
   retrySeconds: 8
   homeSeabirdFlocks: 2
 --- !u!114 &2011694587
@@ -3234,6 +3246,32 @@ MonoBehaviour:
   whaleCooldown: 30
   seaShowCooldown: 20
   sleepStirCooldown: 8
+--- !u!114 &2011694588
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2011694575}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 3bbb8794de574694b9e1e92c0e7456bd, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Drift.Bridge::Drift.Bridge.TapSparkles
+  watch: {fileID: 0}
+  session: {fileID: 0}
+  finale: {fileID: 0}
+  sortingOrder: 1
+  seed: 71
+  interval: 3.5
+  intervalJitter: 0.35
+  subjectCooldown: 12
+  sparkleSeconds: 0.9
+  starSize: 110
+  screenMargin: 0.07
+  topMargin: 0.18
+  sparkleWatched: 0
+  debugLog: 0
 --- !u!1 &2114831827
 GameObject:
   m_ObjectHideFlags: 0

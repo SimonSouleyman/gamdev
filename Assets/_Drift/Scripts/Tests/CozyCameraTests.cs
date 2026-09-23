@@ -195,48 +195,133 @@ namespace Drift.Tests
             Assert.AreEqual(20f, (far - centre).magnitude, 1e-3f, "never further out than the reach");
             Assert.AreEqual(44f, FlyOverCamera.Reach(20f, 1.3f, 18f), 1e-3f);
             Assert.AreEqual(70f, FlyOverCamera.MaxHeight(10f, 70f), 1e-3f, "a small island still allows a high look");
-            Assert.AreEqual(110f, FlyOverCamera.MaxHeight(50f, 70f), 1e-3f, "a continent needs more height");
-            // Camera distance behind the focus: steep = nearly overhead, flat = well back.
-            Assert.AreEqual(0f, FlyOverCamera.Distance(0f, 45f), 1e-4f);
-            Assert.AreEqual(20f, FlyOverCamera.Distance(20f, 45f), 1e-3f);
+            Assert.AreEqual(125f, FlyOverCamera.MaxHeight(50f, 70f), 1e-3f, "a continent needs more height");
+            // How far along the view the sea is: straight down = the height, flatter = further.
+            Assert.AreEqual(20f, FlyOverCamera.Distance(20f, 90f), 1e-3f);
             Assert.Greater(FlyOverCamera.Distance(20f, 25f), FlyOverCamera.Distance(20f, 70f));
-            Assert.Less(FlyOverCamera.SpeedAt(6f, 5f, 70f, 13f), FlyOverCamera.SpeedAt(60f, 5f, 70f, 13f), "higher up it moves faster");
+            Assert.AreEqual(2f * FlyOverCamera.SpeedAt(15f, 15f, 12f), FlyOverCamera.SpeedAt(30f, 15f, 12f), 1e-3f,
+                "twice as high flies twice as fast, so the picture slides by at the same pace");
         }
 
+        // The owner's phone test of v0.6.2: the fly-over felt nailed to the island centre, because a drag orbited
+        // the point the view started on (the middle of the island). Now the camera itself flies.
         [Test]
-        public void FlyOver_FliesOverTheIsland_StaysAboveIt_AndNeverLeavesIt()
+        public void FlyOver_IsAFreeFlight_ThatReachesEveryCoast()
         {
             var isl = MakeIsland(0f);
             var fly = new FlyOverCamera();
-            fly.settings.minHeight = 5f;
-            fly.settings.maxHeight = 60f;
             fly.Reset(new Vector3(0f, 12f, -9f), Quaternion.Euler(35f, 0f, 0f), isl.transform.position.y);
             Assert.AreEqual(12f, fly.Height, 1e-3f);
             Assert.AreEqual(0f, fly.Yaw, 1e-3f);
             Assert.AreEqual(35f, fly.Pitch, 1e-3f);
+            Assert.AreEqual(new Vector2(0f, -9f), fly.PlanarPosition, "it takes over where the chase camera stands");
 
-            float reach = FlyOverCamera.Reach(isl.BoundingRadius, fly.settings.reachFactor, fly.settings.reachPad);
-            var forward = new FlyOverCamera.Input { move = Vector2.up };
-            for (int i = 0; i < 600; i++)
+            // Looking around turns the view on the spot: the camera does not move, nothing orbits the island.
+            for (int i = 0; i < 100; i++) fly.Step(new FlyOverCamera.Input { look = new Vector2(-6f, 0f) }, 0.02f, isl);
+            Assert.Greater(Mathf.DeltaAngle(0f, fly.Yaw), 30f, "dragging left has turned the view right");
+            Assert.Less(Vector2.Distance(fly.PlanarPosition, new Vector2(0f, -9f)), 1e-3f, "and the camera stayed where it was");
+            for (int i = 0; i < 200; i++) fly.Step(new FlyOverCamera.Input { look = new Vector2(0f, -8f) }, 0.02f, isl);
+            Assert.AreEqual(fly.settings.maxPitch, fly.Pitch, 0.5f, "the pitch stops short of straight down");
+            for (int i = 0; i < 200; i++) fly.Step(new FlyOverCamera.Input { look = new Vector2(0f, 8f) }, 0.02f, isl);
+            Assert.AreEqual(fly.settings.minPitch, fly.Pitch, 0.5f, "and short of the horizon");
+
+            // The stick flies where the view looks: far enough to be past every coast, never out to sea for good.
+            float reach = FlyOverCamera.Reach(isl.BoundingRadius, fly.settings.reach, fly.settings.reachMargin);
+            Assert.Greater(reach, isl.BoundingRadius + 10f, "every coast can be flown over and looked back at");
+            var ahead = FlyOverCamera.Forward(fly.Yaw);
+            Vector2 start = fly.PlanarPosition;
+            for (int i = 0; i < 1500; i++)
             {
-                fly.Step(forward, 0.02f, isl);
-                Assert.LessOrEqual((fly.Focus - isl.PlanarPosition).magnitude, reach + 1e-3f, "the view stays over the island");
+                fly.Step(new FlyOverCamera.Input { move = Vector2.up }, 0.02f, isl);
+                Assert.LessOrEqual((fly.PlanarPosition - isl.PlanarPosition).magnitude, reach + 1e-3f);
                 Assert.GreaterOrEqual(fly.Position.y, isl.transform.position.y + fly.settings.minHeight - 1e-3f, "stays above the water");
-                // Whatever the player does, the island is what the camera looks at.
-                Assert.Less(Vector3.Angle(fly.Rotation * Vector3.forward, fly.LookPoint - fly.Position), 1e-2f);
+                float ground = Mathf.Max(0f, isl.SampleHeight(isl.ToLocal(fly.PlanarPosition)));
+                Assert.GreaterOrEqual(fly.Position.y, isl.transform.position.y + ground + fly.settings.clearance - 1e-3f, "and above the land");
             }
-            Assert.Greater(fly.Focus.y, 0.5f, "it really flew north");
+            Assert.Greater(Vector2.Dot(fly.PlanarPosition - start, ahead), 5f, "it really flew ahead");
+            Assert.AreEqual(reach, (fly.PlanarPosition - isl.PlanarPosition).magnitude, 0.5f, "out to the edge of its reach");
 
-            // Looking around turns the view; the pitch never tips over or past the horizon.
-            for (int i = 0; i < 200; i++) fly.Step(new FlyOverCamera.Input { look = new Vector2(-6f, -6f) }, 0.02f, isl);
-            Assert.Greater(Mathf.DeltaAngle(0f, fly.Yaw), 5f, "dragging left has turned the view right");
-            Assert.That(fly.Pitch, Is.InRange(fly.settings.minPitch - 0.01f, fly.settings.maxPitch + 0.01f));
-
-            // Zoom: out to the ceiling, then in to the floor.
+            // Height: up to the ceiling, then down to the floor.
             for (int i = 0; i < 200; i++) fly.Step(new FlyOverCamera.Input { zoomFactor = 1.05f }, 0.02f, isl);
             Assert.AreEqual(FlyOverCamera.MaxHeight(isl.BoundingRadius, fly.settings.maxHeight), fly.Height, 0.01f);
             for (int i = 0; i < 400; i++) fly.Step(new FlyOverCamera.Input { zoomFactor = 0.95f }, 0.02f, isl);
             Assert.AreEqual(fly.settings.minHeight, fly.Height, 0.01f);
+        }
+
+        // ---------------------------------------------------------------- tilt: no front, no turning view
+
+        // The owner's phone test of v0.6.2: with the tilt it still felt as if the island had a front it first had
+        // to turn. A phone is never let go like a stick, so the steering frame stayed frozen while the view swung
+        // onto the course; the same tilt then pointed elsewhere on the screen and the view turned like a boat.
+        // Under the tilt the view now holds still, and a new tilt direction is the island's new course at once.
+        [Test]
+        public void Tilt_HoldsTheView_AndTheIslandGoesStraightWhereThePhoneTips()
+        {
+            Island.DirectionSteering = true;
+            var isl = MakeIsland(0f);
+            isl.velocityAlign = 1.5f; // the scene's value
+            float viewYaw = 0f, steerYaw = 0f;
+            const float dt = 1f / 60f;
+            Vector2 Screen(float t) => t < 0f ? Vector2.up : Vector2.Lerp(Vector2.up, Vector2.right, Mathf.Clamp01(t / 0.3f));
+
+            float worstView = 0f, angleAfter1s = 180f;
+            for (float t = -3f; t < 1.5f; t += dt)
+            {
+                Vector2 world = TiltMath.ToWorld(TiltMath.ClampStick(Screen(t)), steerYaw);
+                isl.Tick(Vector2.zero, world, dt);
+                IslandChaseCamera.StepYaws(ref viewYaw, ref steerYaw, isl.SelfVelocity, true, true, 1.2f, 3f, 90f, dt);
+                worstView = Mathf.Max(worstView, Mathf.Abs(Mathf.DeltaAngle(0f, viewYaw)));
+                if (t < 1f) angleAfter1s = Vector2.Angle(isl.SelfVelocity, Vector2.right);
+            }
+            Assert.Less(worstView, 1e-3f, "the view never turned");
+            Assert.AreEqual(0f, steerYaw, 1e-3f, "so screen right stays east");
+            Assert.Less(angleAfter1s, 20f, "a second after tipping right the island runs right");
+            Assert.Greater(isl.SelfVelocity.magnitude, 1f);
+
+            // Without the hold (the stick) the view still swings onto the course as before.
+            float v2 = 0f, s2 = 0f;
+            for (int i = 0; i < 120; i++) IslandChaseCamera.StepYaws(ref v2, ref s2, new Vector2(5f, 0f), true, false, 1.2f, 3f, 90f, dt);
+            Assert.Greater(v2, 45f);
+            Assert.AreEqual(0f, s2, 1e-3f, "a held stick keeps its frame");
+        }
+
+        // ---------------------------------------------------------------- a second round after the finale
+
+        // v0.6.2 on the phone: after the Pangäa finale the camera stood still in every later run, in both modes.
+        // The finale asked whether the chase camera was running only after switching it off, so it never switched
+        // it back on.
+        [Test]
+        public void TheFinale_GivesTheChaseCameraBack()
+        {
+            var isl = MakeIsland(0f);
+            var go = new GameObject("FinaleChaseCamera");
+            _objects.Add(go);
+            var cam = go.AddComponent<IslandChaseCamera>();
+            cam.target = isl;
+            Assert.IsTrue(cam.enabled);
+
+            bool was = PangaeaFinale.HandOffChase(cam);
+            Assert.IsTrue(was, "it was running before the flight");
+            Assert.IsFalse(cam.enabled, "the flight has the camera");
+
+            cam.Suspended = true; // as the fly-over leaves it
+            PangaeaFinale.HandBackChase(cam, was, isl);
+            Assert.IsTrue(cam.enabled, "the next run's camera follows again");
+            Assert.IsFalse(cam.Suspended);
+
+            cam.enabled = false;
+            PangaeaFinale.HandBackChase(cam, PangaeaFinale.HandOffChase(cam), isl);
+            Assert.IsFalse(cam.enabled, "one that was off on purpose stays off");
+            Assert.IsTrue(PangaeaFinale.HandOffChase(null));
+        }
+
+        [Test]
+        public void HomeButton_HasItsNewLabel_AndTheBannerNamesTheInputInUse()
+        {
+            Assert.AreEqual("Home", PangaeaFinale.HomeLabel);
+            Assert.AreEqual(PangaeaFinale.TiltBannerBody, PangaeaFinale.BannerBodyFor(true, true));
+            Assert.AreEqual(PangaeaFinale.DefaultBannerBody, PangaeaFinale.BannerBodyFor(false, true));
+            Assert.AreEqual(PangaeaFinale.KeyboardBannerBody, PangaeaFinale.BannerBodyFor(false, false));
         }
     }
 }
