@@ -5,7 +5,7 @@ using UnityEngine;
 
 namespace Drift.Bridge
 {
-    public enum JournalGlyph { Animal, Wader, Tree, Sprout, Crab, Turtle, Butterfly, Firefly, Bird, Fish, Whale, Jelly, Boat, Check }
+    public enum JournalGlyph { Animal, Wader, Tree, Sprout, Crab, Turtle, Butterfly, Firefly, Bird, Fish, Whale, Jelly, Boat, Check, Seal }
 
     // Little white silhouettes for the album cards, drawn once per domain from soft signed-distance shapes in a
     // -1..1 box (y up), like UiSprites' icons; one tint colours them.
@@ -45,7 +45,8 @@ namespace Drift.Bridge
                 default:
                     return e.hasSea && (e.sea == SeaKind.Whale || e.sea == SeaKind.WhaleCalf || e.sea == SeaKind.WhaleBull || e.sea == SeaKind.Dolphin) ? JournalGlyph.Whale
                         : e.hasSea && e.sea == SeaKind.Jellyfish ? JournalGlyph.Jelly
-                        : e.hasSea && e.sea == SeaKind.SeaTurtle ? JournalGlyph.Turtle : JournalGlyph.Fish;
+                        : e.hasSea && e.sea == SeaKind.SeaTurtle ? JournalGlyph.Turtle
+                        : e.hasSea && e.sea == SeaKind.Seal ? JournalGlyph.Seal : JournalGlyph.Fish;
             }
         }
 
@@ -156,6 +157,14 @@ namespace Drift.Bridge
                 case JournalGlyph.Boat:
                     return Min(Min(Polygon(p, Hull) - 0.06f, Polygon(p, Sail) - 0.04f, Polygon(p, Jib) - 0.04f),
                         Capsule(p, -0.03f, -0.2f, -0.03f, 0.84f, 0.04f), Capsule(p, -0.9f, -0.84f, 0.9f, -0.84f, 0.045f));
+                case JournalGlyph.Seal:
+                {
+                    // Propped up on its front flippers, head raised, the hind flippers fanned out behind.
+                    float d = Min(Capsule(p, -0.5f, -0.5f, 0.12f, -0.2f, 0.26f), Capsule(p, 0.1f, -0.22f, 0.34f, 0.24f, 0.21f), Disc(p, 0.42f, 0.38f, 0.21f));
+                    d = Min(d, Capsule(p, 0.5f, 0.34f, 0.72f, 0.28f, 0.1f), Capsule(p, 0.18f, -0.36f, 0.36f, -0.7f, 0.08f));
+                    d = Min(d, Capsule(p, -0.64f, -0.56f, -0.9f, -0.34f, 0.075f), Capsule(p, -0.64f, -0.58f, -0.92f, -0.72f, 0.075f));
+                    return Mathf.Max(d, -Disc(p, 0.46f, 0.46f, 0.055f));
+                }
                 default:
                     return Mathf.Min(Capsule(p, -0.52f, -0.04f, -0.16f, -0.42f, 0.15f), Capsule(p, -0.16f, -0.42f, 0.56f, 0.42f, 0.15f));
             }

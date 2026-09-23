@@ -163,16 +163,19 @@ namespace Drift.Visuals
             var r = new FlotsamReward();
             if (adventure)
             {
-                // The buoyancy is the survival resource and stays as it was; the push is what the run is about, so
-                // a piece is worth a real surge (owner: "die eingesammelten gegenstände sollen auch mehr boost geben").
+                // Rare but rich (play test 2026-09-23: a piece every ~2 s kept the boost on 73-100 % of the time,
+                // so it meant nothing). The ring lays a third to a half as many groups as before (RingWorld
+                // flotsamSpacing 72-120 u, was 24-60) and each piece is worth about 2.6x the buoyancy, so the survival
+                // economy over a run stays where it was; the surge is a little stronger (Encounters.flotsamBoostFactor)
+                // and, being rare, stands out as an event (predicted boost uptime 20-26 % weak, 36-42 % good play).
                 switch (kind)
                 {
-                    case ShipSystem.FlotsamKind.Crate: r.buoyancy = 0.09f; r.boostSeconds = 3f; break;
-                    case ShipSystem.FlotsamKind.Barrel: r.buoyancy = 0.08f; r.boostSeconds = 2.8f; break;
-                    case ShipSystem.FlotsamKind.Bottle: r.buoyancy = 0.06f; r.boostSeconds = 2.2f; break;
-                    case ShipSystem.FlotsamKind.PalmLog: r.buoyancy = 0.06f; r.boostSeconds = 2.2f; break;
+                    case ShipSystem.FlotsamKind.Crate: r.buoyancy = 0.23f; r.boostSeconds = 3.4f; break;
+                    case ShipSystem.FlotsamKind.Barrel: r.buoyancy = 0.2f; r.boostSeconds = 3.1f; break;
+                    case ShipSystem.FlotsamKind.Bottle: r.buoyancy = 0.16f; r.boostSeconds = 2.8f; break;
+                    case ShipSystem.FlotsamKind.PalmLog: r.buoyancy = 0.16f; r.boostSeconds = 2.8f; break;
                     case ShipSystem.FlotsamKind.Buoy: return r;
-                    default: r.buoyancy = 0.05f; r.boostSeconds = 2.4f; break;
+                    default: r.buoyancy = 0.14f; r.boostSeconds = 2.9f; break;
                 }
                 return r;
             }
@@ -275,8 +278,8 @@ namespace Drift.Visuals
         [Range(0f, 1f)] public float animalWhaleShare = 0.3f;
         [Tooltip("Anteil Schildkröten (nach den Walen).")]
         [Range(0f, 1f)] public float animalTurtleShare = 0.3f;
-        [Tooltip("Zusätzliches Tempo je mitschwimmendem Tier (0,2 = +20 %).")]
-        [Range(0f, 0.5f)] public float companionBoost = 0.18f;
+        [Tooltip("Zusätzliches Grundtempo je mitschwimmendem Tier (0,06 = +6 %). Kein Schub-Ereignis: den gibt nur das Treibgut.")]
+        [Range(0f, 0.5f)] public float companionBoost = 0.06f;
         [Tooltip("So viele Begleiter zählen höchstens für das Tempo.")]
         [Range(1, 5)] public int maxCompanionStack = 3;
 
@@ -352,7 +355,8 @@ namespace Drift.Visuals
             ShipHits++;
             var inst = _instance;
             Island player = FindPlayer();
-            if (player != null && inst != null) player.Stagger(inst.shipStaggerSeconds, inst.shipStaggerFactor);
+            // Right after an island hit the player glides through (Island.HitGrace): a ship must not start the series.
+            if (player != null && inst != null && !player.HitGrace) player.Stagger(inst.shipStaggerSeconds, inst.shipStaggerFactor);
             ShipHit?.Invoke(kind, pos);
         }
 
@@ -367,8 +371,8 @@ namespace Drift.Visuals
 
         static Encounters _instance;
 
-        [Tooltip("Schub-Faktor, den Treibgut im Abenteuer gibt (die Dauer kommt aus der Belohnung).")]
-        [Range(1f, 2f)] public float flotsamBoostFactor = 1.55f;
+        [Tooltip("Schub-Faktor, den Treibgut im Abenteuer gibt (die Dauer kommt aus der Belohnung). Treibgut ist selten, der Schub soll deutlich spürbar sein.")]
+        [Range(1f, 2f)] public float flotsamBoostFactor = 1.65f;
 
         static void ApplyReward(FlotsamReward reward)
         {
@@ -641,15 +645,12 @@ namespace Drift.Visuals
         // The top-speed factor the current escort is worth (1 = nobody swimming along).
         public float CompanionFactor => 1f + companionBoost * Mathf.Min(maxCompanionStack, CompanionCount);
 
-        // The escort pushes for as long as it is there: the boost is topped up every tick and fades out by itself
-        // half a second after the last animal has left.
-        const float CompanionHold = 0.6f;
-
+        // The escort raises the pace for as long as it is there. Not through SpeedBoost: an escort swims along most of
+        // the run, and as a boost it kept Island.Boosting on nearly all the time, so the flotsam surge meant nothing.
         void TickCompanions()
         {
-            if (!GameModes.IsAdventure || _player == null) return;
-            if (CompanionCount <= 0) return;
-            _player.SpeedBoost(CompanionHold, CompanionFactor);
+            if (_player == null) return;
+            _player.EscortFactor = GameModes.IsAdventure ? CompanionFactor : 1f;
         }
 
         // One animal every animalSpacing units along the band, in the widest free water there.
@@ -705,6 +706,10 @@ namespace Drift.Visuals
             PlaceLoose(g, z);
         }
 
+        // How far an island reaches: a volcano still rising out of the sea (RingIslandSpawner) is counted at its full
+        // size, or flotsam would be laid where its cone surfaces a moment later.
+        static float Reach(Island isl) => isl.IsEmerging ? Mathf.Max(isl.BoundingRadius, isl.landRadius * 1.25f) : isl.BoundingRadius;
+
         // The islands whose body reaches the stretch around z.
         bool CollectNear(RingGeometry g, float z)
         {
@@ -714,7 +719,7 @@ namespace Drift.Visuals
             {
                 var isl = all[i];
                 if (isl == null || !isl.isActiveAndEnabled || isl.useKeyboardInput) continue;
-                if (Mathf.Abs(g.AlongDelta(isl.PlanarPosition.y, z)) > isl.BoundingRadius + 6f) continue;
+                if (Mathf.Abs(g.AlongDelta(isl.PlanarPosition.y, z)) > Reach(isl) + 6f) continue;
                 _trackNear.Add(isl);
             }
             return _trackNear.Count > 0;
@@ -731,7 +736,7 @@ namespace Drift.Visuals
             {
                 var isl = all[i];
                 if (isl == null || !isl.isActiveAndEnabled || isl.useKeyboardInput) continue;
-                float r = isl.BoundingRadius + clearance;
+                float r = Reach(isl) + clearance;
                 float dz = g.AlongDelta(isl.PlanarPosition.y, z);
                 if (Mathf.Abs(dz) >= r) continue;
                 float half = Mathf.Sqrt(r * r - dz * dz);
@@ -836,7 +841,7 @@ namespace Drift.Visuals
                 var isl = all[i];
                 if (isl == null || !isl.isActiveAndEnabled || isl.useKeyboardInput) continue;
                 Vector2 d = new Vector2(p.x - isl.PlanarPosition.x, g.AlongDelta(p.y, isl.PlanarPosition.y));
-                if (d.sqrMagnitude < (isl.BoundingRadius + 1f) * (isl.BoundingRadius + 1f)) return false;
+                if (d.sqrMagnitude < (Reach(isl) + 1f) * (Reach(isl) + 1f)) return false;
             }
             return ships.SpawnRouteFlotsam(kind, p) >= 0;
         }

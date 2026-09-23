@@ -54,37 +54,66 @@ void DriftCloudClump(float2 id, float cover, out float2 centre, out float radius
     aspect = 1.0 + 0.5 * h3;
 }
 
+// Same clump as DriftCloudClump, evaluated in stages so a point that no clump can reach stops early: an empty
+// cell (about half of them at the default cover) costs one hash, a cell whose clump is out of reach four, and
+// only the clump actually over the point pays for the axis sincos and the lobe shape. The result is exactly
+// DriftCloudClump's: a clump never reaches past r * 1.05 * aspect from its centre.
 float DriftClumpDensity(float2 q, float2 id, float cover)
 {
-    float2 c, axis;
-    float r, aspect;
-    DriftCloudClump(id, cover, c, r, axis, aspect);
-    float2 d = q - c;
-    float2 l = float2(dot(d, axis) / aspect, dot(d, float2(-axis.y, axis.x)));
-    float len2 = dot(l, l);
-    float len = sqrt(len2);
-    // cos(6 angle) from the axis via the Chebyshev polynomial: six soft lobes, roughly where the ring puffs are.
-    float c2 = l.x * l.x / max(len2, 1e-8);
-    float t6 = ((32.0 * c2 - 48.0) * c2 + 18.0) * c2 - 1.0;
-    float edge = r * (0.95 + 0.05 * t6);
-    return (1.0 - smoothstep(edge * 0.35, edge * 1.05, len)) * step(1e-4, r);
+    // Single exit: FXC warns about (and some mobile compilers mishandle) early returns under [branch].
+    float dens = 0.0;
+    float h1 = DriftHash(id);
+    float grow = saturate((saturate(cover * 1.9) - h1) * 6.0);
+    [branch] if (grow > 0.0)
+    {
+        float h3 = DriftHash(id + float2(3.71, 41.9));
+        float h4 = DriftHash(id + float2(29.3, 11.1));
+        float2 d = q - (id + 0.3 + 0.4 * float2(h3, h4));
+        float h2 = DriftHash(id + float2(17.31, 5.17));
+        float r = (0.16 + 0.12 * h2) * grow;
+        float aspect = 1.0 + 0.5 * h3;
+        float reach = r * 1.05 * aspect;
+        [branch] if (dot(d, d) < reach * reach)
+        {
+            float2 axis;
+            sincos((h2 + h4) * 3.14159, axis.y, axis.x);
+            float2 l = float2(dot(d, axis) / aspect, dot(d, float2(-axis.y, axis.x)));
+            float len2 = dot(l, l);
+            float len = sqrt(len2);
+            // cos(6 angle) from the axis via the Chebyshev polynomial: six soft lobes, roughly where the ring puffs are.
+            float c2 = l.x * l.x / max(len2, 1e-8);
+            float t6 = ((32.0 * c2 - 48.0) * c2 + 18.0) * c2 - 1.0;
+            float edge = r * (0.95 + 0.05 * t6);
+            dens = 1.0 - smoothstep(edge * 0.35, edge * 1.05, len);
+        }
+    }
+    return dens;
 }
 
 // 0..1 cloud density at a world XZ position (1 = under a cloud).
 float CloudDensity(float2 wp)
 {
+    float dens = 0.0;
     float cover = saturate(_CloudCover);
-    float2 q = (wp + _CloudShadowShift.xy) * _CloudScale + _CloudOffset.xy;
-    float2 b = floor(q - 0.5);
-    float dens = max(max(DriftClumpDensity(q, b, cover), DriftClumpDensity(q, b + float2(1, 0), cover)),
-                     max(DriftClumpDensity(q, b + float2(0, 1), cover), DriftClumpDensity(q, b + float2(1, 1), cover)));
-    return dens * step(0.001, cover);
+    [branch] if (cover >= 0.001)
+    {
+        float2 q = (wp + _CloudShadowShift.xy) * _CloudScale + _CloudOffset.xy;
+        float2 b = floor(q - 0.5);
+        dens = max(max(DriftClumpDensity(q, b, cover), DriftClumpDensity(q, b + float2(1, 0), cover)),
+                   max(DriftClumpDensity(q, b + float2(0, 1), cover), DriftClumpDensity(q, b + float2(1, 1), cover)));
+    }
+    return dens;
 }
 
-// Multiplier for lit colour: 1 in the open, (1 - _CloudShadowStrength) under a cloud.
+// Multiplier for lit colour: 1 in the open, (1 - _CloudShadowStrength) under a cloud. The shadow edge is soft over
+// 2-3 world units (clumps 3-5 u across at the default 18 u spacing), so meshes whose vertices are closer than about
+// 1 u (plants, animals, critters, fish, island terrain at 0.5 u) evaluate it per VERTEX and interpolate: the same
+// picture for a fraction of the cost. The sea's grid is 3 u and coarser, so the water keeps it per pixel.
 float CloudShadow(float2 wp)
 {
-    return 1.0 - CloudDensity(wp) * _CloudShadowStrength;
+    float shade = 1.0;
+    [branch] if (_CloudShadowStrength > 0.0) shade = 1.0 - CloudDensity(wp) * _CloudShadowStrength;
+    return shade;
 }
 
 #endif

@@ -83,6 +83,59 @@ namespace Drift.Islands
             return 1f + (factor - 1f) * Mathf.InverseLerp(threshold, 1f, flow);
         }
 
+        // How much of a full boost is running (0..1): Island.BoostFactor against the factor that counts as full.
+        public static float BoostShare(float boostFactor, float fullFactor)
+        {
+            if (fullFactor <= 1.001f) return boostFactor > 1.001f ? 1f : 0f;
+            return Mathf.Clamp01((boostFactor - 1f) / (fullFactor - 1f));
+        }
+
+        // How hard a freshly collected boost punches: by how much it renewed the boost, never less than `min` so a
+        // pickup while already at full boost is still felt a little.
+        public static float PickupStrength(float factorBefore, float factorAfter, float fullFactor, float min)
+        {
+            float gain = BoostShare(factorAfter, fullFactor) - BoostShare(factorBefore, fullFactor);
+            return Mathf.Clamp01(Mathf.Max(min, gain));
+        }
+
+        // A kick decaying from 1: k * exp(-dt / seconds). Stands still at dt <= 0 (pause).
+        public static float Decay(float kick, float dt, float seconds)
+        {
+            if (dt <= 0f || kick <= 0f) return Mathf.Max(0f, kick);
+            float k = kick * Mathf.Exp(-dt / Mathf.Max(0.01f, seconds));
+            return k < 0.001f ? 0f : k;
+        }
+
+        // The visible shape of a decaying kick: 0 with zero slope when it starts, 1 halfway down, 0 again at the
+        // end - a swell instead of a jump, so FOV punches never snap.
+        public static float Bump(float kick)
+        {
+            float k = Mathf.Clamp01(kick);
+            float b = 4f * k * (1f - k);
+            return b * b;
+        }
+
+        // Adventure: the camera moves closer (and lower) with the speed instead of backing off - together with the
+        // wider field of view the water streams past faster while the island keeps its size on screen.
+        public static float RingDolly(float framing, float amount) =>
+            1f - Mathf.Clamp01(amount) * Mathf.Clamp01(framing / Max);
+
+        // The island radius the chase framing scales with: unchanged up to `knee`, above it only radius^soft, so a
+        // continent is not framed from so far away that its animals shrink to a few pixels.
+        public static float SoftRadius(float radius, float knee, float soft)
+        {
+            if (knee <= 0f || radius <= knee) return radius;
+            return knee * Mathf.Pow(radius / knee, Mathf.Clamp01(soft));
+        }
+
+        // How far the idle "life zoom" closes in on an island of this radius (1 = not at all): nothing on small
+        // islands, the full closeIn from twice minRadius on.
+        public static float IdleCloseIn(float radius, float closeIn, float minRadius)
+        {
+            float t = Mathf.InverseLerp(minRadius, 2f * Mathf.Max(0.01f, minRadius), radius);
+            return Mathf.Lerp(1f, Mathf.Clamp(closeIn, 0.1f, 1f), t);
+        }
+
         // The surf tone's pitch (Hz): a clear rise while the boundary carries, so "I am surfing" is audible.
         public static float SurfHz(float surf, float baseHz = 165f, float span = 250f)
         {

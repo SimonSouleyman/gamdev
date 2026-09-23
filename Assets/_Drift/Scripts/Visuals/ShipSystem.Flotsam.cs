@@ -32,6 +32,10 @@ namespace Drift.Visuals
         public float collectSeconds = 0.6f;
         [Tooltip("Abstand (s) zwischen zwei Glitzern auf Treibgut, das eine Begegnung auf den Kurs gelegt hat.")]
         public float routeGlintInterval = 1.6f;
+        [Tooltip("Abenteuer: Treibgut auf dem Kurs wird so viel größer gezeichnet, damit es aus der Fahrt heraus erkennbar ist.")]
+        [Range(1f, 2f)] public float adventureRouteScale = 1.35f;
+        [Tooltip("Wie hoch Treibgut auf dem Kurs sanft auf und ab schaukelt (Einheiten).")]
+        [Range(0f, 0.3f)] public float routeBob = 0.07f;
 
         public const float FlotsamCollectHeight = -0.62f;
 
@@ -73,6 +77,8 @@ namespace Drift.Visuals
         }
         public FlotsamKind FlotsamKindOf(int i) => _flotsam[i].kind;
         public Vector2 FlotsamPosition(int i) => _flotsam[i].pos;
+        // 0..1 how far the piece has faded in (it fades out again towards the edge of the spawn radius).
+        public float FlotsamFade(int i) => _flotsam[i].active ? _flotsam[i].fade : 0f;
 
         public int ActiveFlotsam
         {
@@ -359,6 +365,8 @@ namespace Drift.Visuals
                 fl.fade = dt > 0f ? Mathf.MoveTowards(fl.fade, target, dt * 0.9f) : target;
                 if (dt <= 0f) continue;
                 if (fl.kind != FlotsamKind.Buoy) fl.pos += _wind * (flotsamDrift * dt);
+                // Past a rim of the ring the bend would fold the piece flat onto the edge.
+                if (_onRing) fl.pos = _ringGeo.ClampAcross(fl.pos, 1.5f);
                 fl.heading += Mathf.Sin(_clock * 0.17f + i) * 0.05f * dt;
                 if (fl.route)
                 {
@@ -377,6 +385,7 @@ namespace Drift.Visuals
                     float l = away.magnitude;
                     away = l > 1e-3f ? away / l : Vector2.right;
                     fl.pos += away * ((2.5f + over.PlanarVelocity.magnitude + (over == _player ? _playerSpeed : 0f)) * dt);
+                    if (_onRing) fl.pos = _ringGeo.ClampAcross(fl.pos, 1.5f);
                     fl.heading += 0.8f * dt;
                 }
             }
@@ -395,6 +404,12 @@ namespace Drift.Visuals
                 float ph = (fl.seed & 0xFFu) * 0.0245f;
                 float k = fl.fade;
                 Vector3 p = new Vector3(fl.pos.x, h0 * 0.06f, fl.pos.y);
+                if (fl.route)
+                {
+                    // Cargo on the course bobs a little more than the swell alone, and on the ring it is drawn larger.
+                    p.y += routeBob * Mathf.Sin(_clock * 2.1f + ph * 7f);
+                    if (_onRing) k *= adventureRouteScale;
+                }
                 if (fl.collect >= 0f)
                 {
                     float c = Mathf.Clamp01(fl.collect);
@@ -418,6 +433,7 @@ namespace Drift.Visuals
                 if (fl.kind == FlotsamKind.PalmLog)
                     _batch.Octa(p + r * (0.55f * k) + f * (0.3f * k) + Vector3.up * (0.03f + 0.03f * Mathf.Sin(_clock * 1.3f + ph)), 0.13f * k, new Color(0.4f, 0.27f, 0.15f));
             }
+            DrawBeacons();
         }
     }
 }

@@ -224,6 +224,9 @@ Shader "Drift/Critter"
                 OUT.positionHCS = DriftCurveHClip(posWS);
                 OUT.positionWS = posWS;
                 OUT.normalWS = TransformObjectToWorldNormal(IN.normalOS);
+                // The lit path reads the cloud shadow from the colour alpha (per vertex, DriftClouds.hlsl); the glow
+                // path above keeps its falloff in halo.z.
+                OUT.color.a = CloudShadow(posWS.xz);
                 return OUT;
             }
 
@@ -249,7 +252,7 @@ Shader "Drift/Critter"
 
                 Light mainLight = GetMainLight();
                 float nd = saturate(dot(normalize(IN.normalWS), mainLight.direction));
-                float lit = lerp(1.0, (_Ambient + (1.0 - _Ambient) * nd) * CloudShadow(IN.positionWS.xz), _LightAmount);
+                float lit = lerp(1.0, (_Ambient + (1.0 - _Ambient) * nd) * IN.color.a, _LightAmount);
                 float3 lightCol = lerp(float3(1,1,1), mainLight.color, _LightAmount);
                 float3 marked = DriftMarkings(IN.color.rgb, IN.mark, IN.markId.x, IN.markId.y, _Markings);
                 float3 shaded = marked * _Tint.rgb * lit * lightCol;

@@ -276,6 +276,36 @@ namespace Drift.Tests
             }
         }
 
+        // ------------------------------------------------------------ framing (2026-09-23 play test)
+
+        [Test]
+        public void WatchHome_LooksDownOnTheMiddleOfTheAnimalsAndKeepsThemReadable()
+        {
+            _watch.FollowHerd(_island, _herds, 0);
+            Assert.IsTrue(_watch.Following);
+            Assert.AreEqual(_watch.watchPitch, _watch.Rig.homePitch, 1e-3f, "looks down at the watch pitch");
+
+            // The focus is the middle of the animals themselves, not the herd's leading centre point.
+            int n = _herds.HerdSize(0);
+            Vector2 sum = Vector2.zero;
+            for (int m = 0; m < n; m++)
+            {
+                Vector3 p = _herds.AnimalLocalPosition(0, m);
+                sum += new Vector2(p.x, p.z);
+            }
+            Vector2 mid = sum / n;
+            Vector3 expected = _island.transform.TransformPoint(mid.x, Mathf.Max(0f, _island.SampleHeight(mid)), mid.y);
+            Assert.Less(Vector3.Distance(expected, _watch.FollowFocus), 1e-3f);
+
+            // A hare is tiny: the start distance draws it at least watchMinBodyPixels long (or is as close as allowed).
+            var cam = Camera.main;
+            float t = WatchFraming.ShortHalfTan(cam != null ? cam.fieldOfView : 60f, cam != null ? cam.aspect : 9f / 16f);
+            float dist = _watch.Rig.homeDistance;
+            float pixels = _herds.BodyLength(0) / (2f * dist * t) * 1080f;
+            Assert.IsTrue(pixels >= _watch.watchMinBodyPixels - 0.5f || dist <= _watch.Rig.minDistance + 1e-3f,
+                $"a hare at {dist:F2} u is only {pixels:F0} px");
+        }
+
         // ------------------------------------------------------------ the cue is a finger target
 
         [Test]

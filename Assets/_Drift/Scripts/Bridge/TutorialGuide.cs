@@ -301,7 +301,7 @@ namespace Drift.Bridge
         // Rich text: TildaBubble.Key marks the one or two words a step is about.
         public static string TextFor(TutorialStep step, bool touchDevice) => TextFor(step, touchDevice, GameModes.Current);
 
-        // Gemuetlich has no game over: the bar there is the calm "Tiefgang"; only Abenteuer warns about sinking.
+        // Gemuetlich has no game over: the bar there is the calm "Auftrieb"; only Abenteuer warns about sinking.
         public static string TextFor(TutorialStep step, bool touchDevice, GameMode mode)
         {
             bool adventure = mode == GameMode.Adventure;
@@ -322,7 +322,7 @@ namespace Drift.Bridge
                 case TutorialStep.Buoyancy:
                     return adventure
                         ? "Juhu, bei mir sprühen die Funken! Deine Insel ist gewachsen. Ab jetzt sinkt sie langsam. Behalte den Balken " + K("„Auftrieb“") + " im Blick: Jede neue Insel hebt dich wieder."
-                        : "Juhu, bei mir sprühen die Funken! Deine Insel ist gewachsen. Der Balken " + K("„Tiefgang“") + " zeigt, wie schwer sie im Wasser liegt. Keine Sorge: Untergehen kann sie nicht.";
+                        : "Juhu, bei mir sprühen die Funken! Deine Insel ist gewachsen. Der Balken " + K("„Auftrieb“") + " zeigt, wie gut sie noch schwimmt. Keine Sorge: Untergehen kann sie nicht.";
                 case TutorialStep.Form:
                     return adventure
                         ? "Daneben steht die " + K("Form") + ". Runde Inseln schwimmen gut, längliche sinken schneller. Beim Rammen " + K("dreht sich") + " deine Insel, damit sie rund wächst."

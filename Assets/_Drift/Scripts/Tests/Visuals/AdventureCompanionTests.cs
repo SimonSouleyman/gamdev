@@ -182,18 +182,55 @@ namespace Drift.Tests
                     Assert.AreEqual(0f, adv.boostSeconds, "a buoy is not collected");
                     continue;
                 }
-                // Was 1.2 s for everything; the push is what the run is about now.
-                Assert.GreaterOrEqual(adv.boostSeconds, 2f, k.ToString());
-                Assert.LessOrEqual(adv.boostSeconds, 3f, k.ToString());
-                // The buoyancy is the survival resource and must not have moved.
-                Assert.Greater(adv.buoyancy, 0.02f, k.ToString());
-                Assert.LessOrEqual(adv.buoyancy, 0.1f, k.ToString());
+                // Rare but rich since the 2026-09-23 play test: a real surge, but short enough that the boost
+                // stays an event (the ring lays a group only every 72-120 u).
+                Assert.GreaterOrEqual(adv.boostSeconds, 2.5f, k.ToString());
+                Assert.LessOrEqual(adv.boostSeconds, 3.6f, k.ToString());
+                // About 2.6x the old buoyancy per piece for about a third to a half of the pieces.
+                Assert.Greater(adv.buoyancy, 0.1f, k.ToString());
+                Assert.LessOrEqual(adv.buoyancy, 0.25f, k.ToString());
             }
             Assert.Greater(EncounterPacer.RewardFor(ShipSystem.FlotsamKind.Crate, true).boostSeconds,
                 EncounterPacer.RewardFor(ShipSystem.FlotsamKind.Bottle, true).boostSeconds, "a crate is worth more than a bottle");
             // Cozy is untouched: flotsam there is a small lift and never a boost.
             foreach (ShipSystem.FlotsamKind k in System.Enum.GetValues(typeof(ShipSystem.FlotsamKind)))
                 Assert.AreEqual(0f, EncounterPacer.RewardFor(k, false).boostSeconds, k.ToString());
+        }
+
+        // Play test 2026-09-23: a piece every ~2 s kept the boost on 73-100 % of the time. Flotsam is rarer now but
+        // richer: per stretch of track it gives about the buoyancy it used to (the survival economy holds), and far
+        // fewer boost-seconds, so the surge is an event again.
+        [Test]
+        public void RareFlotsam_KeepsTheBuoyancy_ButTheBoostIsAnEvent()
+        {
+            var ring = New("AdvFlotsamRing").AddComponent<RingWorld>();
+            // Share of each kind the track lays (Encounters.KindFor) and the rewards as they were before the change.
+            var kinds = new[] { ShipSystem.FlotsamKind.Crate, ShipSystem.FlotsamKind.Barrel, ShipSystem.FlotsamKind.Bottle, ShipSystem.FlotsamKind.Driftwood };
+            float[] share = { 0.3f, 0.3f, 0.2f, 0.2f };
+            float[] oldBuoy = { 0.09f, 0.08f, 0.06f, 0.05f };
+            float[] oldBoost = { 3f, 2.8f, 2.2f, 2.4f };
+            float buoy = 0f, boost = 0f, wasBuoy = 0f, wasBoost = 0f;
+            for (int i = 0; i < kinds.Length; i++)
+            {
+                var r = EncounterPacer.RewardFor(kinds[i], true);
+                buoy += share[i] * r.buoyancy;
+                boost += share[i] * r.boostSeconds;
+                wasBuoy += share[i] * oldBuoy[i];
+                wasBoost += share[i] * oldBoost[i];
+            }
+            // Per 100 u of track at the start, half way and at the top of the difficulty (old spacing 24 -> 60 u).
+            for (int k = 0; k <= 2; k++)
+            {
+                float d = k * 0.5f;
+                float now = Mathf.Lerp(ring.flotsamSpacingStart, ring.flotsamSpacingMax, d);
+                float was = Mathf.Lerp(24f, 60f, d);
+                float economy = (buoy / now) / (wasBuoy / was);
+                Assert.Greater(economy, 0.8f, "buoyancy per track at difficulty " + d + ": " + economy);
+                Assert.Less(economy, 1.4f, "buoyancy per track at difficulty " + d + ": " + economy);
+                float surge = (boost / now) / (wasBoost / was);
+                Assert.Less(surge, 0.6f, "boost-seconds per track at difficulty " + d + ": " + surge);
+            }
+            Assert.Greater(New("AdvFlotsamEnc").AddComponent<Encounters>().flotsamBoostFactor, 1.55f, "a rare surge pushes harder");
         }
 
         [Test]
@@ -220,6 +257,11 @@ namespace Drift.Tests
             int hits = 0;
             System.Action<ShipSystem.ShipKind, Vector3> h = (k, p) => hits++;
             Encounters.ShipHit += h;
+            // The director finds the player through Island.All: the scene's own player island must not take the hit.
+            var scenePlayers = new List<Island>();
+            foreach (var other in Island.All)
+                if (other != null && other != player && other.useKeyboardInput) scenePlayers.Add(other);
+            foreach (var other in scenePlayers) other.useKeyboardInput = false;
             try
             {
                 Encounters.NotifyShipHit(ShipSystem.ShipKind.SailBoat, Vector3.zero);
@@ -229,7 +271,11 @@ namespace Drift.Tests
                 Assert.AreEqual(before, player.RawBuoyancy, 1e-4f, "islands stay the danger: a ship costs no buoyancy");
                 Assert.IsFalse(player.Boosting, "and never pays a boost");
             }
-            finally { Encounters.ShipHit -= h; }
+            finally
+            {
+                Encounters.ShipHit -= h;
+                foreach (var other in scenePlayers) if (other != null) other.useKeyboardInput = true;
+            }
         }
 
         [Test]

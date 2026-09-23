@@ -405,9 +405,9 @@ namespace Drift.Bridge
         GameObject BuildBuoyancy(RectTransform panel)
         {
             var page = NewPage(panel, "PageBuoyancy");
-            var buoy = InfoCard(page, 0f, 330f, UiStyle.Sky, "Tiefgang", "Der Balken zeigt, wie hoch deine Insel schwimmt. Große Inseln liegen tiefer, jede neue Insel hebt sie wieder an.");
-            SampleBar(buoy, -206f, 0.78f, UiStyle.Sky, "schwimmt leicht");
-            SampleBar(buoy, -262f, 0.34f, UiStyle.Sand, "Insel ist schwer");
+            var buoy = InfoCard(page, 0f, 330f, UiStyle.Sky, "Auftrieb", "Der Balken zeigt, wie hoch deine Insel schwimmt. Sie sinkt langsam – jede neue Insel hebt sie wieder an.");
+            SampleBar(buoy, -206f, 0.78f, UiStyle.Sky, "schwimmt hoch");
+            SampleBar(buoy, -262f, 0.34f, UiStyle.Sand, "sinkt langsam");
 
             var form = InfoCard(page, -350f, 330f, UiStyle.Mint, "Form", "Runde Inseln schwimmen am besten. Längliche Inseln liegen tiefer und sinken bis zu 1,6-mal schneller.");
             UiStyle.Dot(form, "Round", 96f, UiStyle.Mint).rectTransform.TopLeft(new Vector2(110f, -196f), new Vector2(96f, 96f));

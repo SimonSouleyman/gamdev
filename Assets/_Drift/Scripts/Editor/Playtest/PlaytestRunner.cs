@@ -237,6 +237,13 @@ namespace Drift.EditorTools.Playtest
             if (_script == null) return;
             try
             {
+                // Focus loss (someone working in another window) pauses the game like a phone going to the background;
+                // a scripted run would then wait for ever.
+                if (_session != null && _session.IsPaused)
+                {
+                    _session.Resume();
+                    Current.notes.Add($"{_rec.time:0.0}s resumed an unexpected pause");
+                }
                 _rec.Frame(Time.deltaTime, Time.unscaledDeltaTime);
                 if (_rec.MemoryDue) _rec.SampleMemory(10f, _rec.result.memory.Count % 6 == 0);
                 PollDiscovery();

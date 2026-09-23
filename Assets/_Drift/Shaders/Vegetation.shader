@@ -143,7 +143,8 @@ Shader "Drift/Vegetation"
                 OUT.positionHCS = DriftCurveHClip(posWS);
                 OUT.positionWS = posWS;
                 OUT.normalOS = IN.normalOS;
-                OUT.color = IN.color;
+                // The fragment only reads rgb; alpha carries the cloud shadow (per vertex, DriftClouds.hlsl).
+                OUT.color = float4(IN.color.rgb, CloudShadow(posWS.xz));
                 return OUT;
             }
 
@@ -176,7 +177,7 @@ Shader "Drift/Vegetation"
 
                 Light mainLight = GetMainLight();
                 float nd = saturate(dot(n, mainLight.direction));
-                float lit = lerp(1.0, (_Ambient + (1.0 - _Ambient) * nd) * CloudShadow(IN.positionWS.xz), _LightAmount);
+                float lit = lerp(1.0, (_Ambient + (1.0 - _Ambient) * nd) * IN.color.a, _LightAmount);
                 float3 lightCol = lerp(float3(1,1,1), mainLight.color, _LightAmount);
                 return float4(DriftFog(IN.color.rgb * d * _Tint.rgb * lit * lightCol, IN.positionWS), 1);
             }

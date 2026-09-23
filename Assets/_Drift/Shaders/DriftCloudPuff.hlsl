@@ -8,6 +8,9 @@
 // Pushed by Drift.Visuals.CloudShadows.
 float4 _CloudFocus;    // xyz = the player's island (world, sea level), w = its radius (0 = no clear view kept)
 float  _CloudHeight;   // base height of the cloud layer
+// Pushed by Drift.Visuals.StormVisuals: 1 on phones - the finest of the three noise octaves of every puff pixel is
+// skipped (a uniform branch; the outline keeps its two big octaves). 0 = full detail.
+float  _DriftPuffLite;
 
 #ifndef DRIFT_SKY_INCLUDED
 // The palette's cloud colours (pushed by CurvedWorld for the sky, already linear); zero = not pushed.
@@ -71,13 +74,21 @@ float DriftPuffClearView(float3 centreWS, float radius)
     float camD = length(bent - _WorldSpaceCameraPos);
     float nearFade = saturate((camD - radius * 1.3) / (radius * 1.5 + 2.0));
     if (_CloudFocus.w <= 0.0) return nearFade;
-    float4 fc = TransformWorldToHClip(DriftCurveWS(_CloudFocus.xyz));
+    float3 focusBent = DriftCurveWS(_CloudFocus.xyz);
+    float4 fc = TransformWorldToHClip(focusBent);
     float4 pc = TransformWorldToHClip(bent);
     float fw = max(fc.w, 1e-3), pw = max(pc.w, 1e-3);
     float aspect = _ScreenParams.x / max(_ScreenParams.y, 1.0);
     float2 dd = (pc.xy / pw - fc.xy / fw) * float2(aspect, 1.0);
     float k = abs(UNITY_MATRIX_P[1][1]);   // negative when rendering into a flipped target
-    float gap = length(dd) - _CloudFocus.w * k / fw - radius * k / pw * 0.6;
+    // The island is a flat disc (plus its hills and trees): seen from a low camera it is wide but short on screen.
+    // A round clear zone of its full radius hid every cloud above it - on the adventure ring that was the storm
+    // straight ahead. The zone is an ellipse, as tall as the island looks from this angle.
+    float rx = _CloudFocus.w * k / fw;
+    float tilt = abs(normalize(focusBent - _WorldSpaceCameraPos).y);
+    float ry = min(rx, (_CloudFocus.w * (tilt + 0.35)) * k / fw);
+    dd.y *= rx / max(ry, 1e-4);
+    float gap = length(dd) - rx - radius * k / pw * 0.6;
     return nearFade * smoothstep(0.02, 0.22, gap);
 }
 
@@ -90,7 +101,9 @@ float4 DriftPuffShade(float2 uv, float seed, float boil, float3 litCol, float3 d
     float2 drift = float2(boil, -0.7 * boil);
     float n1 = DriftNoise(uv * 2.3 + seed * 17.0 + drift);
     float n2 = DriftNoise(uv * 5.3 - seed * 9.0 - drift * 1.6);
-    float n3 = DriftNoise(uv * 11.0 + seed * 5.0 + drift * 2.3);
+    float n3 = 0.5;
+    UNITY_BRANCH
+    if (_DriftPuffLite < 0.5) n3 = DriftNoise(uv * 11.0 + seed * 5.0 + drift * 2.3);
     float n = n1 * 0.55 + n2 * 0.3 + n3 * 0.15;
     // Cauliflower outline: the bumps of the noise push the rim in and out.
     float edge = 0.66 + 0.34 * n;

@@ -88,6 +88,10 @@ Shader "Drift/Water"
             float4 _SpeedFeel;
             float4 _SpeedFeelGains;
             float4 _SprayPos;       // xy = merge contact, z = age, w = strength
+            // How much light the shallow tint and the foam get (Drift.Visuals.DayNightCycle through WaterFeedback): rgb =
+            // multiplier, 1 by day, the dim bluish moonlight at night; w = 0 when nobody set it (then 1). Without it the
+            // fixed turquoise and white glowed at night as bright slabs along every shore.
+            float4 _WaterLight;
             float  _Storm;          // 0..1 storm intensity at the player
             // Every visible storm (Drift.Visuals.StormVisuals): xy centre, z radius, w intensity. Unset = no storms.
             float4 _DriftStorms[4];
@@ -251,13 +255,19 @@ Shader "Drift/Water"
 
             float ImpactRing(float2 wp, float2 c, float age, float strength, float churn)
             {
-                float d = length(wp - c);
-                float r = age * 6.0;
-                float w = 0.3 + 0.25 * age;
-                float band = exp(-(d - r) * (d - r) / (w * w));
-                float inner = saturate(1.0 - d / max(r, 0.01)) * saturate(1.0 - age / 0.6) * 0.5;
-                float life = saturate(1.0 - age / 2.5);
-                return (band + inner) * life * strength * (0.25 + 0.5 * churn) * step(0.0, age);
+                // Single exits under [branch]: FXC warns about (and some mobile compilers mishandle) early returns there.
+                float res = 0.0;
+                [branch] if (strength > 0.0)
+                {
+                    float d = length(wp - c);
+                    float r = age * 6.0;
+                    float w = 0.3 + 0.25 * age;
+                    float band = exp(-(d - r) * (d - r) / (w * w));
+                    float inner = saturate(1.0 - d / max(r, 0.01)) * saturate(1.0 - age / 0.6) * 0.5;
+                    float life = saturate(1.0 - age / 2.5);
+                    res = (band + inner) * life * strength * (0.25 + 0.5 * churn) * step(0.0, age);
+                }
+                return res;
             }
 
             // Thin foam streaks sliding past the island, in a band that follows its SHORE (not a circle around the
@@ -305,13 +315,18 @@ Shader "Drift/Water"
             // Tiny ring left by a jumping fish: 0.15 u -> ~1.1 u over 0.8 s.
             float SplashRing(float2 wp)
             {
-                float age = _SplashPos.z;
-                float d = length(wp - _SplashPos.xy);
-                float r = 0.15 + age * 1.2;
-                float w = 0.08 + 0.12 * age;
-                float band = exp(-(d - r) * (d - r) / (w * w));
-                float life = saturate(1.0 - age / 0.8);
-                return band * life * life * _SplashPos.w;
+                float res = 0.0;
+                [branch] if (_SplashPos.w > 0.0)
+                {
+                    float age = _SplashPos.z;
+                    float d = length(wp - _SplashPos.xy);
+                    float r = 0.15 + age * 1.2;
+                    float w = 0.08 + 0.12 * age;
+                    float band = exp(-(d - r) * (d - r) / (w * w));
+                    float life = saturate(1.0 - age / 0.8);
+                    res = band * life * life * _SplashPos.w;
+                }
+                return res;
             }
 
             // Soft, wide, low-contrast foam streaks stretched along the wind. Elongation comes from
@@ -341,26 +356,34 @@ Shader "Drift/Water"
                 float2 hs = id + seed;
                 float h1 = DriftHash(hs);
                 float h2 = DriftHash(hs + float2(7.31, 1.93));
-                float h3 = DriftHash(hs + float2(2.17, 9.41));
                 float2 d = f - (0.3 + 0.4 * float2(h1, h2));
-                float a = dot(d, dir);
-                float b = dot(d, float2(-dir.y, dir.x));
-                float len = hl * (0.6 + 0.8 * h3);
-                float ca = clamp(a, -len, len);
-                float taper = saturate((len - ca) / max(2.0 * len, 1e-4));
-                float r = 0.045 * (1.0 - 0.7 * taper);
-                float dist = length(float2(a - ca, b));
-                float shape = 1.0 - smoothstep(r * 0.3 - aa, r + aa, dist);
-                // Each fleck lives for its own random window inside the phase, so they fade in and out one by one.
-                float start = h1 * 0.45;
-                float life = sin(3.14159 * saturate((ph - start) / 0.55));
-                return shape * life * step(h2 * 0.7 + h3 * 0.3, density) * (0.6 + 0.4 * h3);
+                // Nearly every pixel of a cell is outside its fleck: the fleck ends hl * 1.4 (longest comet) + 0.045
+                // (head) + aa from its centre, so past that the result is exactly 0 and the rest is skipped.
+                float reach = hl * 1.4 + 0.045 + aa;
+                float res = 0.0;
+                [branch] if (dot(d, d) < reach * reach)
+                {
+                    float h3 = DriftHash(hs + float2(2.17, 9.41));
+                    float a = dot(d, dir);
+                    float b = dot(d, float2(-dir.y, dir.x));
+                    float len = hl * (0.6 + 0.8 * h3);
+                    float ca = clamp(a, -len, len);
+                    float taper = saturate((len - ca) / max(2.0 * len, 1e-4));
+                    float r = 0.045 * (1.0 - 0.7 * taper);
+                    float dist = length(float2(a - ca, b));
+                    float shape = 1.0 - smoothstep(r * 0.3 - aa, r + aa, dist);
+                    // Each fleck lives for its own random window inside the phase, so they fade in and out one by one.
+                    float start = h1 * 0.45;
+                    float life = sin(3.14159 * saturate((ph - start) / 0.55));
+                    res = shape * life * step(h2 * 0.7 + h3 * 0.3, density) * (0.6 + 0.4 * h3);
+                }
+                return res;
             }
 
             // Foam flecks carried by the plate current under them: a two-phase flow map (each phase restarts its flecks
             // at fresh random spots while they are invisible) at two cell sizes picked by camera distance, so the
             // flecks keep roughly the same size on screen from the chase view to fully zoomed out.
-            float CurrentFlecks(float2 wp, float camDist, out float edge)
+            float CurrentFlecks(float2 wp, float camDist, float fw, out float edge)
             {
                 edge = 0.0;
                 if (_CurrentFieldParams.w <= 0.0) return 0.0;
@@ -390,8 +413,10 @@ Shader "Drift/Water"
                 {
                     float cell = 2.0 * exp2(lv + layer);
                     float w = layer == 0 ? 1.0 - blend : blend;
+                    // A layer that is almost faded out adds at most 1 % of a fleck: skip its two phases.
+                    [branch] if (w < 0.02) continue;
                     float T = 2.2 + 0.08 * cell;
-                    float aa = 0.7 * max(fwidth(wp.x), fwidth(wp.y)) / cell + 0.008;
+                    float aa = 0.7 * fw / cell + 0.008;
                     [unroll]
                     for (int k = 0; k < 2; k++)
                     {
@@ -424,12 +449,19 @@ Shader "Drift/Water"
 
             float4 frag(Varyings IN) : SV_Target
             {
+                // Derivatives first, while every pixel of the quad is still running (the early outs below diverge).
+                float2 wp = IN.positionWS.xz;
+                float fw = max(fwidth(wp.x), fwidth(wp.y));
                 float2 uv = IN.screenPos.xy / IN.screenPos.w;
                 float sceneDepth = LinearEyeDepth(SampleSceneDepth(uv), _ZBufferParams);
                 float surfDepth = IN.screenPos.w;
                 float diff = max(0, sceneDepth - surfDepth);
 
-                float2 wp = IN.positionWS.xz;
+                // The sea dissolves into the sky colour at the limb, so the horizon is closed whatever the mesh does there.
+                // Where the haze is complete nothing below would show: a zoomed-out view is mostly such pixels.
+                float haze = DriftFogAmount(IN.positionWS);
+                [branch] if (haze >= 0.998) return float4(_CurveFogColor.rgb, 1.0);
+
                 float2 coastN;
                 float coastFade;
                 float coastD = CoastDistance(wp, coastN, coastFade);
@@ -441,27 +473,32 @@ Shader "Drift/Water"
                 float2 g;
                 float h;
                 Waves(wp, t, storm, wind, g, h);
-                // Fine sines alias into a moiré lattice when the camera is far: fade the detail and
+                // Fine sines alias into a moire lattice when the camera is far: fade the detail and
                 // flatten the main waves with distance instead of letting them shimmer.
                 float camDist = length(GetCameraPositionWS() - IN.positionWS);
                 float lod = saturate(1.0 - (camDist - 12.0) / 30.0);
                 // The curved world shows the sea from 100 u and more, where even the flattened waves and their glints
                 // line up into a grid: a second, slower fade takes them down to a calm sheen.
                 float farLod = 1.0 - 0.85 * saturate((camDist - 40.0) / 80.0);
-                g = g * _WaveNormalScale * lerp(0.3, 1.0, lod) * farLod + Detail(wp, t, storm, wind) * lod;
+                g = g * _WaveNormalScale * lerp(0.3, 1.0, lod) * farLod;
+                [branch] if (lod > 0.0) g += Detail(wp, t, storm, wind) * lod;
                 float3 n = normalize(float3(-g.x, 1.0, -g.y));
 
                 float n1 = DriftNoise(wp * 1.7 + t * 0.6);
                 float n2 = DriftNoise(wp * 3.1 - t * 0.4);
                 float churn = n1 * 0.6 + n2 * 0.4;
 
+                half3 light = _WaterLight.w > 0.0 ? (half3)_WaterLight.rgb : half3(1, 1, 1);
+                half3 shallowCol = (half3)_ShallowColor.rgb * light;
+                half3 foamCol = (half3)_FoamColor.rgb * light;
+
                 // Tint and shore foam come from the camera depth texture, which is the real beach outline of
                 // EVERY island. No analytic island distance is used for them: a circle on the bounding radius
                 // once produced a turquoise disc three times the size of the island.
                 float depthFade = saturate(diff / _DepthRange);
-                float shallowMask = 1.0 - smoothstep(0.15, 0.9, depthFade);
-                float3 col = lerp(_ShallowColor.rgb, _DeepColor.rgb, pow(depthFade, 0.7));
-                col *= 1.0 + h * (0.05 + 0.05 * storm) * farLod;
+                half shallowMask = 1.0 - smoothstep(0.15, 0.9, depthFade);
+                half3 col = lerp(shallowCol, (half3)_DeepColor.rgb, (half)pow(depthFade, 0.7));
+                col *= (half)(1.0 + h * (0.05 + 0.05 * storm) * farLod);
 
                 float3 V = normalize(GetCameraPositionWS() - IN.positionWS);
                 Light l = GetMainLight();
@@ -476,22 +513,30 @@ Shader "Drift/Water"
                 // turned into a long white streak across the sea, which read as stripy clouds.
                 float3 nSky = normalize(float3(-g.x * 0.25, 1.0, -g.y * 0.25));
                 float fres = pow(1.0 - saturate(dot(nSky, V)), 4.0);
-                col = lerp(col, _SkyColor.rgb, fres * _Fresnel);
-                col += l.color * spec;
+                col = lerp(col, (half3)_SkyColor.rgb, (half)(fres * _Fresnel));
+                col += (half3)(l.color * spec);
 
-                // Shore foam that surges and breaks up over time instead of a fixed rim.
-                float surge = 0.5 + 0.5 * sin(t * 0.9 + diff * 5.0 + n2 * 3.0);
-                // Depth only: the analytic circle drew a white disc around every elongated island.
-                float foamBase = 1.0 - saturate(diff / _FoamWidth);
-                float foam = smoothstep(0.5, 0.9, foamBase * (0.3 + 0.5 * n1 + 0.35 * surge)) * (0.45 + 0.4 * n2);
-                float ring = smoothstep(0.85, 1.0, sin(diff * 7.0 - _Time.y * 1.6 + n2 * 2.0) * 0.5 + 0.5)
-                             * (1.0 - saturate(diff / (_FoamWidth * 3.2))) * 0.35;
+                // Shore foam that surges and breaks up over time instead of a fixed rim (depth only: the analytic circle
+                // drew a white disc around every elongated island). Both terms are 0 past 3.2 foam widths of water.
+                half foam = 0.0, ring = 0.0;
+                [branch] if (diff < _FoamWidth * 3.2)
+                {
+                    float surge = 0.5 + 0.5 * sin(t * 0.9 + diff * 5.0 + n2 * 3.0);
+                    float foamBase = 1.0 - saturate(diff / _FoamWidth);
+                    foam = smoothstep(0.5, 0.9, foamBase * (0.3 + 0.5 * n1 + 0.35 * surge)) * (0.45 + 0.4 * n2);
+                    ring = smoothstep(0.85, 1.0, sin(diff * 7.0 - _Time.y * 1.6 + n2 * 2.0) * 0.5 + 0.5)
+                         * (1.0 - saturate(diff / (_FoamWidth * 3.2))) * 0.35;
+                }
 
                 // Shallow-water caustic web and sparkle, gated to where the sea floor is close.
-                float c1 = sin(dot(wp, float2(0.83, 0.55)) * 4.0 + t * 1.3 + n1 * 3.5);
-                float c2 = sin(dot(wp, float2(-0.6, 0.8)) * 4.6 - t * 1.1 + n2 * 3.5);
-                float caustic = smoothstep(0.55, 1.0, c1 * c2) * _Caustic * shallowMask * (1.0 - storm);
-                float sparkle = smoothstep(0.9, 1.0, n2) * _Sparkle * shallowMask * saturate(nh * 2.0);
+                half caustic = 0.0, sparkle = 0.0;
+                [branch] if (shallowMask > 0.0)
+                {
+                    float c1 = sin(dot(wp, float2(0.83, 0.55)) * 4.0 + t * 1.3 + n1 * 3.5);
+                    float c2 = sin(dot(wp, float2(-0.6, 0.8)) * 4.6 - t * 1.1 + n2 * 3.5);
+                    caustic = smoothstep(0.55, 1.0, c1 * c2) * _Caustic * shallowMask * (1.0 - storm);
+                    sparkle = smoothstep(0.9, 1.0, n2) * _Sparkle * shallowMask * saturate(nh * 2.0);
+                }
 
                 float wakeFoam, bowFoam, churnTint;
                 PlayerWake(wp, coastD, coastN, coastFade, churn, n1, wakeFoam, bowFoam, churnTint);
@@ -508,16 +553,17 @@ Shader "Drift/Water"
                 // Wind streaks and whitecaps both scale with storm: in calm weather (most pixels, most of the time) the
                 // noise behind them is skipped instead of multiplied by zero.
                 float streaks = 0.0, whitecap = 0.0;
-                float capTex = n2 * (0.45 + 0.55 * n1);
                 [branch] if (storm > 0.001)
                 {
+                    float capTex = n2 * (0.45 + 0.55 * n1);
                     float streakMask = smoothstep(0.48, 0.8, DriftNoise(wp * 0.045 + wind * (_Time.y * 0.02)));
                     streaks = WindStreaks(wp, wind, storm, streakMask);
                     float capMask = smoothstep(0.35, 0.8, DriftNoise(wp * 0.11 + wind * (_Time.y * 0.08)));
                     whitecap = smoothstep(0.62, 0.95, saturate(h * 0.5 + 0.5) * (0.35 + 0.9 * capTex)) * storm * 0.4 * capMask;
                 }
-                float curEdge;
-                float flecks = CurrentFlecks(wp, camDist, curEdge);
+                // Deep in the haze a fleck keeps under 3 % of its contrast: skipped there (the far half of a zoomed-out view).
+                float curEdge = 0.0, flecks = 0.0;
+                [branch] if (haze < 0.97) flecks = CurrentFlecks(wp, camDist, fw, curEdge);
                 // Emphasis along the shore, not in a circle: _CurrentEmphasis.x is a distance from the coastline.
                 float nearPlayer = (1.0 - smoothstep(0.35, 1.0, coastD / max(_CurrentEmphasis.x, 1e-3))) * coastFade;
                 flecks *= _CurrentFoam * (1.0 + _CurrentEmphasis.y * nearPlayer) * (1.0 + 0.4 * curEdge) * (1.0 - 0.6 * storm);
@@ -527,24 +573,22 @@ Shader "Drift/Water"
                 // Surfing a plate boundary lights the seam up, so gaining and losing it is unmistakable.
                 float surfFoam = smoothstep(0.22, 0.8, curEdge * curEdge * _SpeedFeel.z * (0.3 + 1.2 * churn))
                                * _SpeedFeelGains.w * (0.2 + 0.8 * nearPlayer) * 0.7;
-                float speedLines = SpeedLines(wp, coastD, coastFade, max(fwidth(wp.x), fwidth(wp.y)));
+                half speedLines = saturate(SpeedLines(wp, coastD, coastFade, fw));
 
-                col *= lerp(1.0, _StormTint.rgb, storm);
-                col = lerp(col, _ShallowColor.rgb, saturate(churnTint));
-                col = lerp(col, _FoamColor.rgb * 0.92, streaks * 0.16);
-                col = lerp(col, _FoamColor.rgb * 0.95, flecks * 0.5);
-                col = lerp(col, _FoamColor.rgb * 0.98, saturate(speedLines) * 0.45);
-                float foamMask = saturate(foam + ring + wakeFoam + bowFoam + impact + whitecap + surfFoam);
-                col = lerp(col, _FoamColor.rgb, foamMask);
-                col += (sparkle + caustic * 0.35) * _FoamColor.rgb;
-                col *= CloudShadow(wp);
+                col *= lerp(half3(1, 1, 1), (half3)_StormTint.rgb, (half)storm);
+                col = lerp(col, shallowCol, (half)saturate(churnTint));
+                col = lerp(col, foamCol * 0.92, (half)(streaks * 0.16));
+                col = lerp(col, foamCol * 0.95, (half)(flecks * 0.5));
+                col = lerp(col, foamCol * 0.98, speedLines * 0.45);
+                half foamMask = saturate(foam + ring + (half)(wakeFoam + bowFoam + impact + whitecap + surfFoam));
+                col = lerp(col, foamCol, foamMask);
+                col += (sparkle + caustic * 0.35) * foamCol;
+                col *= (half)CloudShadow(wp);
 
-                float alpha = lerp(_MinAlpha, 0.97, pow(depthFade, 0.6));
-                alpha = max(alpha, max(foamMask, max(streaks * 0.3, max(flecks * 0.5, saturate(speedLines) * 0.45))));
-                // The sea dissolves into the sky colour at the limb, so the horizon is closed whatever the mesh does there.
-                float haze = DriftFogAmount(IN.positionWS);
-                col = lerp(col, _CurveFogColor.rgb, haze);
-                alpha = max(alpha, haze);
+                half alpha = lerp((half)_MinAlpha, 0.97, (half)pow(depthFade, 0.6));
+                alpha = max(alpha, max(foamMask, max((half)(streaks * 0.3), max((half)(flecks * 0.5), speedLines * 0.45))));
+                col = lerp(col, (half3)_CurveFogColor.rgb, (half)haze);
+                alpha = max(alpha, (half)haze);
                 return float4(col, alpha);
             }
             ENDHLSL

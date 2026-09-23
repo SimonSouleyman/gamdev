@@ -51,10 +51,10 @@ namespace Drift.Tests
             Assert.AreEqual(8, CollectionCatalog.CountIn(CollectSection.Tropical), "palm and reed count for the temperate islands");
             Assert.AreEqual(9, CollectionCatalog.CountIn(CollectSection.Nordic));
             Assert.AreEqual(9, CollectionCatalog.CountIn(CollectSection.Savanna));
-            Assert.AreEqual(20, CollectionCatalog.CountIn(CollectSection.SeaSky));
+            Assert.AreEqual(21, CollectionCatalog.CountIn(CollectSection.SeaSky));
             Assert.AreEqual(4, CollectionCatalog.CollectibleIn(CollectSection.SeaSky), "the critters");
             Assert.AreEqual(40, CollectionCatalog.CollectibleCount);
-            Assert.AreEqual(56, CollectionCatalog.Count);
+            Assert.AreEqual(57, CollectionCatalog.Count);
             Assert.AreEqual(-1, Ix(SeaKind.Driftwood));
             Assert.AreEqual("Fischschwarm", CollectionCatalog.At(Ix(SeaKind.BaitBall)).name);
             Assert.AreEqual("Walbulle", CollectionCatalog.At(Ix(SeaKind.WhaleBull)).name);
@@ -466,14 +466,14 @@ namespace Drift.Tests
             j.ReportPresence(0, 3f);
             Assert.AreEqual("zurzeit nicht auf deiner Insel", JournalPanel.DetailOf(j, flamingo, CollectState.Collected));
             Assert.AreEqual("gerade nicht zu sehen", JournalPanel.DetailOf(j, firefly, CollectState.Collected));
-            Assert.AreEqual("Gesammelt 2/40  ·  Gesehen 3/56", JournalPanel.ProgressLine(j));
+            Assert.AreEqual("Gesammelt 2/40  ·  Gesehen 3/57", JournalPanel.ProgressLine(j));
         }
 
         [Test]
         public void Album_PagesFollowTheLayout()
         {
             Assert.AreEqual(1, JournalPanel.PagesOf((int)CollectSection.Temperate, 10));
-            Assert.AreEqual(2, JournalPanel.PagesOf((int)CollectSection.SeaSky, 10));
+            Assert.AreEqual(3, JournalPanel.PagesOf((int)CollectSection.SeaSky, 10), "21 entries since the seal");
             Assert.AreEqual(2, JournalPanel.PagesOf((int)CollectSection.SeaSky, 15));
             Assert.AreEqual(1, JournalPanel.PagesOf(JournalPanel.IslandTab, 10));
             for (int k = 0; k < 14; k++) Assert.IsFalse(string.IsNullOrEmpty(JournalPanel.BuildingName((BuildingKind)k)));

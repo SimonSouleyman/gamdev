@@ -54,6 +54,27 @@ Shader "Drift/Clouds"
             float  _DriftStormCount;
             float  _LightningFlash;
             float  _CloudGridHalf;   // half the slot grid in cells (CloudShadows.GridSize / 2)
+            // Adventure ring: the stretch of track in front of the player stays free of cloud (CloudShadows pushes it,
+            // mirrored by Drift.Visuals.RingReadability.CloudCorridor). x = clear half width across the track around
+            // the player, y = fade width beyond it, z = clear distance ahead, w = fade length beyond that; z = 0 = off.
+            float4 _CloudRingClear;
+
+            // 0 = the puff hangs over the track just ahead of the player (hidden), 1 = scenery.
+            float RingCorridor(float2 xz)
+            {
+                if (_CurveRing.x <= 0.0 || _CloudRingClear.z <= 0.0) return 1.0;
+                float period = 2.0 * _CurveRing.w;
+                float dz = xz.y - _CloudFocus.z;
+                dz -= period * round(dz / max(period, 1.0));
+                // Ahead = the way the camera looks along the track (its forward is -V[2]).
+                float ahead = UNITY_MATRIX_V[2].z <= 0.0 ? dz : -dz;
+                float across = abs(xz.x - _CloudFocus.x);
+                float side = smoothstep(_CloudRingClear.x, _CloudRingClear.x + max(_CloudRingClear.y, 1e-3), across);
+                // Behind the camera too: it sits a few units back and low, under the layer.
+                float along = smoothstep(_CloudRingClear.z, _CloudRingClear.z + max(_CloudRingClear.w, 1e-3), ahead)
+                            + (1.0 - smoothstep(-40.0, -25.0, ahead));
+                return saturate(max(side, along));
+            }
 
             float StormAt(float2 wp)
             {
@@ -101,7 +122,7 @@ Shader "Drift/Clouds"
                     float over = abs(xz.x - _CurveRing.y) + size * 2.0 + 2.0 - _CurveRing.z;
                     band = 1.0 - smoothstep(-2.0, 2.0, over);
                 }
-                float alpha = _Alpha * grid * band * DriftPuffClearView(pos, size);
+                float alpha = _Alpha * grid * band * RingCorridor(xz) * DriftPuffClearView(pos, size);
                 size *= 0.55 + 0.45 * alpha / max(_Alpha, 1e-3);
 
                 OUT.positionHCS = TransformWorldToHClip(DriftPuffCorner(pos, IN.uv1.xy, size * step(0.004, alpha)));

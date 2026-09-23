@@ -7,7 +7,9 @@ namespace Drift.Core
         Dolphin, Whale, SeaTurtle, Jellyfish, Ray, FlyingFish, RestingGull, BaitBall, Seaweed,
         SailBoat, FishingBoat, TradingCog, RowBoat,
         Driftwood, Barrel, Buoy, Bottle, PalmLog,
-        WhaleCalf, WhaleBull
+        WhaleCalf, WhaleBull,
+        // Appended: the journal saves 100 + (int)SeaKind, so new kinds only ever go at the end.
+        Seal
     }
 
     public static class SeaNames
@@ -36,6 +38,7 @@ namespace Drift.Core
                 case SeaKind.PalmLog: return "Palmenstamm";
                 case SeaKind.WhaleCalf: return "Walkalb";
                 case SeaKind.WhaleBull: return "Walbulle";
+                case SeaKind.Seal: return "Robbe";
             }
             return k.ToString();
         }

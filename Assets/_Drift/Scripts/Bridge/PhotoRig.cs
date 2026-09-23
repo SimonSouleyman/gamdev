@@ -179,4 +179,98 @@ namespace Drift.Bridge
         // 0 far away, 1 at close-up distance: drives the near clip plane and the lower ground clearance.
         public static float CloseBlend(float distance) => 1f - Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(1f, 5.5f, distance));
     }
+
+    // The watch camera's start framing, as pure maths (2026-09-23 play test: the herd sat at the top edge under the
+    // buttons, the camera looked low across the grass and trees filled the picture).
+    public static class WatchFraming
+    {
+        // Tangent of half the shorter picture side's view angle (portrait: the width, landscape: the height).
+        public static float ShortHalfTan(float verticalFovDeg, float aspect) =>
+            Mathf.Tan(Mathf.Clamp(verticalFovDeg, 1f, 170f) * 0.5f * Mathf.Deg2Rad) * Mathf.Clamp(aspect, 0.05f, 1f);
+
+        // Camera distance at which a subject of `radius` fills `fill` of half the shorter picture side, but never so
+        // far that an animal `body` units long is drawn smaller than `minBodyPixels` per 1080 px of that side.
+        public static float Distance(float radius, float body, float verticalFovDeg, float aspect, float fill, float minBodyPixels)
+        {
+            float t = ShortHalfTan(verticalFovDeg, aspect);
+            float fit = Mathf.Max(0f, radius) / (Mathf.Clamp(fill, 0.05f, 1f) * t);
+            if (body <= 0f || minBodyPixels <= 0f) return fit;
+            return Mathf.Min(fit, body * 540f / (t * minBodyPixels));
+        }
+
+        // How many degrees the camera tilts up from looking straight at the pivot so the pivot is drawn at
+        // `viewportY` (0 bottom, 1 top) instead of the middle.
+        public static float LiftDegrees(float verticalFovDeg, float viewportY)
+        {
+            float t = Mathf.Tan(Mathf.Clamp(verticalFovDeg, 1f, 170f) * 0.5f * Mathf.Deg2Rad);
+            return Mathf.Atan((0.5f - Mathf.Clamp01(viewportY)) * 2f * t) * Mathf.Rad2Deg;
+        }
+
+        // Middle of the free band between a bottom margin and the lower edge of controls covering the top
+        // `topCovered` of the picture (fractions of the picture height).
+        public static float FreeBandCenter(float topCovered, float bottomMargin)
+        {
+            float top = 1f - Mathf.Clamp01(topCovered);
+            float bottom = Mathf.Clamp(bottomMargin, 0f, top);
+            return (top + bottom) * 0.5f;
+        }
+
+        // The preferred yaw first, then alternately to the right and left in growing steps, so a tie keeps the
+        // smallest turn.
+        public static float CandidateYaw(float preferredDeg, int index, float stepDeg)
+        {
+            if (index <= 0) return preferredDeg;
+            int k = (index + 1) / 2;
+            return preferredDeg + ((index & 1) == 1 ? k : -k) * stepDeg;
+        }
+
+        // How much the occluders (x/z world position, y world height of the top: trees) block the sight line from
+        // a camera at yaw/pitch/distance down to the subject: each one standing between them within the subject's
+        // radius and reaching above the line counts up to 1 (less towards the edge of the corridor).
+        public static float Occlusion(float yawDeg, float pitchDeg, float distance, Vector3 subject, float radius, Vector3[] occluders, int count)
+        {
+            if (occluders == null) return 0f;
+            float yr = yawDeg * Mathf.Deg2Rad;
+            float toCamX = -Mathf.Sin(yr), toCamZ = -Mathf.Cos(yr);
+            float pr = Mathf.Clamp(pitchDeg, 1f, 89f) * Mathf.Deg2Rad;
+            float horizontal = distance * Mathf.Cos(pr), rise = Mathf.Tan(pr);
+            float width = Mathf.Max(0.1f, radius) + 0.35f;
+            float cost = 0f;
+            count = Mathf.Min(count, occluders.Length);
+            for (int i = 0; i < count; i++)
+            {
+                Vector3 o = occluders[i];
+                float rx = o.x - subject.x, rz = o.z - subject.z;
+                float along = rx * toCamX + rz * toCamZ;
+                if (along < 0.15f || along > horizontal + 0.5f) continue;
+                float side = Mathf.Abs(rx * toCamZ - rz * toCamX);
+                if (side >= width) continue;
+                float poke = o.y - (subject.y + along * rise);
+                if (poke <= 0f) continue;
+                cost += (1f - side / width) * Mathf.Min(1f, 0.3f + poke * 2f);
+            }
+            return cost;
+        }
+
+        // The candidate yaw with the clearest view; turning away from the preferred yaw costs turnPenalty per
+        // half turn, extraCost[i] (optional, e.g. hills in the way) is added to candidate i.
+        public static float PickYaw(float preferredDeg, float pitchDeg, float distance, Vector3 subject, float radius,
+                                    Vector3[] occluders, int count, int candidates, float turnPenalty, float[] extraCost = null)
+        {
+            candidates = Mathf.Max(1, candidates);
+            float step = 360f / candidates;
+            float best = preferredDeg, bestCost = float.MaxValue;
+            for (int i = 0; i < candidates; i++)
+            {
+                float yaw = CandidateYaw(preferredDeg, i, step);
+                float cost = Occlusion(yaw, pitchDeg, distance, subject, radius, occluders, count)
+                             + turnPenalty * Mathf.Abs(Mathf.DeltaAngle(preferredDeg, yaw)) / 180f;
+                if (extraCost != null && i < extraCost.Length) cost += extraCost[i];
+                if (cost >= bestCost - 1e-4f) continue;
+                bestCost = cost;
+                best = yaw;
+            }
+            return best;
+        }
+    }
 }

@@ -15,7 +15,7 @@ namespace Drift.Bridge
     [RequireComponent(typeof(TouchControls))]
     public class SessionScreens : MonoBehaviour
     {
-        public enum EditorPreview { None, Title, Pause, GameOver, Help, AdventureGameOver }
+        public enum EditorPreview { None, Title, Pause, GameOver, Help, AdventureGameOver, ConfirmNewWorld }
 
         const string CanvasName = "SessionScreensCanvas";
         const int EditorSampleSeed = 482913;
@@ -62,7 +62,8 @@ namespace Drift.Bridge
         float _idleTimer;
         int _idleIndex;
         bool _overCheered;
-        GameObject _title, _pause, _over, _pauseButton;
+        GameObject _title, _pause, _over, _pauseButton, _confirm;
+        Action _confirmAction;
         GameObject _overNewIsland, _overAdventureRow;
         Button _continueButton;
         Text _titleBestText, _recordText, _pauseRestartLabel;
@@ -73,7 +74,7 @@ namespace Drift.Bridge
         readonly TiltSettingsScreen _tiltScreen = new TiltSettingsScreen();
         int _shownHelpPage = -1;
         bool _shownHelpTouch;
-        Text _statsText, _countdownText, _overSeedText, _pauseSeedText;
+        Text _statsText, _countdownText, _overSeedText, _pauseSeedText, _pauseNoteText;
         InputField _seedField;
         RawImage _titlePreview, _overPreview;
         IslandPreview _preview;
@@ -87,6 +88,7 @@ namespace Drift.Bridge
         float _flyZoom = 1f;
 
         public IslandPreview Preview => _preview;
+        public bool ConfirmOpen => _confirm != null && _confirm.activeSelf;
         public InputField SeedField => _seedField;
         public bool HelpOpen => _help.IsOpen;
         public HelpScreen Help => _help;
@@ -284,11 +286,13 @@ namespace Drift.Bridge
                     Island.DirectionSteering = false;
                     Island.DirectionProvider = null;
                 }
-                bool t = editorPreview == EditorPreview.Title, p = editorPreview == EditorPreview.Pause;
+                bool confirmPreview = editorPreview == EditorPreview.ConfirmNewWorld;
+                bool t = editorPreview == EditorPreview.Title || confirmPreview, p = editorPreview == EditorPreview.Pause;
                 bool adventureOver = editorPreview == EditorPreview.AdventureGameOver;
                 bool o = editorPreview == EditorPreview.GameOver || adventureOver;
                 ShowPanels(t, p, o, false);
                 SetContinueVisible(true);
+                if (confirmPreview != ConfirmOpen) { if (confirmPreview) OpenConfirm(null); else CloseConfirm(); }
                 if (editorPreview != EditorPreview.Help)
                 {
                     _help.Hide();
@@ -343,6 +347,7 @@ namespace Drift.Bridge
                 _shown = s;
                 ShowPanels(s == GameSession.State.Title, s == GameSession.State.Paused, s == GameSession.State.GameOver, s == GameSession.State.Playing);
                 if (s != GameSession.State.Title && s != GameSession.State.Paused) _help.Hide();
+                CloseConfirm();
                 if (s != GameSession.State.Paused) _tiltScreen.Hide();
                 if (s == GameSession.State.Title)
                 {
@@ -386,6 +391,7 @@ namespace Drift.Bridge
             bool covered = photo || journal || album;
             // Hidden, not just dimmed: through the translucent journal card the pause buttons read as a
             // blurred second menu and make the small journal text look out of focus.
+            if (covered) CloseConfirm();
             SetPanelActive(_title, !covered && s == GameSession.State.Title);
             SetPanelActive(_pause, !covered && s == GameSession.State.Paused);
             SetPanelActive(_over, !covered && s == GameSession.State.GameOver);
@@ -397,7 +403,8 @@ namespace Drift.Bridge
             // The run journal handles back itself while open and in the frame it closed.
             if (kb != null && kb.escapeKey.wasPressedThisFrame && !RunJournalPanel.OwnsBack && !(_seedField != null && _seedField.isFocused))
             {
-                if (_tiltScreen.IsOpen) _tiltScreen.Hide();
+                if (ConfirmOpen) CloseConfirm();
+                else if (_tiltScreen.IsOpen) _tiltScreen.Hide();
                 else if (_help.IsOpen) _help.Hide();
                 else if (album) watch.AlbumBack();
                 else if (photo) watch.ExitPhotoMode();
@@ -661,6 +668,9 @@ namespace Drift.Bridge
         void SetPauseMode(bool adventure)
         {
             if (_pauseRestartLabel != null) _pauseRestartLabel.text = ModeTexts.RestartLabel(adventure ? GameMode.Adventure : GameMode.Cozy);
+            // The ring has no world number worth showing; in its place the note that giving up does not score.
+            if (_pauseSeedText != null && _pauseSeedText.gameObject.activeSelf == adventure) _pauseSeedText.gameObject.SetActive(!adventure);
+            if (_pauseNoteText != null && _pauseNoteText.gameObject.activeSelf != adventure) _pauseNoteText.gameObject.SetActive(adventure);
             LayoutPauseExtras(adventure);
         }
 
@@ -699,14 +709,41 @@ namespace Drift.Bridge
         {
             if (session == null) return;
             if (session.Mode == GameMode.Adventure) session.StartNewGame(GameMode.Adventure);
-            else session.StartNewGame();
+            // A running cozy world is always lost by starting over, saved yet or not.
+            else OpenConfirm(() => session?.StartNewGame());
         }
 
         void OnCozyPressed()
         {
             if (session == null) return;
             session.SelectMode(GameMode.Cozy);
-            OnStartPressed();
+            _hasSave = session.HasSave;
+            // "Gemütlich" starts a new world and deletes the saved one, which "Weiter" would continue.
+            if (_hasSave) OpenConfirm(OnStartPressed);
+            else OnStartPressed();
+        }
+
+        // ---------------------------------------------------------------- "Neue Welt beginnen?"
+
+        public void OpenConfirm(Action onConfirm)
+        {
+            if (_confirm == null) return;
+            _confirmAction = onConfirm;
+            _confirm.transform.SetAsLastSibling();
+            if (!_confirm.activeSelf) _confirm.SetActive(true);
+        }
+
+        public void CloseConfirm()
+        {
+            _confirmAction = null;
+            if (_confirm != null && _confirm.activeSelf) _confirm.SetActive(false);
+        }
+
+        void OnConfirmPressed()
+        {
+            var action = _confirmAction;
+            CloseConfirm();
+            action?.Invoke();
         }
 
         void OnContinuePressed()
@@ -807,6 +844,7 @@ namespace Drift.Bridge
             _help.Build(root, null, OnReplayTutorial, OnToggleVoice);
             _tiltScreen.Build(root, tilt, null);
             _presenter = TildaPresenter.Create(root);
+            _confirm = BuildConfirm(root);
             _stage = Stage.None;
             _shownHelpPage = -1;
             ShowPanels(false, false, false, false);
@@ -886,6 +924,9 @@ namespace Drift.Bridge
             var screen = Screen(root, "PauseScreen", UiStyle.Dim, PausePanel, out var panel);
             Line(panel, "Pause", UiStyle.Title, UiStyle.Sand, -36f, 130f, true);
             _pauseSeedText = Line(panel, "", UiStyle.Caption, UiStyle.Muted, -172f, 40f);
+            _pauseNoteText = Line(panel, ModeTexts.AdventurePauseNote, UiStyle.Caption, UiStyle.Sand, -172f, 40f);
+            UiStyle.FitWidth(_pauseNoteText);
+            _pauseNoteText.gameObject.SetActive(false);
             Primary(panel, "Resume", "Fortsetzen", -244f, () => session?.Resume());
             var wide = new Vector2(ButtonWidth, UiStyle.ButtonHeight);
             _pauseRestartLabel = UiStyle.LabelOf(Secondary(panel, "Restart", ModeTexts.RestartLabel(GameMode.Cozy), new Vector2(0f, -408f), wide, OnRestartPressed));
@@ -906,6 +947,23 @@ namespace Drift.Bridge
             if (quit) Secondary(panel, "Quit", "Beenden", new Vector2(0f, -1140f), wide, () => session?.QuitGame(), true);
             _pauseVoice = UiStyle.Toggle(panel, "VoiceToggle", "Tildas Stimme", new Vector2(560f, 92f), TildaVoice.Enabled, OnToggleVoice);
             ((RectTransform)_pauseVoice.transform).TopCenter(new Vector2(0f, quit ? -1304f : -1140f), new Vector2(560f, 92f));
+            return screen.gameObject;
+        }
+
+        static readonly Vector2 ConfirmPanel = new Vector2(820f, 520f);
+
+        GameObject BuildConfirm(RectTransform root)
+        {
+            var screen = Screen(root, "ConfirmNewWorld", UiStyle.Dim, ConfirmPanel, out var panel);
+            var title = UiStyle.Label(panel, ModeTexts.NewWorldTitle, UiStyle.Heading, UiStyle.Sand, TextAnchor.UpperCenter, true);
+            title.rectTransform.TopCenter(new Vector2(0f, -56f), new Vector2(740f, 80f));
+            UiStyle.FitWidth(title);
+            var body = UiStyle.Label(panel, ModeTexts.NewWorldBody, UiStyle.Body, UiStyle.CreamSoft, TextAnchor.UpperCenter);
+            body.rectTransform.TopCenter(new Vector2(0f, -164f), new Vector2(740f, 100f));
+            var half = new Vector2(340f, UiStyle.ButtonHeight);
+            Secondary(panel, "Cancel", ModeTexts.NewWorldCancel, new Vector2(-180f, -312f), half, CloseConfirm);
+            Secondary(panel, "Confirm", ModeTexts.NewWorldConfirm, new Vector2(180f, -312f), half, OnConfirmPressed, true);
+            screen.gameObject.SetActive(false);
             return screen.gameObject;
         }
 

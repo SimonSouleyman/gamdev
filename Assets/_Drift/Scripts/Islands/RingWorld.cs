@@ -88,9 +88,10 @@ namespace Drift.Islands
     //    within half a circumference of the view (moving it by exactly one circumference is invisible),
     //  - lays the plates out along the band (PlateSystem.SetRingLayout) so there are surf lanes,
     //  - lowers the chase camera so the band climbing into the sky ahead is in view,
-    //  - and runs the difficulty: the longer the run lasts, the more obstacle islands lie on the track, the more of
-    //    them drift across it, the faster the base pace, the faster the island sinks and the rarer the flotsam
-    //    (Encounters reads FlotsamSpacing). Islands are never merged in Adventure (IslandWorld) - they are dodged.
+    //  - and runs the difficulty: the longer the run lasts, the more obstacle islands lie on the track (extra islands
+    //    per level, and volcanoes rising ahead of the player), the more of them drift across it, the faster the base
+    //    pace, the faster the island sinks and the rarer the flotsam (Encounters reads FlotsamSpacing). Islands are
+    //    never merged in Adventure (IslandWorld) - they are dodged.
     // CurvedWorld reads Active, bends the world into the ring (the sea ends at the rims) and lays the foam line of
     // Visuals/RingRims on the water there. The rims themselves are invisible: there is nothing to fall off, a run
     // only ever ends by sinking.
@@ -120,8 +121,16 @@ namespace Drift.Islands
         [Range(30f, 900f)] public float difficultyRampSeconds = 300f;
         [Tooltip("Alle so viele Sekunden zeigt die Anzeige eine Stufe mehr.")]
         [Range(10f, 180f)] public float levelSeconds = 45f;
-        [Tooltip("So viele Hindernisinseln kommen bis zur höchsten Stufe zusätzlich auf den Ring.")]
-        [Range(0, 30)] public int extraIslandsAtMax = 10;
+        [Tooltip("So viele Hindernisinseln kommen mit jeder Stufe zusätzlich auf den Ring (weit weg, sie steigen dort aus dem Meer). 1,5 = drei je zwei Stufen.")]
+        [Range(0f, 5f)] public float extraIslandsPerLevel = 2f;
+        [Tooltip("Mehr zusätzliche Hindernisinseln kommen nie auf den Ring.")]
+        [Range(0, 30)] public int extraIslandsAtMax = 14;
+        [Tooltip("Ab dieser Stufe steigen Vulkane vor der Insel aus dem Meer – sichtbar, mit einer freien Spur daneben.")]
+        [Range(1, 20)] public int volcanoFirstLevel = 2;
+        [Tooltip("So viele Vulkane steigen je Stufe auf (0,5 = jede zweite Stufe einer). Sie bleiben bis zum Ende der Runde.")]
+        [Range(0f, 4f)] public float volcanoesPerLevel = 1f;
+        [Tooltip("Mehr Vulkane liegen nie gleichzeitig auf dem Ring.")]
+        [Range(0, 20)] public int maxVolcanoes = 8;
         [Tooltip("Anteil der Inseln, die quer über die Bahn treiben – am Anfang.")]
         [Range(0f, 1f)] public float driftShareStart = 0f;
         [Tooltip("Anteil der Inseln, die quer über die Bahn treiben – bei höchster Stufe.")]
@@ -130,10 +139,10 @@ namespace Drift.Islands
         [Range(0f, 8f)] public float driftSpeedStart = 1.4f;
         [Tooltip("Tempo (u/s) der quer treibenden Inseln bei höchster Stufe.")]
         [Range(0f, 8f)] public float driftSpeedMax = 3.4f;
-        [Tooltip("Abstand (u) zwischen zwei Treibgut-Gruppen auf der Bahn am Anfang.")]
-        [Range(8f, 120f)] public float flotsamSpacingStart = 24f;
+        [Tooltip("Abstand (u) zwischen zwei Treibgut-Gruppen auf der Bahn am Anfang. Selten, dafür wertvoll: jedes Stück gibt viel Auftrieb und einen spürbaren Schub.")]
+        [Range(8f, 160f)] public float flotsamSpacingStart = 72f;
         [Tooltip("Abstand (u) zwischen zwei Treibgut-Gruppen bei höchster Stufe – Treibgut wird seltener.")]
-        [Range(8f, 200f)] public float flotsamSpacingMax = 60f;
+        [Range(8f, 240f)] public float flotsamSpacingMax = 120f;
         [Tooltip("Wie viel schneller die Insel bei höchster Stufe sinkt (Faktor).")]
         [Range(0.5f, 3f)] public float sinkScaleMax = 1.5f;
         [Tooltip("So nah (u zwischen den Inselrändern) zählt ein Vorbeifahren als knapp ausgewichen.")]
@@ -157,9 +166,9 @@ namespace Drift.Islands
         [Tooltip("Kamera flacher stellen, damit das Band vorne sichtbar in den Himmel steigt.")]
         public bool adjustCamera = true;
         [Tooltip("Kamerahöhe über der Insel im Abenteuer (normal 9). Niedrig = man sieht das Band vorne in den Himmel steigen.")]
-        [Range(1f, 12f)] public float cameraHeight = 1.8f;
+        [Range(1f, 12f)] public float cameraHeight = 1.6f;
         [Tooltip("Kameraabstand hinter der Insel im Abenteuer (normal 7).")]
-        [Range(3f, 24f)] public float cameraDistance = 12f;
+        [Range(3f, 24f)] public float cameraDistance = 11f;
 
         public Island player;
         public WorldStreamer streamer;
@@ -192,6 +201,18 @@ namespace Drift.Islands
         public float Cruise => Mathf.Min(Mathf.Max(cruiseStart, cruiseMax), cruiseStart + cruisePerLevel * (Level - 1));
         public float PaceScale => Mathf.Min(Mathf.Max(speedScaleStart, speedScaleMax), speedScaleStart + speedPerLevel * (Level - 1));
         public int DriftingIslands { get; private set; }
+        // The obstacles grow level by level ("mehr Inseln/Vulkane mit der Zeit"): extra islands on the far side of the
+        // ring, and volcanoes that rise ahead of the player from volcanoFirstLevel on, spread evenly over each level.
+        public int ExtraIslandsFor(int level) =>
+            Mathf.Clamp(Mathf.FloorToInt(Mathf.Max(0f, extraIslandsPerLevel) * Mathf.Max(0, level - 1) + 1e-4f), 0, Mathf.Max(0, extraIslandsAtMax));
+        public int VolcanoesFor(float runSeconds)
+        {
+            float start = (Mathf.Max(1, volcanoFirstLevel) - 1) * Mathf.Max(1f, levelSeconds);
+            if (volcanoesPerLevel <= 0f || runSeconds < start) return 0;
+            int n = 1 + Mathf.FloorToInt((runSeconds - start) * volcanoesPerLevel / Mathf.Max(1f, levelSeconds) + 1e-4f);
+            return Mathf.Clamp(n, 0, Mathf.Max(0, maxVolcanoes));
+        }
+        public int VolcanoTarget => VolcanoesFor(RunSeconds);
 
         // Tests and the debug menu: jump to a point of the difficulty curve.
         public void SetRunSeconds(float seconds) => RunSeconds = Mathf.Max(0f, seconds);
@@ -210,7 +231,7 @@ namespace Drift.Islands
         readonly Dictionary<Island, float> _drift = new(), _passDz = new(), _lastHit = new();
         readonly List<Island> _forget = new();
         System.Func<Vector2, Vector2> _constraint;
-        float _travelDir = 1f, _pruneTimer;
+        float _travelDir = 1f, _pruneTimer, _volcanoRetry;
 
         void OnEnable()
         {
@@ -305,6 +326,7 @@ namespace Drift.Islands
                     player.AdventureCruise = 0f;
                     player.AdventureSinkScale = 1f;
                     player.AdventureTrack = Vector2.up;
+                    player.EscortFactor = 1f;
                     player.EdgePush = Vector2.zero;
                     player.EdgeWarning = 0f;
                 }
@@ -378,6 +400,7 @@ namespace Drift.Islands
             _passDz.Clear();
             _lastHit.Clear();
             _travelDir = 1f;
+            _volcanoRetry = 0f;
             Spawner.ExtraIslands = 0;
             if (player != null)
             {
@@ -412,13 +435,14 @@ namespace Drift.Islands
             // The band runs along z; the race always goes that way, so the heading, the camera and the surf lanes
             // all agree on where "ahead" is.
             player.AdventureTrack = Vector2.up;
-            Spawner.ExtraIslands = Mathf.RoundToInt(extraIslandsAtMax * d);
+            Spawner.ExtraIslands = ExtraIslandsFor(Level);
             StepEdge(g, pp, racing);
 
             _islands.Clear();
             Spawner.CollectIslands(_islands);
             StepDrift(g, dt);
             StepPasses(g, pp);
+            if (running) StepVolcanoes(g, pp, dt);
 
             _pruneTimer -= dt;
             if (_pruneTimer > 0f) return;
@@ -426,6 +450,17 @@ namespace Drift.Islands
             Prune(_drift);
             Prune(_passDz);
             Prune(_lastHit);
+        }
+
+        // One volcano at a time rises ahead of the player whenever the level asks for more than there are; a spot that
+        // would close the track (or lies in a storm) is refused by the spawner and tried again a moment later.
+        void StepVolcanoes(RingGeometry g, Vector2 pp, float dt)
+        {
+            _volcanoRetry -= dt;
+            if (_volcanoRetry > 0f || Spawner.VolcanoCount >= VolcanoTarget) return;
+            _volcanoRetry = 0.4f;
+            float speed = Mathf.Max(4f, Mathf.Abs(player.TrackSpeed));
+            if (Spawner.TryRaiseVolcano(g, pp, _travelDir, speed, player.BoundingRadius) != null) _volcanoRetry = 2f;
         }
 
         // Where the band ends there is nothing to see and nothing to fall over: the water foams (RingRims reads
@@ -475,7 +510,8 @@ namespace Drift.Islands
             {
                 var isl = _islands[i];
                 if (isl == null || !isl.isActiveAndEnabled || isl.IsEmerging) continue;
-                if (Hash01(isl.shapeSeed, 3) >= share)
+                // A volcano stands on its rift: it never drifts, so the free lane it was placed beside stays free.
+                if (isl.isVolcano || Hash01(isl.shapeSeed, 3) >= share)
                 {
                     if (_drift.Remove(isl)) isl.SetSelfVelocity(Vector2.zero);
                     continue;
@@ -520,7 +556,8 @@ namespace Drift.Islands
                 {
                     float gap = Mathf.Abs(isl.PlanarPosition.x - pp.x) - reach;
                     bool hit = _lastHit.TryGetValue(isl, out float when) && RunSeconds - when < 3f;
-                    if (!hit && gap < dodgeGap)
+                    // Gliding through an island in the grace after a hit is not a dodge either.
+                    if (!hit && !player.HitGrace && gap < dodgeGap)
                     {
                         AdventureRunStats.Dodges++;
                         Dodged?.Invoke(isl);

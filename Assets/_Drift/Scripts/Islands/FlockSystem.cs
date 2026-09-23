@@ -31,7 +31,8 @@ namespace Drift.Islands
         public float stormAvoidance = 0.3f;
         public int seed = 99;
         // The one bird mesh is rebuilt at meshInterval while a flock is within nearDistance of the camera
-        // focus (LifeLod), at farMeshInterval otherwise; the flap itself is a shader effect.
+        // focus (LifeLod), at farMeshInterval otherwise; the flap itself is a shader effect. Flocks within
+        // smoothDistance of the camera leave it for the per-frame near mesh (UpdateNearFlags).
         public float nearDistance = 60f;
         public float meshInterval = 1f / 15f;
         public float farMeshInterval = 0.2f;
@@ -59,6 +60,16 @@ namespace Drift.Islands
         [Range(1f, 6f)] public float murmurSize = 3f;
         [Tooltip("Seevögel kreisen im Uhrzeigersinn einzeln hintereinander auf einer Kette um die Klippe (die Singvögel als dichter Pulk gegen den Uhrzeigersinn): Abstand zweier Seevögel auf dem Kreis in Grad.")]
         [Range(5f, 60f)] public float seabirdChainSpacing = 26f;
+
+        [Header("Nahe Vögel")]
+        [Tooltip("Schwärme, die näher als so viele Einheiten an der Kamera fliegen, werden jedes Bild neu gezeichnet und schlagen gleichmäßig mit den Flügeln. Sonst nur 15-mal pro Sekunde – aus der Nähe (Beobachten) sah das wie Zittern aus. 0 = aus.")]
+        [Range(0f, 80f)] public float smoothDistance = 30f;
+        [Tooltip("Flügelschläge pro Sekunde der nahen Singvögel.")]
+        [Range(0.5f, 6f)] public float flapPerSecond = 2.5f;
+        [Tooltip("Wie weit die Flügelspitzen naher Singvögel auf und ab schlagen (Welteinheiten, wie der Flügelschlag im Shader in der Ferne).")]
+        [Range(0f, 0.3f)] public float flapAmplitude = 0.13f;
+        [Tooltip("Von hier aus wird der Abstand für die nahen Vögel gemessen; leer = die Hauptkamera.")]
+        public Transform viewer;
 
         [Header("Meilenstein: Seevögel über deinen Bergen")]
         [Tooltip("So viele Seevogelschwärme bleiben bei der Heimatinsel und kreisen über ihrem höchsten Punkt. Setzt der Meilenstein bei 10 Inseln; 0 = aus.")]
@@ -93,6 +104,8 @@ namespace Drift.Islands
             public bool murmured;
             // Stays with the home island and circles its summit instead of drifting from island to island.
             public bool home;
+            // Close to the camera: drawn in the near mesh, rebuilt every frame with the flap baked in.
+            public bool near;
             public readonly List<Bird> birds = new();
         }
 
@@ -115,16 +128,21 @@ namespace Drift.Islands
         readonly List<Flock> _flocks = new();
         readonly List<CliffInfo> _cliffs = new();
         readonly TemplateBatch _batch = new();
+        readonly TemplateBatch _nearBatch = new();
         System.Random _rnd;
-        GameObject _go;
-        Mesh _mesh;
+        GameObject _go, _nearGo;
+        Mesh _mesh, _nearMesh;
         float _clock, _meshTimer;
-        bool _init;
+        bool _init, _nearDirty;
+        int _nearCount;
         Island _home;
         PeakInfo _peak;
 
         public int FlockCount => _flocks.Count;
         public int MeshBuilds { get; private set; }
+        public int NearMeshBuilds { get; private set; }
+        public int NearFlockCount => _nearCount;
+        public bool IsNear(int index) => _flocks[index].near;
 
         public int SeabirdFlockCount
         {
@@ -271,7 +289,9 @@ namespace Drift.Islands
                 if (Application.isPlaying) Destroy(child);
                 else DestroyImmediate(child);
             }
-            _go = null;
+            _go = _nearGo = null;
+            _nearCount = 0;
+            _nearDirty = false;
             DestroyMesh();
         }
 
@@ -279,10 +299,16 @@ namespace Drift.Islands
 
         void DestroyMesh()
         {
-            if (_mesh == null) return;
-            if (Application.isPlaying) Destroy(_mesh);
-            else DestroyImmediate(_mesh);
-            _mesh = null;
+            DestroyMesh(ref _mesh);
+            DestroyMesh(ref _nearMesh);
+        }
+
+        static void DestroyMesh(ref Mesh mesh)
+        {
+            if (mesh == null) return;
+            if (Application.isPlaying) Destroy(mesh);
+            else DestroyImmediate(mesh);
+            mesh = null;
         }
 
         void Update()
@@ -292,6 +318,18 @@ namespace Drift.Islands
             if (!_init) Init();
             if (!Application.isPlaying) return;
             Step(Time.deltaTime);
+        }
+
+        // After every island has moved this frame: a bird perched on a drifting island sits exactly on its ground.
+        void LateUpdate() => FlushNear();
+
+        // Draws the flocks close to the camera for this frame (the game calls it from LateUpdate; eval and tests
+        // may call it right after Step).
+        public void FlushNear()
+        {
+            if (!_nearDirty || !_init) return;
+            _nearDirty = false;
+            RebuildMesh(true);
         }
 
         static Island FindPlayer()
@@ -313,7 +351,7 @@ namespace Drift.Islands
                 _flocks.Add(f);
             }
             ApplyHomeFlags();
-            RebuildMesh();
+            RebuildMesh(false);
         }
 
         void Respawn(Flock f)
@@ -645,14 +683,57 @@ namespace Drift.Islands
                 if (f.seabird) StepDives(f, dt, !avoiding && f.state == FlockState.Orbit);
             }
 
+            // A flock that crosses smoothDistance changes meshes: both are rebuilt in the same frame, so it neither
+            // vanishes nor shows twice.
+            bool moved = UpdateNearFlags();
             float nearest = float.MaxValue;
-            foreach (var f in _flocks) nearest = Mathf.Min(nearest, LifeLod.Distance(new Vector3(f.pos.x, 0f, f.pos.y)));
+            foreach (var f in _flocks) if (!f.near) nearest = Mathf.Min(nearest, LifeLod.Distance(new Vector3(f.pos.x, 0f, f.pos.y)));
             _meshTimer += dt;
-            if (_meshTimer >= (nearest < nearDistance ? meshInterval : farMeshInterval))
+            if (moved || _meshTimer >= (nearest < nearDistance ? meshInterval : farMeshInterval))
             {
                 _meshTimer = 0f;
-                RebuildMesh();
+                RebuildMesh(false);
             }
+            _nearDirty = _nearCount > 0 || moved;
+        }
+
+        // The old single mesh was rebuilt at 15 Hz while the camera moves every frame: close up (watching a herd) a
+        // flying bird jumped ~0.5 u every fourth frame, a perched one slid against the drifting island, and the
+        // shader's wing flap - phased by the vertex world position - jumped with every rebuild. Flocks near the
+        // camera therefore get their own mesh, rebuilt every frame with the flap baked in (FlapFrame).
+        bool UpdateNearFlags()
+        {
+            Transform cam = null;
+            if (smoothDistance > 0f)
+            {
+                cam = viewer;
+                if (cam == null)
+                {
+                    var main = Camera.main;
+                    if (main != null) cam = main.transform;
+                }
+            }
+            Vector3 c = cam != null ? cam.position : default;
+            float enter = smoothDistance, leave = smoothDistance * 1.2f + 2f;
+            bool changed = false;
+            _nearCount = 0;
+            foreach (var f in _flocks)
+            {
+                bool near = false;
+                if (cam != null)
+                {
+                    float dx = f.pos.x - c.x, dy = f.height - c.y, dz = f.pos.y - c.z;
+                    float limit = f.near ? leave : enter;
+                    near = dx * dx + dy * dy + dz * dz < limit * limit;
+                }
+                if (near != f.near)
+                {
+                    f.near = near;
+                    changed = true;
+                }
+                if (near) _nearCount++;
+            }
+            return changed;
         }
 
         void StepDives(Flock f, float dt, bool may)
@@ -804,29 +885,76 @@ namespace Drift.Islands
             }
         }
 
+        // Songbird wings baked at FlapFrames points of the beat (the shader flap stays off for these): the near mesh
+        // picks the frame from each bird's own phase, so the beat is even whatever the bird's position or heading.
+        const int FlapFrames = 24;
+        static readonly PlantTemplate[] FlapCache = new PlantTemplate[LifeMeshes.Variants * FlapFrames];
+        static float _flapCacheAmplitude = -1f;
+
+        public static PlantTemplate FlapFrame(int variant, int frame, float amplitude)
+        {
+            if (amplitude != _flapCacheAmplitude)
+            {
+                System.Array.Clear(FlapCache, 0, FlapCache.Length);
+                _flapCacheAmplitude = amplitude;
+            }
+            variant = Mathf.Abs(variant) % LifeMeshes.Variants;
+            frame = ((frame % FlapFrames) + FlapFrames) % FlapFrames;
+            ref PlantTemplate slot = ref FlapCache[variant * FlapFrames + frame];
+            if (slot != null) return slot;
+            var src = Markings.BirdTemplate(LifeKind.Bird, variant);
+            var v = (Vector3[])src.vertices.Clone();
+            float lift = Mathf.Sin(frame * Mathf.PI * 2f / FlapFrames) * amplitude;
+            if (src.wing != null)
+                for (int i = 0; i < v.Length; i++) v[i].y += src.wing[i] * lift;
+            return slot = new PlantTemplate
+            {
+                vertices = v, normals = src.normals, colors = src.colors, triangles = src.triangles,
+                sway = src.sway, wing = src.wing, part = src.part
+            };
+        }
+
+        public static int FlapFrameAt(float phase, float clock, float perSecond)
+        {
+            float cycles = phase / (Mathf.PI * 2f) + clock * perSecond;
+            return (int)((cycles - Mathf.Floor(cycles)) * FlapFrames) % FlapFrames;
+        }
+
         void EnsureObject()
         {
-            if (_go != null) return;
-            _go = new GameObject(ObjName);
-            _go.hideFlags = HideFlags.DontSaveInEditor | HideFlags.DontSaveInBuild;
-            _go.transform.SetParent(transform, false);
-            _go.AddComponent<MeshFilter>();
-            var mr = _go.AddComponent<MeshRenderer>();
+            if (_go == null) _go = MakeChild(ObjName, out _mesh);
+            if (_nearGo == null) _nearGo = MakeChild(ObjName + "Near", out _nearMesh);
+        }
+
+        GameObject MakeChild(string name, out Mesh mesh)
+        {
+            var go = new GameObject(name);
+            go.hideFlags = HideFlags.DontSaveInEditor | HideFlags.DontSaveInBuild;
+            go.transform.SetParent(transform, false);
+            go.AddComponent<MeshFilter>();
+            var mr = go.AddComponent<MeshRenderer>();
             mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
             mr.receiveShadows = false;
             mr.sharedMaterial = LifeMeshes.FlockMaterial;
-            _mesh = new Mesh { name = "Flocks", hideFlags = HideFlags.DontSave };
-            _go.GetComponent<MeshFilter>().sharedMesh = _mesh;
+            mesh = new Mesh { name = name, hideFlags = HideFlags.DontSave };
+            mesh.MarkDynamic();
+            go.GetComponent<MeshFilter>().sharedMesh = mesh;
+            return go;
         }
 
-        void RebuildMesh()
+        // nearSet: the flocks close to the camera (every frame, flap baked in), else all the others.
+        void RebuildMesh(bool nearSet)
         {
             EnsureObject();
-            MeshBuilds++;
-            _batch.Begin();
+            var batch = nearSet ? _nearBatch : _batch;
+            if (nearSet) NearMeshBuilds++;
+            else MeshBuilds++;
+            batch.Begin();
             foreach (var f in _flocks)
             {
+                if (f.near != nearSet) continue;
                 bool perched = f.state == FlockState.Perched && f.target != null;
+                if (perched && nearSet) f.pos = f.target.ToWorld(f.perchLocal);
                 for (int i = 0; i < f.birds.Count; i++)
                 {
                     var b = f.birds[i];
@@ -838,16 +966,23 @@ namespace Drift.Islands
                         {
                             Vector2 spot = f.target.ToWorld(b.diveLocal);
                             float r = 0.25f + 0.55f * Mathf.Sin((u - 0.3f) / 0.55f * Mathf.PI);
-                            _batch.Add(Splash, new Vector3(spot.x, f.target.transform.position.y + 0.03f, spot.y), b.phase * 40f, r);
+                            batch.Add(Splash, new Vector3(spot.x, f.target.transform.position.y + 0.03f, spot.y), b.phase * 40f, r);
                         }
                     }
                     if (hidden) continue;
                     // Sitting birds and gliders get no wing alpha, so the shader does not flap them.
+                    bool flaps = !perched && !f.seabird;
+                    if (flaps && nearSet)
+                    {
+                        var frame = FlapFrame(b.variant, FlapFrameAt(b.phase, _clock, flapPerSecond), flapAmplitude);
+                        batch.Add(frame, pos, yaw, b.scale, roll, pitch, false);
+                        continue;
+                    }
                     var kind = f.seabird ? LifeKind.Seabird : LifeKind.Bird;
-                    _batch.Add(Markings.BirdTemplate(kind, b.variant), pos, yaw, b.scale, roll, pitch, !perched && !f.seabird);
+                    batch.Add(Markings.BirdTemplate(kind, b.variant), pos, yaw, b.scale, roll, pitch, flaps);
                 }
             }
-            _batch.Apply(_mesh);
+            batch.Apply(nearSet ? _nearMesh : _mesh);
         }
     }
 }

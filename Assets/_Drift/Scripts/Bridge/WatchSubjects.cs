@@ -303,6 +303,8 @@ namespace Drift.Bridge
             {
                 case SeaKind.WhaleBull: return FindSea(e, SeaLifeSystem.Kind.Whale, sea, near, 9f);
                 case SeaKind.WhaleCalf: return FindSea(e, SeaLifeSystem.Kind.WhalePod, sea, near, 9f, true);
+                case SeaKind.Seal: return FindSeal(e, sea, near);
+                // The bursts last two seconds: there is nothing left to follow by the time the camera arrives.
                 case SeaKind.FlyingFish: return null;
             }
             if (sea == null) return null;
@@ -344,6 +346,93 @@ namespace Drift.Bridge
                     return true;
                 },
             };
+        }
+
+        // Seals visit the coast of any island in view; the nearest one that is out is watched.
+        static WatchSubject FindSeal(CollectEntry e, SeaLifeSystem sea, Vector2 near)
+        {
+            if (sea == null || !sea.isActiveAndEnabled) return null;
+            int best = -1;
+            float bestD = float.MaxValue;
+            for (int i = 0; i < sea.SealSlots; i++)
+            {
+                if (!sea.SealActive(i)) continue;
+                float d = (sea.SealPosition(i) - near).sqrMagnitude;
+                if (d >= bestD) continue;
+                bestD = d;
+                best = i;
+            }
+            return OfSeal(e, sea, best);
+        }
+
+        public static WatchSubject OfSeal(SeaLifeSystem sea, int slot)
+        {
+            int index = CollectionCatalog.IndexOf(SeaKind.Seal);
+            return index < 0 ? null : OfSeal(CollectionCatalog.At(index), sea, slot);
+        }
+
+        // Follows one seal slot while it stays out: in the water, looking at the island or lying on the beach.
+        public static WatchSubject OfSeal(CollectEntry e, SeaLifeSystem sea, int slot)
+        {
+            if (sea == null || slot < 0 || slot >= sea.SealSlots || !sea.SealActive(slot)) return null;
+            var ground = CoastOf(sea.SealPosition(slot));
+            return new WatchSubject
+            {
+                label = e.name,
+                radius = 2f,
+                ground = ground,
+                focus = (out Vector3 f) =>
+                {
+                    f = default;
+                    if (sea == null || !sea.SealActive(slot)) return false;
+                    Vector2 p = sea.SealPosition(slot);
+                    float y = 0.1f;
+                    // On the beach (2) or hauling out (4) it lies on the ground, not at sea level.
+                    int state = sea.SealStateOf(slot);
+                    if ((state == 2 || state == 4) && ground != null && ground.isActiveAndEnabled && !ground.IsSunk)
+                        y = Mathf.Max(0.1f, ground.SampleHeight(ground.ToLocal(p)) + 0.2f);
+                    f = new Vector3(p.x, y, p.y);
+                    return true;
+                },
+            };
+        }
+
+        // The island whose coast a seal visits: the one whose rim is nearest.
+        static Island CoastOf(Vector2 pos)
+        {
+            Island best = null;
+            float bestGap = 12f;
+            var all = Island.All;
+            for (int i = 0; i < all.Count; i++)
+            {
+                var island = all[i];
+                if (island == null || !island.isActiveAndEnabled || island.IsSunk) continue;
+                float gap = (island.PlanarPosition - pos).magnitude - island.BoundingRadius;
+                if (gap >= bestGap) continue;
+                bestGap = gap;
+                best = island;
+            }
+            return best;
+        }
+
+        // For a tap on the sea: the active seal nearest to the tap on screen within radiusPx, -1 if none.
+        public static int SealAtScreen(SeaLifeSystem sea, Camera cam, Vector2 tap, float radiusPx)
+        {
+            if (sea == null || cam == null || !sea.isActiveAndEnabled) return -1;
+            int best = -1;
+            float bestD = radiusPx;
+            for (int i = 0; i < sea.SealSlots; i++)
+            {
+                if (!sea.SealActive(i) || sea.SealStateOf(i) == 0) continue;
+                Vector2 p = sea.SealPosition(i);
+                Vector3 screen = cam.WorldToScreenPoint(new Vector3(p.x, 0.2f, p.y));
+                if (screen.z <= 0f) continue;
+                float d = (new Vector2(screen.x, screen.y) - tap).magnitude;
+                if (d >= bestD) continue;
+                bestD = d;
+                best = i;
+            }
+            return best;
         }
 
         static WatchSubject FindShip(CollectEntry e, ShipSystem ships, Vector2 near)

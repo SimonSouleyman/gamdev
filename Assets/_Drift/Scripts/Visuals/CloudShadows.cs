@@ -37,6 +37,18 @@ namespace Drift.Visuals
         [Tooltip("Schatten fallen versetzt in Richtung der Sonne (0 = senkrecht unter der Wolke).")]
         [Range(0f, 1f)] public float sunShift = 1f;
 
+        [Header("Abenteuer-Ring")]
+        [Tooltip("Die Bahn vor der Insel bleibt wolkenfrei: halbe Breite des freien Streifens quer zur Bahn (Einheiten, um die Insel herum).")]
+        [Range(0f, 40f)] public float ringClearHalfWidth = 11f;
+        [Tooltip("Über diese Breite blenden die Wolken neben dem freien Streifen wieder ein.")]
+        [Range(0.5f, 30f)] public float ringClearFade = 7f;
+        [Tooltip("So weit vor der Insel bleibt die Bahn frei (0 = aus: Wolken überall).")]
+        [Range(0f, 300f)] public float ringClearAhead = 75f;
+        [Tooltip("Über diese Strecke dahinter kommen die Wolken als Kulisse zurück.")]
+        [Range(1f, 150f)] public float ringClearFadeLength = 45f;
+        [Tooltip("Stärke der Wolkenschatten auf dem Ring: über der Bahn hängen dort kaum Wolken, dunkle Flecken ohne Wolke sähen wie Hindernisse aus.")]
+        [Range(0f, 0.6f)] public float ringShadowStrength = 0.08f;
+
         public const int GridSize = 21, PuffsPerClump = 9;
 
         static readonly int CoverId = Shader.PropertyToID("_CloudCover");
@@ -47,6 +59,7 @@ namespace Drift.Visuals
         static readonly int FocusId = Shader.PropertyToID("_CloudFocus");
         static readonly int HeightId = Shader.PropertyToID("_CloudHeight");
         static readonly int GridHalfId = Shader.PropertyToID("_CloudGridHalf");
+        static readonly int RingClearId = Shader.PropertyToID("_CloudRingClear");
 
         Vector2 _offset;
         float _cover;
@@ -69,6 +82,9 @@ namespace Drift.Visuals
 
         // 0..1 cloud density over a world point, as the shaders see it.
         public float DensityAt(Vector2 worldXZ) => CloudField.DensityAtWorld(worldXZ, _cover, Scale, _offset, _shift);
+
+        // The cloud-free stretch of the adventure track as Drift/Clouds reads it (see RingReadability.CloudCorridor).
+        public Vector4 RingClear => new Vector4(ringClearHalfWidth, ringClearFade, ringClearAhead, ringClearFadeLength);
 
         void OnEnable()
         {
@@ -152,11 +168,13 @@ namespace Drift.Visuals
             Shader.SetGlobalFloat(CoverId, _cover);
             Shader.SetGlobalVector(OffsetId, new Vector4(_offset.x, _offset.y, 0f, 0f));
             Shader.SetGlobalFloat(ScaleId, scale);
-            Shader.SetGlobalFloat(StrengthId, shadowStrength);
+            var ring = RingWorld.Active;
+            Shader.SetGlobalFloat(StrengthId, ring != null && ring.IsApplied ? ringShadowStrength : shadowStrength);
             Shader.SetGlobalVector(ShiftId, new Vector4(_shift.x, _shift.y, 0f, 0f));
             Shader.SetGlobalFloat(HeightId, _height);
             Shader.SetGlobalVector(FocusId, Focus(cam));
             Shader.SetGlobalFloat(GridHalfId, GridSize * 0.5f);
+            Shader.SetGlobalVector(RingClearId, RingClear);
 
             UpdatePuffs();
         }

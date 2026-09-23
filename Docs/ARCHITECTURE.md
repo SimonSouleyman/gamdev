@@ -2039,3 +2039,34 @@ Structural rules that new content has to follow:
   screenshots/clips go to `Playtests/shots/` (gitignored). `python Playtests/summarize.py` prints the newest file
   per scenario. `PlaytestProfiler` gives per-system CPU ms, GC and the worst frames from the Editor profiler;
   `PlaytestCapture` sets the phone portrait Game view and builds filmstrips/contact sheets.
+
+## Proposal round after the play test (2026-09-23 evening, 6 + 1 agents)
+
+- Race camera (`IslandChaseCamera`): ring pose 1.6 / 11, `ringPitchUp` 7; at speed it dollies in (`ringSpeedDolly`) and
+  widens FOV (`ringSpeedFovGain`); boost adds FOV (`boostFovGain`, `boostReference` 1.65) plus a swell per pickup
+  (`boostFovKick`); `RingWorld.Dodged` gives a swell and a sideways sway. `Visuals/SpeedStreaks` (on the main camera,
+  `Materials/SpeedStreaks.mat`) draws edge streaks while boosting. FOV stays below ~76°.
+- Cozy life zoom: above `framingKneeRadius` the chase distance grows with sqrt(radius); after `idleDelay` s without
+  steering the camera eases to `idleCloseIn` of the distance (default zoom only); zoomMax grows by the same factor so
+  the full overview stays reachable.
+- Watch: flocks within `smoothDistance` of the camera live in their own mesh `FlocksNear`, rebuilt every LateUpdate
+  with a CPU wing pose (24 poses per variant) — the 15 Hz rebuild plus the world-position flap phase was the "birds
+  jitter while watching". The pick marker is an outline ring only. `WatchFraming` (PhotoRig.cs) gives the follow
+  pose: aim at the animals' middle, `watchPitch` 55°, distance by `watchFill`/`watchMinBodyPixels`, screen lift below
+  the HUD, a one-off yaw pick with the fewest plants in the sight line.
+- Adventure pacing: ring plate rows 160 long (`ringPlateLength`, `ringRowDrift` 0.12) so a lane boundary lasts 6–8 s;
+  `RingWorld.extraIslandsPerLevel` and ring volcanoes (`RingIslandSpawner.TryRaiseVolcano`, rising 95–150 u ahead,
+  a free gap of >= 14 u always kept, `VolcanoRising` event); `lifeHideDistance` 90 on ring islands. Escort animals give
+  `Island.EscortFactor` (steady pace) instead of a permanent boost; flotsam spacing 72–120, boost x1.65. Hit grace:
+  `Island.hitGrace` 2.2 s glide-through plus `hitSidestep`.
+- HUD: adventure = one slim strip (152 of 1920) with timer/status/best time and an "Auftrieb" bar + level; cozy panel
+  232 high with labelled bars and a tap-to-explain card (PlayerPrefs `drift_hud_explained`). New-world confirmation
+  in SessionScreens whenever a cozy save exists. `SeaKind.Seal` (id 120) with catalog entry, glyph, tap and album scan.
+- Readability (ring): `CloudShadows` keeps a cloud-free corridor ahead of the player; flotsam beacons
+  (`ShipSystem.Beacons.cs`, `FlotsamBeacon.shader`); storms get a moonlit rim at night; `RingRim.shader` foam is
+  continuous in world z (the lane gaps aliased into horizontal stripes). Storm billboards 216 on mobile, no GC.
+- GPU: water pixels in full haze return early, current flecks and cloud shadows exit early, cloud shadow per vertex
+  for terrain/plants/animals/critters/fish, terrain in the AlphaTest queue (its clip), CoastField rebuilds for
+  sink/mountain bumps at most every `coastRebuildInterval` (2 s). `CurvedWorld.extendFarClip` raises the far plane to the
+  limb (a long Pangäa put the camera past 1000 u = "pale blue screen"); haze starts after the camera distance
+  (`hazeClearView`); `DayNightCycle.dimWaterAtNight` darkens shallow water/foam at night (`_WaterLight`).

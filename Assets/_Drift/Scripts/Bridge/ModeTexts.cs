@@ -54,17 +54,60 @@ namespace Drift.Bridge
             return heavy ? "Insel ist schwer" : "Tiefgang";
         }
 
+        // ---- the labelled HUD rows (both modes) and the cozy explanation card
+
+        public const string BuoyancyLabel = "Auftrieb";
+        public const string WorldLabel = "Welt";
+        // Abenteuer: shown in the status slot when the bar runs low and nothing louder is going on.
+        public const string LowBuoyancyCall = "Hol dir Treibgut!";
+        // Below this the adventure bar pulses and the call above appears.
+        public const float LowBuoyancy = 0.35f;
+
+        // Right of the world bar: how many of the world's islands are already part of yours.
+        public static string CozyIslands(int merged, int total)
+        {
+            if (total <= 0) return "";
+            if (merged >= total) return "alle vereint";
+            return merged + " von " + total + " Inseln";
+        }
+
+        // Beside "Landmasse": in Gemütlich the island sinks slowly towards a floor, which is why the number shrinks
+        // while nothing happens; at the floor it simply floats.
+        public static string CozySinkStatus(bool sinking) => sinking ? "sinkt langsam" : "schwimmt ruhig";
+
+        // Right of the buoyancy bar; 0.5 is where the old "Form 50 %" switched from länglich to rund.
+        public static string FormLabel(float compactness) => compactness >= 0.475f ? "Form: rund" : "Form: länglich";
+
+        // The card behind a tap on the cozy HUD (and shown once by itself the first time the island sinks).
+        public const string ExplainSinking = "Deine Insel sinkt langsam – vereine Inseln, dann wächst sie wieder.";
+        public const string ExplainWorld = "Welt: so viel Land hast du schon vereint.";
+        public const string ExplainBuoyancy = "Auftrieb: so hoch schwimmt deine Insel. Rund schwimmt besser als länglich.";
+        public const string ExplainClose = "Tippen zum Schließen";
+
+        // ---- menus
+
+        // Pause menu in Abenteuer: leaving early never scores.
+        public const string AdventurePauseNote = "Abbrechen zählt nicht als Bestzeit";
+        // Asked before a new cozy world replaces the one that is saved or running.
+        public const string NewWorldTitle = "Neue Welt beginnen?";
+        public const string NewWorldBody = "Deine jetzige Welt geht verloren.";
+        public const string NewWorldCancel = "Abbrechen";
+        public const string NewWorldConfirm = "Neu beginnen";
+
         // The driving hint of the HUD. Abenteuer drives itself ("man fährt immer"): the input only steers sideways,
         // pulling back brakes and can never bring the island to a stop, so both steering schemes read the same.
         public static string SteerHint(GameMode mode, bool touch, bool direct)
         {
             if (mode == GameMode.Adventure)
-                return touch ? "Stick links/rechts: lenken  ·  zurück: bremsen" : "A/D lenken  ·  S bremst  ·  Tempo läuft";
+                return touch ? "Stick: seitlich lenken, unten bremsen" : "A/D lenken  ·  S bremsen";
             if (touch) return direct ? "Stick links: Richtung" : "Stick links: lenken & Tempo";
             return direct ? "W A S D Richtung" : "W/S Tempo  ·  A/D lenken";
         }
 
-        public static string BoostLabel(float factor) => factor > 1.01f ? "Schub  ×" + factor.ToString("0.0", System.Globalization.CultureInfo.GetCultureInfo("de-DE")) : "Schub!";
+        static readonly System.Globalization.CultureInfo German = System.Globalization.CultureInfo.GetCultureInfo("de-DE");
+
+        // German decimal comma: "Schub  ×1,6".
+        public static string BoostLabel(float factor) => factor > 1.01f ? "Schub  ×" + factor.ToString("0.0", German) : "Schub!";
 
         // The short adventure HUD calls: a hit, a close pass, riding a plate boundary, and the difficulty level.
         public static string HitLabel(float lostShare) => lostShare > 0.005f

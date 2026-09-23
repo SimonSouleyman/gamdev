@@ -203,10 +203,10 @@ namespace Drift.Tests
                     Assert.AreEqual(0f, adv.buoyancy, "a buoy is not collected");
                     continue;
                 }
-                Assert.Greater(adv.buoyancy, 0.02f, k.ToString());
-                Assert.LessOrEqual(adv.buoyancy, 0.1f, k.ToString());
-                Assert.GreaterOrEqual(adv.boostSeconds, 2f, k.ToString());
-                Assert.LessOrEqual(adv.boostSeconds, 3f, k.ToString());
+                Assert.Greater(adv.buoyancy, 0.1f, k.ToString());
+                Assert.LessOrEqual(adv.buoyancy, 0.25f, k.ToString());
+                Assert.GreaterOrEqual(adv.boostSeconds, 2.5f, k.ToString());
+                Assert.LessOrEqual(adv.boostSeconds, 3.6f, k.ToString());
             }
             Assert.Greater(EncounterPacer.RewardFor(ShipSystem.FlotsamKind.Crate, true).buoyancy,
                 EncounterPacer.RewardFor(ShipSystem.FlotsamKind.Driftwood, true).buoyancy, "a crate is worth more than a plank");

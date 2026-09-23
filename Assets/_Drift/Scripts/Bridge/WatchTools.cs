@@ -66,6 +66,20 @@ namespace Drift.Bridge
         public float panRadiusFactor = 1.5f;
         public float returnEaseSeconds = 0.6f;
 
+        [Header("Beobachten: Kamera")]
+        [Tooltip("Neigung der Kamera beim Beobachten in Grad (90 = senkrecht von oben). Steiler heißt: weniger Bäume zwischen Kamera und Tieren.")]
+        [Range(20f, 80f)] public float watchPitch = 55f;
+        [Tooltip("So viel der halben kurzen Bildseite nimmt eine Herde zu Beginn des Beobachtens ein.")]
+        [Range(0.2f, 1f)] public float watchFill = 0.55f;
+        [Tooltip("So groß soll ein Tier beim Beobachten mindestens erscheinen (Pixel bei 1080 Pixel kurzer Bildseite). Für kleine Tiere wie Hasen kommt die Kamera dafür näher.")]
+        [Range(0f, 120f)] public float watchMinBodyPixels = 44f;
+        [Tooltip("Das beobachtete Tier steht in der Mitte des freien Bildbereichs unter „Zurück zur Insel“ und der Herdenzeile statt in der Bildmitte.")]
+        public bool watchCenterBelowHud = true;
+        [Tooltip("Zu Beginn des Beobachtens die Blickrichtung wählen, in der am wenigsten Bäume und Hügel zwischen Kamera und Tieren stehen (bevorzugt nahe der bisherigen Blickrichtung).")]
+        public bool watchClearView = true;
+        [Tooltip("Wie schnell die Kamera der Mitte der Herde folgt (pro Sekunde). Kleiner = ruhiger, größer = enger an den Tieren.")]
+        [Range(0.5f, 10f)] public float watchFocusFollow = 3f;
+
         [Tooltip("Das Tagebuch der Arten bleibt über alle Reisen erhalten (eigene Datei drift_journal.json); aus = nur die laufende Reise.")]
         public bool keepJournal = true;
 
@@ -122,6 +136,15 @@ namespace Drift.Bridge
         Vector3 _followFocus;
         float _followRadius = 1.5f, _chipTimer;
         int _chipSize = -1, _chipMood = -1;
+        // The camera watches the middle of the animals themselves (island frame, eased), not the herd's leading
+        // centre point, which runs ahead of a moving herd; _herdSpread is the largest animal distance from it.
+        Vector2 _focusLocal;
+        bool _focusSnap = true;
+        float _herdSpread, _lift;
+        const int YawCandidates = 12;
+        const float TreeHeight = 0.8f;
+        Vector3[] _occluders = new Vector3[64];
+        readonly float[] _yawCost = new float[YawCandidates];
         readonly int[] _moodCount = new int[6];
 
         GameObject _journal;
@@ -793,6 +816,13 @@ namespace Drift.Bridge
             // Herd animals win a near tie: they are what a tap into a meadow is aimed at.
             bool critter = bestCritters != null && (bestHerds == null || bestCritter * 1.3f < best);
             bool hit = critter || bestHerds != null;
+            // Seals (sea visitors at any coast) are watched straight away: there is no creature card for them.
+            int seal = !hit && seaLife != null && seaLife.isActiveAndEnabled ? WatchSubjects.SealAtScreen(seaLife, cam, screenPos, radius) : -1;
+            if (seal >= 0)
+            {
+                Ripple(screenPos, true);
+                return BeginWatch(WatchSubjects.OfSeal(seaLife, seal));
+            }
             Ripple(screenPos, hit);
             if (debugTaps)
                 Debug.Log(hit
@@ -981,10 +1011,10 @@ namespace Drift.Bridge
             if (screen.z <= 0f) { _markerGroup.alpha = 0f; return 0f; }
             RectTransformUtility.ScreenPointToLocalPointInRectangle(_root, screen, UiCamera, out var local);
             float diameter = Mathf.Clamp(bodyPixels * 2.6f / CanvasScale, 46f, 240f);
-            float pulse = 0.5f + 0.5f * Mathf.Sin(Time.unscaledTime * 4f);
+            float pulse = 0.5f + 0.5f * Mathf.Sin(Time.unscaledTime * 2.5f);
             _marker.anchoredPosition = local;
             _marker.localScale = new Vector3(diameter / 56f, diameter / 56f * 0.62f, 1f);
-            _markerGroup.alpha = alpha * (0.7f + 0.3f * pulse);
+            _markerGroup.alpha = alpha * (0.8f + 0.2f * pulse);
             return diameter * 0.62f;
         }
 
@@ -1040,6 +1070,8 @@ namespace Drift.Bridge
                 _followHerdCount = _followHerds.HerdCount;
                 _followCenter = _followHerds.HerdCenter(_followHerd);
                 _followKind = _followHerds.HerdKind(_followHerd);
+                _focusSnap = true;
+                StepHerdFocus(0f);
                 _followRadius = TargetFollowRadius();
                 _chipSize = _chipMood = -1;
                 _chipTimer = 0f;
@@ -1147,7 +1179,9 @@ namespace Drift.Bridge
             }
         }
 
-        // R in follow mode: the chase framing behind the island's heading at followZoomLevel.
+        // Where watching starts and R returns to: looking down at watchPitch from the chase view's side (turned to the
+        // clearest view with watchClearView), a herd at the distance that frames it with readable animals, anything
+        // else at the chase framing's distance at followZoomLevel.
         void SetFollowHome()
         {
             float zoom = Mathf.Max(chaseCamera.zoomMin, followZoomLevel);
@@ -1160,7 +1194,73 @@ namespace Drift.Bridge
                 chaseCamera.zoomExponent, chaseCamera.height, chaseCamera.distanceBehind, zoom, out Vector3 pos, out _, out _);
             float yaw = 0f, pitch = 40f, dist = 4f;
             PhotoRig.OrbitOf(-pos, ref yaw, ref pitch, ref dist);
+            if (Mathf.Abs(back.x) + Mathf.Abs(back.z) > 1e-4f) yaw = Mathf.Atan2(-back.x, -back.z) * Mathf.Rad2Deg;
+            pitch = watchPitch;
+            float frameRadius = Mathf.Max(0.5f, _followRadius);
+            if (_followHerds != null)
+            {
+                var cam = Camera.main;
+                frameRadius = Mathf.Max(0.5f, _herdSpread + 0.3f);
+                dist = WatchFraming.Distance(frameRadius, _followHerds.BodyLength(_followHerd),
+                    cam != null ? cam.fieldOfView : 60f, cam != null ? cam.aspect : 9f / 16f, watchFill, watchMinBodyPixels);
+            }
+            dist = Mathf.Clamp(dist, _rig.minDistance, _rig.maxDistance);
+            if (watchClearView) yaw = ClearestYaw(yaw, pitch, dist, frameRadius);
             _rig.SetHome(yaw, pitch, dist);
+        }
+
+        // Scores YawCandidates directions around the subject: trees standing in the sight line (WatchFraming.Occlusion)
+        // plus ground rising above it, a small penalty for turning away from the preferred side.
+        float ClearestYaw(float preferred, float pitch, float dist, float radius)
+        {
+            Vector3 subject = SubjectPosition();
+            float pr = Mathf.Clamp(pitch, 1f, 89f) * Mathf.Deg2Rad;
+            float horizontal = dist * Mathf.Cos(pr), rise = Mathf.Tan(pr);
+            int n = GatherOccluders(subject, horizontal + radius + 1f);
+            float step = 360f / YawCandidates;
+            for (int i = 0; i < YawCandidates; i++)
+            {
+                float yr = WatchFraming.CandidateYaw(preferred, i, step) * Mathf.Deg2Rad;
+                Vector2 toCam = new Vector2(-Mathf.Sin(yr), -Mathf.Cos(yr));
+                float cost = 0f;
+                for (int k = 1; k <= 3; k++)
+                {
+                    float along = horizontal * k / 3.3f;
+                    Vector2 xz = new Vector2(subject.x, subject.z) + toCam * along;
+                    if (GroundHeight(xz) > subject.y + 0.15f + along * rise) cost += 1f;
+                }
+                _yawCost[i] = cost;
+            }
+            return WatchFraming.PickYaw(preferred, pitch, dist, subject, radius, _occluders, n, YawCandidates, 1.5f, _yawCost);
+        }
+
+        // Trees and palms within reach of the subject as (x, top height, z) in world space; one pass at the start of
+        // watching, the buffer only ever grows.
+        int GatherOccluders(Vector3 subject, float reach)
+        {
+            int n = 0;
+            Vector2 s = new Vector2(subject.x, subject.z);
+            var all = Island.All;
+            for (int k = 0; k < all.Count; k++)
+            {
+                var island = all[k];
+                if (island == null) continue;
+                float r = reach + island.BoundingRadius;
+                if ((island.PlanarPosition - s).sqrMagnitude > r * r) continue;
+                if (!island.TryGetComponent(out IslandLifeSystem life) || !life.isActiveAndEnabled) continue;
+                float baseY = island.transform.position.y;
+                for (int i = 0; i < life.PlantCount; i++)
+                {
+                    if (!life.PlantIsTall(i) || life.PlantDyingOf(i)) continue;
+                    Vector2 local = life.PlantPositionOf(i);
+                    Vector2 w = island.ToWorld(local);
+                    if ((w - s).sqrMagnitude > reach * reach) continue;
+                    float top = baseY + Mathf.Max(0f, island.SampleHeight(local)) + TreeHeight * Mathf.Lerp(0.4f, 1f, life.PlantMaturityOf(i));
+                    if (n == _occluders.Length) Array.Resize(ref _occluders, n * 2);
+                    _occluders[n++] = new Vector3(w.x, top, w.y);
+                }
+            }
+            return n;
         }
 
         // Herd indices shift when an earlier herd dies out; the followed herd is then found again as the herd of
@@ -1192,12 +1292,43 @@ namespace Drift.Bridge
             return true;
         }
 
-        float TargetFollowRadius() => Mathf.Max(1.5f, _followHerds.HerdRadius(_followHerd) + 1f);
+        float TargetFollowRadius() => Mathf.Max(1.5f, _herdSpread + 1f);
 
         Vector3 HerdFocus()
         {
-            var c = _followHerds.HerdCenter(_followHerd);
+            var c = _focusLocal;
             return _followIsland.transform.TransformPoint(c.x, Mathf.Max(0f, _followIsland.SampleHeight(c)), c.y);
+        }
+
+        // Eases the watched point towards the middle of the animals in the island's frame (so the island's own drift
+        // never lags); a birth, a death or a herd found again does not jump the camera.
+        void StepHerdFocus(float dt)
+        {
+            int n = _followHerds.HerdSize(_followHerd);
+            Vector2 mid = _followHerds.HerdCenter(_followHerd);
+            if (n > 0)
+            {
+                Vector2 sum = Vector2.zero;
+                for (int m = 0; m < n; m++)
+                {
+                    Vector3 p = _followHerds.AnimalLocalPosition(_followHerd, m);
+                    sum += new Vector2(p.x, p.z);
+                }
+                mid = sum / n;
+            }
+            float spread = 0f;
+            for (int m = 0; m < n; m++)
+            {
+                Vector3 p = _followHerds.AnimalLocalPosition(_followHerd, m);
+                spread = Mathf.Max(spread, (new Vector2(p.x, p.z) - mid).magnitude);
+            }
+            _herdSpread = spread;
+            if (_focusSnap)
+            {
+                _focusLocal = mid;
+                _focusSnap = false;
+            }
+            else _focusLocal = Vector2.Lerp(_focusLocal, mid, 1f - Mathf.Exp(-watchFocusFollow * Mathf.Max(0f, dt)));
         }
 
         void UpdateFollow()
@@ -1220,9 +1351,10 @@ namespace Drift.Bridge
                 return;
             }
             if (!ResolveFollowHerd()) { ReturnToIsland(); return; }
-            _followFocus = HerdFocus();
             // The framing radius (zoom limits) is eased so a herd that spreads out or huddles does not pump the camera.
             float dt = Application.isPlaying ? Time.unscaledDeltaTime : 0f;
+            StepHerdFocus(dt);
+            _followFocus = HerdFocus();
             _followRadius = Mathf.Lerp(_followRadius, TargetFollowRadius(), 1f - Mathf.Exp(-1.5f * dt));
 
             _chipTimer -= dt;
@@ -1411,6 +1543,10 @@ namespace Drift.Bridge
                     else NoteSeen(journal, CollectionCatalog.IndexOf(SeaLifeSystem.SeaKindOf(kind)), time);
                     if (seaLife.GroupHasCalf(i)) NoteSeen(journal, CollectionCatalog.IndexOf(SeaKind.WhaleCalf), time);
                 }
+                int sealSlots = seaLife.SealSlots;
+                for (int i = 0; i < sealSlots; i++)
+                    if (seaLife.SealActive(i) && seaLife.SealStateOf(i) != 0 && (seaLife.SealPosition(i) - focus).sqrMagnitude <= range2)
+                        NoteSeen(journal, CollectionCatalog.IndexOf(SeaKind.Seal), time);
                 // The bursts always start a few units off the player's island.
                 if (seaLife.FlyingFishActive && player != null && (player.PlanarPosition - focus).sqrMagnitude < range2)
                     NoteSeen(journal, CollectionCatalog.IndexOf(SeaKind.FlyingFish), time);
@@ -1964,6 +2100,7 @@ namespace Drift.Bridge
         {
             if (!_driving) return;
             _driving = false;
+            _lift = 0f;
             ResetPointers();
             if (chaseCamera == null) return;
             chaseCamera.SetZoom(_zoomBeforeDrive);
@@ -2078,8 +2215,10 @@ namespace Drift.Bridge
         static float GroundHeight(Vector2 xz)
         {
             float y = 0f;
-            foreach (var island in Island.All)
+            var all = Island.All;
+            for (int k = 0; k < all.Count; k++)
             {
+                var island = all[k];
                 if (island == null) continue;
                 float reach = island.BoundingRadius + 1f;
                 if ((xz - island.PlanarPosition).sqrMagnitude > reach * reach) continue;
@@ -2107,8 +2246,10 @@ namespace Drift.Bridge
             float clearance = Mathf.Lerp(photoGroundClearance, chaseCamera != null ? chaseCamera.closeGroundClearance : 0.22f, close);
             var subjectIsland = SubjectIsland;
             float minY = photoMinHeight;
-            foreach (var island in Island.All)
+            var all = Island.All;
+            for (int k = 0; k < all.Count; k++)
             {
+                var island = all[k];
                 if (island == null) continue;
                 float reach = island.BoundingRadius + 1f;
                 Vector2 d = new Vector2(pos.x, pos.z) - island.PlanarPosition;
@@ -2121,6 +2262,12 @@ namespace Drift.Bridge
                 Vector3 look = pivot - pos;
                 if (look.sqrMagnitude > 1e-4f) rot = Quaternion.LookRotation(look.normalized, Vector3.up);
             }
+            // While watching, the view tilts up so the subject sits in the middle of the free picture below the
+            // return button and the herd chip, not behind them; photo mode (no buttons on top) looks straight at it.
+            float liftTarget = Following && !_photoActive && watchCenterBelowHud
+                ? WatchFraming.LiftDegrees(cam.fieldOfView, WatchFraming.FreeBandCenter(HudCoveredFraction(), 0.05f)) : 0f;
+            _lift = Mathf.Lerp(_lift, liftTarget, 1f - Mathf.Exp(-4f * dt));
+            if (Mathf.Abs(_lift) > 1e-3f) rot *= Quaternion.Euler(-_lift, 0f, 0f);
             if (_rotBlend < 1f)
             {
                 _rotBlend = Mathf.Min(1f, _rotBlend + dt / 0.5f);
@@ -2131,6 +2278,13 @@ namespace Drift.Bridge
             // The orbit camera knows exactly how close it stands to what it watches; the vegetation calms its wind
             // by that distance instead of guessing from the view ray.
             IslandLifeSystem.ReportViewDistance((pos - pivot).magnitude);
+        }
+
+        // Share of the picture height the follow controls cover from the top (return button, herd chip, hint).
+        float HudCoveredFraction()
+        {
+            float h = _root != null ? _root.rect.height : 0f;
+            return h > 1f ? Mathf.Clamp01(FollowUiBottom / h) : 0.36f;
         }
 
         public static string OrbitHint(bool touchInput, bool photo)
@@ -2402,8 +2556,8 @@ namespace Drift.Bridge
             _markerGroup = marker.gameObject.AddComponent<CanvasGroup>();
             _markerGroup.blocksRaycasts = false;
             _markerGroup.interactable = false;
-            UiStyle.Shape(marker, "Glow", UiSprites.SoftCircle, UiStyle.WithAlpha(UiStyle.Sand, 0.28f)).rectTransform.Stretch(-14f, -14f, -14f, -14f);
-            UiStyle.Shape(marker, "Ring", UiSprites.CircleRing, UiStyle.WithAlpha(UiStyle.Sand, 0.9f)).rectTransform.Stretch();
+            // Only the outline (owner, 2026-09-23: the filled, pulsing disc under the animal was too loud).
+            UiStyle.Shape(marker, "Ring", UiSprites.CircleRing, UiStyle.WithAlpha(UiStyle.Sand, 0.75f)).rectTransform.Stretch();
             return marker;
         }
 

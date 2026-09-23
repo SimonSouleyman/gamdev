@@ -20,7 +20,12 @@ namespace Drift.Tests
         System.Func<Vector2, Vector2> _savedConstraint;
 
         [SetUp]
-        public void SetUp() => _savedConstraint = Island.PositionConstraint;
+        public void SetUp()
+        {
+            _savedConstraint = Island.PositionConstraint;
+            // An Editor left in Abenteuer has the scene's RingWorld holding the player to its band: not these islands.
+            Island.PositionConstraint = null;
+        }
 
         [TearDown]
         public void TearDown()

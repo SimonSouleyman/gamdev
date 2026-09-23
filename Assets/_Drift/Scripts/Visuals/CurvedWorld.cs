@@ -52,6 +52,21 @@ namespace Drift.Visuals
         [Range(0.2f, 1f)] public float lowHazeFull = 0.55f;
         public float lowLimbAngle = 4f;
         public float highLimbAngle = 20f;
+        // The haze is a share of the limb distance, but a far camera (a continent, a zoomed-out view) frames land that
+        // reaches far from the focus: with R at minRadius that land sat in the haze and the whole view turned pale
+        // blue. The haze therefore never starts before the focus plus this share of the camera's distance to it
+        // (still leaving hazeMinBand of the limb distance for the fade, so the horizon stays soft). A fresh island at
+        // zoom 1 is unchanged: its own haze starts further out than that.
+        [Tooltip("Der Dunst beginnt frühestens so weit hinter dem Blickpunkt (Anteil der Kameraentfernung zum Blickpunkt). Hält eine große Insel lesbar, wenn die Kamera weit weg ist. 0 = Dunst nur nach der Horizontentfernung.")]
+        [Range(0f, 2f)] public float hazeClearView = 0.7f;
+        [Tooltip("So breit bleibt der Übergang in den Dunst vor dem Horizont mindestens (Anteil der Horizontentfernung), auch wenn der Dunst später beginnt.")]
+        [Range(0.05f, 0.6f)] public float hazeMinBand = 0.25f;
+        // A long merged continent pushes the chase camera out beyond its far clip plane (1000 u): then every mesh is
+        // clipped and only the sky dome is left, which draws the planet disc in the haze colour - the all-pale-blue
+        // Pangaea frame of the 2026-09-23 soak test. While it renders, the bent camera's far plane is raised to the
+        // limb (tangent distance to the planet plus a margin) and put back afterwards, like the culling matrix.
+        [Tooltip("Die ferne Schnittebene der Kamera beim Zeichnen bis zum Planetenrand anheben, falls die Kamera sehr weit weg ist (große, lange Pangäa). Danach wird der alte Wert wiederhergestellt.")]
+        public bool extendFarClip = true;
 
         public bool drawSky = true;
         public Material skyMaterial;
@@ -188,6 +203,8 @@ namespace Drift.Visuals
         bool _skyboxSet;
         Mesh _skyMesh;
         Camera _culled;
+        Camera _farCam;
+        float _farBefore;
         SkyPalette _fallbackPalette;
         Vector3 _sunDir = Vector3.up, _moonDir = Vector3.down;
         float _sunChord2 = 1e-3f, _moonInvChord = 25f, _moonPhase = 0.5f;
@@ -269,6 +286,7 @@ namespace Drift.Visuals
             RenderPipelineManager.endCameraRendering -= OnEndCamera;
             if (_active == this) _active = null;
             if (_culled != null) { _culled.ResetCullingMatrix(); _culled = null; }
+            RestoreFar();
             Shader.SetGlobalFloat(InvRadiusId, 0f);
             Shader.SetGlobalVector(RingId, Vector4.zero);
             Shader.SetGlobalVector(SpaceId, Vector4.zero);
@@ -309,7 +327,7 @@ namespace Drift.Visuals
                 PlaceRims(ring, Focus);
                 return;
             }
-            Solve(cam, out Vector2 focus, out float invR, out float t, out _, out float limb, out _);
+            Solve(cam, out Vector2 focus, out float invR, out float t, out _, out float limb, out _, out _);
             Focus = focus;
             InvRadius = invR;
             Radius = invR > 0f ? 1f / invR : float.PositiveInfinity;
@@ -436,7 +454,7 @@ namespace Drift.Visuals
 
         // hazeCenter / hazeEnd: the limb in unbent planar coordinates (a circle around the point under the camera);
         // skyCenter: direction to the centre of the planet and the cosine of its angular radius.
-        void Solve(Camera cam, out Vector2 focus, out float invR, out float t, out Vector2 hazeCenter, out float hazeEnd, out Vector4 skyCenter)
+        void Solve(Camera cam, out Vector2 focus, out float invR, out float t, out Vector2 hazeCenter, out float hazeEnd, out Vector4 skyCenter, out float viewDist)
         {
             Transform ct = cam.transform;
             Vector3 cp = ct.position;
@@ -444,7 +462,7 @@ namespace Drift.Visuals
             float h = Mathf.Max(0.05f, cp.y);
             var toCam = new Vector2(cp.x, cp.z) - focus;
             float b = toCam.magnitude;
-            float viewDist = Mathf.Sqrt(b * b + h * h);
+            viewDist = Mathf.Sqrt(b * b + h * h);
             float r = RadiusForViewDistance(viewDist, out t);
             invR = flatten || strength <= 0f ? 0f : strength / r;
             float far = cam.farClipPlane * 0.9f;
@@ -465,6 +483,16 @@ namespace Drift.Visuals
             float beta = Mathf.Atan2(b, h + r);
             hazeCenter = b > 1e-4f ? focus + toCam * (r * beta / b) : focus;
             hazeEnd = Mathf.Min(r * Mathf.Acos(Mathf.Clamp01(sinA)), far);
+        }
+
+        // Start of the haze (planar distance from the point under the camera): never before the focus plus
+        // hazeClearView of the view distance, but always at least hazeMinBand of the limb distance before the full haze.
+        public static float HazeStart(float start, float full, float limb, float focusDistance, float viewDistance, float clearView, float minBand)
+        {
+            if (clearView <= 0f) return start;
+            float clear = focusDistance + viewDistance * clearView;
+            float latest = full - limb * minBand;
+            return Mathf.Max(start, Mathf.Min(clear, latest));
         }
 
         bool Bends(Camera cam)
@@ -499,7 +527,9 @@ namespace Drift.Visuals
                 BeginRingCamera(cam, own, ring);
                 return;
             }
-            Solve(own ? cam : Camera.main, out Vector2 focus, out float invR, out _, out Vector2 hazeCenter, out float hazeEnd, out Vector4 skyCenter);
+            Solve(own ? cam : Camera.main, out Vector2 focus, out float invR, out _, out Vector2 hazeCenter, out float hazeEnd, out Vector4 skyCenter, out float viewDist);
+            if (own && ExtendFar(cam, focus, invR))
+                Solve(cam, out focus, out invR, out _, out hazeCenter, out hazeEnd, out skyCenter, out viewDist);
             Shader.SetGlobalVector(FocusId, new Vector4(focus.x, focus.y, 0f, 0f));
             Shader.SetGlobalFloat(InvRadiusId, invR);
             Shader.SetGlobalVector(FogColorId, Lin(HorizonColor, own ? haze : 0f));
@@ -508,6 +538,7 @@ namespace Drift.Visuals
             float startF = Mathf.Lerp(hazeStart, lowHazeStart, low), fullF = Mathf.Lerp(hazeFull, lowHazeFull, low);
             float start = hazeEnd * startF;
             float full = hazeEnd * Mathf.Max(fullF, startF + 0.05f);
+            if (invR > 0f) start = HazeStart(start, full, hazeEnd, Vector2.Distance(hazeCenter, focus), viewDist, hazeClearView, hazeMinBand);
             Shader.SetGlobalVector(FogParamsId, own ? new Vector4(start, 1f / Mathf.Max(1f, full - start), hazeCenter.x, hazeCenter.y) : new Vector4(1e6f, 0f, 0f, 0f));
             Shader.SetGlobalVector(SkyCenterId, own ? skyCenter : flatSky);
             Shader.SetGlobalFloat(SkyDrawId, 1f);
@@ -627,8 +658,39 @@ namespace Drift.Visuals
             _rimMat = null;
         }
 
+        // Far plane needed to see the whole planet from this camera: the tangent distance to the limb, the far
+        // side of the sea's rim included, plus 10 %.
+        public static float FarPlaneFor(Vector3 camPos, Vector2 focus, float invR)
+        {
+            if (invR <= 0f) return 0f;
+            float r = 1f / invR;
+            var centre = new Vector3(focus.x, -r, focus.y);
+            float d2 = (camPos - centre).sqrMagnitude;
+            return 1.1f * Mathf.Sqrt(Mathf.Max(0f, d2 - r * r)) + 20f;
+        }
+
+        bool ExtendFar(Camera cam, Vector2 focus, float invR)
+        {
+            RestoreFar();
+            if (!extendFarClip) return false;
+            float need = FarPlaneFor(cam.transform.position, focus, invR);
+            if (need <= cam.farClipPlane) return false;
+            _farCam = cam;
+            _farBefore = cam.farClipPlane;
+            cam.farClipPlane = need;
+            return true;
+        }
+
+        void RestoreFar()
+        {
+            if (_farCam == null) return;
+            _farCam.farClipPlane = _farBefore;
+            _farCam = null;
+        }
+
         void OnEndCamera(ScriptableRenderContext ctx, Camera cam)
         {
+            if (_farCam == cam) RestoreFar();
             if (_culled != cam) return;
             cam.ResetCullingMatrix();
             _culled = null;

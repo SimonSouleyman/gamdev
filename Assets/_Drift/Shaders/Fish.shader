@@ -39,6 +39,7 @@ Shader "Drift/Fish"
             {
                 float4 positionHCS : SV_POSITION;
                 float3 positionWS  : TEXCOORD0;
+                float  shade       : TEXCOORD1;
                 float4 color       : COLOR;
             };
 
@@ -54,6 +55,7 @@ Shader "Drift/Fish"
                 OUT.positionHCS = DriftCurveHClip(posWS);
                 OUT.positionWS = posWS;
                 OUT.color = IN.color;
+                OUT.shade = CloudShadow(posWS.xz);
                 return OUT;
             }
 
@@ -61,7 +63,7 @@ Shader "Drift/Fish"
             {
                 Light l = GetMainLight();
                 float lit = _Ambient + (1.0 - _Ambient) * saturate(l.direction.y);
-                float3 col = IN.color.rgb * _Tint.rgb * lit * l.color * CloudShadow(IN.positionWS.xz);
+                float3 col = IN.color.rgb * _Tint.rgb * lit * l.color * IN.shade;
                 float below = saturate(-IN.positionWS.y / max(_SubmergeDepth, 1e-3));
                 col = lerp(col, col * _WaterTint.rgb, below * 0.7);
                 float alpha = lerp(1.0, _SubmergedAlpha, below) * IN.color.a;

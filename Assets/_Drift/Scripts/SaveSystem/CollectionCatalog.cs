@@ -23,7 +23,7 @@ namespace Drift.SaveSystem
     }
 
     // Everything the album knows: the herd animals and plants of the four biomes (each under the first biome
-    // that brings it forth, so palm and reed count once), the critters, birds, sea animals and boats.
+    // that brings it forth, so palm and reed count once), the critters, birds, sea animals (the seal among them) and boats.
     // Save ids: (int)LifeKind for island life, SeaIdBase + (int)SeaKind for the sea, FishId for the fish schools.
     public static class CollectionCatalog
     {
@@ -80,7 +80,7 @@ namespace Drift.SaveSystem
             for (int i = 0; i < seaKinds; i++) SeaIndex[i] = -1;
             FishIndex = list.Count;
             list.Add(new CollectEntry { id = FishId, section = CollectSection.SeaSky, type = CollectType.SeaAnimal, name = "Fisch" });
-            foreach (var k in new[] { SeaKind.BaitBall, SeaKind.FlyingFish, SeaKind.Dolphin, SeaKind.SeaTurtle, SeaKind.Jellyfish, SeaKind.Ray, SeaKind.Whale, SeaKind.WhaleCalf, SeaKind.WhaleBull })
+            foreach (var k in new[] { SeaKind.BaitBall, SeaKind.FlyingFish, SeaKind.Dolphin, SeaKind.SeaTurtle, SeaKind.Seal, SeaKind.Jellyfish, SeaKind.Ray, SeaKind.Whale, SeaKind.WhaleCalf, SeaKind.WhaleBull })
                 AddSea(list, CollectType.SeaAnimal, k);
             foreach (var k in new[] { SeaKind.RowBoat, SeaKind.SailBoat, SeaKind.FishingBoat, SeaKind.TradingCog })
                 AddSea(list, CollectType.Boat, k);
@@ -154,7 +154,7 @@ namespace Drift.SaveSystem
                         : e.life == LifeKind.Butterfly ? "fliegt über Blumen" : "leuchtet in der Nacht";
                 case CollectType.Bird: return "zieht über den Himmel";
                 case CollectType.Boat: return "fährt über das Meer";
-                default: return "schwimmt im offenen Meer";
+                default: return e.hasSea && e.sea == SeaKind.Seal ? "taucht an Inselküsten auf" : "schwimmt im offenen Meer";
             }
         }
 

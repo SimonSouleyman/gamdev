@@ -62,6 +62,28 @@ namespace Drift.Visuals
         [Range(0f, 1f)] public float rainAlpha = 0.55f;
         [Tooltip("Anteil der Wolkenballen, unter denen es regnet.")]
         [Range(0f, 1f)] public float rainShare = 0.7f;
+        [Tooltip("Gemütlich: Regen blendet zwischen diesen Abständen zur Kamera ein (Einheiten) – direkt vor der Kamera kein Regenvorhang.")]
+        public Vector2 cozyRainFade = new Vector2(12f, 38f);
+        [Tooltip("Gemütlich: Anteil der Regenstreifen, die nah an der Kamera noch fallen (0 = keine, 1 = alle).")]
+        [Range(0f, 1f)] public float cozyRainNearShare = 0.2f;
+        [Tooltip("Gemütlich: ab diesem Abstand zur Kamera regnet es wieder in allen Streifen.")]
+        [Range(10f, 200f)] public float cozyRainFullAt = 70f;
+        [Tooltip("Abenteuer: Regen blendet zwischen diesen Abständen zur Kamera ein.")]
+        public Vector2 adventureRainFade = new Vector2(6f, 18f);
+
+        [Header("Nachts")]
+        [Tooltip("Nachts bekommen Sturmwolken einen mondhellen Rand und leuchten ab und zu von innen, damit sie sich vom dunklen Meer abheben (0 = aus).")]
+        [Range(0f, 1f)] public float nightReadability = 1f;
+        [Tooltip("Breite des weichen Lichthofs um einen Blitz (Vielfaches der Blitzbreite).")]
+        [Range(1f, 10f)] public float boltGlowWidth = 5f;
+        [Tooltip("Helligkeit des Lichthofs um einen Blitz bei Tag; nachts doppelt so hell.")]
+        [Range(0f, 1f)] public float boltGlow = 0.22f;
+
+        [Header("Handy")]
+        [Tooltip("Sparmodus für schwache Grafikchips: weniger Wolkenballen und Wolkenbäusche pro Sturm, das feinste Rauschen fällt weg. Auto = auf dem Handy (und mit der Handy-Grafik im Editor).")]
+        public RingReadability.LiteMode liteMode = RingReadability.LiteMode.Auto;
+        [Tooltip("Wolkenballen pro Sturm im Sparmodus.")]
+        [Range(4, 24)] public int liteClumpsPerStorm = 9;
 
         [Header("Auge über deiner Insel")]
         [Tooltip("So viel Abstand (über den Inselrand hinaus) bleibt über der Spielerinsel frei von Wolken und Regen.")]
@@ -109,6 +131,10 @@ namespace Drift.Visuals
         static readonly int StormCountId = Shader.PropertyToID("_DriftStormCount");
         static readonly int EyeId = Shader.PropertyToID("_StormEye");
         static readonly int FlashId = Shader.PropertyToID("_LightningFlash");
+        static readonly int PuffLiteId = Shader.PropertyToID("_DriftPuffLite");
+        static readonly int NightId = Shader.PropertyToID("_DriftStormNight");
+        static readonly int RainNearId = Shader.PropertyToID("_DriftRainNear");
+        static readonly StormClumpOrder FarFirst = new();
 
         struct Bolt
         {
@@ -128,6 +154,10 @@ namespace Drift.Visuals
         MeshRenderer _cloudRenderer, _boltRenderer;
         float _rebuildTimer;
         int _shownStorms = -1;
+        bool _boltsShown = true;
+        // Whether the phone path is on (RingReadability.IsLite) and how many puffs the last rebuild made.
+        public bool Lite { get; private set; }
+        public int PuffsBuilt { get; private set; }
         System.Random _rnd = new System.Random(7717);
         Island _player;
         float _strikeCooldown;
@@ -143,6 +173,7 @@ namespace Drift.Visuals
             Flash = 0f;
             Shader.SetGlobalFloat(FlashId, 0f);
             Shader.SetGlobalFloat(StormCountId, 0f);
+            Shader.SetGlobalFloat(NightId, 0f);
             StormCount = 0;
             _bolts.Clear();
         }
@@ -181,7 +212,11 @@ namespace Drift.Visuals
             Shader.SetGlobalFloat(StormCountId, n);
 
             if (_player == null)
-                foreach (var isl in Island.All) if (isl != null && isl.useKeyboardInput) { _player = isl; break; }
+            {
+                var all = Island.All;
+                for (int i = 0; i < all.Count; i++)
+                    if (all[i] != null && all[i].useKeyboardInput) { _player = all[i]; break; }
+            }
             if (_player != null)
             {
                 Vector2 p = _player.PlanarPosition;
@@ -192,8 +227,19 @@ namespace Drift.Visuals
             _strikeCooldown = Mathf.Max(0f, _strikeCooldown - dt);
             if (dt > 0f) ScheduleStrikes(n, dt);
 
+            bool lite = RingReadability.IsLite(liteMode, Application.isMobilePlatform, PipelineName());
+            if (lite != Lite) _shownStorms = -1;
+            Lite = lite;
+            Shader.SetGlobalFloat(PuffLiteId, lite ? 1f : 0f);
+            Shader.SetGlobalFloat(NightId, n > 0 ? LifeEnvironment.NightAmount * nightReadability : 0f);
+            Shader.SetGlobalVector(RainNearId, GameModes.IsAdventure
+                ? RingReadability.RainNear(adventureRainFade, 1f, adventureRainFade.y)
+                : RingReadability.RainNear(cozyRainFade, cozyRainNearShare, cozyRainFullAt));
+
+            // Nothing to show and nothing shown: no rebuild, no mesh upload.
             _rebuildTimer -= dt;
-            if (n != _shownStorms || _rebuildTimer <= 0f)
+            if (n == 0 && _shownStorms == 0) _rebuildTimer = 0f;
+            else if (n != _shownStorms || _rebuildTimer <= 0f)
             {
                 _rebuildTimer = 0.1f;
                 _shownStorms = n;
@@ -240,10 +286,15 @@ namespace Drift.Visuals
 
         bool TrySeaPoint(Vector2 c, float r, out Vector2 p)
         {
+            // On the ring a bolt past the rim would be folded flat onto the edge by the bend.
+            var ring = GameModes.IsAdventure ? RingWorld.Active : null;
+            bool onRing = ring != null && ring.IsApplied;
+            RingGeometry g = onRing ? ring.Geometry : default;
             for (int t = 0; t < 6; t++)
             {
                 float a = (float)_rnd.NextDouble() * Mathf.PI * 2f;
                 p = c + new Vector2(Mathf.Cos(a), Mathf.Sin(a)) * (r * Mathf.Sqrt((float)_rnd.NextDouble()));
+                if (onRing && Mathf.Abs(p.x - g.centerX) > g.halfWidth - 3f) continue;
                 if (!OverLand(p)) return true;
             }
             p = default;
@@ -252,8 +303,10 @@ namespace Drift.Visuals
 
         static bool OverLand(Vector2 p)
         {
-            foreach (var isl in Island.All)
+            var all = Island.All;
+            for (int i = 0; i < all.Count; i++)
             {
+                var isl = all[i];
                 if (isl == null || !isl.isActiveAndEnabled) continue;
                 float reach = isl.BoundingRadius + 1f;
                 if ((isl.PlanarPosition - p).sqrMagnitude > reach * reach) continue;
@@ -322,14 +375,25 @@ namespace Drift.Visuals
 
         void BuildBolts(Vector3 camPos)
         {
+            if (_bolts.Count == 0 && !_boltsShown) return;
             _v.Clear(); _c.Clear(); _uv0.Clear(); _uv1.Clear(); _t.Clear();
-            foreach (var b in _bolts)
+            float glow = boltGlow * (1f + LifeEnvironment.NightAmount);
+            for (int i = 0; i < _bolts.Count; i++)
             {
+                var b = _bolts[i];
                 uint rnd = (uint)b.seed | 1u;
                 float a = Pulse(b.age) * b.strength;
                 if (a <= 0.01f) continue;
                 Color col = boltColor * (1.5f * a);
                 col.a = 1f;
+                // The soft glow first (same seed, so it follows the same jagged path), the hard core over it.
+                if (glow > 0.001f)
+                {
+                    uint g = rnd;
+                    Color gc = col * glow;
+                    gc.a = 1f;
+                    AddBoltPath(ref g, b.top, b.bottom, boltWidth * boltGlowWidth, gc, camPos, 14, 1.4f, true);
+                }
                 AddBoltPath(ref rnd, b.top, b.bottom, boltWidth, col, camPos, 14, 1.4f);
                 // Two thin side branches out of the upper half.
                 for (int k = 0; k < 2; k++)
@@ -341,7 +405,8 @@ namespace Drift.Visuals
                 }
             }
             _boltMesh.Clear();
-            _boltRenderer.enabled = _v.Count > 0;
+            _boltsShown = _v.Count > 0;
+            _boltRenderer.enabled = _boltsShown;
             if (_v.Count == 0) return;
             _boltMesh.SetVertices(_v);
             _boltMesh.SetColors(_c);
@@ -362,7 +427,7 @@ namespace Drift.Visuals
             return (x & 0xFFFFFFu) / (float)0x1000000;
         }
 
-        void AddBoltPath(ref uint rnd, Vector3 from, Vector3 to, float width, Color col, Vector3 camPos, int steps, float jag)
+        void AddBoltPath(ref uint rnd, Vector3 from, Vector3 to, float width, Color col, Vector3 camPos, int steps, float jag, bool soft = false)
         {
             int start = _v.Count;
             Vector3 dir = (to - from).normalized;
@@ -382,8 +447,8 @@ namespace Drift.Visuals
                 Vector3 w = Vector3.Cross(seg, view);
                 if (w.sqrMagnitude < 1e-6f) w = side0;
                 w = w.normalized * (width * (1f - 0.4f * t) * 0.5f);
-                AddBoltVertex(p - w, col);
-                AddBoltVertex(p + w, col);
+                AddBoltVertex(p - w, col, -1f, soft);
+                AddBoltVertex(p + w, col, 1f, soft);
                 if (i > 0)
                 {
                     int k = start + (i - 1) * 2;
@@ -394,12 +459,12 @@ namespace Drift.Visuals
             }
         }
 
-        void AddBoltVertex(Vector3 p, Color col)
+        void AddBoltVertex(Vector3 p, Color col, float side, bool soft)
         {
             _v.Add(p);
             _c.Add(col);
             _uv0.Add(new Vector4(0f, 0f, 0f, 2f));
-            _uv1.Add(Vector4.zero);
+            _uv1.Add(new Vector4(side, soft ? 1f : 0f, 0f, 0f));
         }
 
         // ------------------------------------------------------------ clouds and rain
@@ -409,6 +474,30 @@ namespace Drift.Visuals
             public Vector2 stormCentre, centre, axis;
             public float stormRadius, radius, aspect, spin, seed, env, dist;
             public bool rain;
+        }
+
+        // Far clumps first. A class instance, not a lambda: List.Sort(Comparison) wraps the delegate in a new
+        // comparer on every call.
+        sealed class StormClumpOrder : IComparer<StormClump>
+        {
+            public int Compare(StormClump x, StormClump y) => y.dist.CompareTo(x.dist);
+        }
+
+        // Object.name allocates a string: read only when the pipeline asset changes.
+        UnityEngine.Rendering.RenderPipelineAsset _pipeSeen;
+        string _pipeName;
+        bool _pipeRead;
+
+        string PipelineName()
+        {
+            var rp = QualitySettings.renderPipeline != null ? QualitySettings.renderPipeline : UnityEngine.Rendering.GraphicsSettings.defaultRenderPipeline;
+            if (!_pipeRead || rp != _pipeSeen)
+            {
+                _pipeSeen = rp;
+                _pipeName = rp != null ? rp.name : null;
+                _pipeRead = true;
+            }
+            return _pipeName;
         }
 
         readonly List<StormClump> _clumps = new();
@@ -427,36 +516,40 @@ namespace Drift.Visuals
             _v.Clear(); _c.Clear(); _uv0.Clear(); _uv1.Clear(); _t.Clear();
             _clumps.Clear();
             Vector3 camPos = Camera.main != null ? Camera.main.transform.position : Vector3.zero;
+            int clumps = RingReadability.StormClumps(clumpsPerStorm, Lite, liteClumpsPerStorm);
+            // Fewer, fuller clumps in the lite path, so the mass keeps its size.
+            float liteGrow = clumps < clumpsPerStorm ? Mathf.Sqrt(clumpsPerStorm / (float)Mathf.Max(1, clumps)) : 1f;
             for (int i = 0; i < n; i++)
             {
                 var d = _stormData[i];
                 var c = new Vector2(d.x, d.y);
                 float env = Mathf.Clamp01(d.w);
                 int seed = Mathf.FloorToInt(d.x * 13.1f + d.y * 7.7f);
-                var rnd = new System.Random(seed);
+                // xorshift instead of a System.Random per storm and rebuild (ten allocations a second).
+                uint rnd = unchecked((uint)seed * 2654435761u) | 1u;
                 float dir = (seed & 1) == 0 ? 1f : -1f;
-                float phase = (float)rnd.NextDouble() * Mathf.PI * 2f;
+                float phase = Next(ref rnd) * Mathf.PI * 2f;
                 float r = d.z * cloudRadius;
-                for (int j = 0; j < clumpsPerStorm; j++)
+                for (int j = 0; j < clumps; j++)
                 {
-                    float a = phase + j * 2.3999632f + ((float)rnd.NextDouble() - 0.5f) * 0.5f;
+                    float a = phase + j * 2.3999632f + (Next(ref rnd) - 0.5f) * 0.5f;
                     float outline = 0.62f + 0.55f * Mathf.PerlinNoise(seed * 0.013f + Mathf.Cos(a) * 0.9f + 3f, seed * 0.017f + Mathf.Sin(a) * 0.9f + 3f);
-                    float u = Mathf.Sqrt((j + 0.5f) / clumpsPerStorm);
-                    float dist = r * 0.8f * outline * u * (0.85f + 0.3f * (float)rnd.NextDouble());
+                    float u = Mathf.Sqrt((j + 0.5f) / clumps);
+                    float dist = r * 0.8f * outline * u * (0.85f + 0.3f * Next(ref rnd));
                     float big = 1f - 0.45f * u;
-                    float ax = (float)rnd.NextDouble() * Mathf.PI;
+                    float ax = Next(ref rnd) * Mathf.PI;
                     var cl = new StormClump
                     {
                         stormCentre = c,
                         stormRadius = d.z,
                         centre = c + new Vector2(Mathf.Cos(a), Mathf.Sin(a)) * dist,
-                        radius = d.z * clumpSize * big * (0.8f + 0.4f * (float)rnd.NextDouble()) * (0.55f + 0.45f * env),
+                        radius = d.z * clumpSize * big * (0.8f + 0.4f * Next(ref rnd)) * (0.55f + 0.45f * env) * liteGrow,
                         axis = new Vector2(Mathf.Cos(ax), Mathf.Sin(ax)),
-                        aspect = 1f + 0.4f * (float)rnd.NextDouble(),
-                        spin = cloudSpin * dir * (1.35f - 0.7f * u) * (0.8f + 0.4f * (float)rnd.NextDouble()),
-                        seed = (float)rnd.NextDouble() * 97f,
+                        aspect = 1f + 0.4f * Next(ref rnd),
+                        spin = cloudSpin * dir * (1.35f - 0.7f * u) * (0.8f + 0.4f * Next(ref rnd)),
+                        seed = Next(ref rnd) * 97f,
                         env = env,
-                        rain = rnd.NextDouble() < rainShare,
+                        rain = Next(ref rnd) < rainShare,
                     };
                     Vector3 wc = new Vector3(cl.centre.x, 0f, cl.centre.y);
                     cl.dist = (wc - camPos).sqrMagnitude;
@@ -464,11 +557,13 @@ namespace Drift.Visuals
                 }
             }
             // Far clumps first: the mesh is drawn in order and alpha-blended.
-            _clumps.Sort((x, y) => y.dist.CompareTo(x.dist));
+            _clumps.Sort(FarFirst);
 
             float baseY = CloudBase();
-            foreach (var cl in _clumps)
+            int puffs = 0;
+            for (int ci = 0; ci < _clumps.Count; ci++)
             {
+                var cl = _clumps[ci];
                 if (cl.rain)
                 {
                     Color rc = rainColor;
@@ -477,10 +572,12 @@ namespace Drift.Visuals
                 }
                 for (int k = 0; k < CloudShadows.PuffsPerClump; k++)
                 {
+                    if (!RingReadability.KeepStormPuff(k, Lite)) continue;
+                    puffs++;
                     CloudField.PuffLayout(k, cl.seed, cl.axis, cl.aspect, cl.radius, out Vector2 off, out float size, out float h);
                     // Storm towers: taller tops, fuller puffs.
                     h *= k >= 6 ? 2.2f : 1.4f;
-                    size *= 1.15f;
+                    size *= 1.15f * RingReadability.StormPuffGrow(k, Lite);
                     Color col = cloudColor * (0.9f + 0.2f * (h / Mathf.Max(0.01f, cl.radius)));
                     col.a = cloudAlpha * cl.env;
                     var p = new Vector3(cl.centre.x + off.x, baseY + h, cl.centre.y + off.y);
@@ -493,6 +590,7 @@ namespace Drift.Visuals
                 }
             }
 
+            PuffsBuilt = puffs;
             _cloudMesh.Clear();
             _cloudRenderer.enabled = _v.Count > 0;
             if (_v.Count == 0) return;
@@ -520,8 +618,8 @@ namespace Drift.Visuals
                 var dir = new Vector2(Mathf.Cos(a), Mathf.Sin(a));
                 Vector2 lo = cl.centre + dir * (r * 1.2f);
                 Vector2 hi = cl.centre + dir * r;
-                AddVertex(new Vector3(lo.x, -0.2f, lo.y), col, uv0, new Vector4(cl.stormRadius, u * lanes, 0f, top));
-                AddVertex(new Vector3(hi.x, top - 0.4f, hi.y), col, uv0, new Vector4(cl.stormRadius, u * lanes, top, top));
+                AddVertex(new Vector3(lo.x, -0.2f, lo.y), col, uv0, new Vector4(r * 1.2f, u * lanes, 0f, top));
+                AddVertex(new Vector3(hi.x, top - 0.4f, hi.y), col, uv0, new Vector4(r * 1.2f, u * lanes, top, top));
             }
             for (int k = 0; k < RainSegments; k++)
             {

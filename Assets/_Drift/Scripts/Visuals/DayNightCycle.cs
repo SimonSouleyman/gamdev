@@ -43,6 +43,8 @@ namespace Drift.Visuals
         public SkyPalette palette = new SkyPalette();
         public bool driveAmbient = true;
         public bool driveWater = true;
+        [Tooltip("Flachwasser-Türkis und Schaum nachts mit dem Mondlicht abdunkeln (sonst leuchten sie als helle Streifen an jeder Küste).")]
+        public bool dimWaterAtNight = true;
 
         // Storm tint multiplies onto whatever time of day produced, so a night storm is darker than
         // either alone instead of the two fighting over the light.
@@ -85,6 +87,10 @@ namespace Drift.Visuals
         public Color AmbientColor { get; private set; }
         public Color WaterSky { get; private set; }
         public Color WaterDeep { get; private set; }
+        // Multiplier (linear) for the water's shallow tint and foam: white by day, the night light relative to the noon
+        // light after dark. Those two colours are fixed material colours, the only ones in the water not already
+        // following the time of day (deep and sky tint come from the palette, glints from the light).
+        public Color WaterLight { get; private set; } = Color.white;
 
         Func<float> _nightProvider;
 
@@ -155,6 +161,22 @@ namespace Drift.Visuals
                 RenderSettings.ambientMode = _origAmbientMode;
                 RenderSettings.ambientLight = _origAmbient;
             }
+        }
+
+        // White while NightAmount is 0 (the day look is unchanged), easing to light / noon light per channel at night.
+        public static Color NightWaterLight(Color sunColor, float sunIntensity, Color noon, float dayIntensity, float night)
+        {
+            // Light colours reach the shaders linear, so the ratio is taken there: it is what the terrain gets.
+            Color l = sunColor.linear, n = noon.linear;
+            float k = sunIntensity / Mathf.Max(0.01f, dayIntensity);
+            var ratio = new Color(
+                Mathf.Clamp01(l.r * k / Mathf.Max(0.01f, n.r)),
+                Mathf.Clamp01(l.g * k / Mathf.Max(0.01f, n.g)),
+                Mathf.Clamp01(l.b * k / Mathf.Max(0.01f, n.b)), 1f);
+            // Half of the moonlight's blue only: turquoise times the full tint turned into a saturated blue band.
+            float lum = 0.2126f * ratio.r + 0.7152f * ratio.g + 0.0722f * ratio.b;
+            ratio = Color.Lerp(new Color(lum, lum, lum, 1f), ratio, 0.5f);
+            return Color.Lerp(Color.white, ratio, Mathf.Clamp01(night));
         }
 
         public void Step(float dt)
@@ -237,9 +259,13 @@ namespace Drift.Visuals
                 // WorldEvents.AmbientBoost is black unless the northern lights are out, so the normal sky and the
                 // normal ambient are untouched while no spectacle runs.
                 RenderSettings.ambientMode = AmbientMode.Flat;
-                RenderSettings.ambientLight = AmbientColor + flashAmbient * flash + WorldEvents.AmbientBoost;
+                // Alpha stays 1: summing colours gave it 2, which then showed up as a scene change on every save.
+                var ambient = AmbientColor + flashAmbient * flash + WorldEvents.AmbientBoost;
+                ambient.a = 1f;
+                RenderSettings.ambientLight = ambient;
             }
-            if (driveWater && water != null) water.SetSky(WaterSky, WaterDeep);
+            WaterLight = dimWaterAtNight ? NightWaterLight(SunColor, SunIntensity, noonColor, dayIntensity, NightAmount) : Color.white;
+            if (driveWater && water != null) water.SetSky(WaterSky, WaterDeep, WaterLight);
         }
     }
 }

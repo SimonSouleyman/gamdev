@@ -124,16 +124,16 @@ namespace Drift.Tectonics
         [Header("Ringwelt (Abenteuer)")]
         [Tooltip("So viele Surfspuren liegen nebeneinander über dem Band: ihre Grenzen laufen längs der Strecke.")]
         [Range(1, 5)] public int ringLanes = 3;
-        [Tooltip("Länge eines Spurabschnitts entlang des Rings. An seinen Enden versetzen sich die Spuren seitlich.")]
-        [Range(30f, 300f)] public float ringPlateLength = 110f;
+        [Tooltip("Länge eines Spurabschnitts entlang des Rings. An seinen Enden versetzen sich die Spuren seitlich – so lange hält eine Grenze, auf der man surft (160 u ≈ 8 s bei 20 u/s, 6 s bei 26 u/s). Es passen immer ganze Abschnitte auf eine Runde.")]
+        [Range(30f, 300f)] public float ringPlateLength = 160f;
         [Tooltip("Zufälliger seitlicher Versatz der Spuren relativ zum normalen Versatz.")]
         [Range(0f, 1f)] public float ringJitter = 0.2f;
         [Tooltip("Wie weit die Spuren seitlich wandern (Anteil einer Spurbreite). Rücken zwei zusammen, verschmelzen sie; laufen sie auseinander, teilt sich die Bahn.")]
         [Range(0f, 0.45f)] public float ringLaneShift = 0.3f;
         [Tooltip("Sekunden für ein Hin und Her der seitlichen Wanderung.")]
         [Range(5f, 180f)] public float ringLaneShiftPeriod = 34f;
-        [Tooltip("Wie weit die Versatzstellen der Spuren entlang des Rings wandern (Anteil einer Abschnittslänge).")]
-        [Range(0f, 0.4f)] public float ringRowDrift = 0.2f;
+        [Tooltip("Wie weit die Versatzstellen der Spuren entlang des Rings wandern (Anteil einer Abschnittslänge). Mehr = manche Abschnitte werden zeitweise deutlich kürzer.")]
+        [Range(0f, 0.4f)] public float ringRowDrift = 0.12f;
         [Tooltip("Sekunden für ein Hin und Her dieser Wanderung.")]
         [Range(10f, 300f)] public float ringRowPeriod = 70f;
         [Tooltip("Strömung (u/s) entlang einer Spur. Spuren mit verschiedener Strömung gleiten aneinander vorbei – dort surft es sich am besten.")]
@@ -786,9 +786,10 @@ namespace Drift.Tectonics
             if (mr.sharedMaterial != mat) mr.sharedMaterial = mat;
 
             Vector2 f = FocusPoint();
-            float fadeEnd = Mathf.Max(1f, Mathf.Min(seamFadeDistance, viewRadius - seamWidth * 0.5f));
+            Vector2 fade = SeamFade();
+            float fadeEnd = fade.y;
             _seamBlock ??= new MaterialPropertyBlock();
-            _seamBlock.SetVector(SeamFocusId, new Vector4(f.x, f.y, fadeEnd * 0.65f, fadeEnd));
+            _seamBlock.SetVector(SeamFocusId, new Vector4(f.x, f.y, fade.x, fadeEnd));
             _seamBlock.SetFloat(SeamOpacityId, seamOpacity);
             mr.SetPropertyBlock(_seamBlock);
 
@@ -833,7 +834,7 @@ namespace Drift.Tectonics
             for (int i = 0; i < Borders.Count; i++)
             {
                 var b = Borders[i];
-                if (ChordDistance(b, f) > reach) continue;
+                if (ChordDistance(b, f) > reach || !SeamDrawn(b)) continue;
                 total += b.length;
                 visible++;
             }
@@ -844,7 +845,7 @@ namespace Drift.Tectonics
             for (int i = 0; i < Borders.Count; i++)
             {
                 var b = Borders[i];
-                if (ChordDistance(b, f) > reach) continue;
+                if (ChordDistance(b, f) > reach || !SeamDrawn(b)) continue;
                 AddSeam(b, storms, segLen);
             }
 

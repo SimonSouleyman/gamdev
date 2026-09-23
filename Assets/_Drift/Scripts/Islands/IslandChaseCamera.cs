@@ -21,8 +21,8 @@ namespace Drift.Islands
         [Range(5f, 180f)] public float courseTurnMax = 90f;
         [Tooltip("Erst ab diesem Tempo (u/s) dreht die Kamera mit; langsamer und im Stand bleibt sie stehen.")]
         [Range(0f, 4f)] public float courseMinSpeed = 1.2f;
-        [Tooltip("Abenteuer-Ring: so viele Grad schaut die Kamera nach oben, damit der aufsteigende Ring im Bild ist.")]
-        [Range(0f, 30f)] public float ringPitchUp = 16f;
+        [Tooltip("Abenteuer-Ring: so viele Grad schaut die Kamera nach oben, damit der aufsteigende Ring im Bild ist. Weniger = mehr Wasser unter der Insel, das vorbeirauscht (Tempo), mehr = weiter voraus sehen.")]
+        [Range(0f, 30f)] public float ringPitchUp = 7f;
         [Tooltip("Abenteuer-Ring: wie stark die Kamera entlang der Strecke statt hinter die Insel schaut (0 = nur Inselrichtung).")]
         [Range(0f, 1f)] public float ringAlongBias = 0.7f;
         [Tooltip("Abenteuer-Ring: Mindestabstand der Kamera zu den Randwänden.")]
@@ -64,6 +64,50 @@ namespace Drift.Islands
         [Tooltip("Wie weit sich das Bild in eine Kurve legt (Grad). 0 = aus.")]
         [Range(0f, 10f)] public float turnRoll = 1.2f;
 
+        [Header("Tempogefühl im Abenteuer")]
+        [Tooltip("Abenteuer: so viele Grad öffnet der Blickwinkel bei vollem Tempo zusätzlich (statt des Werts oben).")]
+        [Range(0f, 12f)] public float ringSpeedFovGain = 4.5f;
+        [Tooltip("Abenteuer: um diesen Anteil rückt die Kamera bei vollem Tempo näher und tiefer heran, statt zurückzuweichen. Mit dem weiteren Blickwinkel rauscht das Wasser schneller vorbei, die Insel bleibt gleich groß.")]
+        [Range(0f, 0.3f)] public float ringSpeedDolly = 0.12f;
+
+        [Header("Schub")]
+        [Tooltip("So viele Grad weiter wird der Blickwinkel, solange ein voller Schub läuft (klingt mit dem Schub aus).")]
+        [Range(0f, 10f)] public float boostFovGain = 4f;
+        [Tooltip("Schub-Faktor, der als voller Schub zählt (Treibgut gibt 1,55).")]
+        [Range(1.05f, 2.5f)] public float boostReference = 1.55f;
+        [Tooltip("Blickwinkel-Stoß beim Einsammeln eines Schubs (Grad). Schwillt weich an und ab, nie ein Ruck.")]
+        [Range(0f, 10f)] public float boostFovKick = 3.5f;
+        [Tooltip("Wie lange der Stoß beim Einsammeln eines Schubs dauert – Abklingzeit in Sekunden, der Höhepunkt kommt nach etwa 0,7 × dieser Zeit.")]
+        [Range(0.05f, 1f)] public float boostKickSeconds = 0.4f;
+        [Tooltip("Im Gemütlich-Modus wirken Schub-Blickwinkel, Stoß und Tempostreifen nur so stark (Surfen, Strömung).")]
+        [Range(0f, 1f)] public float cozyBoostScale = 0.5f;
+
+        [Header("Knapp vorbei (Abenteuer)")]
+        [Tooltip("Blickwinkel-Stoß (Grad), wenn eine Hindernisinsel knapp vorbeigeht.")]
+        [Range(0f, 8f)] public float dodgeFovKick = 2.5f;
+        [Tooltip("So weit wird die Kamera beim knappen Vorbeifahren kurz von der Insel weggeschubst (Einheiten).")]
+        [Range(0f, 1.5f)] public float dodgeSway = 0.3f;
+        [Tooltip("Wie lange der Schubs beim knappen Vorbeifahren dauert – Abklingzeit in Sekunden, der Höhepunkt kommt nach etwa 0,7 × dieser Zeit.")]
+        [Range(0.05f, 1f)] public float dodgeKickSeconds = 0.35f;
+
+        [Header("Große Inseln (Gemütlich)")]
+        [Tooltip("Bis zu diesem Inselradius wächst der Kameraabstand wie bisher mit der Insel, darüber nur noch gedämpft – so bleiben Tiere auf großen Inseln erkennbar. Zoomen zeigt weiterhin die ganze Insel.")]
+        [Range(3f, 60f)] public float framingKneeRadius = 10f;
+        [Tooltip("Wie stark der Abstand oberhalb des Knicks noch mitwächst (1 = wie früher, 0 = gar nicht mehr).")]
+        [Range(0f, 1f)] public float framingSoftExponent = 0.5f;
+        [Tooltip("Steht die Insel eine Weile still, fährt die Kamera auf diesen Anteil des Abstands heran, damit man das Leben sieht (1 = aus). Beim Lenken fährt sie wieder zurück.")]
+        [Range(0.3f, 1f)] public float idleCloseIn = 0.7f;
+        [Tooltip("Nach so vielen Sekunden Stillstand fährt die Kamera heran.")]
+        [Range(0.5f, 20f)] public float idleDelay = 4f;
+        [Tooltip("So viele Sekunden braucht das Heranfahren (sanft).")]
+        [Range(0.3f, 10f)] public float idleInSeconds = 2.5f;
+        [Tooltip("So viele Sekunden braucht das Zurückfahren, sobald gelenkt wird.")]
+        [Range(0.1f, 3f)] public float idleOutSeconds = 0.6f;
+        [Tooltip("Langsamer als das (u/s) gilt die Insel als stillstehend.")]
+        [Range(0.1f, 4f)] public float idleSpeed = 1.2f;
+        [Tooltip("Erst ab diesem Inselradius fährt die Kamera im Stillstand heran (voll ab dem Doppelten); kleine Inseln sind nah genug.")]
+        [Range(1f, 30f)] public float idleMinRadius = 6f;
+
         [Header("Verschmelzen")]
         [Tooltip("Blickwinkel-Stoß beim Verschmelzen (Grad).")]
         [Range(0f, 20f)] public float mergeFovKick = 6f;
@@ -96,6 +140,8 @@ namespace Drift.Islands
         Vector3 _pose;
         bool _hasPose;
         float _viewYaw, _steerYaw;
+        float _boostFeel, _boostKick, _lastBoostLeft, _lastBoostFactor = 1f, _dodgeKick, _dodgeSide;
+        float _idleSeconds, _lifeZoom = 1f;
 
         public float Zoom => _zoom;
         // True while the view does not turn with the island's body: the island never turns under the direct
@@ -129,9 +175,24 @@ namespace Drift.Islands
         public float SurfAmount => _feel.Surf;
         public float TurnRateDegPerSec => _turnRateDeg;
         public float MergeKick => _mergeKick;
+        // Share of a full boost running right now (smoothed, 0 while suspended or zoomed close).
+        public float BoostFeel => _boostFeel;
+        // The swell of the last boost pickup and of the last near miss (0..1, see SpeedFeel.Bump).
+        public float BoostPunch => SpeedFeel.Bump(_boostKick);
+        public float DodgePunch => SpeedFeel.Bump(_dodgeKick);
+        // 0 at puttering speed, 1 at the top of the framing: the share that also drives the rumble.
+        public float TopSpeedShare => SpeedFeel.ShakeAmount(_framing, speedShakeStart);
+        // Cozy plays the boost effects softer (surf kicks and the flow push are small rewards, not a race).
+        public float BoostModeScale => RingWorld.Active != null ? 1f : cozyBoostScale;
+        // The idle "life zoom" multiplier on the chase distance (1 = none).
+        public float LifeZoom => _lifeZoom;
         public float BaseFieldOfView => baseFieldOfView > 0f ? baseFieldOfView : _capturedFov;
-        // What the camera would set the field of view to right now (base + speed + merge kick).
-        public float FieldOfViewTarget => BaseFieldOfView + speedFovGain * _framing + mergeFovKick * _mergeKick;
+        float SpeedFovGain => RingWorld.Active != null ? ringSpeedFovGain : speedFovGain;
+        // What the camera would set the field of view to right now (base + speed + boost + kicks).
+        public float FieldOfViewTarget => BaseFieldOfView + SpeedFovGain * _framing + mergeFovKick * _mergeKick
+            + BoostModeScale * (boostFovGain * _boostFeel + boostFovKick * BoostPunch) + dodgeFovKick * DodgePunch;
+        // Screen effects of the speed feel (streaks) only show while the chase camera itself drives the view.
+        public bool FeelVisible => !Suspended && _followPos == null && speedFeelEnabled && CloseBlend(_zoom) < 1f;
         public bool HasFollowOverride => _followPos != null;
         public Island FollowGround => _followGround;
         // While suspended the camera transform is left alone (photo mode drives it directly); the LOD
@@ -186,20 +247,32 @@ namespace Drift.Islands
 
         public void SetZoom(float z)
         {
-            _zoomTarget = _zoom = Mathf.Clamp(z, zoomMin, zoomMax);
+            _zoomTarget = _zoom = Mathf.Clamp(z, zoomMin, ZoomMaxEffective);
         }
 
         public float ZoomTarget => _zoomTarget;
 
+        // The softened framing of big islands must not take the overview away: the zoom range grows by exactly
+        // what the soft radius took off, so zooming all the way out still shows as much as it used to.
+        public float ZoomMaxEffective =>
+            zoomMax * (target != null ? OverviewZoomFactor(target.BoundingRadius, framingKneeRadius, framingSoftExponent, referenceRadius, zoomExponent) : 1f);
+
+        public static float FramingScale(float radius, float referenceRadius, float zoomExponent) =>
+            Mathf.Pow(Mathf.Max(1f, radius / Mathf.Max(0.01f, referenceRadius)), zoomExponent);
+
+        public static float OverviewZoomFactor(float radius, float knee, float soft, float referenceRadius, float zoomExponent) =>
+            FramingScale(radius, referenceRadius, zoomExponent) /
+            FramingScale(SpeedFeel.SoftRadius(radius, knee, soft), referenceRadius, zoomExponent);
+
         // Eases to an absolute zoom (SetZoom jumps).
         public void ZoomTo(float z)
         {
-            _zoomTarget = Mathf.Clamp(z, zoomMin, zoomMax);
+            _zoomTarget = Mathf.Clamp(z, zoomMin, ZoomMaxEffective);
         }
 
         public void ZoomBy(float factor)
         {
-            _zoomTarget = Mathf.Clamp(_zoomTarget * factor, zoomMin, zoomMax);
+            _zoomTarget = Mathf.Clamp(_zoomTarget * factor, zoomMin, ZoomMaxEffective);
         }
 
         void ReadZoomInput(float dt)
@@ -216,7 +289,7 @@ namespace Drift.Islands
                 if (kb.qKey.isPressed || kb.numpadPlusKey.isPressed) _zoomTarget *= Mathf.Exp(-keyZoomSpeed * dt);
                 if (kb.eKey.isPressed || kb.numpadMinusKey.isPressed) _zoomTarget *= Mathf.Exp(keyZoomSpeed * dt);
             }
-            _zoomTarget = Mathf.Clamp(_zoomTarget, zoomMin, zoomMax);
+            _zoomTarget = Mathf.Clamp(_zoomTarget, zoomMin, ZoomMaxEffective);
             _zoom = Mathf.Lerp(_zoom, _zoomTarget, 1f - Mathf.Exp(-zoomSmooth * dt));
         }
 
@@ -224,6 +297,7 @@ namespace Drift.Islands
         {
             Island.Impact += OnImpact;
             Island.Merged += OnMerged;
+            RingWorld.Dodged += OnDodged;
             if (_cam == null) _cam = GetComponent<Camera>();
             // Only ever read once: the finale re-enables this component after it has written its own field of
             // view, and capturing that would ratchet the base up run after run.
@@ -231,6 +305,7 @@ namespace Drift.Islands
             _feel.Reset();
             _framing = 0f;
             _mergeKick = 0f;
+            ResetKicks();
             _hasHeading = false;
             _hasPose = false;
             _viewYaw = _steerYaw = viewYawDeg;
@@ -244,6 +319,7 @@ namespace Drift.Islands
         {
             Island.Impact -= OnImpact;
             Island.Merged -= OnMerged;
+            RingWorld.Dodged -= OnDodged;
             if (_cam != null) _cam.fieldOfView = BaseFieldOfView;
             if (LifeLod.DistanceProvider == (System.Func<Vector3, float>)PlanarDistance) LifeLod.DistanceProvider = null;
             if (LifeEnvironment.ViewDistanceProvider == (System.Func<Vector3, float>)ViewDistance) LifeEnvironment.ViewDistanceProvider = null;
@@ -297,6 +373,55 @@ namespace Drift.Islands
             float k = Mathf.Clamp01(0.45f + energy / 220f);
             _mergeKick = Mathf.Max(_mergeKick, k);
             _shake = Mathf.Max(_shake, mergeShake * k);
+        }
+
+        // A near miss: a short swell of the field of view and a sway away from the island that just went past.
+        void OnDodged(Island obstacle)
+        {
+            if (target == null || obstacle == null || Suspended) return;
+            _dodgeKick = 1f;
+            Vector3 d = obstacle.transform.position - target.transform.position;
+            _dodgeSide = Vector3.Dot(d, transform.right) >= 0f ? -1f : 1f;
+        }
+
+        void ResetKicks()
+        {
+            _boostFeel = _boostKick = _dodgeKick = 0f;
+            _lastBoostLeft = target != null ? target.BoostRemaining : 0f;
+            _lastBoostFactor = target != null ? target.BoostFactor : 1f;
+            _idleSeconds = 0f;
+            _lifeZoom = 1f;
+        }
+
+        // A boost that was just collected shows as BoostRemaining jumping up; the flow push's short refreshes
+        // (0.4 s from <= 0.25 s left) stay below MinPickupGain and never punch.
+        const float MinPickupGain = 0.5f;
+
+        void StepBoost(float dt)
+        {
+            float left = target.BoostRemaining, factor = target.BoostFactor;
+            bool visible = FeelVisible;
+            if (visible && left > _lastBoostLeft + MinPickupGain)
+                _boostKick = Mathf.Max(_boostKick, SpeedFeel.PickupStrength(_lastBoostFactor, factor, boostReference, 0.3f));
+            _lastBoostLeft = left;
+            _lastBoostFactor = factor;
+            float want = visible ? SpeedFeel.BoostShare(factor, boostReference) * (1f - CloseBlend(_zoom)) : 0f;
+            _boostFeel = dt > 0f ? Mathf.Lerp(_boostFeel, want, 1f - Mathf.Exp(-4f * dt)) : want;
+            _boostKick = SpeedFeel.Decay(_boostKick, dt, boostKickSeconds);
+            _dodgeKick = SpeedFeel.Decay(_dodgeKick, dt, dodgeKickSeconds);
+        }
+
+        // Cozy "life zoom": after idleDelay seconds without moving or steering the camera closes in on a big island
+        // so its animals are more than a few pixels tall, and backs out as soon as the island is steered again.
+        // Only at the default zoom: a player who zoomed out on purpose wants the overview.
+        void StepLifeZoom(float dt)
+        {
+            bool eligible = Application.isPlaying && GameModes.Current == GameMode.Cozy && RingWorld.Active == null
+                && _followPos == null && !Island.InputLocked && Mathf.Abs(_zoomTarget - 1f) < 0.35f && idleCloseIn < 1f;
+            bool idle = eligible && !SteerHeld && target.SelfVelocity.sqrMagnitude < idleSpeed * idleSpeed;
+            _idleSeconds = idle ? _idleSeconds + Mathf.Max(0f, dt) : 0f;
+            float want = idle && _idleSeconds >= idleDelay ? SpeedFeel.IdleCloseIn(target.BoundingRadius, idleCloseIn, idleMinRadius) : 1f;
+            _lifeZoom = dt > 0f ? SpeedFeel.Approach(_lifeZoom, want, dt, idleOutSeconds, idleInSeconds) : want;
         }
 
         // Signed yaw rate of the course, measured here so the camera needs nothing private from Island. Under
@@ -375,6 +500,8 @@ namespace Drift.Islands
             if (_mergeKick > 0f)
                 _mergeKick = dt > 0f ? _mergeKick * Mathf.Exp(-dt / Mathf.Max(0.05f, mergeKickSeconds)) : _mergeKick;
             if (_mergeKick < 0.001f) _mergeKick = 0f;
+            StepBoost(dt);
+            StepLifeZoom(dt);
             UpdateTurnRate(dt);
             StepViewYaw(dt);
         }
@@ -397,6 +524,7 @@ namespace Drift.Islands
                 _easeT = 1f;
                 _framing = 0f;
                 _mergeKick = 0f;
+                ResetKicks();
                 _feel.Reset();
                 _hasPose = false;
                 if (_cam == null) _cam = GetComponent<Camera>();
@@ -468,6 +596,8 @@ namespace Drift.Islands
                 Vector3 o = new Vector3(Mathf.PerlinNoise(t, 3.7f) - 0.5f, (Mathf.PerlinNoise(5.1f, t) - 0.5f) * 0.6f, 0f);
                 shake += rot * o * (rumble * scale);
             }
+            float sway = DodgePunch * dodgeSway * _dodgeSide;
+            if (Mathf.Abs(sway) > 1e-4f) shake += rot * new Vector3(sway * scale, 0f, 0f);
             transform.SetPositionAndRotation(_pose + shake, rot);
             ReportView();
         }
@@ -515,12 +645,24 @@ namespace Drift.Islands
                 float along = back.z >= 0f ? 1f : -1f;
                 back = Vector3.Slerp(back, new Vector3(0f, back.y, along), ringAlongBias).normalized;
             }
-            // Speed framing: the camera drops back and lifts a little while the island really runs, and the
-            // merge kick dollies it in for a moment. Both leave the ring clamp and the terrain clamp below alone.
-            float kick = 1f - mergeZoomIn * _mergeKick;
-            float dist = distanceBehind * (1f + speedPullBack * _framing) * kick;
-            float high = height * (1f + 0.45f * speedPullBack * _framing) * kick;
-            FollowPose(focus, ground.Normal, back, radius, referenceRadius, zoomExponent, high, dist, _zoom, out pos, out rot, out scale);
+            // Speed framing: the camera drops back and lifts a little while the island really runs (on the ring it
+            // moves in instead, see RingDolly), and the merge kick dollies it in for a moment. Both leave the ring
+            // clamp and the terrain clamp below alone. The idle life zoom closes in on a resting big island.
+            float kick = (1f - mergeZoomIn * _mergeKick) * _lifeZoom;
+            float dist, high;
+            if (ring != null)
+            {
+                float dolly = SpeedFeel.RingDolly(_framing, ringSpeedDolly);
+                dist = distanceBehind * dolly * kick;
+                high = height * dolly * kick;
+            }
+            else
+            {
+                dist = distanceBehind * (1f + speedPullBack * _framing) * kick;
+                high = height * (1f + 0.45f * speedPullBack * _framing) * kick;
+            }
+            float framed = SpeedFeel.SoftRadius(radius, framingKneeRadius, framingSoftExponent);
+            FollowPose(focus, ground.Normal, back, framed, referenceRadius, zoomExponent, high, dist, _zoom, out pos, out rot, out scale);
             if (ring != null)
             {
                 var g = ring.Geometry;
@@ -587,8 +729,7 @@ namespace Drift.Islands
             float height, float distanceBehind, float zoom, out Vector3 pos, out Quaternion rot, out float scale)
         {
             float close = CloseBlend(zoom);
-            scale = Mathf.Pow(Mathf.Max(1f, radius / Mathf.Max(0.01f, referenceRadius)), zoomExponent);
-            scale = Mathf.Lerp(scale, 1f, close);
+            scale = Mathf.Lerp(FramingScale(radius, referenceRadius, zoomExponent), 1f, close);
             float shrink = Mathf.Lerp(1f, 0.5f, close);
             Vector3 lookAt = focus + up * (0.4f * zoom);
             pos = focus + up * (height * scale * zoom * shrink) + back * (distanceBehind * scale * Mathf.Pow(zoom, 0.65f) * shrink);
@@ -602,6 +743,7 @@ namespace Drift.Islands
             _feel.Reset();
             _framing = 0f;
             _mergeKick = 0f;
+            ResetKicks();
             _hasHeading = false;
             _turnRateDeg = 0f;
             // A snap happens when a world is (re)started or loaded: with the island at rest there is no course

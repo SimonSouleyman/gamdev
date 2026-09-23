@@ -47,6 +47,8 @@ namespace Drift.Visuals
         public bool coastField = true;
         [Tooltip("Wie weit von der Küste weg die Strömungsflocken um die Insel betont werden (Welteinheiten).")]
         [Range(2f, 30f)] public float coastEmphasisRange = 12f;
+        [Tooltip("Mindestabstand in Sekunden zwischen zwei Neuberechnungen der Küstenlinie, solange die Insel nur sinkt oder Berge wachsen. Nach einer Verschmelzung oder einem Inselwechsel wird sofort neu berechnet.")]
+        [Range(0f, 5f)] public float coastRebuildInterval = 2f;
 
         [Header("Tempogefühl im Wasser")]
         [Tooltip("Tempogefühl im Wasser: Bugwelle, Gischt, Tempolinien und die Strömungs-Rückmeldung. Aus = Wasser wie bisher.")]
@@ -88,6 +90,7 @@ namespace Drift.Visuals
         static readonly int SpeedFeelId = Shader.PropertyToID("_SpeedFeel");
         static readonly int SpeedFeelGainsId = Shader.PropertyToID("_SpeedFeelGains");
         static readonly int SprayPosId = Shader.PropertyToID("_SprayPos");
+        static readonly int WaterLightId = Shader.PropertyToID("_WaterLight");
         public const int ReachSlots = 32;
 
         MaterialPropertyBlock _block;
@@ -102,6 +105,7 @@ namespace Drift.Visuals
         float _splashStrength;
         bool _hasSky;
         Color _sky, _deep;
+        Color _waterLight = Color.white;
         readonly float[] _reachRaw = new float[ReachSlots];
         readonly Vector4[] _reach = new Vector4[ReachSlots];
         static Vector2[] _reachDirs;
@@ -111,6 +115,10 @@ namespace Drift.Visuals
         float _reachMax;
         readonly CoastField _coast = new();
         Vector4 _coastParams;
+        Island _coastOwner;
+        int _coastVersion = -1;
+        float _coastAge;
+        bool _coastUrgent;
         Vector4 _wakeEdge, _wake;
         bool _hasWakeEdge;
         CurrentField _field;
@@ -119,6 +127,7 @@ namespace Drift.Visuals
         readonly SpeedFeel.Tracker _feel = new();
         Vector2 _sprayPos;
         float _sprayAge = 10f, _sprayStrength;
+        float _boostShare;
 
         public Vector2 PlayerPos { get; private set; }
         public Vector2 PlayerVel { get; private set; }
@@ -145,6 +154,7 @@ namespace Drift.Visuals
         // The signed-distance field of the player island's coastline (body space) the water reads.
         public CoastField Coast => _coast;
         public Vector4 CoastParams => _coastParams;
+        public int CoastRebuildCount { get; private set; }
         // 0..1.4 how much the island is under way, 0..1 how long it has been riding the current, 0..1 surf.
         public float SpeedDrive => _feel.Drive;
         public float FlowAmount => _feel.Flow;
@@ -182,6 +192,8 @@ namespace Drift.Visuals
             _fieldAge = float.MaxValue;
             _coast.Release();
             _coastParams = Vector4.zero;
+            _coastOwner = null;
+            _coastVersion = -1;
             _reachOwner = null;
             _reachVersion = -1;
         }
@@ -225,19 +237,32 @@ namespace Drift.Visuals
 
         void OnMerged(Island host, Island guest, float energy)
         {
+            // The outline really changed shape: the coast field must not wait out the sink throttle.
+            if (host != null && (host == _coastOwner || guest == _coastOwner)) _coastUrgent = true;
             if (!speedFeelEnabled || mergeSprayStrength <= 0f || host == null || guest == null) return;
             Vector2 contact = (host.PlanarPosition + guest.PlanarPosition) * 0.5f;
             Spray(contact, mergeSprayStrength * Mathf.Clamp01(0.45f + energy / 220f));
         }
 
-        public void SetSky(Color sky, Color deep)
+        public void SetSky(Color sky, Color deep) => SetSky(sky, deep, Color.white);
+
+        // light: multiplier for the shallow tint and the foam (1 by day, the dim moonlight at night), so the fixed
+        // turquoise and white do not glow along every shore after dark.
+        public void SetSky(Color sky, Color deep, Color light)
         {
             _hasSky = true;
             _sky = sky;
             _deep = deep;
+            _waterLight = light;
         }
 
-        public void ClearSky() => _hasSky = false;
+        public void ClearSky()
+        {
+            _hasSky = false;
+            _waterLight = Color.white;
+        }
+
+        public Color WaterLight => _waterLight;
 
         public Island FindPlayer()
         {
@@ -285,11 +310,31 @@ namespace Drift.Visuals
             float inv = n / (4f * Mathf.PI);
             for (int k = 0; k < n; k++)
                 _reach[k].y = (_reach[(k + 1) % n].x - _reach[(k + n - 1) % n].x) * inv;
-            // The distance field is the expensive half (a height sample per texel), and in body space it only goes
-            // stale when the shape itself does - which Island.Version already reports, sinking included. So it is
-            // rebuilt on a version change only, never on the idle half-second tick.
-            if (!changed && _coastParams.w > 0f) return;
-            _coastParams = coastField && _coast.Refresh(p)
+        }
+
+        // The distance field is the expensive half (a height sample per texel, 16k of them at 128^2 plus four passes),
+        // and in body space it only goes stale when the shape itself does - which Island.Version reports. Sinking and
+        // growing mountains bump the version every 0.5-1 s while moving the waterline by a fraction of a texel, so
+        // those rebuilds wait coastRebuildInterval; a new island (owner), a merge or edit mode rebuild at once.
+        void RefreshCoast(Island p, float dt)
+        {
+            _coastAge += dt;
+            if (!coastField)
+            {
+                _coastParams = Vector4.zero;
+                _coastOwner = null;
+                return;
+            }
+            bool owner = p != _coastOwner;
+            if (!owner && p.Version == _coastVersion) return;
+            bool now = owner || _coastUrgent || dt <= 0f || !Application.isPlaying || _coastAge >= coastRebuildInterval;
+            if (!now) return;
+            _coastOwner = p;
+            _coastVersion = p.Version;
+            _coastAge = 0f;
+            _coastUrgent = false;
+            CoastRebuildCount++;
+            _coastParams = _coast.Refresh(p)
                 ? new Vector4(_coast.Origin.x, _coast.Origin.y, 1f / _coast.Size, 1f)
                 : Vector4.zero;
         }
@@ -430,8 +475,9 @@ namespace Drift.Visuals
             SprayVector = new Vector4(_sprayPos.x, _sprayPos.y, _sprayAge / Mathf.Max(0.05f, sprayLife), _sprayStrength);
         }
 
+        // Speed lines grow by up to 80 % while a boost runs (camera agent's request), so boosting reads in the water too.
         Vector4 SpeedFeelGains => speedFeelEnabled
-            ? new Vector4(speedLineStrength, speedWakeBoost, flowFoamBoost, surfFoamStrength)
+            ? new Vector4(speedLineStrength * (1f + 0.8f * _boostShare), speedWakeBoost, flowFoamBoost, surfFoamStrength)
             : Vector4.zero;
 
         public void Step(float dt)
@@ -461,12 +507,14 @@ namespace Drift.Visuals
                 Vector3 bf = p.BodyForward;
                 BodyYawRad = Mathf.Atan2(bf.x, bf.z);
                 RefreshOutline(p, dt);
+                RefreshCoast(p, dt);
             }
             else
             {
                 PlayerVel = Vector2.zero;
                 PlayerRadius = 0f;
                 _coastParams = Vector4.zero;
+                _coastOwner = null;
                 _reachOwner = null;
             }
             UpdateWake(alive ? p : null, dt);
@@ -502,6 +550,7 @@ namespace Drift.Visuals
             if (_splashAge > splashLife) _splashStrength = 0f;
             _sprayAge += dt;
             if (_sprayAge > sprayLife) _sprayStrength = 0f;
+            _boostShare = alive ? SpeedFeel.BoostShare(p.BoostFactor, 1.65f) : 0f;
             UpdateSpeedFeel(alive ? p : null, dt);
 
             _block.SetVector(PlayerPosId, new Vector4(PlayerPos.x, PlayerPos.y, 0f, 0f));
@@ -525,6 +574,7 @@ namespace Drift.Visuals
             _block.SetVector(SpeedFeelId, SpeedFeelVector);
             _block.SetVector(SpeedFeelGainsId, SpeedFeelGains);
             _block.SetVector(SprayPosId, SprayVector);
+            _block.SetVector(WaterLightId, new Vector4(_waterLight.r, _waterLight.g, _waterLight.b, 1f));
             if (_field != null && _field.Texture != null) _block.SetTexture(CurrentFieldId, _field.Texture);
             if (_coast.Texture != null) _block.SetTexture(CoastFieldId, _coast.Texture);
             if (_hasSky)

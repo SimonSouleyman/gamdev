@@ -38,7 +38,25 @@ namespace Drift.Islands
         public bool life = true;
         [Tooltip("Siedlungen auf den Inseln.")]
         public bool settlements = false;
+        [Tooltip("Pflanzen, Herden und Kleintiere der Ring-Inseln werden erst ab dieser Entfernung (u) ausgeblendet. Der Ring zeigt die halbe Runde auf einmal – das Leben weit oben im Himmel sieht man ohnehin nicht.")]
+        [Range(30f, 260f)] public float lifeHideDistance = 90f;
         public int spawnsPerFrame = 1;
+
+        [Header("Vulkane im Abenteuer")]
+        [Tooltip("Kleinster Radius eines Vulkans, der vor der Insel aufsteigt.")]
+        [Range(1.5f, 8f)] public float volcanoMinRadius = 2.5f;
+        [Tooltip("Größter Radius eines Vulkans, der vor der Insel aufsteigt.")]
+        [Range(1.5f, 10f)] public float volcanoMaxRadius = 4.8f;
+        [Tooltip("So weit (u) vor der Insel steigt ein Vulkan frühestens auf – nie direkt unter oder neben ihr.")]
+        [Range(40f, 300f)] public float volcanoAheadMin = 95f;
+        [Tooltip("So weit (u) vor der Insel steigt ein Vulkan höchstens auf.")]
+        [Range(40f, 320f)] public float volcanoAheadMax = 150f;
+        [Tooltip("Der Vulkan ist ganz oben, bevor die Insel ihm so nahe (u) kommt: das Aufsteigen dauert so lange, wie die Fahrt bis dahin.")]
+        [Range(10f, 120f)] public float volcanoRiseDoneGap = 40f;
+        [Tooltip("Kürzeste und längste Zeit (s), in der ein Vulkan aus dem Meer steigt.")]
+        public Vector2 volcanoRiseSeconds = new Vector2(2.5f, 6f);
+        [Tooltip("So breit (u, Küste zu Küste) bleibt neben einem neuen Vulkan mindestens eine Durchfahrt frei – Inseln und Stürme auf gleicher Höhe mitgerechnet.")]
+        [Range(6f, 40f)] public float volcanoFreeLane = 14f;
 
         const string ChildPrefix = "RingIsland_";
 
@@ -48,6 +66,8 @@ namespace Drift.Islands
             public bool islet;
             public bool spawned;
             public bool emerge;
+            public bool volcano;
+            public float rise;
             public Vector2 pos;
             public float radius;
             public IslandArchetype type;
@@ -81,10 +101,22 @@ namespace Drift.Islands
             get
             {
                 int n = 0;
-                foreach (var e in _entries) if (!e.islet && (!e.spawned || !Gone(e.island))) n++;
+                foreach (var e in _entries) if (!e.islet && !e.volcano && (!e.spawned || !Gone(e.island))) n++;
                 return n;
             }
         }
+
+        // Volcanoes raised ahead of the player this run (TryRaiseVolcano) that are still on the ring.
+        public int VolcanoCount
+        {
+            get
+            {
+                int n = 0;
+                foreach (var e in _entries) if (e.volcano && e.spawned && !Gone(e.island)) n++;
+                return n;
+            }
+        }
+        public int VolcanoesRaised { get; private set; }
 
         public int PendingCount
         {
@@ -175,6 +207,7 @@ namespace Drift.Islands
                 var e = _entries[i];
                 if (!e.spawned || !Gone(e.island)) continue;
                 _entries.RemoveAt(i--);
+                if (e.volcano) continue;
                 RollReplacement(e.islet, out float r, out var t);
                 Plan(ring, around, r, t, e.islet, 0, 0, true);
             }
@@ -306,6 +339,98 @@ namespace Drift.Islands
             return worst;
         }
 
+        // ---- volcanoes rising ahead of the player (Adventure difficulty, RingWorld decides when) ----
+
+        readonly List<Vector2> _lane = new();
+
+        // A volcano started rising ahead of the player (HUD hint, rumble, camera) - the island is still under water.
+        public static event System.Action<Island> VolcanoRising;
+
+        // Raises one volcano volcanoAheadMin..Max ahead of the player (dir = +-1 along z) so that it is fully up
+        // volcanoRiseDoneGap before the player gets there at `speed`. The spot has to keep the ring's usual distance
+        // from every island (Clearance), and a free lane of volcanoFreeLane water across the band at its height -
+        // islands and ring storms there counted - so a volcano can never close the track. Returns null (and changes
+        // nothing) when no admissible spot was found; the caller simply tries again a moment later.
+        public Island TryRaiseVolcano(RingGeometry ring, Vector2 player, float dir, float speed, float playerRadius)
+        {
+            dir = dir >= 0f ? 1f : -1f;
+            float lo = Mathf.Max(20f, Mathf.Min(volcanoAheadMin, volcanoAheadMax)), hi = Mathf.Max(lo, volcanoAheadMax);
+            float rLo = Mathf.Min(volcanoMinRadius, volcanoMaxRadius), rHi = Mathf.Max(volcanoMinRadius, volcanoMaxRadius);
+            for (int attempt = 0; attempt < 12; attempt++)
+            {
+                float radius = Mathf.Lerp(rLo, rHi, (float)_rnd.NextDouble());
+                float reach = VolcanoReach(radius);
+                float dz = Mathf.Lerp(lo, hi, (float)_rnd.NextDouble());
+                float across = Mathf.Max(0f, ring.halfWidth - reach - wallMargin);
+                float x = ring.centerX + across * (2f * (float)_rnd.NextDouble() - 1f);
+                var p = new Vector2(x, player.y + dir * dz);
+                if (Clearance(ring, p, radius, false) < 0f) continue;
+                if (!LaneOpen(ring, p, reach, playerRadius)) continue;
+
+                var e = new Entry
+                {
+                    pos = p, radius = radius, type = IslandArchetype.Blob, shapeSeed = _rnd.Next(), volcano = true,
+                    rise = Mathf.Clamp((dz - volcanoRiseDoneGap) / Mathf.Max(1f, speed), volcanoRiseSeconds.x, Mathf.Max(volcanoRiseSeconds.x, volcanoRiseSeconds.y))
+                };
+                _entries.Add(e);
+                Spawn(ring, player, e, !Application.isPlaying);
+                VolcanoesRaised++;
+                VolcanoRising?.Invoke(e.island);
+                return e.island;
+            }
+            return null;
+        }
+
+        // Coast reach of a volcano cone of this land radius (IslandShape.CreateVolcano's skirt plus a cell).
+        static float VolcanoReach(float radius) => radius * 1.2f + 0.5f;
+
+        // Is there still a way past a cone of `reach` at p? Everything whose coast overlaps its stretch of the track
+        // (widened by the player island, which has to squeeze past both) blocks its part of the band; the widest
+        // gap left, coast to coast, has to be at least volcanoFreeLane and wide enough for the player.
+        bool LaneOpen(RingGeometry ring, Vector2 p, float reach, float playerRadius)
+        {
+            _lane.Clear();
+            _lane.Add(new Vector2(ring.MinX + 1f, ring.MaxX - 1f));
+            Block(p.x - reach, p.x + reach);
+            float window = reach + 2f * Mathf.Max(0f, playerRadius);
+            var all = Island.All;
+            for (int i = 0; i < all.Count; i++)
+            {
+                var isl = all[i];
+                if (isl == null || !isl.isActiveAndEnabled || isl.useKeyboardInput) continue;
+                float r = isl.IsEmerging ? Mathf.Max(isl.BoundingRadius, (isl.isVolcano ? VolcanoReach(isl.landRadius) : isl.landRadius * 1.4f)) : isl.BoundingRadius;
+                if (Mathf.Abs(ring.AlongDelta(isl.PlanarPosition.y, p.y)) >= window + r) continue;
+                Block(isl.PlanarPosition.x - r, isl.PlanarPosition.x + r);
+            }
+            var storms = Drift.Tectonics.StormSystem.Instance;
+            if (storms != null)
+            {
+                var list = storms.Storms;
+                for (int i = 0; i < list.Count; i++)
+                {
+                    var s = list[i];
+                    if (!s.IsRing || Mathf.Abs(ring.AlongDelta(s.center.y, p.y)) >= window + s.radius) continue;
+                    Block(s.center.x - s.radius, s.center.x + s.radius);
+                }
+            }
+            float need = Mathf.Max(volcanoFreeLane, 2f * Mathf.Max(0f, playerRadius) + 3f);
+            for (int i = 0; i < _lane.Count; i++)
+                if (_lane[i].y - _lane[i].x >= need) return true;
+            return false;
+        }
+
+        void Block(float a, float b)
+        {
+            for (int k = _lane.Count - 1; k >= 0; k--)
+            {
+                Vector2 s = _lane[k];
+                if (b <= s.x || a >= s.y) continue;
+                _lane.RemoveAt(k);
+                if (a > s.x) _lane.Insert(k, new Vector2(s.x, a));
+                if (b < s.y) _lane.Insert(k, new Vector2(b, s.y));
+            }
+        }
+
         static float Gap(RingGeometry ring, Vector2 a, Vector2 b, float ra, float rb, bool small)
         {
             float sum = ra + rb;
@@ -335,6 +460,7 @@ namespace Drift.Islands
 
             var island = go.AddComponent<Island>();
             island.useKeyboardInput = false;
+            island.isVolcano = e.volcano;
             island.landRadius = e.radius;
             island.archetype = e.type;
             island.cellSize = IslandArchetypes.CellSize(e.radius);
@@ -349,18 +475,23 @@ namespace Drift.Islands
                 var herds = go.AddComponent<Drift.Life.IslandHerdSystem>();
                 var critters = go.AddComponent<Drift.Life.IslandCrittersSystem>();
                 lifeSys.seed = herds.seed = critters.seed = e.shapeSeed;
+                // Play test: the ring's culling keeps half the lap on screen, and at the default 260 u every island
+                // on it kept its plants and animals drawn.
+                lifeSys.hideDistance = herds.hideDistance = critters.hideDistance = lifeHideDistance;
                 if (staged) lifeSys.enabled = herds.enabled = critters.enabled = false;
                 if (settlements)
                 {
                     var settlement = go.AddComponent<Drift.Life.IslandSettlementSystem>();
                     settlement.seed = e.shapeSeed;
+                    settlement.hideDistance = lifeHideDistance;
                     if (staged) settlement.enabled = false;
                 }
             }
             go.AddComponent<MeshFilter>();
             go.AddComponent<MeshRenderer>().sharedMaterial = islandMaterial;
             go.SetActive(true);
-            if (e.emerge && Application.isPlaying) island.BeginEmergence(emergeDuration);
+            if (e.volcano) island.BeginEmergence(Mathf.Max(0.1f, e.rise));
+            else if (e.emerge && Application.isPlaying) island.BeginEmergence(emergeDuration);
             if (staged && life) _staging.Add(island);
 
             e.island = island;

@@ -181,7 +181,7 @@ namespace Drift.Tests
                     StringAssert.DoesNotContain("sinken schneller", cozy, step.ToString());
                 }
             StringAssert.Contains("sinkt", TutorialGuide.TextFor(TutorialStep.Buoyancy, false, GameMode.Adventure));
-            StringAssert.Contains("Tiefgang", TutorialGuide.TextFor(TutorialStep.Buoyancy, false, GameMode.Cozy));
+            StringAssert.Contains("Auftrieb", TutorialGuide.TextFor(TutorialStep.Buoyancy, false, GameMode.Cozy));
         }
     }
 }

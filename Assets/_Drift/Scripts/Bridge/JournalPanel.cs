@@ -668,6 +668,7 @@ namespace Drift.Bridge
                 case SeaKind.FlyingFish: return Rgb(120, 190, 226);
                 case SeaKind.Dolphin: return Rgb(124, 150, 176);
                 case SeaKind.SeaTurtle: return Rgb(96, 150, 120);
+                case SeaKind.Seal: return Rgb(128, 124, 118);
                 case SeaKind.Jellyfish: return Rgb(230, 170, 226);
                 case SeaKind.Ray: return Rgb(84, 100, 130);
                 case SeaKind.Whale: return Rgb(70, 92, 124);

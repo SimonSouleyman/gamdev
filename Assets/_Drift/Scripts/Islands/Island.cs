@@ -142,6 +142,10 @@ namespace Drift.Islands
         [Range(0f, 2f)] public float hitStun = 0.6f;
         [Tooltip("Wie schnell (Anteil des Landes pro Sekunde) die Insel nach einem Treffer auf ihre neue Tiefe absackt.")]
         [Range(0.02f, 1f)] public float hitSinkRate = 0.15f;
+        [Tooltip("Sekunden nach einem Treffer, in denen die Insel durch Hindernisse hindurchgleitet (blinkt): ein Fehler soll keine Trefferserie auslösen. 0 = aus.")]
+        [Range(0f, 4f)] public float hitGrace = 2.2f;
+        [Tooltip("Seitlicher Schub (u/s) nach einem Treffer, weg vom Hindernis – die Insel kommt frei, statt gleich wieder hineinzufahren.")]
+        [Range(0f, 16f)] public float hitSidestep = 7f;
 
         [Header("Bergbildung")]
         [Tooltip("Sekunden, in denen das neue Bergland nach einem Zusammenstoß aufsteigt (kleiner = schneller). Höhere Berge brauchen etwas länger.")]
@@ -199,7 +203,7 @@ namespace Drift.Islands
         [NonSerialized] float _boostStrength = 1f;
         [NonSerialized] float _boostDuration = 1f;
         [NonSerialized] float _startArea;
-        [NonSerialized] float _hitCooldownLeft, _hitStunLeft, _hitSinkLeft;
+        [NonSerialized] float _hitCooldownLeft, _hitStunLeft, _hitSinkLeft, _hitGraceLeft;
         [NonSerialized] float _staggerLeft, _staggerFactor = 1f;
 
         // The ring's rim (RingWorld, Adventure only): near the edge of the band the water foams and pushes gently
@@ -214,6 +218,10 @@ namespace Drift.Islands
         [NonSerialized] public float AdventureSinkScale = 1f;
         // The direction of travel along the adventure track (RingWorld writes it; +z until then).
         [NonSerialized] public Vector2 AdventureTrack = Vector2.up;
+        // Adventure: the steady extra pace of the sea animals swimming alongside (Visuals/Encounters writes it every
+        // frame, 1 = nobody). A factor on the top speed like AdventureSpeedScale - deliberately not a SpeedBoost, so
+        // Boosting stays the rare flotsam event instead of being on whenever an escort swims along.
+        [NonSerialized] public float EscortFactor = 1f;
 
         public Vector3 Normal { get; private set; } = Vector3.up;
         // Heading: steering, thrust and the chase camera. Only player input turns it.
@@ -420,13 +428,26 @@ namespace Drift.Islands
         public int Hits { get; private set; }
         public float HitCooldownLeft => Mathf.Max(0f, _hitCooldownLeft);
         public bool HitStunned => _hitStunLeft > 0f;
+        // Right after a counted hit the island glides through obstacles for hitGrace seconds (the HUD/visuals may
+        // let it blink): one mistake used to cascade into a hit series, because the slowed, stunned island was
+        // carried straight back into the same coast (play test: up to 5 hits in 19 s).
+        public bool HitGrace => _hitGraceLeft > 0f;
+        public float HitGraceRemaining => Mathf.Max(0f, _hitGraceLeft);
 
         // Adventure: the player ran into an obstacle island. Bounces off along the contact normal (always at least
         // hitMinBounce, so even a slow scrape pushes clear), keeps only hitSpeedKeep of the speed along the coast and
-        // - outside the cooldown - costs hitBuoyancyLoss of the buoyancy. Returns true when the hit counted.
+        // - outside the cooldown - costs hitBuoyancyLoss of the buoyancy, then gets a sideways shove clear of the
+        // obstacle and hitGrace seconds of gliding through. Returns true when the hit counted.
         public bool Bump(Island obstacle, Vector2 contactLocal, float dt)
         {
             if (obstacle == null || _shape == null) return false;
+            // Gliding through: the grace does not run out while the island is still inside a coast, or it would
+            // end in the middle of a big island and count the next hit at once.
+            if (_hitGraceLeft > 0f)
+            {
+                _hitGraceLeft = Mathf.Max(_hitGraceLeft, GraceHold);
+                return false;
+            }
             Vector2 contact = ToWorld(contactLocal);
             Vector2 n = _pos - contact;
             if (n.sqrMagnitude < 1e-4f) n = _pos - obstacle._pos;
@@ -448,9 +469,11 @@ namespace Drift.Islands
             if (_hitCooldownLeft > 0f) return false;
             _hitCooldownLeft = hitCooldown;
             _hitStunLeft = hitStun;
+            _hitGraceLeft = Mathf.Max(0f, hitGrace);
             Hits++;
             selfN = Vector2.Dot(_selfVel, n);
             _selfVel = n * selfN + (_selfVel - n * selfN) * Mathf.Clamp01(hitSpeedKeep);
+            Sidestep(obstacle);
             _boostLeft = 0f;
             RemoveBuoyancy(hitBuoyancyLoss);
             if (_herds == null) _herds = GetComponent<IslandHerdSystem>();
@@ -459,6 +482,29 @@ namespace Drift.Islands
             Impact?.Invoke(intensity);
             Bumped?.Invoke(this, obstacle, contact, intensity);
             return true;
+        }
+
+        const float GraceHold = 0.2f;
+
+        // The shove clear after a hit: across the track in the race (along it the ring keeps its own pace), across
+        // the heading otherwise; towards the side of the obstacle the island already is on, unless the rim of the
+        // band leaves no room there. A dead-centre hit picks a side from the obstacle's seed, so it stays deterministic.
+        void Sidestep(Island obstacle)
+        {
+            if (hitSidestep <= 0f) return;
+            Vector2 track = AdventureRacing ? TrackDirection : Forward2;
+            Vector2 across = new Vector2(track.y, -track.x);
+            float off = Vector2.Dot(_pos - obstacle._pos, across);
+            float side = off >= 0f ? 1f : -1f;
+            if (Mathf.Abs(off) < 0.25f) side = ((obstacle.shapeSeed ^ Hits) & 1) == 0 ? 1f : -1f;
+            float need = obstacle.BoundingRadius + _boundRadius - Mathf.Abs(off);
+            if (PositionConstraint != null && need > 0f)
+            {
+                Vector2 want = _pos + across * (side * need);
+                if ((PositionConstraint(want) - want).sqrMagnitude > 1f) side = -side;
+            }
+            float lateral = Vector2.Dot(_selfVel, across);
+            if (lateral * side < hitSidestep) _selfVel += across * (side * hitSidestep - lateral);
         }
 
         // The ring world ends at its rims and holds the island inside (RingWorld.PositionConstraint): there is no way
@@ -529,7 +575,7 @@ namespace Drift.Islands
         public float Agility => AgilityFor(_area);
         public float AgilityFor(float area) => Mathf.Pow(agilityArea / (agilityArea + Mathf.Max(0f, area)), 0.6f);
         public float MaxSpeed => moveSpeed * (0.55f + 0.45f * Agility) * SpeedScale;
-        float SpeedScale => AdventurePlayer ? Mathf.Max(0.1f, AdventureSpeedScale) : 1f;
+        float SpeedScale => AdventurePlayer ? Mathf.Max(0.1f, AdventureSpeedScale) * Mathf.Max(1f, EscortFactor) : 1f;
 
         // Adventure is a race: the island always runs along the track and the input only steers sideways and
         // brakes. Whatever the steering scheme (direct direction or the old wheel), it comes down to the same
@@ -725,6 +771,7 @@ namespace Drift.Islands
             _clock += dt;
             if (_hitCooldownLeft > 0f) _hitCooldownLeft = Mathf.Max(0f, _hitCooldownLeft - dt);
             if (_hitStunLeft > 0f) _hitStunLeft = Mathf.Max(0f, _hitStunLeft - dt);
+            if (_hitGraceLeft > 0f) _hitGraceLeft = Mathf.Max(0f, _hitGraceLeft - dt);
             if (_staggerLeft > 0f) _staggerLeft = Mathf.Max(0f, _staggerLeft - dt);
 
             // The race reads both schemes into one pair of numbers: sideways = steer, backwards = brake. Pushing
@@ -1340,6 +1387,7 @@ namespace Drift.Islands
             _hitCooldownLeft = 0f;
             _hitStunLeft = 0f;
             _hitSinkLeft = 0f;
+            _hitGraceLeft = 0f;
         }
 
         float LandShareAt(float buoyancy) => Mathf.Pow(Mathf.Clamp01(buoyancy), Mathf.Max(0.05f, sinkLandExponent));

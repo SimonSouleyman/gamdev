@@ -77,6 +77,8 @@ namespace Drift.Visuals
                     _height[j * res + i] = island.SampleHeight(new Vector2(Origin.x + (i + 0.5f) * texel, z));
             }
             Fill(_pixels, _height, _dist, res, texel);
+            // SetPixels on purpose: its native Color -> half conversion (0.07 ms at 128^2, Editor) beat a managed
+            // float -> half loop + SetPixelData (0.32 ms), measured 2026-09-23.
             Texture.SetPixels(_pixels);
             Texture.Apply(false, false);
             return true;

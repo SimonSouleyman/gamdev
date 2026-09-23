@@ -26,7 +26,13 @@ Shader "Drift/IslandTerrain"
     }
     SubShader
     {
-        Tags { "RenderType"="Opaque" "RenderPipeline"="UniversalPipeline" "Queue"="Geometry" }
+        // The sea floor below -0.45 is cut away per pixel (clip in frag), so the water's depth tint sees deep water
+        // there. A shader with clip() loses early depth writes on tile-based GPUs; in the AlphaTest queue it draws
+        // after every plain opaque (plants, animals, critters, buildings), whose pixels then reject the terrain's
+        // hidden fragments by the depth test, and no later opaque draw has to wait on its late depth writes.
+        // Collapsing the sunk triangles in the vertex shader instead would move the edge of the shallow tint:
+        // the contour at -0.45 runs through the middle of the beach-slope triangles.
+        Tags { "RenderType"="TransparentCutout" "RenderPipeline"="UniversalPipeline" "Queue"="AlphaTest" }
 
         Pass
         {
@@ -64,7 +70,7 @@ Shader "Drift/IslandTerrain"
                 float3 positionWS  : TEXCOORD0;
                 float3 normalWS    : TEXCOORD1;
                 float3 positionOS  : TEXCOORD2;
-                float3 normalOS    : TEXCOORD3;
+                float4 normalOS    : TEXCOORD3;   // xyz = object normal, w = cloud shadow (per vertex, DriftClouds.hlsl)
                 float4 color       : COLOR;
             };
 
@@ -86,7 +92,7 @@ Shader "Drift/IslandTerrain"
                 OUT.positionWS = vpi.positionWS;
                 OUT.normalWS = TransformObjectToWorldNormal(IN.normalOS);
                 OUT.positionOS = IN.positionOS.xyz;
-                OUT.normalOS = IN.normalOS;
+                OUT.normalOS = float4(IN.normalOS, CloudShadow(vpi.positionWS.xz));
                 OUT.color = IN.color;
                 return OUT;
             }
@@ -178,7 +184,7 @@ Shader "Drift/IslandTerrain"
                 SampleLayer(i2, p, dpx, dpy, d2, tn2);
                 // The top-down projection smears into streaks where the ground stands steep (the beach skirt): fade
                 // the soft layers out there; rock keeps its streaks, they read as eroded cliff.
-                float flatK = smoothstep(0.3, 0.75, abs(normalize(IN.normalOS).y));
+                float flatK = smoothstep(0.3, 0.75, abs(normalize(IN.normalOS.xyz).y));
                 float k1 = i1 == L_ROCK ? 1.0 : flatK, k2 = i2 == L_ROCK ? 1.0 : flatK;
                 d1 = lerp(1.0.xxx, d1, k1); tn1.xy *= k1;
                 d2 = lerp(1.0.xxx, d2, k2); tn2.xy *= k2;
@@ -194,13 +200,13 @@ Shader "Drift/IslandTerrain"
                 detail *= 1.0 + (DriftNoise(p * 0.23 + 31.7) - 0.5) * 2.0 * _Macro;
                 col *= detail;
 
-                float3 nOS = normalize(normalize(IN.normalOS) + float3(tn.x, 0.0, tn.y));
+                float3 nOS = normalize(normalize(IN.normalOS.xyz) + float3(tn.x, 0.0, tn.y));
                 float3 nl = normalize(TransformObjectToWorldNormal(nOS));
 
                 Light mainLight = GetMainLight();
                 float nd = saturate(dot(nl, mainLight.direction));
                 float lit = _Ambient + (1.0 - _Ambient) * nd;
-                lit *= CloudShadow(IN.positionWS.xz);
+                lit *= IN.normalOS.w;
                 return float4(DriftFog(col * lit * mainLight.color, IN.positionWS), 1);
             }
             ENDHLSL
