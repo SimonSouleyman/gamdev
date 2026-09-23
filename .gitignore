@@ -114,3 +114,6 @@ InitTestScene*.unity*
 # Verifikations-Screenshots aus dem Editor (capture_game_view schreibt hierhin)
 /Assets/Temp/
 /Assets/Temp.meta
+
+# Playtest screenshots and clips (Drift/Playtest); the JSON results next to them are kept
+/Playtests/shots/

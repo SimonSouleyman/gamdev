@@ -126,7 +126,7 @@ namespace Drift.Islands
         // Returns how many volcanoes the event produced (0 = filtered out).
         public int TryHandleRift(PlateEventData e)
         {
-            if (e.type != PlateEventType.Rift) return 0;
+            if (e.type != PlateEventType.Rift || Drift.Core.GameModes.IsAdventure) return 0;
             if (player == null) player = FindPlayer();
             if (player == null || islandMaterial == null) return 0;
             if (_cooldownLeft > 0f) return 0;

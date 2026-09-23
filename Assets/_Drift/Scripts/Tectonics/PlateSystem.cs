@@ -481,6 +481,23 @@ namespace Drift.Tectonics
             return best;
         }
 
+        // Every plate NearestPlate can return for a point inside [min, max]: the cells over the rectangle plus the ring
+        // of cells around it. A few dozen cell lookups instead of a NearestPlate scan over a grid of sample points.
+        public void PlatesInRect(Vector2 min, Vector2 max, List<Plate> result)
+        {
+            result.Clear();
+            float cz = _ring ? _ringCellZ : cellSize;
+            int x0 = (_ring ? RingColumn(min.x) : Mathf.FloorToInt(min.x / cellSize)) - 1;
+            int x1 = (_ring ? RingColumn(max.x) : Mathf.FloorToInt(max.x / cellSize)) + 1;
+            int z0 = Mathf.FloorToInt(min.y / cz) - 1, z1 = Mathf.FloorToInt(max.y / cz) + 1;
+            for (int x = x0; x <= x1; x++)
+                for (int z = z0; z <= z1; z++)
+                {
+                    var p = GetPlate(x, z);
+                    if (!result.Contains(p)) result.Add(p);
+                }
+        }
+
         public Vector2 SampleVelocity(Vector2 pos) => NearestPlate(pos).velocity;
 
         public void Impulse(Vector2 pos, Vector2 velocity)

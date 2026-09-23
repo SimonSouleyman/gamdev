@@ -54,6 +54,43 @@ namespace Drift.Visuals
 
         // Refills the texture around centre (world xz). The origin snaps to whole texels so a texel always covers the
         // same patch of sea and the boundaries do not crawl while the view moves.
+        // Spread over frames (Begin, then Step until it returns true): a full refresh cost ~2.5 ms on a desktop in one
+        // frame, a visible hitch four times a second on a phone. The texture and Origin switch only when complete.
+        public bool Busy => _row >= 0;
+        int _row = -1;
+        Vector2 _nextOrigin;
+        float _nextSize, _nextMax, _nextEdge, _nextTexel;
+
+        public void Begin(PlateSystem plates, Vector2 centre, float size, float maxSpeed, float edgeWidth)
+        {
+            float texel = size / Resolution;
+            _nextOrigin = new Vector2(Mathf.Floor(centre.x / texel), Mathf.Floor(centre.y / texel)) * texel - Vector2.one * (size * 0.5f);
+            _nextSize = size;
+            _nextMax = maxSpeed;
+            _nextEdge = edgeWidth;
+            _nextTexel = texel;
+            CollectSites(plates, _nextOrigin, size, edgeWidth);
+            Prepare(_sitePos, _siteVel, maxSpeed, _scratch);
+            _row = 0;
+        }
+
+        public bool Step(int rows)
+        {
+            if (_row < 0) return true;
+            int end = Mathf.Min(Resolution, _row + Mathf.Max(1, rows));
+            FillRows(_pixels, Resolution, _nextOrigin, _nextTexel, _sitePos, _siteVel, _nextMax, _nextEdge, _scratch, _row, end);
+            _row = end;
+            if (_row < Resolution) return false;
+            _row = -1;
+            EnsureTexture();
+            Origin = _nextOrigin;
+            Size = _nextSize;
+            MaxSpeed = _nextMax;
+            Texture.SetPixelData(_pixels, 0);
+            Texture.Apply(false, false);
+            return true;
+        }
+
         public void Refresh(PlateSystem plates, Vector2 centre, float size, float maxSpeed, float edgeWidth)
         {
             EnsureTexture();
@@ -73,17 +110,12 @@ namespace Drift.Visuals
             _sitePos.Clear();
             _siteVel.Clear();
             if (plates == null) return;
-            float step = Mathf.Max(4f, Mathf.Min(plates.cellSize / 6f, size / 8f));
-            int n = Mathf.CeilToInt((size + 2f * margin) / step);
-            for (int i = 0; i <= n; i++)
-                for (int j = 0; j <= n; j++)
-                {
-                    var p = plates.NearestPlate(origin + new Vector2(i * step - margin, j * step - margin));
-                    if (p == null || _plates.Contains(p)) continue;
-                    _plates.Add(p);
-                    _sitePos.Add(p.position);
-                    _siteVel.Add(p.velocity);
-                }
+            plates.PlatesInRect(origin - Vector2.one * margin, origin + Vector2.one * (size + margin), _plates);
+            foreach (var p in _plates)
+            {
+                _sitePos.Add(p.position);
+                _siteVel.Add(p.velocity);
+            }
         }
 
         public static Color32 Encode(Vector2 velocity, float maxSpeed, float edge, float closing)
@@ -128,13 +160,15 @@ namespace Drift.Visuals
         public static void Fill(Color32[] dst, int res, Vector2 origin, float texel, IReadOnlyList<Vector2> sitePos,
             IReadOnlyList<Vector2> siteVel, float maxSpeed, float edgeWidth, FillScratch s)
         {
+            Prepare(sitePos, siteVel, maxSpeed, s);
+            FillRows(dst, res, origin, texel, sitePos, siteVel, maxSpeed, edgeWidth, s, 0, res);
+        }
+
+        // The per-refresh tables: site positions and colours, pair separations and closing speeds.
+        public static void Prepare(IReadOnlyList<Vector2> sitePos, IReadOnlyList<Vector2> siteVel, float maxSpeed, FillScratch s)
+        {
             int count = sitePos.Count;
-            if (count == 0)
-            {
-                var still = Encode(Vector2.zero, maxSpeed, 0f, 0f);
-                for (int i = 0; i < res * res; i++) dst[i] = still;
-                return;
-            }
+            if (count == 0) return;
             s.Ensure(count);
             float[] px = s.px, pz = s.pz, invSep = s.invSep, closingT = s.closing;
             for (int k = 0; k < count; k++)
@@ -151,8 +185,22 @@ namespace Drift.Visuals
                     invSep[a * count + b] = a == b || sep < 1e-4f ? 0f : 0.5f / sep;
                     closingT[a * count + b] = a == b || sep < 1e-4f ? 0f : -Vector2.Dot(siteVel[b] - siteVel[a], d / sep);
                 }
+        }
+
+        // Rows [j0, j1) of the field; Prepare must have run for the same sites.
+        public static void FillRows(Color32[] dst, int res, Vector2 origin, float texel, IReadOnlyList<Vector2> sitePos,
+            IReadOnlyList<Vector2> siteVel, float maxSpeed, float edgeWidth, FillScratch s, int j0, int j1)
+        {
+            int count = sitePos.Count;
+            if (count == 0)
+            {
+                var still = Encode(Vector2.zero, maxSpeed, 0f, 0f);
+                for (int i = j0 * res; i < j1 * res; i++) dst[i] = still;
+                return;
+            }
+            float[] px = s.px, pz = s.pz, invSep = s.invSep, closingT = s.closing;
             float invEdge = edgeWidth > 1e-4f ? 1f / edgeWidth : 0f;
-            for (int j = 0; j < res; j++)
+            for (int j = j0; j < j1; j++)
             {
                 float z = origin.y + (j + 0.5f) * texel;
                 for (int i = 0; i < res; i++)

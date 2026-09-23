@@ -453,6 +453,7 @@ MonoBehaviour:
   currentFieldSize: 320
   currentFieldResolution: 64
   currentFieldRate: 4
+  currentFieldRowsPerFrame: 16
   currentEdgeWidth: 10
   currentFieldMaxSpeed: 8
   currentSmoothing: 4
@@ -729,6 +730,9 @@ MonoBehaviour:
   escortSeconds: 22
   escortGap: 2.5
   pickupGrab: 2.5
+  cozyCoastSchools: 2
+  cozyCoastJumpInterval: {x: 3.5, y: 9}
+  cozyDoubleJumpChance: 0.3
 --- !u!114 &479351222
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -835,6 +839,36 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 83227f978ecfa144486e1f15c96f55ce, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Drift.Visuals::Drift.Visuals.SeaLifeSystem
+  cozyInViewPace: 2.2
+  cozyBreachScale: 0.6
+  cozyDolphinRange: 60
+  cozyFlyingFishInterval: {x: 8, y: 16}
+  cozyTurtleToPlayer: 0.35
+  cozyVisitInterval: {x: 20, y: 35}
+  visitMaxSpeed: 2
+  maxSeals: 1
+  sealLength: 1.3
+  sealStay: {x: 60, y: 100}
+  sealLookSeconds: {x: 3.5, y: 5.5}
+  sealDiveSeconds: {x: 3, y: 6}
+  sealRestSeconds: {x: 14, y: 26}
+  sealHaulOutChance: 0.4
+  sealKeepUp: 3.5
+  sealColor: {r: 0.5, g: 0.48, b: 0.45, a: 1}
+  showTurtleStay: {x: 45, y: 75}
+  showTurtleBreathRate: 0.45
+  turtleCoastDepth: -0.7
+  rayLeapInterval: {x: 25, y: 50}
+  rayLeapHeight: 1.2
+  rayLeapSeconds: 1.5
+  showCooldowns:
+  - 30
+  - 35
+  - 10
+  - 35
+  - 20
+  - 60
+  - 8
   water: {fileID: 479351218}
   fish: {fileID: 479351221}
   ships: {fileID: 479351223}
@@ -860,7 +894,7 @@ MonoBehaviour:
   detailDistance: 70
   splashDistance: 75
   maxUnderVerts: 2000
-  maxAboveVerts: 1600
+  maxAboveVerts: 2000
   dolphinLength: 1.5
   dolphinCruise: 2.2
   dolphinSprint: 12
@@ -2000,6 +2034,8 @@ MonoBehaviour:
   spiralRise: 0.55
   fireflyWavesPerMinute: 1.2
   fireflyWaveTime: 7
+  visitSwarm: 10
+  visitRadius: 1.1
   critterMaterial: {fileID: 0}
   glowMaterial: {fileID: 0}
 --- !u!114 &1204434044
@@ -2701,6 +2737,7 @@ GameObject:
   - component: {fileID: 2011694581}
   - component: {fileID: 2011694586}
   - component: {fileID: 2011694585}
+  - component: {fileID: 2011694587}
   m_Layer: 0
   m_Name: SessionUI
   m_TagString: Untagged
@@ -3025,6 +3062,68 @@ MonoBehaviour:
   toastSeconds: 5.5
   retrySeconds: 8
   homeSeabirdFlocks: 2
+--- !u!114 &2011694587
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2011694575}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 903ee0841aeda9f4fb95236dfead6ee3, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Drift.Bridge::Drift.Bridge.LifeDirector
+  session: {fileID: 0}
+  watch: {fileID: 0}
+  finale: {fileID: 0}
+  flocks: {fileID: 0}
+  fish: {fileID: 0}
+  seaLife: {fileID: 0}
+  seed: 53
+  nudgeMin: 5.5
+  nudgeMax: 7.5
+  retrySeconds: 1
+  graceSeconds: 2.5
+  lastResortGap: 8.5
+  lastResortCooldown: 4
+  noticePx: 20
+  pickPx: 26
+  pickMargin: 0.1
+  watchHerdBoost: 2
+  farViewPx: 18
+  farPickPx: 22
+  farBigBoost: 2
+  flockCallInterval: 15
+  farFireflyCooldown: 10
+  nightFrom: 0.5
+  nightFireflyBoost: 2
+  nightSeaBoost: 1.5
+  resolveInterval: 2
+  signatureWeight: 3
+  playWeight: 2.5
+  speciesWeight: 2
+  wanderWeight: 0.7
+  flockWeight: 1.5
+  critterWeight: 1
+  fireflyWeight: 2
+  fishWeight: 1
+  dolphinWeight: 1.5
+  whaleWeight: 1.5
+  seaShowWeight: 2
+  sleepStirWeight: 1.5
+  signatureCooldown: 20
+  playCooldown: 12
+  speciesCooldown: 25
+  wanderCooldown: 15
+  flockCooldown: 20
+  critterCooldown: 8
+  fireflyCooldown: 16
+  fishCooldown: 5
+  dolphinCooldown: 12
+  whaleCooldown: 30
+  seaShowCooldown: 20
+  sleepStirCooldown: 8
 --- !u!1 &2114831827
 GameObject:
   m_ObjectHideFlags: 0

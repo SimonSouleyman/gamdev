@@ -442,6 +442,7 @@ namespace Drift.Islands
             {
                 f.perchLocal = local;
                 f.state = FlockState.Descend;
+                if (Moments.Listening) Moments.Report(MomentKind.BirdLanding, f.target.transform, local, f.target.SampleHeight(local));
             }
             else Leave(f);
         }
@@ -453,6 +454,7 @@ namespace Drift.Islands
             f.murmurT = 0f;
             f.orbitTime = murmurTime * Rand(0.8f, 1.2f);
             Murmurs++;
+            if (Moments.Listening) Moments.Report(MomentKind.BirdMurmur, new Vector3(f.pos.x, 4f, f.pos.y));
         }
 
         // Starts the flock's special move now if it can (tests, screenshots): a murmur for songbirds circling or
@@ -486,6 +488,7 @@ namespace Drift.Islands
                 b.diveLocal = local;
                 f.birds[i] = b;
                 Dives++;
+                if (Moments.Listening) Moments.Report(MomentKind.BirdDive, pos);
                 return true;
             }
             return false;

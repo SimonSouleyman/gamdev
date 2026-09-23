@@ -9,7 +9,9 @@
         "Drift.Tectonics",
         "Drift.Visuals",
         "Drift.Bridge",
-        "Unity.Mathematics"
+        "Unity.Mathematics",
+        "Drift.SaveSystem",
+        "Drift.UI"
     ],
     "includePlatforms": [
         "Editor"

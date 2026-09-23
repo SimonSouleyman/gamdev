@@ -138,6 +138,10 @@ namespace Drift.Life
         [Tooltip("Lichtwelle: so oft pro Minute (im Mittel) blitzt der Glühwürmchenschwarm einer Insel im Gleichtakt auf, als Welle von einer Stelle aus (nur nachts, ohne Sturm).")]
         [Range(0f, 6f)] public float fireflyWavesPerMinute = 1.2f;
         [Range(2f, 15f)] public float fireflyWaveTime = 7f;
+        [Tooltip("Eine Lichtwelle an einer bestimmten Stelle (TriggerFireflyWaveAt, z. B. bei einer schlafenden Herde): so viele Glühwürmchen kommen dafür herbei, wenn dort zu wenige schwirren.")]
+        [Range(0, 24)] public int visitSwarm = 10;
+        [Tooltip("In diesem Umkreis (u) um die Stelle schwirren die herbeigekommenen Glühwürmchen.")]
+        [Range(0.3f, 3f)] public float visitRadius = 1.1f;
         [SerializeField] Material critterMaterial;
         [SerializeField] Material glowMaterial;
 
@@ -157,6 +161,8 @@ namespace Drift.Life
             public bool nesting;
             public Critter partner;
             public Vector2 centre;
+            // A firefly that came for a wave at a spot (TriggerFireflyWaveAt): it circles `centre` and leaves with the wave.
+            public bool visitor;
         }
 
         readonly List<Critter> _critters = new();
@@ -1000,6 +1006,7 @@ namespace Drift.Life
             c.beat = 0;
             CrabWaves++;
             _meshDirty = true;
+            Moment(MomentKind.CritterMove, c.pos);
         }
 
         // Up the beach to a nest spot (dry sand between the turtles' shore band and their inland limit).
@@ -1011,6 +1018,7 @@ namespace Drift.Life
             c.state = CritterState.Move;
             c.timer = (spot - c.pos).magnitude / Mathf.Max(0.01f, turtleSpeed) + 5f;
             _meshDirty = true;
+            Moment(MomentKind.CritterMove, c.pos);
             return true;
         }
 
@@ -1052,18 +1060,73 @@ namespace Drift.Life
             }
             SpiralDances++;
             _meshDirty = true;
+            Moment(MomentKind.Butterflies, mid);
             return true;
         }
 
-        public bool TriggerFireflyWave()
+        public bool TriggerFireflyWave() => TriggerFireflyWave(-1);
+
+        // The wave starts at glow blob `blob` (GlowBlobOf; the LifeDirector picks one in view), -1 = a random one.
+        public bool TriggerFireflyWave(int blob)
         {
             if (_homeVersion < 0 || _blobCount <= 0 || _amount < 0.3f || _surface.StormIntensity >= 0.3f) return false;
-            _waveOrigin = _blobPos[_rnd.Next(_blobCount)];
+            _waveOrigin = _blobPos[blob >= 0 && blob < _blobCount ? blob : _rnd.Next(_blobCount)];
             _waveLeft = fireflyWaveTime;
             _waveT0 = Time.timeSinceLevelLoad;
             _waveSerial++;
             FireflyWaves++;
+            Moment(MomentKind.FireflyWave, _waveOrigin);
             return true;
+        }
+
+        // A wave that starts at an island-local point, also away from the swarm's clusters (the LifeDirector puts it
+        // where the camera looks, e.g. round a sleeping herd): if too few fireflies are about, a small swarm comes
+        // in round the point for the wave and leaves with it. Near tier only (the visitors are near-tier critters).
+        public bool TriggerFireflyWaveAt(Vector2 local)
+        {
+            if (_rnd == null || _surface == null || Tier != LifeTier.Near) return false;
+            if (_homeVersion < 0 || _amount < 0.3f || _surface.StormIntensity >= 0.3f || _surface.SampleHeight(local) < 0.03f) return false;
+            float r2 = visitRadius * visitRadius;
+            int near = 0;
+            foreach (var c in _critters)
+                if (c.kind == LifeKind.Firefly && !c.dying && (c.pos - local).sqrMagnitude <= r2) near++;
+            for (int i = near; i < visitSwarm; i++)
+            {
+                for (int t = 0; t < 10; t++)
+                {
+                    Vector2 q = local + RandDir() * (visitRadius * Mathf.Sqrt(Rand()));
+                    if (!DryGround(q)) continue;
+                    var c = AddTransient(LifeKind.Firefly, q);
+                    c.visitor = true;
+                    c.centre = local;
+                    c.fade = 0.4f;
+                    FireflySpawns++;
+                    break;
+                }
+            }
+            _glowDirty = true;
+            _waveOrigin = local;
+            _waveLeft = fireflyWaveTime;
+            _waveT0 = Time.timeSinceLevelLoad;
+            _waveSerial++;
+            FireflyWaves++;
+            Moment(MomentKind.FireflyWave, local);
+            return true;
+        }
+
+        public int VisitorCount
+        {
+            get
+            {
+                int n = 0;
+                foreach (var c in _critters) if (c.visitor && !c.dying) n++;
+                return n;
+            }
+        }
+
+        void Moment(MomentKind kind, Vector2 local)
+        {
+            if (Moments.Listening && _surface != null) Moments.Report(kind, transform, local, _surface.SampleHeight(local));
         }
 
         void StepFireflyWave(float dt, bool visible)
@@ -1228,6 +1291,7 @@ namespace Drift.Life
                 bool fly = c.kind == LifeKind.Firefly;
                 if (c.kind == LifeKind.Butterfly) { if (!day) c.dying = true; }
                 else if (!fly) continue;
+                else if (c.visitor && _waveLeft <= 0f) c.dying = true;
 
                 if (c.dying)
                 {
@@ -1314,8 +1378,8 @@ namespace Drift.Life
                 c.timer -= dt;
                 if (c.timer > 0f) return;
                 bool homed = c.slot >= 0 && c.slot < _homeCount;
-                Vector2 home = homed ? _homePos[c.slot] : c.pos;
-                bool strict = !homed || _homeStrict[c.slot];
+                Vector2 home = homed ? _homePos[c.slot] : c.visitor ? c.centre : c.pos;
+                bool strict = homed ? _homeStrict[c.slot] : !c.visitor;
                 for (int t = 0; t < 8; t++)
                 {
                     Vector2 q = home + RandDir() * Rand(0.2f, fireflyRange);
@@ -1343,6 +1407,7 @@ namespace Drift.Life
                 if (!_life.TryRandomPlant(LifeKind.Flower, _rnd, default, 0f, out var p)) break;
                 AddTransient(LifeKind.Butterfly, p);
                 ButterflySpawns++;
+                if (n == 0 && Moments.Listening && _surface != null) Moments.Report(MomentKind.Butterflies, transform, p, _surface.SampleHeight(p));
                 butterflies++;
             }
             for (int i = _critters.Count - 1; i >= 0 && butterflies > wantB; i--)

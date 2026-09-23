@@ -158,7 +158,7 @@ namespace Drift.UI
         {
             if (_schemeHint == null) return;
             string text = SteerSettings.Direct
-                ? "Die Insel treibt dorthin, wo du hindrückst oder kippst – sie dreht sich nicht, Norden bleibt oben."
+                ? "Die Insel treibt dorthin, wo du hindrückst oder kippst – sie dreht sich nicht, die Sicht folgt dem Kurs."
                 : "Alte Steuerung: A und D drehen die Insel, W gibt Gas, die Kamera folgt ihr.";
             if (_schemeHint.text != text) _schemeHint.text = text;
         }

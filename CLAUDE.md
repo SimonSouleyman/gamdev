@@ -87,8 +87,8 @@ camera smoothing, touch) still needs the owner's own hands-on test.
    system/file set; shared files like `IIslandSurface`, `LifeEnvironment` or the scene stay with the
    coordinator). Put any cross-agent API the tasks need in place *before* dispatch.
 2. Dispatch all independent tasks at once as parallel agents. Each agent: writes code, verifies with
-   `eval`/its own EditMode test class (`run_tests --mode EditMode --filter ...`, never Play Mode,
-   never `run_tests` without `--mode EditMode`), and reports changed files, results, "Scene wiring
+   `eval`/its own EditMode test class (`QuickTests.Run("^MyTests$")` from eval — see the run_tests
+   note under CLI gotchas; never Play Mode), and reports changed files, results, "Scene wiring
    needed" and "Integration requests".
 3. Only the coordinator integrates: scene wiring, Play Mode checks, screenshots, the full EditMode
    suite, docs (`Docs/CHANGES_*.md`, ARCHITECTURE.md), save backup/restore — then reports to the owner.
@@ -131,6 +131,15 @@ the report. Note `FindObjectsByType` in `eval` can miss `DontSave` children — 
 - The Mobile quality level is hidden in the Editor while the build target is Standalone; to look at the
   phone pipeline set `QualitySettings.renderPipeline` to `Assets/Settings/Mobile_RPAsset.asset` at runtime.
 
+- `unity command run_tests` hung the Editor's command pipeline twice (every later command timed out; only killing
+  the Editor, deleting `Temp/UnityLockfile` and `unity open` helped). For plain EditMode tests use
+  `Drift.EditorTools.Playtest.QuickTests.Run("^(ClassA|ClassB)$")` from `eval` (reflection runner, no coroutines);
+  run the full suite in a few class-pattern chunks.
+- Unity wipes `Temp/` when the Editor starts: keep anything worth keeping (play-test screenshots) elsewhere
+  (`Playtests/shots/`, gitignored).
+- Play tests: the `Drift/Playtest/*` scenarios (`Scripts/Editor/Playtest`, see ARCHITECTURE.md "Play-test tool") drive
+  the game with a human-like bot on a fixed seed and write `Playtests/*.json`; `python Playtests/summarize.py`.
+  They play the real save slot: back up `LocalLow/DefaultCompany/Drift` + PlayerPrefs first, restore afterwards.
 - `eval` has a ~5 s main-thread budget — long benches (e.g. `PerfBaseline.PerIsland()` over 32
   islands) time out; bench subsets or fewer iterations instead.
 

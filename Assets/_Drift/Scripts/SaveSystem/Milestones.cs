@@ -102,7 +102,8 @@ namespace Drift.SaveSystem
         {
             int i = NextIndex(islandsAbsorbed);
             if (i < 0) return null;
-            return "Nächster Meilenstein: " + ShortNames[i] + " bei " + IslandsNeeded[i] + " Inseln";
+            int left = IslandsNeeded[i] - islandsAbsorbed;
+            return "Nächster Meilenstein: " + ShortNames[i] + " – noch " + left + (left == 1 ? " Insel" : " Inseln");
         }
 
         // How far the minimap shows islands; the lighthouse opens it up to the whole sea.

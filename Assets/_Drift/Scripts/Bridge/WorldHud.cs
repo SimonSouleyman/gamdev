@@ -177,6 +177,8 @@ namespace Drift.Bridge
             {
                 _lastHintState = hintState;
                 FillHint();
+                // Following: the watch tools show the orbit controls under the herd chip already.
+                if (_hintRect != null) _hintRect.gameObject.SetActive(!following);
             }
             if (!adventure) DrawMap();
             else

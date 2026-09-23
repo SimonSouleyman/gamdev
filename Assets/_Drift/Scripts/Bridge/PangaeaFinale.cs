@@ -203,9 +203,9 @@ namespace Drift.Bridge
             int secs = Mathf.FloorToInt(Mathf.Max(0f, r.playSeconds));
             string time = secs >= 3600 ? $"{secs / 3600}:{secs / 60 % 60:00}:{secs % 60:00}" : $"{secs / 60}:{secs % 60:00}";
             return $"Spielzeit   {time}\n" +
-                   $"Inseln verschmolzen   {r.islandsMerged}\n" +
-                   $"Landfläche   {r.landArea.ToString("F0", CultureInfo.InvariantCulture)}\n" +
-                   $"Arten entdeckt   {r.speciesSeen}\n" +
+                   $"Inseln vereint   {r.islandsMerged}\n" +
+                   $"Landmasse   {r.landArea.ToString("F0", CultureInfo.InvariantCulture)}\n" +
+                   $"Arten gesehen   {r.speciesSeen}\n" +
                    $"Fotos   {r.photos}";
         }
 
@@ -284,6 +284,7 @@ namespace Drift.Bridge
                 if (session.Stats.timeSurvived < 1f || !_runStart.HasValue)
                     _runStart = DateTime.Now - TimeSpan.FromSeconds(Mathf.Max(0f, session.Stats.timeSurvived));
             }
+            if (s == GameSession.State.Title) _runStart = null;
             if (s != GameSession.State.RunComplete && Active) End();
         }
 
@@ -634,7 +635,7 @@ namespace Drift.Bridge
                 speciesSeen = journal != null ? journal.RunSeenCount : 0,
                 photos = CountPhotos(_runStart ?? DateTime.Now - TimeSpan.FromSeconds(play)),
                 image = "",
-                name = IslandNames.ForSeed(session != null ? session.WorldSeed : 0),
+                name = IslandNames.ForSeed(session != null && session.WorldSeed != 0 ? session.WorldSeed : (int)(DateTime.Now.Ticks % int.MaxValue)),
             };
         }
 
@@ -660,6 +661,8 @@ namespace Drift.Bridge
             DestroyPicture();
             _picture = RenderPicture(_cam, pictureWidth, PictureHeight(pictureWidth), PictureFov());
             RunJournal.Add(_record, _picture);
+            // Stored: a restart from here must not offer the finished world again (and store it twice).
+            if (saveManager != null) saveManager.DeleteSaveFile();
         }
 
         static int PictureHeight(int width) => Mathf.Max(36, Mathf.RoundToInt(width * 9f / 16f));
@@ -927,7 +930,7 @@ namespace Drift.Bridge
         {
             if (_statsText != null) _statsText.text = FormatStats(r);
             if (_nameText != null) _nameText.text = r != null ? RunJournal.TitleOf(r, RunJournal.NumberOf(r)) : "";
-            if (_seedText != null) _seedText.text = r != null ? $"Welt #{r.seed}" : "";
+            if (_seedText != null) _seedText.text = r != null ? (r.seed != 0 ? $"Welt #{r.seed}" : "Welt: Standard") : "";
             if (_pictureView != null && _pictureView.texture != picture) _pictureView.texture = picture;
         }
     }

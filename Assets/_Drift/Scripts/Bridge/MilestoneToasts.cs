@@ -101,6 +101,8 @@ namespace Drift.Bridge
             {
                 if (state == GameSession.State.Playing && _lastState != GameSession.State.Paused)
                 {
+                    // A toast of the previous run (or the other mode) is not carried into the new one.
+                    _show = 0f;
                     Milestones.Restore(saveManager != null ? saveManager.LoadedMilestones : 0, session.Stats.islandsAbsorbed);
                     _retry = 0f;
                 }

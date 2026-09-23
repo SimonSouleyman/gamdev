@@ -379,6 +379,7 @@ namespace Drift.SaveSystem
             if (!_seedInitialized) InitializeTitleWorld();
             _model.restartDelay = restartDelay;
             float dt = _model.IsPlaying ? Time.deltaTime : Time.unscaledDeltaTime;
+            if (_model.IsPlaying && Mode == GameMode.Adventure && player != null && !player.sinkEnabled) dt = 0f;
             // An adventure run ends on its "Versunken" screen (time, best time, "Nochmal"); only cozy restarts by itself.
             if (_model.Step(dt) && Mode != GameMode.Adventure) RestartFromGameOver();
             if (_model.IsPlaying) _model.RecordLandMass(player.LandArea);

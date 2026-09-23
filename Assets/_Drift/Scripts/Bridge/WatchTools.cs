@@ -27,7 +27,7 @@ namespace Drift.Bridge
         const string CanvasName = "WatchToolsCanvas";
         const float ToastSeconds = 3f;
         // Lower edge of "Zurück zur Insel" + herd chip, measured from the top of the safe area.
-        const float FollowUiBottom = 640f;
+        const float FollowUiBottom = 700f;
 
         public GameSession session;
         public Island player;
@@ -330,6 +330,7 @@ namespace Drift.Bridge
 
         void OnDisable()
         {
+            SetNearFade(false);
             if (_photoActive) ExitPhotoMode();
             if (Following) ReturnToIsland();
             _album.Close();
@@ -420,11 +421,36 @@ namespace Drift.Bridge
         // After the islands and herds have moved this frame, so the camera never trails its subject.
         void LateUpdate()
         {
+            UpdateNearFade();
             if (!_driving || !Application.isPlaying) return;
             StepCamera(_input, Mathf.Min(Time.unscaledDeltaTime, 0.1f));
             _input = default;
             // The island is not steered while a herd is followed; a finger in the stick half orbits instead.
             if (Following && !_photoActive && touch != null && touch.StickActive) touch.Release();
+        }
+
+        // Watching and photo mode dissolve the plants between the orbit camera and its subject (Vegetation.shader's
+        // DRIFT_NEAR_FADE): from low angles the trees next to a herd otherwise fill most of the picture.
+        static readonly int NearFadeId = Shader.PropertyToID("_DriftNearFade");
+        bool _nearFade;
+
+        void UpdateNearFade()
+        {
+            bool on = Application.isPlaying && _driving && (Following || _photoActive);
+            if (on)
+            {
+                float d = _rig.distance;
+                Shader.SetGlobalVector(NearFadeId, new Vector4(Mathf.Max(1.2f, d - 1.2f), Mathf.Max(0.5f, d - 3f), 0f, 0f));
+            }
+            SetNearFade(on);
+        }
+
+        void SetNearFade(bool on)
+        {
+            if (on == _nearFade) return;
+            _nearFade = on;
+            if (on) Shader.EnableKeyword("DRIFT_NEAR_FADE");
+            else Shader.DisableKeyword("DRIFT_NEAR_FADE");
         }
 
         void UpdateEffects(float dt)
@@ -2126,7 +2152,7 @@ namespace Drift.Bridge
             _hintText.text = OrbitHint(touchInput, photo);
             var size = new Vector2(photo && !touchInput ? 900f : 820f, photo && !touchInput ? 96f : 60f);
             if (photo) _hintRect.BottomCenter(new Vector2(0f, 308f), size);
-            else _hintRect.TopCenter(new Vector2(0f, -556f), size);
+            else _hintRect.TopCenter(new Vector2(0f, -616f), size);
         }
 
         // ---------------------------------------------------------------- editor preview
@@ -2414,14 +2440,14 @@ namespace Drift.Bridge
         GameObject BuildFollowButton(RectTransform root)
         {
             var b = UiStyle.PrimaryButton(root, "ReturnToIsland", "Zurück zur Insel", new Vector2(680f, 120f), ReturnToIsland);
-            ((RectTransform)b.transform).TopCenter(new Vector2(0f, -340f), new Vector2(680f, 120f));
+            ((RectTransform)b.transform).TopCenter(new Vector2(0f, -400f), new Vector2(680f, 120f));
             return b.gameObject;
         }
 
         GameObject BuildFollowChip(RectTransform root)
         {
             var chip = UiStyle.Chip(root, "FollowChip", "", new Vector2(680f, 68f), out _followChipText);
-            chip.TopCenter(new Vector2(0f, -476f), new Vector2(680f, 68f));
+            chip.TopCenter(new Vector2(0f, -536f), new Vector2(680f, 68f));
             _followChipText.fontSize = 32;
             _followChipText.color = UiStyle.Cream;
             return chip.gameObject;
@@ -2490,7 +2516,7 @@ namespace Drift.Bridge
         GameObject BuildHint(RectTransform root)
         {
             _hintRect = UiStyle.Chip(root, "OrbitHint", "", new Vector2(820f, 60f), out _hintText);
-            _hintRect.TopCenter(new Vector2(0f, -556f), new Vector2(820f, 60f));
+            _hintRect.TopCenter(new Vector2(0f, -616f), new Vector2(820f, 60f));
             _hintText.fontSize = 28;
             _hintText.color = UiStyle.CreamSoft;
             _hintShown = -1;

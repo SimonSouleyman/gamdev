@@ -357,6 +357,14 @@ namespace Drift.SaveSystem
             }
         }
 
+        // Only the file: the finale still shows the run's journal and stats after its record is stored.
+        public void DeleteSaveFile()
+        {
+            WaitForWrite();
+            _savedFrame = -1;
+            if (File.Exists(SavePath)) File.Delete(SavePath);
+        }
+
         public void DeleteSave()
         {
             // An autosave still in flight would otherwise recreate the file right after it was deleted.

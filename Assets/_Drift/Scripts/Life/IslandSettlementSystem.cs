@@ -1299,6 +1299,7 @@ namespace Drift.Life
                 {
                     FestivalsHeld++;
                     UpdateMeet();
+                    if (Moments.Listening) Moments.Report(MomentKind.Festival, transform, _meet, H(_meet));
                 }
                 else _lanterns.Clear();
             }

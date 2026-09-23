@@ -191,7 +191,8 @@ namespace Drift.Bridge
             bool adventure = session.Mode == GameMode.Adventure;
             if (s != _lastState)
             {
-                bool begins = adventure && s == GameSession.State.Playing && session.Stats.timeSurvived < 0.5f && session.Stats.islandsAbsorbed == 0;
+                bool begins = adventure && s == GameSession.State.Playing && _lastState != GameSession.State.Paused
+                              && session.Stats.timeSurvived < 0.5f && session.Stats.islandsAbsorbed == 0;
                 _lastState = s;
                 // A run that sank during the briefing starts it again, unless it was already past the ring and clock.
                 if (begins && (!_model.Done || s_replayRequested))

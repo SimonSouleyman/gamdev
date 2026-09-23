@@ -44,6 +44,7 @@ Shader "Drift/Vegetation"
             #pragma vertex vert
             #pragma fragment frag
             #pragma require 2darray
+            #pragma multi_compile _ DRIFT_NEAR_FADE
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Lighting.hlsl"
             #include "DriftClouds.hlsl"
             #include "DriftCurve.hlsl"
@@ -83,6 +84,17 @@ Shader "Drift/Vegetation"
             // sway calms down as the camera comes close. x <= 0 means nobody pushed it (material preview), and the
             // old _Time-driven sway is used unchanged.
             float4 _LifeWindSway;
+            // Watch / photo mode only (global keyword from WatchTools): plants nearer to the camera than x dissolve,
+            // fully gone below y, so the trees between the orbit camera and the watched animals stop filling the view.
+            float4 _DriftNearFade;
+
+            float Bayer4(float2 p)
+            {
+                uint2 q = (uint2)p & 3u;
+                uint i = q.y * 4u + q.x;
+                static const float B[16] = { 0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5 };
+                return (B[i] + 0.5) / 16.0;
+            }
 
             float PerLayer(float4 v, float layer)
             {
@@ -141,6 +153,9 @@ Shader "Drift/Vegetation"
                 float has = layer > -0.5 ? 1.0 : 0.0;
                 float li = max(layer, 0.0);
                 float dist = distance(IN.positionWS, GetCameraPositionWS());
+            #if defined(DRIFT_NEAR_FADE)
+                clip(saturate((dist - _DriftNearFade.y) / max(_DriftNearFade.x - _DriftNearFade.y, 0.01)) - Bayer4(IN.positionHCS.xy));
+            #endif
                 float k = has * _DetailAmount * (1.0 - saturate((dist - _FadeStart) / max(_FadeEnd - _FadeStart, 0.01)));
 
                 float2 uv = IN.uvl.xy;

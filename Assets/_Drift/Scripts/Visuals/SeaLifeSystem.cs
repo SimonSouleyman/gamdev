@@ -13,9 +13,11 @@ namespace Drift.Visuals
     // (Drift/Fish: drawn after the opaque water with the underwater tint) and "SeaLifeAbove" (Drift/VertexColor:
     // everything that breaks the surface). The water material is opaque, so nothing submerged may live in the
     // opaque mesh — it would only show up as a turquoise "shallow" patch through the depth texture.
+    // SeaLifeSystem.Show.cs adds what plays near the camera: seals at the player's coast, surfacing turtles, dolphin
+    // passes across the view, TryShowNear and the cozy pacing.
     [ExecuteAlways]
     [DefaultExecutionOrder(212)]
-    public class SeaLifeSystem : MonoBehaviour
+    public partial class SeaLifeSystem : MonoBehaviour
     {
         public enum Kind { Dolphins, Whale, Turtle, Jellies, Ray, Gulls, Seaweed, WhalePod }
 
@@ -44,7 +46,7 @@ namespace Drift.Visuals
         public float detailDistance = 70f;
         public float splashDistance = 75f;
         public int maxUnderVerts = 2000;
-        public int maxAboveVerts = 1600;
+        public int maxAboveVerts = 2000;
 
         public float dolphinLength = 1.5f;
         public float dolphinCruise = 2.2f;
@@ -124,6 +126,8 @@ namespace Drift.Visuals
             public float breach, depth;
             // Adventure: seconds left as a companion swimming alongside the player (CompanionFlag).
             public float companion;
+            // Dolphins passing across the view (state 4): where they are heading.
+            public Vector2 goal;
         }
 
         struct Puff
@@ -156,8 +160,8 @@ namespace Drift.Visuals
 
         bool _ffActive;
         Vector2 _ffStart, _ffDir;
-        float _ffT, _ffTimer = 6f;
-        int _ffCount;
+        float _ffT, _ffTimer = 6f, _ffLen = 5.5f, _ffDur = 1.3f;
+        int _ffCount, _ffHops = 1;
         uint _ffSeed = 1;
 
         Vector2 _gullCenter;
@@ -524,6 +528,7 @@ namespace Drift.Visuals
             var gw = new SeaShape();
             gw.Sheet(new Vector3(0.05f, 0.1f, 0.1f), new Vector3(0.4f, 0.1f, 0.05f), new Vector3(0.62f, 0.1f, -0.1f), new Vector3(0.05f, 0.1f, -0.1f), grey, Vector3.up);
             _tGullWing = gw.Build();
+            BuildShowTemplates();
         }
 
         static SeaTemplate DolphinShape(SeaShape.Ring[] rings, int segs, Color top, Color belly)
@@ -742,6 +747,7 @@ namespace Drift.Visuals
                 case Kind.Ray:
                     g.count = SeaMath.Rand(h, 6) < 0.4f ? 2 : 1;
                     g.speed = raySpeed;
+                    g.jump = -Mathf.Lerp(rayLeapInterval.x, Mathf.Max(rayLeapInterval.x, rayLeapInterval.y), SeaMath.Rand(h, 7));
                     break;
                 case Kind.Gulls:
                     g.count = 3 + (int)(SeaMath.Rand(h, 6) * 2.999f);
@@ -781,6 +787,7 @@ namespace Drift.Visuals
             _night = debugNight >= 0f ? debugNight : LifeEnvironment.NightAmount;
             _storm = water != null ? water.Storm : LifeEnvironment.Storm;
             _wind = water != null ? water.Wind : LifeEnvironment.Wind;
+            UpdateView();
 
             _obstacleTimer -= dt;
             if (_obstacleTimer <= 0f || dt <= 0f)
@@ -811,13 +818,14 @@ namespace Drift.Visuals
             {
                 StepFlyingFish(dt);
                 StepBaitGulls(dt);
+                StepShow(dt);
                 StepPuffs(dt);
             }
             else StepBaitGulls(0f);
 
             _rebuildTimer += dt;
             float interval = rebuildRate > 0f ? 1f / rebuildRate : 0f;
-            if (_dirty || (_rebuildTimer >= interval && (any || _ffActive || _gullFade > 0f || _under.vc + _above.vc > 0)))
+            if (_dirty || (_rebuildTimer >= interval && (any || _ffActive || _gullFade > 0f || SealCount > 0 || _under.vc + _above.vc > 0)))
             {
                 _rebuildTimer = 0f;
                 _dirty = false;
@@ -874,6 +882,11 @@ namespace Drift.Visuals
                     Vector2 s = Steer(g.pos, want, 4f, 4.5f, false);
                     float sp = Vector2.Dot(s, want) < 0.7f ? 1.4f : drift.magnitude;
                     g.pos += s * (sp * dt);
+                    if ((g.flags & SeenFlag) == 0 && g.fade > 0.8f && InView(g.pos, 0.04f))
+                    {
+                        g.flags |= SeenFlag;
+                        if (Moments.Listening) Moments.Report(MomentKind.JellySwarm, new Vector3(g.pos.x, -0.3f, g.pos.y));
+                    }
                     break;
                 }
                 case Kind.Ray:
@@ -888,12 +901,14 @@ namespace Drift.Visuals
                     }
                     Turn(ref g, Steer(g.pos, want, 10f, 3f, false), 1.2f, dt);
                     g.pos += g.dir * (speed * dt);
+                    StepRayLeap(ref g, dt);
                     break;
                 }
                 case Kind.Gulls:
                 {
                     Vector2 want = Wander(ref g, 0.8f);
                     float speed = g.speed;
+                    int was = g.state;
                     g.state = 0;
                     if (edge < 6f)
                     {
@@ -901,6 +916,11 @@ namespace Drift.Visuals
                         if (away.sqrMagnitude > 1e-4f) want = away.normalized;
                         speed = 2.2f + _playerSpeed;
                         g.state = 1;
+                        if (was == 0 && g.cooldown <= 0f && g.fade > 0.5f)
+                        {
+                            g.cooldown = 8f;
+                            if (Moments.Listening) Moments.Report(MomentKind.GullsTakeOff, new Vector3(g.pos.x, 0.3f, g.pos.y));
+                        }
                     }
                     Turn(ref g, Steer(g.pos, want, 5f, 3f, false), g.state == 1 ? 3f : 0.6f, dt);
                     g.pos += g.dir * (speed * dt);
@@ -953,6 +973,21 @@ namespace Drift.Visuals
                     if (g.timer <= 0f) g.state = 0;
                     break;
                 }
+                case 4:
+                {
+                    // Passing across the view (TryShowNear): straight to the far side, leaping all the way.
+                    g.timer -= dt;
+                    Vector2 to = g.goal - g.pos;
+                    float d = to.magnitude;
+                    want = d > 1e-3f ? to / d : g.dir;
+                    speed = dolphinCruise * 2.4f;
+                    if (d < 2.5f || g.timer <= 0f)
+                    {
+                        g.state = 0;
+                        g.cooldown = 30f;
+                    }
+                    break;
+                }
                 case 3:
                 {
                     g.timer -= dt;
@@ -966,21 +1001,22 @@ namespace Drift.Visuals
                     {
                         g.state = _playerSpeed > 1.2f && _player != null ? 1 : 0;
                         g.timer = bowRideSeconds;
-                        g.cooldown = g.state == 0 ? 30f : 0f;
+                        g.cooldown = g.state == 0 ? (Cozy ? 18f : 30f) : 0f;
                     }
                     break;
                 }
                 default:
                 {
                     want = Wander(ref g, 0.35f);
-                    if (_player != null && g.cooldown <= 0f && edge < bowRideRange)
+                    float ride = Cozy ? Mathf.Max(bowRideRange, cozyDolphinRange) : bowRideRange;
+                    if (_player != null && g.cooldown <= 0f && edge < ride)
                     {
                         if (_playerSpeed > 1.2f)
                         {
                             g.state = 1;
                             g.timer = bowRideSeconds * (0.7f + 0.6f * SeaMath.Rand(g.seed, 40 + (int)_clock));
                         }
-                        else if (edge < bowRideRange * 0.6f)
+                        else if (edge < ride * 0.6f)
                         {
                             g.state = 3;
                             g.timer = 14f;
@@ -997,6 +1033,7 @@ namespace Drift.Visuals
             if (g.jump >= 0f)
             {
                 float before = g.jump;
+                if (before == 0f && Moments.Listening) Moments.Report(MomentKind.DolphinJump, new Vector3(g.pos.x, 0f, g.pos.y));
                 g.jump += dt;
                 for (int m = 0; m < g.count; m++)
                 {
@@ -1010,13 +1047,14 @@ namespace Drift.Visuals
                 if (g.jump >= series)
                 {
                     float nightMul = 1f + _night;
-                    float gap = g.state == 1 ? 2.2f + 2f * SeaMath.Rand(g.seed, 60 + (int)_clock) : 6f + 8f * SeaMath.Rand(g.seed, 60 + (int)_clock);
+                    float jr = SeaMath.Rand(g.seed, 60 + (int)_clock);
+                    float gap = g.state == 1 ? 2.2f + 2f * jr : g.state == 4 ? 1.1f + jr : Cozy && g.state == 3 ? 3.5f + 2.5f * jr : 6f + 8f * jr;
                     g.jump = -gap * nightMul;
                 }
             }
             else
             {
-                g.jump = Mathf.Min(g.jump + dt, 0f);
+                g.jump = Mathf.Min(g.jump + dt * (g.state == 0 ? Pace(g.pos) : 1f), 0f);
                 if (g.jump >= 0f && _obstacles.Inside(g.pos + g.dir * (g.speed * series), 1f)) g.jump = -2f;
             }
         }
@@ -1148,8 +1186,9 @@ namespace Drift.Visuals
                             {
                                 g.state = 3;
                                 g.wander = 0f;
-                                g.breach = Mathf.Lerp(breachIntervalMin, breachIntervalMax, SeaMath.Rand(g.seed, 95 + (int)_clock));
+                                g.breach = Mathf.Lerp(breachIntervalMin, breachIntervalMax, SeaMath.Rand(g.seed, 95 + (int)_clock)) * (Cozy ? cozyBreachScale : 1f);
                                 WhaleBreaches++;
+                                if (Moments.Listening) Moments.Report(MomentKind.WhaleBreach, new Vector3(g.pos.x, 0f, g.pos.y));
                                 break;
                             }
                             g.breach = 6f;
@@ -1161,6 +1200,7 @@ namespace Drift.Visuals
                         g.wander = 0f;
                         g.timer = 3f * WhaleBreath + MaxLag(ref g, false);
                         if (playerEdge < 60f) WhaleSurfacings++;
+                        if (Moments.Listening) Moments.Report(MomentKind.WhaleSurface, new Vector3(g.pos.x, 0f, g.pos.y));
                     }
                     break;
                 case 1:
@@ -1184,6 +1224,11 @@ namespace Drift.Visuals
                         g.flags &= ~2;
                         if (threat || SeaMath.Rand(g.seed, 85 + (int)_clock) < 0.4f) g.flags |= 2;
                         g.timer = WhaleDive + MaxLag(ref g, true);
+                        if (Moments.Listening)
+                        {
+                            Vector2 tail = g.pos - g.dir * (whaleLength * WhaleScale(ref g, 0) * 0.3f);
+                            Moments.Report(MomentKind.WhaleFluke, new Vector3(tail.x, 0.8f, tail.y));
+                        }
                     }
                     break;
                 }
@@ -1328,13 +1373,37 @@ namespace Drift.Visuals
         void StepTurtle(ref Group g, float dt)
         {
             g.timer -= dt;
+            bool show = (g.flags & ShowFlag) != 0;
+            if (show)
+            {
+                g.breach -= dt;
+                // A visitor paddles along the player's coast for a while; it cannot keep up with a moving island.
+                if (g.breach <= 0f || _player == null || g.target != _player || _playerSpeed > 1.6f)
+                {
+                    g.flags &= ~ShowFlag;
+                    show = false;
+                    g.state = 0;
+                    g.target = null;
+                    g.timer = 0f;
+                }
+            }
             if (g.target != null && (!g.target.isActiveAndEnabled || g.target.IsSunk)) g.target = null;
+            if (g.target != null && g.target == _player && _playerSpeed > 1.6f && (g.flags & (PickupFlag | CompanionFlag)) == 0)
+            {
+                g.target = null;
+                g.state = 0;
+                g.timer = 0f;
+            }
             if (g.state == 0 && (g.target == null || g.timer <= 0f))
             {
-                g.target = PickIsland(g.pos, 160f, SeaMath.Hash(g.seed, (uint)(_clock * 0.1f) + 3u), g.target);
+                uint h = SeaMath.Hash(g.seed, (uint)(_clock * 0.1f) + 3u);
+                bool home = Cozy && _player != null && (g.flags & (PickupFlag | CompanionFlag)) == 0 && g.target != _player
+                    && _playerSpeed < 1f && SeaMath.Rand(h, 1) < cozyTurtleToPlayer && (_playerPos - g.pos).sqrMagnitude < 90f * 90f;
+                g.target = home ? _player : PickIsland(g.pos, 160f, h, g.target);
                 g.timer = 60f;
             }
             Vector2 want;
+            bool coast = g.target != null && g.target == _player;
             if (g.target != null)
             {
                 Vector2 c = g.target.PlanarPosition;
@@ -1351,8 +1420,13 @@ namespace Drift.Visuals
                 }
                 else
                 {
-                    want = (new Vector2(-r.y, r.x) + r * Mathf.Clamp((ring - rl) * 0.6f, -1f, 1f)).normalized;
-                    if (g.timer <= 0f) { g.state = 0; g.timer = 0f; }
+                    // Round the player's island the turtle follows the real shelf, where the camera sees it.
+                    float radial = coast
+                        ? Mathf.Clamp((g.target.SampleHeight(g.target.ToLocal(g.pos)) - turtleCoastDepth) / 0.35f, -1f, 1f)
+                        : Mathf.Clamp((ring - rl) * 0.6f, -1f, 1f);
+                    if (coast && rl > ring) radial = Mathf.Min(radial, -0.8f);
+                    want = (new Vector2(-r.y, r.x) + r * radial).normalized;
+                    if (!show && g.timer <= 0f) { g.state = 0; g.timer = 0f; }
                 }
             }
             else
@@ -1360,11 +1434,25 @@ namespace Drift.Visuals
                 g.state = 0;
                 want = Wander(ref g, 0.4f);
             }
-            float speed = g.speed * (g.state == 1 ? 0.5f : 1f);
-            if (_playerSpeed > 0.4f && (g.pos - _playerPos).magnitude - _playerRadius < 3f) speed *= 2.2f;
-            Turn(ref g, Steer(g.pos, want, 6f, 2.5f, false), 1.3f, dt);
+            float speed = g.speed * (g.state == 1 ? (show ? 0.65f : 0.5f) : 1f);
+            if (!coast && _playerSpeed > 0.4f && (g.pos - _playerPos).magnitude - _playerRadius < 3f) speed *= 2.2f;
+            Turn(ref g, Steer(g.pos, want, 6f, 2.5f, coast && g.state == 1), 1.3f, dt);
             g.pos += g.dir * (speed * dt);
+
+            float breath = SeaShow.TurtleBreath(_clock, g.phase, TurtleRate(ref g));
+            if (SeaShow.Surfaced(g.wander, breath) && g.fade > 0.5f)
+            {
+                Vector2 head = g.pos + g.dir * (turtleLength * 0.4f);
+                Splash(head, 0.2f, show ? 3 : 1);
+                if (Moments.Listening) Moments.Report(MomentKind.TurtleBreath, new Vector3(head.x, 0.05f, head.y));
+            }
+            g.wander = breath;
         }
+
+        float TurtleRate(ref Group g) => (g.flags & ShowFlag) != 0 ? showTurtleBreathRate : 0.22f;
+
+        // 0 down, 1 shell out of the water: rises early in the breath so the turtle stays up for a few seconds.
+        float TurtleLift(ref Group g) => Mathf.Clamp01(SeaShow.TurtleBreath(_clock, g.phase, TurtleRate(ref g)) * 2.5f);
 
         Island PickIsland(Vector2 from, float range, uint h, Island except)
         {
@@ -1437,8 +1525,7 @@ namespace Drift.Visuals
                 }
                 case Kind.Turtle:
                 {
-                    float breathe = Mathf.Clamp01(Mathf.Sin(_clock * 0.22f + g.phase) * 6f - 5f);
-                    y = Mathf.Lerp(-0.34f, -0.05f, breathe);
+                    y = Mathf.Lerp(-0.34f, (g.flags & ShowFlag) != 0 ? -0.01f : -0.04f, TurtleLift(ref g));
                     return g.pos;
                 }
                 default:
@@ -1459,20 +1546,27 @@ namespace Drift.Visuals
         {
             if (_ffActive)
             {
+                float before = _ffT;
                 _ffT += dt;
-                float total = 1.3f + _ffCount * 0.09f;
+                float lead = _ffT / _ffDur;
+                if (_ffHops > 1 && lead < 1f && SeaShow.HopIndex(lead, _ffHops) != SeaShow.HopIndex(before / _ffDur, _ffHops))
+                    Splash(_ffStart + _ffDir * (_ffLen * lead), 0.25f, 0);
+                float total = _ffDur + _ffCount * 0.09f;
                 if (_ffT >= total)
                 {
                     _ffActive = false;
-                    Splash(_ffStart + _ffDir * 5.5f, 0.45f, 0);
+                    Splash(_ffStart + _ffDir * _ffLen, 0.45f, 0);
                 }
                 return;
             }
             _ffTimer -= dt;
             if (_ffTimer > 0f) return;
             _ffSeed = SeaMath.Hash(_ffSeed, (uint)(_clock * 13f) + 7u);
-            _ffTimer = Mathf.Lerp(flyingFishIntervalMin, flyingFishIntervalMax, SeaMath.Rand(_ffSeed, 0));
+            Vector2 iv = Cozy ? cozyFlyingFishInterval : new Vector2(flyingFishIntervalMin, flyingFishIntervalMax);
+            _ffTimer = Mathf.Lerp(iv.x, Mathf.Max(iv.x, iv.y), SeaMath.Rand(_ffSeed, 0));
             if (_night > 0.5f || _storm > 0.45f) return;
+            // Cozy: the burst skips right across the picture instead of somewhere around the island.
+            if (Cozy && _player != null && FlyingFishAcross(_viewCenter, _viewRadius, _ffSeed)) return;
             float a = SeaMath.Rand(_ffSeed, 1) * Mathf.PI * 2f;
             Vector2 d = new Vector2(Mathf.Cos(a), Mathf.Sin(a));
             if (_playerSpeed > 1f) d = (_playerVel / _playerSpeed + d * 0.7f).normalized;
@@ -1480,23 +1574,30 @@ namespace Drift.Visuals
             float b = (SeaMath.Rand(_ffSeed, 3) - 0.5f) * 2.4f;
             Vector2 dir = Rotate(d, 1.57f + b);
             if (_obstacles.Inside(start, 2f) || _obstacles.Inside(start + dir * 6f, 2f)) return;
-            _ffActive = true;
-            _ffStart = start;
-            _ffDir = dir;
-            _ffT = 0f;
-            _ffCount = 5 + (int)(SeaMath.Rand(_ffSeed, 4) * 3.999f);
-            Splash(start, 0.4f, 0);
+            BeginFlyingFish(start, dir, 5 + (int)(SeaMath.Rand(_ffSeed, 4) * 3.999f), 1, 5.5f, 1.3f);
         }
 
-        // Starts a flying-fish burst at a spot right away (verification).
-        public void TriggerFlyingFish(Vector2 start, Vector2 dir)
+        void BeginFlyingFish(Vector2 start, Vector2 dir, int count, int hops, float length, float duration)
         {
             _ffActive = true;
             _ffStart = start;
             _ffDir = dir.sqrMagnitude > 1e-6f ? dir.normalized : Vector2.right;
             _ffT = 0f;
-            _ffCount = 7;
+            _ffCount = count;
+            _ffHops = Mathf.Max(1, hops);
+            _ffLen = length;
+            _ffDur = Mathf.Max(0.3f, duration);
+            Splash(start, 0.4f, 0);
+            if (Moments.Listening)
+            {
+                Vector2 mid = _ffStart + _ffDir * (_ffLen * 0.5f);
+                Moments.Report(MomentKind.FlyingFish, new Vector3(mid.x, 0.4f, mid.y));
+            }
+            _dirty = true;
         }
+
+        // Starts a flying-fish burst at a spot right away (verification).
+        public void TriggerFlyingFish(Vector2 start, Vector2 dir) => BeginFlyingFish(start, dir, 7, 1, 5.5f, 1.3f);
 
         void StepBaitGulls(float dt)
         {
@@ -1535,6 +1636,11 @@ namespace Drift.Visuals
                     _gullDiveT = 0f;
                     _gullDiver = (int)(SeaMath.Rand(_ffSeed, 20 + (int)_clock) * 4.999f);
                     _gullDiveTimer = 5f + 6f * SeaMath.Rand(_ffSeed, 30 + (int)_clock);
+                    if (Moments.Listening)
+                    {
+                        Vector2 at = BaitGullPos(_gullDiver, out float gh, out _);
+                        Moments.Report(MomentKind.GullDive, new Vector3(at.x, gh, at.y));
+                    }
                 }
             }
         }
@@ -1607,6 +1713,7 @@ namespace Drift.Visuals
         }
 
         // Verification helpers: force a behaviour on the first matching group.
+
         public bool TriggerDolphinJump(int group = -1)
         {
             bool any = false;
@@ -2086,6 +2193,7 @@ namespace Drift.Visuals
             if (ships != null && _night > 0.3f) DrawLanternGlow();
             if (_ffActive) DrawFlyingFish();
             if (_gullFade > 0.01f) DrawBaitGulls();
+            if (SealCount > 0) DrawSeals();
             for (int i = 0; i < _puffs.Length; i++)
             {
                 if (_puffs[i].life <= 0f) continue;
@@ -2192,11 +2300,16 @@ namespace Drift.Visuals
         void DrawTurtle(ref Group g, bool detail)
         {
             MemberPos(ref g, 0, out float y);
-            float len = turtleLength * g.fade;
-            SeaBatch.Basis(g.dir, 0f, 0f, out Vector3 r, out Vector3 u, out Vector3 f);
+            bool show = (g.flags & ShowFlag) != 0;
+            float len = turtleLength * g.fade * (show ? 1.2f : 1f);
+            float lift = TurtleLift(ref g);
+            // Only once the shell really breaks the surface is it drawn opaque (the depth foam rings it); a body
+            // still under water in the opaque mesh would show as a turquoise patch.
+            bool up = lift > 0.8f;
+            SeaBatch.Basis(g.dir, up ? 0.2f * lift : 0f, 0f, out Vector3 r, out Vector3 u, out Vector3 f);
             Vector3 p = new Vector3(g.pos.x, y, g.pos.y);
             Color tint = new Color(1f, 1f, 1f, 0.95f);
-            if (detail)
+            if (detail || up)
             {
                 float sweep = Mathf.Sin(_clock * 2.2f + g.phase) * 0.5f;
                 for (int k = 0; k < 4; k++)
@@ -2207,11 +2320,13 @@ namespace Drift.Visuals
                     float ca = Mathf.Cos(a), sa = Mathf.Sin(a);
                     Vector3 fr = (r * ca + f * sa) * side, ff = f * ca - r * sa;
                     Vector3 root = p + r * (side * 0.17f * len) + f * ((front ? 0.17f : -0.22f) * len) + u * (0.02f * len);
+                    root.y = Mathf.Min(root.y, -0.06f);
                     float fs = len * (front ? 1f : 0.6f);
                     _under.Add(_tFlipper, root, fr, u, ff, new Vector3(fs, fs, fs), tint);
                 }
             }
-            _under.Add(_tTurtle, p, r, u, f, new Vector3(len, len, len), tint);
+            if (up) _above.Add(_tTurtle, p, r, u, f, new Vector3(len, len, len), Color.white);
+            else _under.Add(_tTurtle, p, r, u, f, new Vector3(len, len, len), tint);
         }
 
         void DrawJellies(ref Group g, bool detail)
@@ -2238,37 +2353,55 @@ namespace Drift.Visuals
             }
         }
 
+        static readonly Color RayBody = new Color(0.1f, 0.14f, 0.2f, 0.8f), RayMid = new Color(0.17f, 0.22f, 0.3f, 0.85f);
+        static readonly Color RayTop = new Color(0.2f, 0.25f, 0.33f, 1f), RayRidge = new Color(0.3f, 0.36f, 0.45f, 1f);
+
         void DrawRays(ref Group g)
         {
-            Color body = new Color(0.1f, 0.14f, 0.2f, 0.8f), mid = new Color(0.17f, 0.22f, 0.3f, 0.85f);
             Vector3 f = new Vector3(g.dir.x, 0f, g.dir.y), r = new Vector3(g.dir.y, 0f, -g.dir.x);
             for (int m = 0; m < g.count; m++)
             {
                 Vector2 w = MemberPos(ref g, m, out float y);
                 float span = raySpan * (1f - 0.2f * m) * g.fade;
+                if (m == 0 && g.jump >= 0f)
+                {
+                    float ly = SeaShow.RayLeap(g.jump, rayLeapHeight, out float pitch, out float roll);
+                    SeaBatch.Basis(g.dir, pitch, roll, out Vector3 lr, out Vector3 lu, out Vector3 lf);
+                    float beat = Mathf.Sin(_clock * 7f + g.phase) * 0.3f * span;
+                    Vector3 lp = new Vector3(w.x, ly, w.y);
+                    if (ly > -0.05f) RayShape(_above, lp, lf, lr, lu, span, beat, RayTop, RayRidge, m);
+                    else RayShape(_under, lp, lf, lr, lu, span, beat, RayBody, RayMid, m);
+                    continue;
+                }
                 float flap = Mathf.Sin(_clock * 1.8f + g.phase + m) * 0.16f * span;
-                Vector3 p = new Vector3(w.x, y, w.y);
-                if (!_under.Fits(8, 15)) return;
-                int b = _under.vc;
-                var v = _under.verts; var c = _under.cols; var t = _under.tris;
-                v[b] = p + f * (0.45f * span);
-                v[b + 1] = p - r * (0.5f * span) + Vector3.up * flap - f * (0.05f * span);
-                v[b + 2] = p + r * (0.5f * span) + Vector3.up * flap - f * (0.05f * span);
-                v[b + 3] = p - f * (0.35f * span);
-                v[b + 4] = p + f * (0.05f * span) + Vector3.up * (0.04f * span);
-                v[b + 5] = p - f * (0.33f * span) - r * (0.025f * span);
-                v[b + 6] = p - f * (0.33f * span) + r * (0.025f * span);
-                v[b + 7] = p - f * (1.05f * span) + r * (Mathf.Sin(_clock * 1.3f + m) * 0.08f * span);
-                c[b] = body; c[b + 1] = body; c[b + 2] = body; c[b + 3] = body; c[b + 4] = mid; c[b + 5] = body; c[b + 6] = body; c[b + 7] = body;
-                int k = _under.tc;
-                t[k++] = b; t[k++] = b + 4; t[k++] = b + 1;
-                t[k++] = b; t[k++] = b + 2; t[k++] = b + 4;
-                t[k++] = b + 1; t[k++] = b + 4; t[k++] = b + 3;
-                t[k++] = b + 4; t[k++] = b + 2; t[k++] = b + 3;
-                t[k++] = b + 5; t[k++] = b + 6; t[k++] = b + 7;
-                _under.tc = k;
-                _under.vc += 8;
+                if (!RayShape(_under, new Vector3(w.x, y, w.y), f, r, Vector3.up, span, flap, RayBody, RayMid, m)) return;
             }
+        }
+
+        bool RayShape(SeaBatch b, Vector3 p, Vector3 f, Vector3 r, Vector3 u, float span, float flap, Color body, Color mid, int m)
+        {
+            if (!b.Fits(8, 15)) return false;
+            int i = b.vc;
+            var v = b.verts; var c = b.cols; var t = b.tris;
+            v[i] = p + f * (0.45f * span);
+            v[i + 1] = p - r * (0.5f * span) + u * flap - f * (0.05f * span);
+            v[i + 2] = p + r * (0.5f * span) + u * flap - f * (0.05f * span);
+            v[i + 3] = p - f * (0.35f * span);
+            v[i + 4] = p + f * (0.05f * span) + u * (0.04f * span);
+            v[i + 5] = p - f * (0.33f * span) - r * (0.025f * span);
+            v[i + 6] = p - f * (0.33f * span) + r * (0.025f * span);
+            v[i + 7] = p - f * (1.05f * span) + r * (Mathf.Sin(_clock * 1.3f + m) * 0.08f * span);
+            c[i] = body; c[i + 1] = body; c[i + 2] = body; c[i + 3] = body; c[i + 4] = mid; c[i + 5] = body; c[i + 6] = body; c[i + 7] = body;
+            if (b.norms != null) for (int k = 0; k < 8; k++) b.norms[i + k] = u;
+            int n = b.tc;
+            t[n++] = i; t[n++] = i + 4; t[n++] = i + 1;
+            t[n++] = i; t[n++] = i + 2; t[n++] = i + 4;
+            t[n++] = i + 1; t[n++] = i + 4; t[n++] = i + 3;
+            t[n++] = i + 4; t[n++] = i + 2; t[n++] = i + 3;
+            t[n++] = i + 5; t[n++] = i + 6; t[n++] = i + 7;
+            b.tc = n;
+            b.vc += 8;
+            return true;
         }
 
         void DrawGulls(ref Group g)
@@ -2331,11 +2464,11 @@ namespace Drift.Visuals
             Vector2 right2 = new Vector2(_ffDir.y, -_ffDir.x);
             for (int i = 0; i < _ffCount; i++)
             {
-                float t = (_ffT - i * 0.09f) / 1.3f;
+                float t = (_ffT - i * 0.09f) / _ffDur;
                 if (t <= 0f || t >= 1f) continue;
-                Vector2 w = _ffStart + right2 * ((i - _ffCount * 0.5f) * 0.45f) + _ffDir * (t * 5.5f + ((i * 37) % 5) * 0.2f);
-                float y = Mathf.Sin(t * Mathf.PI) * (0.5f + 0.08f * ((i * 13) % 4));
-                float pitch = Mathf.Cos(t * Mathf.PI) * 0.45f;
+                Vector2 w = _ffStart + right2 * ((i - _ffCount * 0.5f) * 0.45f) + _ffDir * (t * _ffLen + ((i * 37) % 5) * 0.2f);
+                float y = SeaShow.SkipHeight(t, _ffHops, 0.5f + 0.08f * ((i * 13) % 4), out float hopT);
+                float pitch = Mathf.Cos(hopT * Mathf.PI) * 0.45f;
                 SeaBatch.Basis(_ffDir, pitch, 0f, out Vector3 r, out Vector3 u, out Vector3 f);
                 Vector3 p = new Vector3(w.x, y, w.y);
                 float len = 0.44f;

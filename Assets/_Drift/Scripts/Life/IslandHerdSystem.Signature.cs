@@ -1,3 +1,4 @@
+using Drift.Core;
 using UnityEngine;
 
 namespace Drift.Life
@@ -100,6 +101,7 @@ namespace Drift.Life
                 // The dance is in the water: a shore errand like the parade, never while the water rises.
                 if (Rising || !StartShoreErrand(herd, Errand.Signature)) return false;
                 SignatureMoves++;
+                Moment(MomentKind.Signature, herd);
                 return true;
             }
             EndPlay(herd, false);
@@ -136,6 +138,7 @@ namespace Drift.Life
             herd.errandStage = 1;
             herd.wait = Mathf.Max(herd.wait, 4f);
             SignatureMoves++;
+            Moment(MomentKind.Signature, herd);
             ErrandsStarted++;
             return true;
         }

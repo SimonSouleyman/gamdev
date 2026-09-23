@@ -83,10 +83,10 @@ namespace Drift.Tests
         [Test]
         public void NextTextNamesTheNextMilestone()
         {
-            Assert.AreEqual("Nächster Meilenstein: Leuchtturm bei 3 Inseln", Milestones.NextText(0));
-            Assert.AreEqual("Nächster Meilenstein: Hafen bei 6 Inseln", Milestones.NextText(3));
-            Assert.AreEqual("Nächster Meilenstein: Seevögel bei 10 Inseln", Milestones.NextText(9));
-            Assert.AreEqual("Nächster Meilenstein: Fest bei 15 Inseln", Milestones.NextText(14));
+            Assert.AreEqual("Nächster Meilenstein: Leuchtturm – noch 3 Inseln", Milestones.NextText(0));
+            Assert.AreEqual("Nächster Meilenstein: Hafen – noch 3 Inseln", Milestones.NextText(3));
+            Assert.AreEqual("Nächster Meilenstein: Seevögel – noch 1 Insel", Milestones.NextText(9));
+            Assert.AreEqual("Nächster Meilenstein: Fest – noch 1 Insel", Milestones.NextText(14));
             Assert.IsNull(Milestones.NextText(15));
         }
 

@@ -22,6 +22,8 @@ namespace Drift.Visuals
         public int currentFieldResolution = 64;
         [Tooltip("Wie oft pro Sekunde das Strömungsfeld aus den Platten neu berechnet wird.")]
         public float currentFieldRate = 4f;
+        [Tooltip("So viele Zeilen des Strömungsfelds werden pro Bild neu berechnet: verteilt die Arbeit auf mehrere Bilder, statt alle paar Bilder zu ruckeln.")]
+        [Range(4, 128)] public int currentFieldRowsPerFrame = 16;
         [Tooltip("Breite der Grenzzone (Brandung) beiderseits einer Plattengrenze, in der die Flocken dichter werden.")]
         public float currentEdgeWidth = 10f;
         [Tooltip("Plattentempo, das die Textur höchstens abbildet (Einheiten/s); schneller wird abgeschnitten.")]
@@ -371,10 +373,24 @@ namespace Drift.Visuals
                 _fieldParams = Vector4.zero;
                 return;
             }
-            if (dt > 0f && _fieldAge < interval) return;
-            _fieldAge = 0f;
             float size = Mathf.Max(16f, currentFieldSize);
-            _field.Refresh(plates, FieldCentre(), size, Mathf.Max(0.5f, currentFieldMaxSpeed), currentEdgeWidth);
+            if (dt <= 0f)
+            {
+                // Edit mode and tests: all at once.
+                _fieldAge = 0f;
+                _field.Refresh(plates, FieldCentre(), size, Mathf.Max(0.5f, currentFieldMaxSpeed), currentEdgeWidth);
+            }
+            else if (_field.Busy)
+            {
+                if (!_field.Step(currentFieldRowsPerFrame)) return;
+            }
+            else
+            {
+                if (_fieldAge < interval) return;
+                _fieldAge = 0f;
+                _field.Begin(plates, FieldCentre(), size, Mathf.Max(0.5f, currentFieldMaxSpeed), currentEdgeWidth);
+                return;
+            }
             _fieldParams = new Vector4(_field.Origin.x, _field.Origin.y, 1f / _field.Size, _field.MaxSpeed);
         }
 

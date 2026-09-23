@@ -196,6 +196,7 @@ namespace Drift.Bridge
         Vector2 ProvideMove()
         {
             if (session == null || session.Current != GameSession.State.Playing) return Vector2.zero;
+            if (MoveOverride != null) return MoveOverride();
             if (tilt != null && tilt.Active)
             {
                 Vector2 world = ProvideDirection();
@@ -220,12 +221,18 @@ namespace Drift.Bridge
             return TiltMath.ToWorld(TiltMath.ClampStick(screen), SteerYaw);
         }
 
+        // Playtest bots steer through these instead of the stick: a screen direction (mapped through SteerYaw like
+        // stick and tilt) and, for the old wheel scheme, (turn, throttle).
+        public static System.Func<Vector2> ScreenOverride;
+        public static System.Func<Vector2> MoveOverride;
+
         // The raw screen direction of stick, keys or tilt (0..1), without any of the locks: the fly-over uses
         // the very same input to move the camera once the island has stopped.
         public Vector2 ReadSteerScreen()
         {
             Vector2 screen = Vector2.zero;
-            if (tilt != null && tilt.Active) screen = tilt.Direction;
+            if (ScreenOverride != null) screen = ScreenOverride();
+            else if (tilt != null && tilt.Active) screen = tilt.Direction;
             else if (SteerSettings.Direct)
             {
                 if (touch != null && touch.inputEnabled && touch.stickEnabled) screen = touch.Move;
@@ -869,7 +876,7 @@ namespace Drift.Bridge
             UiStyle.LabelOf(Secondary(_titleExtras, "Help", "Anleitung", new Vector2(-thirdX, 0f), third, () => OpenHelp())).fontSize = 40;
             UiStyle.LabelOf(Secondary(_titleExtras, "Album", "Fotoalbum", new Vector2(0f, 0f), third, () => Watch?.OpenAlbum())).fontSize = 40;
             UiStyle.LabelOf(Secondary(_titleExtras, "Runs", "Durchgänge", new Vector2(thirdX, 0f), third, RunJournal.RequestOpen)).fontSize = 40;
-            Line(panel, "Steuere deine Insel und ramme andere, um zu wachsen.", UiStyle.Caption, UiStyle.Muted, -1456f, 40f);
+            Line(panel, "Gemütlich wachsen – oder im Abenteuer ausweichen.", UiStyle.Caption, UiStyle.Muted, -1456f, 40f);
             return screen.gameObject;
         }
 

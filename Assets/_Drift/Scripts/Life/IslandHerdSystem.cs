@@ -344,6 +344,11 @@ namespace Drift.Life
 
         public int HerdCount => _herds.Count;
 
+        void Moment(MomentKind kind, Herd herd)
+        {
+            if (Moments.Listening && _surface != null) Moments.Report(kind, transform, herd.center, _surface.SampleHeight(herd.center));
+        }
+
         public int AnimalCount
         {
             get
@@ -1155,6 +1160,7 @@ namespace Drift.Life
             }
             PlaysStarted++;
             if (race) Races++;
+            Moment(race ? MomentKind.Race : MomentKind.Play, herd);
         }
 
         void StartSpar(Herd herd, int a, int b)
@@ -1176,6 +1182,7 @@ namespace Drift.Life
             SetState(mb, AnimalState.Play, 0f, WalkPitch, false);
             PlaysStarted++;
             Spars++;
+            Moment(MomentKind.Spar, herd);
         }
 
         void EndPlay(Herd herd, bool look = true)
@@ -1560,6 +1567,7 @@ namespace Drift.Life
             herd.target = dry;
             herd.wait = 0f;
             ErrandsStarted++;
+            Moment(MomentKind.Errand, herd);
             return true;
         }
 
@@ -1585,6 +1593,7 @@ namespace Drift.Life
             herd.target = spot;
             herd.wait = 0f;
             ErrandsStarted++;
+            Moment(MomentKind.Errand, herd);
             return true;
         }
 
@@ -1663,6 +1672,7 @@ namespace Drift.Life
             herd.legs = 3 + _rnd.Next(3);
             herd.side = Rand() < 0.5f ? -1 : 1;
             ErrandsStarted++;
+            Moment(MomentKind.Errand, herd);
             return true;
         }
 
@@ -1759,6 +1769,7 @@ namespace Drift.Life
             herd.target = spot;
             herd.wait = 0f;
             ErrandsStarted++;
+            Moment(MomentKind.Errand, herd);
             return true;
         }
 
@@ -1834,6 +1845,7 @@ namespace Drift.Life
             herd.target = herd.center;
             herd.wait = Rand(20f, 32f);
             ErrandsStarted++;
+            Moment(MomentKind.Errand, herd);
             return true;
         }
 
@@ -1931,6 +1943,7 @@ namespace Drift.Life
             herd.errandT = Rand(8f, 14f);
             herd.wait = Mathf.Max(herd.wait, herd.errandT + 1f);
             ErrandsStarted++;
+            Moment(MomentKind.Errand, herd);
             return true;
         }
 
@@ -2067,6 +2080,7 @@ namespace Drift.Life
             herd.burrow = burrow;
             foreach (var a in herd.members) if (!a.hidden) SetGoal(a, burrow, AnimalActivity.Burrowed);
             Dives++;
+            Moment(MomentKind.AnimalDive, herd);
             return true;
         }
 
@@ -2478,6 +2492,7 @@ namespace Drift.Life
             herd.target = spot;
             herd.wait = 0f;
             ErrandsStarted++;
+            Moment(MomentKind.Errand, herd);
             return true;
         }
 
@@ -2659,6 +2674,7 @@ namespace Drift.Life
             herd.circled = true;
             herd.wait = Mathf.Max(herd.wait, 45f);
             ErrandsStarted++;
+            Moment(MomentKind.Errand, herd);
             Circles++;
             return true;
         }
@@ -2828,6 +2844,54 @@ namespace Drift.Life
                     return IsSignature(which) && SignatureOf(herd.spec.kind) == which && StartSignature(herd);
             }
         }
+
+        // The herd could start something now (the cozy LifeDirector asks before it nudges one): awake, calm, not
+        // fleeing and not busy with an errand, a game, a stampede or its shells. Night errands are cancelled at once.
+        public bool HerdFree(int herdIndex)
+        {
+            if (_surface == null || _rnd == null || herdIndex < 0 || herdIndex >= _herds.Count) return false;
+            var herd = _herds[herdIndex];
+            if (herd.members.Count == 0 || herd.fleeing || herd.errand != Errand.None || herd.playT > 0f || herd.stampT > 0f || herd.tuckT > 0f) return false;
+            if (_night > sleepThreshold || Agitation >= huddleThreshold || behaviourRate <= 0f) return false;
+            return !AnySleeping(herd);
+        }
+
+        // Starts a game (chase, race of the young, goat/reindeer spar) on a standing herd right away; false when it
+        // is busy, walking or has no two awake members to play.
+        public bool TryStartPlay(int herdIndex)
+        {
+            if (!HerdFree(herdIndex)) return false;
+            var herd = _herds[herdIndex];
+            if (herd.members.Count < 2 || herd.spec.play <= 0f || herd.wait <= 0f) return false;
+            StartPlay(herd);
+            return herd.playT > 0f;
+        }
+
+        // A sleeper stirs without waking anyone: it lifts its head for a few seconds and IdleStep lays it back to
+        // sleep (a resting animal goes to sleep again at night). Young ones first; false when nobody lies asleep.
+        public bool TryStirInSleep(int herdIndex)
+        {
+            if (_surface == null || _rnd == null || herdIndex < 0 || herdIndex >= _herds.Count) return false;
+            var herd = _herds[herdIndex];
+            int n = herd.members.Count;
+            if (n == 0 || herd.fleeing || _night <= sleepThreshold) return false;
+            Animal pick = null;
+            int start = _rnd.Next(n);
+            for (int k = 0; k < n; k++)
+            {
+                var a = herd.members[(start + k) % n];
+                if (a.state != AnimalState.Sleep || a.hidden || a.dived || a.stands) continue;
+                if (pick == null || (Young(a) && !Young(pick))) pick = a;
+            }
+            if (pick == null) return false;
+            SetState(pick, AnimalState.Rest, Rand(2.5f, 4f), StretchPitch, false);
+            _meshDirty = true;
+            SleepStirs++;
+            if (Moments.Listening) Moments.Report(MomentKind.SleepStir, transform, pick.pos, _surface.SampleHeight(pick.pos));
+            return true;
+        }
+
+        public int SleepStirs { get; private set; }
 
         // ---------------------------------------------------------- stepping
 

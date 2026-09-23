@@ -11,6 +11,8 @@ namespace Drift.Visuals
     // All fish are one dynamic mesh under a "FishSchools" child, rebuilt at rebuildRate.
     // Three species (small silver sardines, gold reef fish, a few large blue mackerel) and, rarely in open
     // water, a bait ball: a big tight swirling sardine school other systems can look up (TryGetBaitBall).
+    // Cozy mode keeps a couple of schools on the player's own coast (they arrive at the edge of the picture) and lets
+    // them jump more often, sometimes two fish right after each other.
     [ExecuteAlways]
     [DefaultExecutionOrder(210)]
     public class FishSystem : MonoBehaviour
@@ -69,6 +71,14 @@ namespace Drift.Visuals
         [Tooltip("Zusätzliche Reichweite (u) um den Inselrand, in der ein wartender Schwarm eingesammelt wird.")]
         [Range(0f, 8f)] public float pickupGrab = 2.5f;
 
+        [Header("Gemütlich: Leben vor der Kamera")]
+        [Tooltip("So viele Schwärme hält die eigene Küste mindestens (nur Gemütlich; neue kommen seitlich am Bildrand dazu).")]
+        [Range(0, 4)] public int cozyCoastSchools = 2;
+        [Tooltip("Pause (s) zwischen zwei Sprüngen eines Schwarms an der eigenen Küste (nur Gemütlich).")]
+        public Vector2 cozyCoastJumpInterval = new Vector2(3.5f, 9f);
+        [Tooltip("Chance, dass an der eigenen Küste gleich nach einem Sprung ein zweiter Fisch springt (nur Gemütlich).")]
+        [Range(0f, 1f)] public float cozyDoubleJumpChance = 0.3f;
+
         const string ObjName = "FishSchools";
         const int VertsPerFish = 7;
         const int IndicesPerFish = 9;
@@ -94,6 +104,8 @@ namespace Drift.Visuals
             // Adventure: waiting on the track to be run over, then escorting the island for `escort` seconds.
             public bool pickup;
             public float escort, side;
+            // More jumps still to come right after this one (TriggerJumpNear).
+            public int burst;
         }
 
         public enum FishSpecies { Sardine, Gold, Mackerel }
@@ -113,6 +125,9 @@ namespace Drift.Visuals
         bool _dirty;
         Vector2 _playerPos, _playerVel, _playerFwd = Vector2.up;
         float _playerRadius, _playerSpeed;
+        Island _player;
+
+        static bool Cozy => !GameModes.IsAdventure;
 
         public float Clock => _clock;
         public int VertexCount => _vc;
@@ -412,6 +427,7 @@ namespace Drift.Visuals
                 }
             }
             CleanSpent();
+            if (Cozy && _player != null && cozyCoastSchools > 0 && SchoolsOn(_player, -1) < Mathf.Min(cozyCoastSchools, maxSchoolsPerIsland)) AddCoastSchool();
 
             float near2 = spawnRadius * spawnRadius;
             int x0 = Mathf.FloorToInt((_playerPos.x - spawnRadius) / cellSize);
@@ -432,6 +448,26 @@ namespace Drift.Visuals
                     if (slot < 0) return;
                     if (!Activate(slot, key, sp, h)) MarkSpent(key);
                 }
+        }
+
+        // A school for the player's coast, arriving beside the picture (left or right of the island as seen from the
+        // camera) so it swims into view instead of appearing in it.
+        void AddCoastSchool()
+        {
+            int slot = -1;
+            for (int i = 0; i < _schools.Length; i++) if (!_schools[i].active) { slot = i; break; }
+            if (slot < 0) return;
+            var cam = Camera.main;
+            Vector2 fwd = _playerFwd;
+            if (cam != null)
+            {
+                Vector3 f = cam.transform.forward;
+                if (f.x * f.x + f.z * f.z > 1e-4f) fwd = new Vector2(f.x, f.z).normalized;
+            }
+            uint h = Hash((uint)seed + 313u, (uint)(_clock * 7f) + (uint)slot * 31u);
+            Vector2 side = new Vector2(fwd.y, -fwd.x) * (Rand(h, 11) < 0.5f ? 1f : -1f);
+            Vector2 sp = _player.PlanarPosition + side * (_player.BoundingRadius + 1f);
+            if (Activate(slot, long.MinValue + 400 + slot, sp, h) && _schools[slot].island != _player) _schools[slot].active = false;
         }
 
         bool Activate(int slot, long key, Vector2 sp, uint h)
@@ -595,6 +631,28 @@ namespace Drift.Visuals
             return false;
         }
 
+        // The school nearest to `center` inside the circle jumps right away, `burst` fish one after the other
+        // (SeaLifeSystem.TryShowNear). False when no school is inside.
+        public bool TriggerJumpNear(Vector2 center, float radius, int burst = 1)
+        {
+            if (_schools == null) return false;
+            int best = -1;
+            float bd = radius * radius;
+            for (int i = 0; i < _schools.Length; i++)
+            {
+                if (!_schools[i].active || _schools[i].jumpT >= 0f) continue;
+                float d = (_schools[i].pos - center).sqrMagnitude;
+                if (d >= bd) continue;
+                bd = d;
+                best = i;
+            }
+            if (best < 0) return false;
+            ref School s = ref _schools[best];
+            s.jumpTimer = 0f;
+            s.burst = Mathf.Max(0, burst - 1);
+            return true;
+        }
+
         // Starts a jump in the given school right away (debug / verification); returns false if inactive.
         public bool TriggerJump(int school)
         {
@@ -653,6 +711,7 @@ namespace Drift.Visuals
             _clock += dt;
 
             var p = FindPlayer();
+            _player = p != null && !p.IsSunk ? p : null;
             if (p != null && !p.IsSunk)
             {
                 _playerPos = p.PlanarPosition;
@@ -789,11 +848,21 @@ namespace Drift.Visuals
                 {
                     s.jumpT = 0f;
                     s.jumper = (int)(Rand(s.seed, 500 + Mathf.FloorToInt(_clock)) * s.count) % s.count;
-                    s.jumpTimer = Mathf.Lerp(jumpIntervalMin, jumpIntervalMax, Rand(s.seed, 700 + Mathf.FloorToInt(_clock)));
+                    bool coast = Cozy && s.island != null && s.island == _player;
+                    Vector2 iv = coast ? cozyCoastJumpInterval : new Vector2(jumpIntervalMin, jumpIntervalMax);
+                    s.jumpTimer = Mathf.Lerp(iv.x, Mathf.Max(iv.x, iv.y), Rand(s.seed, 700 + Mathf.FloorToInt(_clock)));
                     // A shoal lying on the track keeps jumping: that flicker is what you steer towards.
                     if (s.pickup) s.jumpTimer = 1.2f + 1.2f * Rand(s.seed, 900 + Mathf.FloorToInt(_clock));
+                    if (s.burst > 0)
+                    {
+                        s.burst--;
+                        s.jumpTimer = 0.35f + 0.3f * Rand(s.seed, 950 + Mathf.FloorToInt(_clock));
+                    }
+                    else if (coast && Rand(s.seed, 970 + Mathf.FloorToInt(_clock)) < cozyDoubleJumpChance)
+                        s.jumpTimer = 0.4f + 0.4f * Rand(s.seed, 990 + Mathf.FloorToInt(_clock));
                     Vector2 w = FishWorld(ref s, s.jumper, out _, out _, out _);
                     if (water != null) water.Splash(w, 0.5f);
+                    if (Moments.Listening) Moments.Report(MomentKind.FishJump, new Vector3(w.x, 0f, w.y));
                 }
             }
         }

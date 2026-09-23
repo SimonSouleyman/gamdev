@@ -505,8 +505,17 @@ Shader "Drift/Water"
                              + SplashRing(wp) * (0.4 + 0.5 * churn)
                              + SprayRing(wp, churn);
 
-                float streakMask = smoothstep(0.48, 0.8, DriftNoise(wp * 0.045 + wind * (_Time.y * 0.02)));
-                float streaks = WindStreaks(wp, wind, storm, streakMask);
+                // Wind streaks and whitecaps both scale with storm: in calm weather (most pixels, most of the time) the
+                // noise behind them is skipped instead of multiplied by zero.
+                float streaks = 0.0, whitecap = 0.0;
+                float capTex = n2 * (0.45 + 0.55 * n1);
+                [branch] if (storm > 0.001)
+                {
+                    float streakMask = smoothstep(0.48, 0.8, DriftNoise(wp * 0.045 + wind * (_Time.y * 0.02)));
+                    streaks = WindStreaks(wp, wind, storm, streakMask);
+                    float capMask = smoothstep(0.35, 0.8, DriftNoise(wp * 0.11 + wind * (_Time.y * 0.08)));
+                    whitecap = smoothstep(0.62, 0.95, saturate(h * 0.5 + 0.5) * (0.35 + 0.9 * capTex)) * storm * 0.4 * capMask;
+                }
                 float curEdge;
                 float flecks = CurrentFlecks(wp, camDist, curEdge);
                 // Emphasis along the shore, not in a circle: _CurrentEmphasis.x is a distance from the coastline.
@@ -519,10 +528,6 @@ Shader "Drift/Water"
                 float surfFoam = smoothstep(0.22, 0.8, curEdge * curEdge * _SpeedFeel.z * (0.3 + 1.2 * churn))
                                * _SpeedFeelGains.w * (0.2 + 0.8 * nearPlayer) * 0.7;
                 float speedLines = SpeedLines(wp, coastD, coastFade, max(fwidth(wp.x), fwidth(wp.y)));
-                float capTex = n2 * (0.45 + 0.55 * n1);
-                // Broken up by low-frequency noise so the periodic wave crests don't read as a lattice.
-                float capMask = smoothstep(0.35, 0.8, DriftNoise(wp * 0.11 + wind * (_Time.y * 0.08)));
-                float whitecap = smoothstep(0.62, 0.95, saturate(h * 0.5 + 0.5) * (0.35 + 0.9 * capTex)) * storm * 0.4 * capMask;
 
                 col *= lerp(1.0, _StormTint.rgb, storm);
                 col = lerp(col, _ShallowColor.rgb, saturate(churnTint));

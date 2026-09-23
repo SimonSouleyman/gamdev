@@ -292,8 +292,16 @@ namespace Drift.SaveSystem
                 System.IO.Directory.CreateDirectory(Directory);
                 string tmp = path + ".tmp";
                 File.WriteAllText(tmp, JsonUtility.ToJson(Capture()));
-                if (File.Exists(path)) File.Delete(path);
-                File.Move(tmp, path);
+                if (!File.Exists(path)) File.Move(tmp, path);
+                else
+                {
+                    try { File.Replace(tmp, path, null); }
+                    catch (IOException)
+                    {
+                        File.Copy(tmp, path, true);
+                        File.Delete(tmp);
+                    }
+                }
                 return true;
             }
             catch (Exception e)

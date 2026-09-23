@@ -2007,3 +2007,35 @@ Structural rules that new content has to follow:
   seed, never a real island name verbatim); `RunRecord.name`, shown in the finale and the run journal.
 - One watch mode: `WatchTools.BeginWatch(WatchSubject)` for animal tap, discovery toast, journal card and photo cue;
   the cue tap is answered by WatchTools' own press pipeline (`Press.onCue`, `CueContains`) with a >= 90 px hit rect.
+
+## Play-test tool, moments, life director, sea visitors (2026-09-23)
+
+- `Core/Moments.cs`: `Moments.Report(MomentKind, worldPos)` whenever something a watcher would notice starts (herd
+  errands/plays/signature moves/sleep stirs, bird murmurs/landings/dives, butterflies, critter moves, firefly waves,
+  festivals, fish jumps, dolphin/whale/ray/turtle/seal/flying-fish/gull/jellyfish moments). One null check without
+  listeners. `Moments.Noticed(cam, world, size)` is the shared "noticed" rule: on screen and the subject
+  (`SubjectSize(kind)` world units) at least `NoticePx` (20) pixels tall.
+- `Bridge/LifeDirector.cs` (on SessionUI, cozy only): keeps the owner's target "something interesting near the
+  camera at least every 10 s". `LifePacer` (pure, tested) tracks the gap since the last noticed moment; after
+  5.5–7.5 s it starts something ON SCREEN that is big enough: a herd signature/play/species move (the followed herd
+  first in watch mode), a flock special move, critters, a fish jump, dolphins, a surfacing whale or
+  `SeaLifeSystem.TryShowNear`. Weighted, no immediate repeat, per-kind cooldowns. By night herds are never woken:
+  firefly waves at the watched herd (`IslandCrittersSystem.TriggerFireflyWaveAt`), sleep stirs
+  (`IslandHerdSystem.TryStirInSleep`) and the sea take over.
+- Sea (`SeaLifeSystem.Show.cs`, `Core/SeaShow.cs`): cozy coast visitors (a seal that pops up, looks at the island and
+  may haul out onto the beach; a turtle paddling along the shore), ray leaps, flying-fish bursts across the view, a
+  dolphin pass; coast fish schools jump more often in view. All cozy only; `TryShowNear(center, radius, roll)`.
+- `WatchTools` sets the global keyword `DRIFT_NEAR_FADE` while following/photographing: `Vegetation.shader` dithers
+  out plants nearer to the camera than the watched subject (`_DriftNearFade`), so trees stop filling the orbit view.
+- `CurrentField` refreshes spread over frames (`Begin`/`Step`, `WaterFeedback.currentFieldRowsPerFrame`) and collects
+  plate sites with `PlateSystem.PlatesInRect` (cell lookups): the old 2.6 ms refresh four times a second was the
+  main CPU hitch.
+- Play-test tool (`Scripts/Editor/Playtest`, editor only): menu `Drift/Playtest/*` or
+  `PlaytestRunner.Run(scenario, options)` from eval. Scenarios on a fixed seed: `cozy_observe`, `watch`,
+  `adventure_good`/`adventure_poor`, `tutorial_cozy`/`tutorial_adventure`, `clips`, `soak_cozy`. `HumanBot` steers
+  through `SessionScreens.ScreenOverride`/`MoveOverride` (screen directions like stick and tilt, with reaction delay,
+  noise and attention lapses). `PlaytestRecorder` writes `Playtests/<scenario>_<time>.json` (noticed-event gaps per
+  phase, frame cost, optic flow, race levels: threats, pickups, near misses, boost/surf share, memory);
+  screenshots/clips go to `Playtests/shots/` (gitignored). `python Playtests/summarize.py` prints the newest file
+  per scenario. `PlaytestProfiler` gives per-system CPU ms, GC and the worst frames from the Editor profiler;
+  `PlaytestCapture` sets the phone portrait Game view and builds filmstrips/contact sheets.

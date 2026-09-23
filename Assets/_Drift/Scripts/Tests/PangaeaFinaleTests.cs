@@ -78,7 +78,7 @@ namespace Drift.Tests
             StringAssert.Contains("12:34", s);
             StringAssert.Contains("19", s);
             StringAssert.Contains("1234", s);
-            StringAssert.Contains("Arten entdeckt   8", s);
+            StringAssert.Contains("Arten gesehen   8", s);
             StringAssert.Contains("Fotos   3", s);
             StringAssert.Contains("1:00:00", PangaeaFinale.FormatStats(new RunRecord { playSeconds = 3600f }));
             Assert.AreEqual("", PangaeaFinale.FormatStats(null));
