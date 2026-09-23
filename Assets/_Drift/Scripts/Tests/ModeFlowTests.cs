@@ -14,78 +14,78 @@ namespace Drift.Tests
         public void SetUp()
         {
             _path = Path.Combine(Path.GetTempPath(), "drift_flow_test_" + System.Guid.NewGuid().ToString("N") + ".json");
-            BestTimes.PathOverride = _path;
+            BestDistances.PathOverride = _path;
         }
 
         [TearDown]
         public void TearDown()
         {
-            BestTimes.PathOverride = null;
+            BestDistances.PathOverride = null;
             if (File.Exists(_path)) File.Delete(_path);
         }
 
         [Test]
-        public void BestTimes_UsesTheOverrideNotTheRealFile()
+        public void BestDistances_UsesTheOverrideNotTheRealFile()
         {
-            Assert.AreEqual(_path, BestTimes.FilePath);
-            BestTimes.Submit(GameMode.Adventure, 12f);
+            Assert.AreEqual(_path, BestDistances.FilePath);
+            BestDistances.Submit(GameMode.Adventure, 12f);
             Assert.IsTrue(File.Exists(_path));
         }
 
         [Test]
-        public void BestTimes_OnlyALongerRunIsARecord()
+        public void BestDistances_OnlyALongerRunIsARecord()
         {
-            Assert.AreEqual(0f, BestTimes.Get(GameMode.Adventure));
-            Assert.IsFalse(BestTimes.Has(GameMode.Adventure));
+            Assert.AreEqual(0f, BestDistances.Get(GameMode.Adventure));
+            Assert.IsFalse(BestDistances.Has(GameMode.Adventure));
 
-            var first = BestTimes.Submit(GameMode.Adventure, 100f);
+            var first = BestDistances.Submit(GameMode.Adventure, 100f);
             Assert.IsTrue(first.isRecord);
             Assert.IsTrue(first.IsFirst);
             Assert.IsFalse(first.BeatPrevious);
             Assert.AreEqual(100f, first.best);
 
-            var worse = BestTimes.Submit(GameMode.Adventure, 80f);
+            var worse = BestDistances.Submit(GameMode.Adventure, 80f);
             Assert.IsFalse(worse.isRecord);
             Assert.AreEqual(100f, worse.best);
             Assert.AreEqual(100f, worse.previous);
 
-            var same = BestTimes.Submit(GameMode.Adventure, 100f);
-            Assert.IsFalse(same.isRecord, "equal time is not a new record");
+            var same = BestDistances.Submit(GameMode.Adventure, 100f);
+            Assert.IsFalse(same.isRecord, "an equal distance is not a new record");
 
-            var better = BestTimes.Submit(GameMode.Adventure, 150f);
+            var better = BestDistances.Submit(GameMode.Adventure, 150f);
             Assert.IsTrue(better.BeatPrevious);
             Assert.AreEqual(100f, better.previous);
-            Assert.AreEqual(150f, BestTimes.Get(GameMode.Adventure));
+            Assert.AreEqual(150f, BestDistances.Get(GameMode.Adventure));
 
-            Assert.IsFalse(BestTimes.Submit(GameMode.Adventure, float.NaN).isRecord);
-            Assert.IsFalse(BestTimes.Submit(GameMode.Adventure, float.PositiveInfinity).isRecord);
-            Assert.AreEqual(0f, BestTimes.Get(GameMode.Cozy), "modes are kept apart");
+            Assert.IsFalse(BestDistances.Submit(GameMode.Adventure, float.NaN).isRecord);
+            Assert.IsFalse(BestDistances.Submit(GameMode.Adventure, float.PositiveInfinity).isRecord);
+            Assert.AreEqual(0f, BestDistances.Get(GameMode.Cozy), "modes are kept apart");
         }
 
         [Test]
-        public void BestTimes_SurviveAReload()
+        public void BestDistances_SurviveAReload()
         {
-            BestTimes.Submit(GameMode.Adventure, 222.5f);
-            BestTimes.Submit(GameMode.Cozy, 30f);
-            BestTimes.PathOverride = _path; // drops the cache
-            Assert.AreEqual(222.5f, BestTimes.Get(GameMode.Adventure), 1e-4f);
-            Assert.AreEqual(30f, BestTimes.Get(GameMode.Cozy), 1e-4f);
-            BestTimes.Clear(GameMode.Adventure);
-            BestTimes.PathOverride = _path;
-            Assert.AreEqual(0f, BestTimes.Get(GameMode.Adventure));
-            Assert.AreEqual(30f, BestTimes.Get(GameMode.Cozy), 1e-4f);
+            BestDistances.Submit(GameMode.Adventure, 222.5f);
+            BestDistances.Submit(GameMode.Cozy, 30f);
+            BestDistances.PathOverride = _path; // drops the cache
+            Assert.AreEqual(222.5f, BestDistances.Get(GameMode.Adventure), 1e-4f);
+            Assert.AreEqual(30f, BestDistances.Get(GameMode.Cozy), 1e-4f);
+            BestDistances.Clear(GameMode.Adventure);
+            BestDistances.PathOverride = _path;
+            Assert.AreEqual(0f, BestDistances.Get(GameMode.Adventure));
+            Assert.AreEqual(30f, BestDistances.Get(GameMode.Cozy), 1e-4f);
         }
 
         [Test]
-        public void BestTimes_BrokenFileReadsAsNoRecord()
+        public void BestDistances_BrokenFileReadsAsNoRecord()
         {
             File.WriteAllText(_path, "{ not json");
-            BestTimes.PathOverride = _path;
+            BestDistances.PathOverride = _path;
             UnityEngine.TestTools.LogAssert.ignoreFailingMessages = true;
             try
             {
-                Assert.AreEqual(0f, BestTimes.Get(GameMode.Adventure));
-                Assert.IsTrue(BestTimes.Submit(GameMode.Adventure, 5f).isRecord);
+                Assert.AreEqual(0f, BestDistances.Get(GameMode.Adventure));
+                Assert.IsTrue(BestDistances.Submit(GameMode.Adventure, 5f).isRecord);
             }
             finally
             {
@@ -94,40 +94,90 @@ namespace Drift.Tests
         }
 
         [Test]
-        public void BestTimes_Format()
+        public void BestDistances_FormatInGermanMetres()
         {
-            Assert.AreEqual("0:00", BestTimes.Format(0f));
-            Assert.AreEqual("0:00", BestTimes.Format(-3f));
-            Assert.AreEqual("0:59", BestTimes.Format(59.9f));
-            Assert.AreEqual("3:42", BestTimes.Format(222f));
-            Assert.AreEqual("12:05", BestTimes.Format(725f));
-            Assert.AreEqual("1:02:09", BestTimes.Format(3729f));
+            Assert.AreEqual("0 m", BestDistances.Format(0f));
+            Assert.AreEqual("0 m", BestDistances.Format(-3f));
+            Assert.AreEqual("0 m", BestDistances.Format(float.NaN));
+            Assert.AreEqual("59 m", BestDistances.Format(59.9f), "whole metres, never rounded up past the real distance");
+            Assert.AreEqual("999 m", BestDistances.Format(999.99f));
+            Assert.AreEqual("1.000 m", BestDistances.Format(1000f));
+            Assert.AreEqual("1.234 m", BestDistances.Format(1234.5f));
+            Assert.AreEqual("12.345 m", BestDistances.Format(12345f));
+            Assert.AreEqual("1.234.567 m", BestDistances.Format(1234567f));
+            Assert.AreEqual(1234, BestDistances.Metres(1234.9f));
         }
 
         [Test]
-        public void Title_BestTimeCaptionAndRecordLine()
+        public void BestDistances_OldTimeRecordsAreDropped()
         {
-            Assert.AreEqual("Bestzeit 3:42", ModeTexts.BestTimeCaption(222f));
-            StringAssert.DoesNotContain("Bestzeit", ModeTexts.BestTimeCaption(0f));
-            Assert.AreEqual("Neuer Rekord!", ModeTexts.RecordLine(new BestTimes.Result { previous = 100f, best = 150f, isRecord = true }));
-            Assert.AreEqual("Erste Bestzeit!", ModeTexts.RecordLine(new BestTimes.Result { previous = 0f, best = 20f, isRecord = true }));
-            Assert.AreEqual("", ModeTexts.RecordLine(new BestTimes.Result { previous = 100f, best = 100f }));
+            File.WriteAllText(_path, "{\"seconds\":[0.0,262.0]}");
+            BestDistances.PathOverride = _path;
+            Assert.AreEqual(0f, BestDistances.Get(GameMode.Adventure), "a best time is no distance");
+            Assert.IsTrue(BestDistances.Submit(GameMode.Adventure, 40f).isRecord);
+            BestDistances.PathOverride = _path;
+            Assert.AreEqual(40f, BestDistances.Get(GameMode.Adventure), 1e-4f);
+            StringAssert.DoesNotContain("seconds", File.ReadAllText(_path));
+        }
+
+        [Test]
+        public void Title_RecordCaptionAndRecordLine()
+        {
+            Assert.AreEqual("Rekord 3.456 m", ModeTexts.BestDistanceCaption(3456f));
+            Assert.AreEqual("Wie weit kommst du?", ModeTexts.BestDistanceCaption(0f));
+            Assert.AreEqual("Neuer Rekord!", ModeTexts.RecordLine(new BestDistances.Result { previous = 100f, best = 150f, isRecord = true }));
+            Assert.AreEqual("Erster Rekord!", ModeTexts.RecordLine(new BestDistances.Result { previous = 0f, best = 20f, isRecord = true }));
+            Assert.AreEqual("", ModeTexts.RecordLine(new BestDistances.Result { previous = 100f, best = 100f }));
             Assert.AreEqual("Neuer Versuch", ModeTexts.RestartLabel(GameMode.Adventure));
             Assert.AreEqual("Neu beginnen", ModeTexts.RestartLabel(GameMode.Cozy));
         }
 
         [Test]
-        public void GameOver_AdventureStatsShowTimeBestFlotsamAndHits()
+        public void GameOver_AdventureStatsShowDistanceRecordFlotsamAndHits()
         {
-            var st = new SessionStats { timeSurvived = 222f };
-            string text = ModeTexts.AdventureStats(st, 300f, 12, 3, 9);
-            StringAssert.Contains("Überlebt   3:42", text);
-            StringAssert.Contains("Bestzeit   5:00", text);
+            var st = new SessionStats { timeSurvived = 222f, distance = 1234.6f };
+            string text = ModeTexts.AdventureStats(st, 3000f, 12, 3, 9);
+            StringAssert.Contains("Strecke   1.234 m", text);
+            StringAssert.Contains("Rekord   3.000 m", text);
             StringAssert.Contains("Treibgut   12", text);
             StringAssert.Contains("Ausgewichen   9", text);
             StringAssert.Contains("Rempler   3", text);
             StringAssert.DoesNotContain("verschmolzen", text, "nothing is merged in Abenteuer any more");
-            StringAssert.Contains("Bestzeit   3:42", ModeTexts.AdventureStats(st, 0f, 0, 0, 0), "a first run is its own best time");
+            StringAssert.DoesNotContain("3:42", text, "Abenteuer no longer scores the time");
+            StringAssert.DoesNotContain("Bestzeit", text);
+            StringAssert.Contains("Rekord   1.234 m", ModeTexts.AdventureStats(st, 0f, 0, 0, 0), "a first run is its own record");
+        }
+
+        [Test]
+        public void GameOver_CozyStillShowsTheTime()
+        {
+            Assert.AreEqual("0:00", ModeTexts.Clock(-3f));
+            Assert.AreEqual("0:59", ModeTexts.Clock(59.9f));
+            Assert.AreEqual("12:05", ModeTexts.Clock(725f));
+            Assert.AreEqual("1:02:09", ModeTexts.Clock(3729f));
+            StringAssert.Contains("Überlebt   3:42", ModeTexts.CozyStats(new SessionStats { timeSurvived = 222f }));
+        }
+
+        [Test]
+        public void SessionStats_CarryTheDistance()
+        {
+            var model = new SessionModel();
+            model.RecordDistance(50f);
+            Assert.AreEqual(0f, model.Stats.distance, "only while playing");
+            model.BeginPlaying();
+            model.RecordDistance(120.5f);
+            Assert.AreEqual(120.5f, model.Stats.distance, 1e-4f);
+            model.RecordDistance(-4f);
+            Assert.AreEqual(0f, model.Stats.distance);
+            model.RecordDistance(88f);
+            var copy = new SessionStats();
+            copy.CopyFrom(model.Stats);
+            Assert.AreEqual(88f, copy.distance, 1e-4f);
+            model.Sink();
+            model.RecordDistance(500f);
+            Assert.AreEqual(88f, model.Stats.distance, 1e-4f, "the game-over screen keeps the run's distance");
+            model.BeginPlaying();
+            Assert.AreEqual(0f, model.Stats.distance, "a new run starts at zero");
         }
 
         [Test]

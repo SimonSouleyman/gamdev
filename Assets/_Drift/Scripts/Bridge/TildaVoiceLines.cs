@@ -23,8 +23,8 @@ namespace Drift.Bridge
 
         static readonly KeyValuePair<string, string>[] Lines =
         {
-            Line(Greeting, "Hallo, mein Schatz! Ich bin " + K("Tilda") + ". Drück auf " + K("Start") + ", dann treiben wir zusammen los."),
-            Line(GameOver, "Ach je, versunken. Das macht nichts, mein Schatz – wir fangen einfach " + K("neu") + " an."),
+            Line(Greeting, "Hi! Ich bin " + K("Tilda") + ". Tipp auf " + K("Gemütlich") + " oder " + K("Abenteuer") + ", dann treiben wir zusammen los."),
+            Line(GameOver, "Ach je, versunken. Das macht nichts – wir fangen einfach " + K("neu") + " an."),
             Line(NewIsland, "So, auf ein Neues! Diesmal wird sie noch größer."),
             Line(Pause, "Eine kleine Pause? Lass dir ruhig Zeit, ich warte hier."),
             Line(VoiceOn, "Mh-hm! Da bin ich wieder."),
@@ -32,16 +32,16 @@ namespace Drift.Bridge
             Line("idle_2", "Ich dampfe hier gemütlich vor mich hin. Sag Bescheid, wenn es losgeht."),
             Line("idle_3", "Im " + K("Fotoalbum") + " findest du deine schönsten Inseln wieder."),
             Line("idle_4", "Ach, ist das Meer heute wieder schön."),
-            Line("adv_gameover", "Uff, abgesoffen! Aber das war eine " + K("starke Zeit") + ". Gleich nochmal?"),
+            Line("adv_gameover", "Uff, abgesoffen! Aber das war eine " + K("starke Strecke") + ". Gleich nochmal?"),
             Line("adv_new_island", "Brille sitzt, Lava kocht. Auf die Plätze, fertig – " + K("los") + "!"),
             Line("adv_pause", "Kurz verschnaufen? Gut so. Meine Brille läuft eh gerade an."),
-            Line(AdventureRecord, K("Neue Bestzeit") + "! Da beschlägt mir glatt die Brille."),
+            Line(AdventureRecord, K("Neuer Rekord") + "! Da beschlägt mir glatt die Brille."),
             // Meilensteine im Gemütlich-Modus (Drift.SaveSystem.Milestones.VoiceKeyOf).
             Line("milestone_lighthouse", "Ein " + K("Leuchtturm") + "! Jetzt findest du auch die Inseln hinterm Horizont."),
             Line("milestone_harbour", "Dein eigener " + K("Hafen") + " – da legt bestimmt bald jemand an."),
             Line("milestone_birds", "Hörst du die " + K("Seevögel") + "? Die bleiben jetzt bei uns."),
-            Line("milestone_festival", "Heute Abend wird " + K("gefeiert") + ", mein Schatz!"),
-            Line("pangaea_ready", "Alles vereint, mein Schatz. Bleib ruhig noch ein bisschen."),
+            Line("milestone_festival", "Heute Abend wird " + K("gefeiert") + "!"),
+            Line("pangaea_ready", "Alles vereint! Bleib ruhig noch ein bisschen."),
         };
 
         static string K(string word) => TildaBubble.Key(word);

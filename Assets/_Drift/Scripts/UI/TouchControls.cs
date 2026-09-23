@@ -138,7 +138,7 @@ namespace Drift.UI
             {
                 var p = _pointers[i];
                 if (!p.began || IsPointerOnStick(p.id)) continue;
-                if (IsOverUi(p.id) || OverGraphic(p.pos)) continue;
+                if (OverGraphic(p.pos)) continue;
                 _lookId = p.id;
                 _lookLast = p.pos;
                 break;
@@ -225,9 +225,10 @@ namespace Drift.UI
                 var p = _pointers[i];
                 if (!p.began) continue;
                 if (p.pos.x > Screen.width * stickZoneWidth) continue;
-                // IsPointerOverGameObject answers for the previous UI update on the Began frame, so a finger that
-                // starts on a floating button (the photo cue) would still grab the stick: raycast the UI right now.
-                if (IsOverUi(p.id) || OverGraphic(p.pos)) continue;
+                // Only a fresh raycast: IsPointerOverGameObject answers for the previous UI update, so after a tap on a
+                // button (Tilda's "Weiter") it still said "over UI" for the next touch of that finger id, and the stick
+                // refused the first touch (owner, first APK test: "hängt, erst nach mehrmaligem Probieren").
+                if (OverGraphic(p.pos)) continue;
                 _stickId = p.id;
                 StickDeflected = false;
                 _stickOrigin = p.pos;
@@ -254,13 +255,6 @@ namespace Drift.UI
                 if (go != null && go.GetComponentInParent<TouchControls>() == null) return true;
             }
             return false;
-        }
-
-        static bool IsOverUi(int pointerId)
-        {
-            var es = EventSystem.current;
-            if (es == null) return false;
-            return pointerId < 0 ? es.IsPointerOverGameObject() : es.IsPointerOverGameObject(pointerId);
         }
 
         float ScaleFactor => _canvas != null && _canvas.scaleFactor > 0f ? _canvas.scaleFactor : 1f;

@@ -896,7 +896,11 @@ namespace Drift.Islands
             }
             if (_selfVel.sqrMagnitude > cap * cap) _selfVel = _selfVel.normalized * cap;
 
-            Vector2 plateVel = PlateSystem.Instance != null ? PlateSystem.Instance.SampleVelocity(_pos) : Vector2.zero;
+            // Cozy: the plate interior only carries gently (owner: "selbst gegen die Strömung möchte ich vorankommen");
+            // the strong push is reserved for the boundaries (SurfVelocity). The adventure keeps the full lane current.
+            var plates = PlateSystem.Instance;
+            Vector2 plateVel = plates == null ? Vector2.zero
+                : Mode == GameMode.Adventure ? plates.SampleVelocity(_pos) : plates.CarryVelocity(_pos, MaxSpeed);
 
             var storms = StormSystem.Instance;
             float storm = 0f;

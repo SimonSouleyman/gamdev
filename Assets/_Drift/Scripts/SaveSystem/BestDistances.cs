@@ -1,29 +1,31 @@
 using System;
+using System.Globalization;
 using System.IO;
 using Drift.Core;
 using UnityEngine;
 
 namespace Drift.SaveSystem
 {
-    // The longest time survived per game mode (Abenteuer scores by it). A tiny JSON file next to the saves;
-    // tests point PathOverride at a temporary file so the owner's record is never touched.
-    public static class BestTimes
+    // The furthest distance per game mode (Abenteuer scores by the metres travelled along the ring). A tiny JSON file
+    // next to the saves; tests point PathOverride at a temporary file so the owner's record is never touched.
+    // The file name is the one of the old best times: those were kept under "seconds" and are simply not read any more.
+    public static class BestDistances
     {
         public const string FileName = "drift_best_times.json";
 
         [Serializable]
         sealed class Data
         {
-            public float[] seconds = new float[0];
+            public float[] metres = new float[0];
         }
 
         public struct Result
         {
-            public float seconds;
+            public float metres;
             public float previous;
             public float best;
             public bool isRecord;
-            // A record, but there was no earlier time to beat.
+            // A record, but there was no earlier distance to beat.
             public bool IsFirst => isRecord && previous <= 0f;
             public bool BeatPrevious => isRecord && previous > 0f;
         }
@@ -50,22 +52,22 @@ namespace Drift.SaveSystem
         {
             var d = Load();
             int i = (int)mode;
-            return i >= 0 && i < d.seconds.Length ? Mathf.Max(0f, d.seconds[i]) : 0f;
+            return i >= 0 && i < d.metres.Length ? Mathf.Max(0f, d.metres[i]) : 0f;
         }
 
         public static bool Has(GameMode mode) => Get(mode) > 0f;
 
-        // Records a finished run; only a longer time replaces the best one.
-        public static Result Submit(GameMode mode, float seconds)
+        // Records a finished run; only a longer distance replaces the best one.
+        public static Result Submit(GameMode mode, float metres)
         {
             float prev = Get(mode);
-            var r = new Result { seconds = Mathf.Max(0f, seconds), previous = prev, best = prev };
-            if (!(seconds > prev) || float.IsNaN(seconds) || float.IsInfinity(seconds)) return r;
+            var r = new Result { metres = Mathf.Max(0f, metres), previous = prev, best = prev };
+            if (!(metres > prev) || float.IsNaN(metres) || float.IsInfinity(metres)) return r;
             var d = Load();
             int i = (int)mode;
-            if (d.seconds.Length <= i) Array.Resize(ref d.seconds, i + 1);
-            d.seconds[i] = seconds;
-            r.best = seconds;
+            if (d.metres.Length <= i) Array.Resize(ref d.metres, i + 1);
+            d.metres[i] = metres;
+            r.best = metres;
             r.isRecord = true;
             Write(d);
             Changed?.Invoke(mode);
@@ -76,20 +78,19 @@ namespace Drift.SaveSystem
         {
             var d = Load();
             int i = (int)mode;
-            if (i >= d.seconds.Length || d.seconds[i] <= 0f) return;
-            d.seconds[i] = 0f;
+            if (i >= d.metres.Length || d.metres[i] <= 0f) return;
+            d.metres[i] = 0f;
             Write(d);
             Changed?.Invoke(mode);
         }
 
-        // "3:42", "12:05", "1:02:09".
-        public static string Format(float seconds)
-        {
-            if (float.IsNaN(seconds) || seconds < 0f) seconds = 0f;
-            long s = (long)Math.Floor(seconds);
-            long h = s / 3600, m = s / 60 % 60, sec = s % 60;
-            return h > 0 ? $"{h}:{m:00}:{sec:00}" : $"{m}:{sec:00}";
-        }
+        // German digit grouping without relying on the device's culture data: "0 m", "987 m", "1.234 m", "12.345 m".
+        static readonly NumberFormatInfo Grouped = new NumberFormatInfo { NumberGroupSeparator = ".", NumberDecimalSeparator = ",", NumberGroupSizes = new[] { 3 } };
+
+        public static string Format(float metres) => Metres(metres).ToString("#,0", Grouped) + " m";
+
+        // Whole metres shown for a distance (the HUD rebuilds its text only when this changes).
+        public static int Metres(float metres) => float.IsNaN(metres) || metres <= 0f ? 0 : metres >= int.MaxValue ? int.MaxValue : (int)Math.Floor(metres);
 
         static Data Load()
         {
@@ -101,12 +102,12 @@ namespace Drift.SaveSystem
                 if (File.Exists(path))
                 {
                     var d = JsonUtility.FromJson<Data>(File.ReadAllText(path));
-                    if (d != null && d.seconds != null) s_data = d;
+                    if (d != null && d.metres != null) s_data = d;
                 }
             }
             catch (Exception e)
             {
-                Debug.LogWarning("BestTimes: could not read " + FilePath + ": " + e.Message);
+                Debug.LogWarning("BestDistances: could not read " + FilePath + ": " + e.Message);
             }
             return s_data;
         }
@@ -125,7 +126,7 @@ namespace Drift.SaveSystem
             }
             catch (Exception e)
             {
-                Debug.LogWarning("BestTimes: could not write " + FilePath + ": " + e.Message);
+                Debug.LogWarning("BestDistances: could not write " + FilePath + ": " + e.Message);
             }
         }
     }

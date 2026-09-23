@@ -67,7 +67,8 @@ namespace Drift.Bridge
         GameObject _overNewIsland, _overAdventureRow;
         Button _continueButton;
         Text _titleBestText, _recordText, _pauseRestartLabel;
-        BestTimes.Result _lastResult;
+        BestDistances.Result _lastResult;
+        int _overStamp, _titleBestShown = -1;
         GameMode _overMode = (GameMode)(-1);
         RectTransform _titleExtras;
         readonly HelpScreen _help = new HelpScreen();
@@ -260,7 +261,7 @@ namespace Drift.Bridge
         void OnStateChanged(GameSession.State s)
         {
             if (s == GameSession.State.GameOver && session != null && session.Mode == GameMode.Adventure)
-                _lastResult = BestTimes.Submit(GameMode.Adventure, session.Stats.timeSurvived);
+                _lastResult = BestDistances.Submit(GameMode.Adventure, session.Stats.distance);
             _saveCheckTimer = 0f;
             _hasSave = session != null && session.HasSave;
             _preview?.RequestRender();
@@ -306,8 +307,8 @@ namespace Drift.Bridge
                 }
                 if (o)
                 {
-                    var sample = new SessionStats { timeSurvived = adventureOver ? 262f : 83f, islandsAbsorbed = adventureOver ? 11 : 4, volcanoesAbsorbed = 1, peakLandMass = 212f };
-                    var result = new BestTimes.Result { seconds = 262f, previous = 222f, best = 262f, isRecord = true };
+                    var sample = new SessionStats { timeSurvived = adventureOver ? 262f : 83f, distance = adventureOver ? 3456f : 0f, islandsAbsorbed = adventureOver ? 11 : 4, volcanoesAbsorbed = 1, peakLandMass = 212f };
+                    var result = new BestDistances.Result { metres = 3456f, previous = 2980f, best = 3456f, isRecord = true };
                     FillGameOver(sample, 3.2f, adventureOver ? GameMode.Adventure : GameMode.Cozy, result);
                 }
                 if (t) RefreshTitleBest();
@@ -348,7 +349,7 @@ namespace Drift.Bridge
                 ShowPanels(s == GameSession.State.Title, s == GameSession.State.Paused, s == GameSession.State.GameOver, s == GameSession.State.Playing);
                 if (s != GameSession.State.Title && s != GameSession.State.Paused) _help.Hide();
                 CloseConfirm();
-                if (s != GameSession.State.Paused) _tiltScreen.Hide();
+                if (s != GameSession.State.Paused && s != GameSession.State.Title) _tiltScreen.Hide();
                 if (s == GameSession.State.Title)
                 {
                     // The title works with the cozy game: "Weiter" and the seed field belong to its save.
@@ -635,12 +636,14 @@ namespace Drift.Bridge
             if (_pauseButton != null) _pauseButton.SetActive(pauseButton);
         }
 
-        // Abenteuer scores the time survived and waits for "Nochmal" / "Zum Titel"; the cozy path (no longer
-        // reachable in normal play) keeps its stats and the automatic new island.
-        void FillGameOver(SessionStats st, float countdown, GameMode mode, BestTimes.Result result)
+        // Abenteuer scores the distance and waits for "Nochmal" / "Zum Titel"; the cozy path (no longer reachable in
+        // normal play) keeps its stats and the automatic new island. Called every frame of the screen: the texts are
+        // only rebuilt when something they show has changed.
+        void FillGameOver(SessionStats st, float countdown, GameMode mode, BestDistances.Result result)
         {
             bool adventure = mode == GameMode.Adventure;
-            if (mode != _overMode)
+            bool modeChanged = mode != _overMode;
+            if (modeChanged)
             {
                 _overMode = mode;
                 if (_overNewIsland != null) _overNewIsland.SetActive(!adventure);
@@ -648,6 +651,9 @@ namespace Drift.Bridge
                 if (_overSeedText != null) _overSeedText.gameObject.SetActive(!adventure);
                 if (_recordText != null) _recordText.gameObject.SetActive(adventure);
             }
+            int stamp = OverStamp(st, adventure ? 0 : Mathf.CeilToInt(countdown), result);
+            if (!modeChanged && stamp == _overStamp) return;
+            _overStamp = stamp;
             if (_overTitle != null)
             {
                 var pl = session != null ? session.player : null;
@@ -660,9 +666,32 @@ namespace Drift.Bridge
                 _countdownText.text = !adventure && countdown > 0f ? $"Neue Insel in {Mathf.CeilToInt(countdown)} …" : "";
         }
 
+        static int OverStamp(SessionStats st, int countdown, BestDistances.Result result)
+        {
+            unchecked
+            {
+                int h = BestDistances.Metres(st.distance);
+                h = h * 31 + BestDistances.Metres(result.best);
+                h = h * 31 + (result.isRecord ? 1 : 0) + (result.previous > 0f ? 2 : 0);
+                h = h * 31 + AdventureRunStats.Flotsam;
+                h = h * 31 + AdventureRunStats.Hits;
+                h = h * 31 + AdventureRunStats.Dodges;
+                h = h * 31 + Mathf.FloorToInt(st.timeSurvived);
+                h = h * 31 + st.islandsAbsorbed;
+                h = h * 31 + st.volcanoesAbsorbed;
+                h = h * 31 + Mathf.RoundToInt(st.peakLandMass);
+                return h * 31 + countdown;
+            }
+        }
+
         void RefreshTitleBest()
         {
-            if (_titleBestText != null) _titleBestText.text = ModeTexts.BestTimeCaption(BestTimes.Get(GameMode.Adventure));
+            if (_titleBestText == null) return;
+            float best = BestDistances.Get(GameMode.Adventure);
+            int shown = BestDistances.Metres(best);
+            if (shown == _titleBestShown) return;
+            _titleBestShown = shown;
+            _titleBestText.text = ModeTexts.BestDistanceCaption(best);
         }
 
         void SetPauseMode(bool adventure)
@@ -820,7 +849,7 @@ namespace Drift.Bridge
         // ---------------------------------------------------------------- layout
 
         const float ButtonWidth = 680f;
-        static readonly Vector2 TitlePanel = new Vector2(920f, 1540f), OverPanel = new Vector2(880f, 1270f);
+        static readonly Vector2 TitlePanel = new Vector2(920f, 1676f), OverPanel = new Vector2(880f, 1270f);
         static Vector2 PausePanel => new Vector2(880f, Application.isMobilePlatform ? 1300f : 1464f);
         const float TitleContinueY = -1132f, TitleHelpY = -1292f;
         const float ModeButtonWidth = 404f, ModeButtonX = 214f;
@@ -894,7 +923,7 @@ namespace Drift.Bridge
             var dice = UiStyle.IconButton(panel, "RandomSeed", 104f, UiIcon.Dice, OnRandomSeed);
             ((RectTransform)dice.transform).TopCenter(new Vector2(224f, -762f), new Vector2(104f, 104f));
 
-            // Two modes side by side: the cozy world (seed above) and the adventure run with its best time below.
+            // Two modes side by side: the cozy world (seed above) and the adventure run with its record below.
             var modeSize = new Vector2(ModeButtonWidth, UiStyle.ButtonHeight);
             var cozy = UiStyle.PrimaryButton(panel, "Start", GameModes.Label(GameMode.Cozy), modeSize, OnCozyPressed);
             ((RectTransform)cozy.transform).TopCenter(new Vector2(-ModeButtonX, -892f), modeSize);
@@ -902,19 +931,29 @@ namespace Drift.Bridge
             ((RectTransform)adventure.transform).TopCenter(new Vector2(ModeButtonX, -892f), modeSize);
             var cozyHint = UiStyle.Label(panel, ModeTexts.CozyHint, UiStyle.Caption, UiStyle.Muted, TextAnchor.UpperCenter);
             cozyHint.rectTransform.TopCenter(new Vector2(-ModeButtonX, -1042f), new Vector2(ModeButtonWidth, 40f));
-            _titleBestText = UiStyle.Label(panel, ModeTexts.BestTimeCaption(0f), UiStyle.Caption, UiStyle.Sand, TextAnchor.UpperCenter, true);
+            _titleBestText = UiStyle.Label(panel, ModeTexts.BestDistanceCaption(0f), UiStyle.Caption, UiStyle.Sand, TextAnchor.UpperCenter, true);
             _titleBestText.rectTransform.TopCenter(new Vector2(ModeButtonX, -1042f), new Vector2(ModeButtonWidth, 40f));
             UiStyle.FitWidth(_titleBestText);
+            _titleBestShown = -1;
 
             const float rowWidth = ModeButtonWidth + 2f * ModeButtonX;
             _continueButton = Secondary(panel, "Continue", "Weiter", new Vector2(0f, TitleContinueY), new Vector2(rowWidth, UiStyle.ButtonHeight), OnContinuePressed);
-            _titleExtras = UiStyle.Rect(panel, "Extras").TopCenter(new Vector2(0f, TitleHelpY), new Vector2(rowWidth, 120f));
-            var third = new Vector2((rowWidth - 28f) / 3f, 120f);
-            float thirdX = third.x + 14f;
-            UiStyle.LabelOf(Secondary(_titleExtras, "Help", "Anleitung", new Vector2(-thirdX, 0f), third, () => OpenHelp())).fontSize = 40;
-            UiStyle.LabelOf(Secondary(_titleExtras, "Album", "Fotoalbum", new Vector2(0f, 0f), third, () => Watch?.OpenAlbum())).fontSize = 40;
-            UiStyle.LabelOf(Secondary(_titleExtras, "Runs", "Durchgänge", new Vector2(thirdX, 0f), third, RunJournal.RequestOpen)).fontSize = 40;
-            Line(panel, "Gemütlich wachsen – oder im Abenteuer ausweichen.", UiStyle.Caption, UiStyle.Muted, -1456f, 40f);
+            // Two rows of two: "Steuerung" (tilt, steering scheme) must be reachable before the first game, not only
+            // from the pause menu - on the phone the tilt option was otherwise never offered.
+            _titleExtras = UiStyle.Rect(panel, "Extras").TopCenter(new Vector2(0f, TitleHelpY), new Vector2(rowWidth, 256f));
+            var half = new Vector2((rowWidth - 16f) / 2f, 120f);
+            float halfX = (half.x + 16f) * 0.5f;
+            UiStyle.LabelOf(Secondary(_titleExtras, "Help", "Anleitung", new Vector2(-halfX, 0f), half, () => OpenHelp())).fontSize = 40;
+            UiStyle.LabelOf(Secondary(_titleExtras, "Controls", "Steuerung", new Vector2(halfX, 0f), half, OpenTiltSettings)).fontSize = 40;
+            UiStyle.LabelOf(Secondary(_titleExtras, "Album", "Fotoalbum", new Vector2(-halfX, -136f), half, () => Watch?.OpenAlbum())).fontSize = 40;
+            UiStyle.LabelOf(Secondary(_titleExtras, "Runs", "Durchgänge", new Vector2(halfX, -136f), half, RunJournal.RequestOpen)).fontSize = 40;
+            Line(panel, "Gemütlich wachsen – oder im Abenteuer ausweichen.", UiStyle.Caption, UiStyle.Muted, -1592f, 40f);
+            // Under the menu panel, so a phone screenshot always tells which build it came from.
+            var version = UiStyle.Label(screen, "Version " + Application.version, UiStyle.Caption, UiStyle.Muted, TextAnchor.UpperCenter);
+            version.rectTransform.anchorMin = version.rectTransform.anchorMax = new Vector2(0.5f, 0.5f);
+            version.rectTransform.pivot = new Vector2(0.5f, 1f);
+            version.rectTransform.sizeDelta = new Vector2(600f, 40f);
+            version.rectTransform.anchoredPosition = new Vector2(0f, -TitlePanel.y * 0.5f - 16f);
             return screen.gameObject;
         }
 
@@ -993,6 +1032,7 @@ namespace Drift.Bridge
             _recordText.gameObject.SetActive(false);
             _overAdventureRow.SetActive(false);
             _overMode = GameMode.Cozy;
+            _overStamp = int.MinValue;
             return screen.gameObject;
         }
 

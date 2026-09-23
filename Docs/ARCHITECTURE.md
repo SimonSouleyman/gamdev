@@ -2070,3 +2070,20 @@ Structural rules that new content has to follow:
   sink/mountain bumps at most every `coastRebuildInterval` (2 s). `CurvedWorld.extendFarClip` raises the far plane to the
   limb (a long Pangäa put the camera past 1000 u = "pale blue screen"); haze starts after the camera distance
   (`hazeClearView`); `DayNightCycle.dimWaterAtNight` darkens shallow water/foam at night (`_WaterLight`).
+
+## Phone build and first device test (2026-09-23, v0.6.2)
+
+- Android: `com.drift.game`, portrait only, IL2CPP ARM64, Vulkan/GLES3, the Mobile quality level. The only build scene
+  is `Planet.unity`. The icon comes from `Scripts/Editor/AppIconMaker.cs` (menu "Drift/App-Symbol …"), which renders
+  the start island. The APKs go to `Builds/Android/` and a copy to `../Drift-APK/`. The active build target is Android.
+- Shaders that code finds with `Shader.Find` are only built when a material references them:
+  `Resources/ShaderRefs/Ref_*.mat` holds one per Drift shader, and `ShaderBuildTests` guards it.
+- Adventure score = distance: `RingWorld.RunDistance` counts new ground along the track while the race runs;
+  `SessionStats.distance`; `BestDistances` (file `drift_best_times.json`, new key); levels by `levelDistance`
+  (340 m, each later level longer by its pace gain, so the timing matches the old 45 s steps).
+  `GameSession.StartHold`/`RingWorld.StartHeld` pin the island and the obstacles while Tilda's briefing runs.
+- Race camera: `IslandChaseCamera.ringLateralFollow` keeps the camera close across the track (portrait width).
+  The ring sea strip is refined near the focus (`WaterFollower.ringNearRows`/`ringNearSubdiv`/`ringColumnSpacing`).
+- Cozy plates: `PlateSystem.cellSize` 102, `gridPeriod` 3 (3x3 plates in the 306 u world). Islands feel
+  `CarryVelocity` = `interiorCurrentShare` of the plate motion, capped at `interiorCurrentCap` x their top speed;
+  boundaries get `cozySurfBoost`. The ring keeps the full carry.

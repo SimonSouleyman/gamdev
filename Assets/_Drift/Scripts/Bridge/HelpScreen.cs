@@ -26,7 +26,7 @@ namespace Drift.Bridge
             TildaBubble.Key("Rund ist gesund.") + " Sagt ein Vulkan mit rundem Bauch!",
             "Vulkaninseln sind meine " + TildaBubble.Key("Verwandten") + " – alle freundlich!",
             "Schau genau hin – auf meinen Hängen wächst es " + TildaBubble.Key("grün") + ".",
-            "Im " + TildaBubble.Key("Abenteuer") + " zählt jede Sekunde – ich feuere dich an!",
+            "Im " + TildaBubble.Key("Abenteuer") + " zählt jeder Meter – ich feuere dich an!",
         };
         // Tilda grumbles while the tip is typed; page 1 waves, the volcano page gets a little lava cheer.
         static readonly TildaPose[] Poses = { TildaPose.Wave, TildaPose.Talk, TildaPose.Talk, TildaPose.Cheer, TildaPose.Talk, TildaPose.Cheer };
@@ -463,7 +463,7 @@ namespace Drift.Bridge
             var page = NewPage(panel, "PageAdventure");
             InfoCard(page, 0f, 206f, UiStyle.Sky, "Die Ringwelt", "Ein schmales Meeresband, das sich vor und hinter dir in den Himmel wölbt. Deine Insel hält von allein Fahrt.");
             InfoCard(page, -216f, 226f, UiStyle.Cream, "Der Rand", "Am Rand des Bands endet die Welt. Hinausfahren kannst du nicht: Dort schäumt das Wasser und schiebt dich sanft wieder auf die Bahn.");
-            var time = InfoCard(page, -452f, 240f, UiStyle.Coral, "Gegen die Zeit", "Deine Insel sinkt. Versinkt sie, ist der Lauf vorbei – deine längste Zeit bleibt als Bestzeit.");
+            var time = InfoCard(page, -452f, 240f, UiStyle.Coral, "Wie weit kommst du?", "Deine Insel sinkt. Versinkt sie, ist der Lauf vorbei – deine weiteste Strecke bleibt als Rekord.");
             SampleBar(time, -176f, 0.24f, UiStyle.Coral, "sinkt – Treibgut holen!");
             InfoCard(page, -702f, 206f, UiStyle.Sand, "Inseln sind Hindernisse", "Hier wird nicht gerammt: Jede Insel wirft dich zurück und kostet Auftrieb. Fahr außen herum!");
             InfoCard(page, -918f, 206f, UiStyle.Mint, "Treibgut hebt dich", "Kisten, Fässer und Flaschen auf der Bahn geben Auftrieb – das Einzige, was dich wieder hochbringt.");

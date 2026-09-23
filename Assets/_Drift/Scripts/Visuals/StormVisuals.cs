@@ -335,7 +335,7 @@ namespace Drift.Visuals
         // a little buoyancy, so it rides lower for a while. Adventure only, and never twice within strikeCooldown.
         void StrikePlayer(Vector2 at, float strength)
         {
-            if (_player == null || _strikeCooldown > 0f || !GameModes.IsAdventure) return;
+            if (_player == null || _strikeCooldown > 0f || !GameModes.IsAdventure || RingWorld.StartHeld) return;
             float reach = _player.BoundingRadius;
             if ((at - _player.PlanarPosition).sqrMagnitude > reach * reach) return;
             _strikeCooldown = strikeCooldown;

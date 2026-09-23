@@ -357,6 +357,7 @@ MonoBehaviour:
   ringAlongBias: 0.7
   ringWallMargin: 3
   followLerp: 6
+  ringLateralFollow: 28
   lookLerp: 8
   referenceRadius: 3
   zoomExponent: 0.85
@@ -1260,6 +1261,7 @@ MonoBehaviour:
   edgeWarnWidth: 10
   edgePush: 3
   difficultyRampSeconds: 300
+  levelDistance: 340
   levelSeconds: 45
   extraIslandsPerLevel: 2
   extraIslandsAtMax: 14
@@ -1625,6 +1627,9 @@ MonoBehaviour:
   innerCells: 48
   levels: 5
   ringRowSpacing: 3.2
+  ringColumnSpacing: 1.5
+  ringNearRows: 12
+  ringNearSubdiv: 4
 --- !u!1 &935930037
 GameObject:
   m_ObjectHideFlags: 0
@@ -2258,8 +2263,8 @@ MonoBehaviour:
   showEventCues: 1
   ringSeamFadeDistance: 85
   ringSeamFadeStart: 0.45
-  cellSize: 76.5
-  gridPeriod: 4
+  cellSize: 102
+  gridPeriod: 3
   jitter: 0.25
   seed: 4242
   ringLanes: 3
@@ -2292,6 +2297,9 @@ MonoBehaviour:
   surfMinAlign: 0.35
   surfPull: 0.5
   surfOtherKinds: 0.75
+  cozySurfBoost: 1.6
+  interiorCurrentShare: 0.55
+  interiorCurrentCap: 0.4
   focus: {fileID: 1204434037}
   viewRadius: 130
   showBorders: 1

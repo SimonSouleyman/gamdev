@@ -13,27 +13,40 @@ namespace Drift.Bridge
         // Below this buoyancy the HUD speaks up: an alarm in Abenteuer, a calm note in Gemütlich.
         public const float HeavyBuoyancy = 0.55f;
 
-        public static string BestTimeCaption(float best) => best > 0f ? "Bestzeit " + BestTimes.Format(best) : "Wie lange hältst du durch?";
+        // Abenteuer scores the distance along the ring: the caption under its title button, the HUD's best line.
+        public static string BestDistanceCaption(float best) => best > 0f ? RecordLabel(best) : "Wie weit kommst du?";
+        public static string RecordLabel(float best) => "Rekord " + BestDistances.Format(best);
+        public const string FirstRunLabel = "Erster Versuch";
+        public const string NewRecordLabel = "Neuer Rekord!";
 
-        public static string RecordLine(BestTimes.Result r) => r.BeatPrevious ? "Neuer Rekord!" : r.IsFirst ? "Erste Bestzeit!" : "";
+        public static string RecordLine(BestDistances.Result r) => r.BeatPrevious ? NewRecordLabel : r.IsFirst ? "Erster Rekord!" : "";
 
         public static string AdventureStats(SessionStats st, float best) =>
             AdventureStats(st, best, AdventureRunStats.Flotsam, AdventureRunStats.Hits, AdventureRunStats.Dodges);
 
-        // Islands are obstacles in Abenteuer: what counts is the time, the flotsam you picked up and how often you
-        // hit an island (and slipped past one).
+        // Islands are obstacles in Abenteuer: what counts is the distance, the flotsam you picked up and how often
+        // you hit an island (and slipped past one).
         public static string AdventureStats(SessionStats st, float best, int flotsam, int hits, int dodges)
         {
             return
-                $"Überlebt   {BestTimes.Format(st.timeSurvived)}\n" +
-                $"Bestzeit   {BestTimes.Format(best > st.timeSurvived ? best : st.timeSurvived)}\n" +
+                $"Strecke   {BestDistances.Format(st.distance)}\n" +
+                $"Rekord   {BestDistances.Format(best > st.distance ? best : st.distance)}\n" +
                 $"Treibgut   {flotsam}   ·   Ausgewichen   {dodges}   ·   Rempler   {hits}";
+        }
+
+        // "3:42", "12:05", "1:02:09": Gemütlich still shows how long a world lasted.
+        public static string Clock(float seconds)
+        {
+            if (float.IsNaN(seconds) || seconds < 0f) seconds = 0f;
+            long s = (long)System.Math.Floor(seconds);
+            long h = s / 3600, m = s / 60 % 60, sec = s % 60;
+            return h > 0 ? $"{h}:{m:00}:{sec:00}" : $"{m}:{sec:00}";
         }
 
         public static string CozyStats(SessionStats st)
         {
             return
-                $"Überlebt   {BestTimes.Format(st.timeSurvived)}\n" +
+                $"Überlebt   {Clock(st.timeSurvived)}\n" +
                 $"Inseln gesammelt   {st.islandsAbsorbed}\n" +
                 $"Davon Vulkane   {st.volcanoesAbsorbed}\n" +
                 $"Größte Landmasse   {st.peakLandMass:F0}";
@@ -87,7 +100,7 @@ namespace Drift.Bridge
         // ---- menus
 
         // Pause menu in Abenteuer: leaving early never scores.
-        public const string AdventurePauseNote = "Abbrechen zählt nicht als Bestzeit";
+        public const string AdventurePauseNote = "Abbrechen zählt nicht als Rekord";
         // Asked before a new cozy world replaces the one that is saved or running.
         public const string NewWorldTitle = "Neue Welt beginnen?";
         public const string NewWorldBody = "Deine jetzige Welt geht verloren.";

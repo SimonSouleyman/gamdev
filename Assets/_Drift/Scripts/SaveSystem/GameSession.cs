@@ -10,6 +10,8 @@ namespace Drift.SaveSystem
     public sealed class SessionStats
     {
         public float timeSurvived;
+        // Abenteuer's score: metres along the ring (RingWorld.RunDistance).
+        public float distance;
         public int islandsAbsorbed;
         public int volcanoesAbsorbed;
         public float peakLandMass;
@@ -17,6 +19,7 @@ namespace Drift.SaveSystem
         public void Reset()
         {
             timeSurvived = 0f;
+            distance = 0f;
             islandsAbsorbed = 0;
             volcanoesAbsorbed = 0;
             peakLandMass = 0f;
@@ -26,6 +29,7 @@ namespace Drift.SaveSystem
         {
             if (other == null) { Reset(); return; }
             timeSurvived = Mathf.Max(0f, other.timeSurvived);
+            distance = Mathf.Max(0f, other.distance);
             islandsAbsorbed = Mathf.Max(0, other.islandsAbsorbed);
             volcanoesAbsorbed = Mathf.Max(0, other.volcanoesAbsorbed);
             peakLandMass = Mathf.Max(0f, other.peakLandMass);
@@ -124,6 +128,12 @@ namespace Drift.SaveSystem
             if (volcano) Stats.volcanoesAbsorbed++;
         }
 
+        public void RecordDistance(float metres)
+        {
+            if (!IsPlaying || float.IsNaN(metres)) return;
+            Stats.distance = Mathf.Max(0f, metres);
+        }
+
         public void RecordLandMass(float area)
         {
             if (!IsPlaying) return;
@@ -165,6 +175,7 @@ namespace Drift.SaveSystem
         bool _followSinkHold;
         bool _photoInputHold;
         bool _followInputHold;
+        bool _startHold;
 
         public SessionModel Model => _model;
         public State Current => _model.Current;
@@ -275,6 +286,22 @@ namespace Drift.SaveSystem
 
         public bool WatchInputHold => _photoInputHold || _followInputHold;
 
+        // Abenteuer: Tilda's briefing keeps the island at the start line (owned by AdventureTutorialGuide). While
+        // set the island takes no input and does not sink, and RingWorld.StartHeld pins it and the track and counts
+        // neither distance nor clock; the race starts the moment it is cleared.
+        public bool StartHold
+        {
+            get => _startHold;
+            set
+            {
+                RingWorld.StartHeld = value;
+                if (_startHold == value) return;
+                _startHold = value;
+                ApplySinking();
+                ApplyInputLock();
+            }
+        }
+
         public static bool SinkAllowed(bool playing, bool tutorialHold, bool photoHold) => SinkAllowed(playing, tutorialHold, photoHold, false);
 
         public static bool SinkAllowed(bool playing, bool tutorialHold, bool photoHold, bool followHold) => SinkAllowed(playing, tutorialHold, photoHold, followHold, false);
@@ -291,12 +318,12 @@ namespace Drift.SaveSystem
 
         void ApplySinking()
         {
-            if (Application.isPlaying && player != null) player.sinkEnabled = SinkAllowed(_model.IsPlaying, _sinkingSuspended, _photoSinkHold, _followSinkHold, _model.PangaeaReached);
+            if (Application.isPlaying && player != null) player.sinkEnabled = SinkAllowed(_model.IsPlaying, _sinkingSuspended || _startHold, _photoSinkHold, _followSinkHold, _model.PangaeaReached);
         }
 
         void ApplyInputLock()
         {
-            if (Application.isPlaying) SetIslandInputLocked(IslandInputLocked(_model.IsPlaying, _photoInputHold, _followInputHold, _model.PangaeaFreeLook));
+            if (Application.isPlaying) SetIslandInputLocked(IslandInputLocked(_model.IsPlaying, _photoInputHold, _followInputHold, _model.PangaeaFreeLook) || _startHold);
         }
 
         static void SetIslandInputLocked(bool locked) => Island.InputLocked = locked;
@@ -311,6 +338,8 @@ namespace Drift.SaveSystem
             _followSinkHold = false;
             _photoInputHold = false;
             _followInputHold = false;
+            _startHold = false;
+            RingWorld.StartHeld = false;
             _model.PangaeaReached = false;
             if (saveManager == null) saveManager = FindAnyObjectByType<SaveManager>();
             if (saveManager != null) saveManager.fileName = GameModes.SaveFile(GameModes.Current);
@@ -328,6 +357,11 @@ namespace Drift.SaveSystem
             _model.PangaeaReachedChanged -= OnPangaeaReachedChanged;
             Island.Merged -= OnMerged;
             Unsubscribe();
+            if (_startHold)
+            {
+                _startHold = false;
+                RingWorld.StartHeld = false;
+            }
             if (Application.isPlaying)
             {
                 Time.timeScale = 1f;
@@ -383,6 +417,7 @@ namespace Drift.SaveSystem
             // An adventure run ends on its "Versunken" screen (time, best time, "Nochmal"); only cozy restarts by itself.
             if (_model.Step(dt) && Mode != GameMode.Adventure) RestartFromGameOver();
             if (_model.IsPlaying) _model.RecordLandMass(player.LandArea);
+            if (_model.IsPlaying && Mode == GameMode.Adventure && RingWorld.Active != null) _model.RecordDistance(RingWorld.Active.RunDistance);
         }
 
         void OnApplicationPause(bool paused)
@@ -453,8 +488,8 @@ namespace Drift.SaveSystem
             if (!Application.isPlaying) return;
             bool playing = s == State.Playing;
             bool inGame = playing || s == State.Paused;
-            if (player != null) player.sinkEnabled = SinkAllowed(playing, _sinkingSuspended, _photoSinkHold, _followSinkHold, _model.PangaeaReached);
-            SetIslandInputLocked(IslandInputLocked(playing, _photoInputHold, _followInputHold, _model.PangaeaFreeLook));
+            if (player != null) player.sinkEnabled = SinkAllowed(playing, _sinkingSuspended || _startHold, _photoSinkHold, _followSinkHold, _model.PangaeaReached);
+            SetIslandInputLocked(IslandInputLocked(playing, _photoInputHold, _followInputHold, _model.PangaeaFreeLook) || _startHold);
             Time.timeScale = s == State.Paused ? 0f : 1f;
             if (saveManager != null) saveManager.autosaveInterval = inGame && Mode == GameMode.Cozy ? autosaveInterval : 0f;
         }

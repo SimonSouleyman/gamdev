@@ -39,7 +39,8 @@ namespace Drift.Tests
             }
             Assert.Less(ModeTexts.LowBuoyancy, ModeTexts.HeavyBuoyancy);
             StringAssert.Contains("Treibgut", ModeTexts.LowBuoyancyCall);
-            StringAssert.Contains("Bestzeit", ModeTexts.AdventurePauseNote);
+            StringAssert.Contains("Rekord", ModeTexts.AdventurePauseNote);
+            StringAssert.DoesNotContain("Bestzeit", ModeTexts.AdventurePauseNote);
         }
 
         [Test]

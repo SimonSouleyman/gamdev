@@ -19,6 +19,40 @@ namespace Drift.Islands
         }
     }
 
+    // The score of an adventure run: how far the island got along the track (+z). Only new ground counts - a bounce
+    // back off an island and the metres driven again afterwards are not counted twice - and only while counting is
+    // on (the race runs); a jump of more than TeleportDistance (a reset, a load) starts from the new spot.
+    public struct RunOdometer
+    {
+        public const float TeleportDistance = 60f;
+
+        float _front, _last;
+        bool _started;
+
+        public float Distance { get; set; }
+
+        public void Reset()
+        {
+            Distance = 0f;
+            _started = false;
+        }
+
+        public void Step(float z, bool counting)
+        {
+            if (!_started || Mathf.Abs(z - _last) > TeleportDistance)
+            {
+                _started = true;
+                _front = z;
+            }
+            else if (z > _front)
+            {
+                if (counting) Distance += z - _front;
+                _front = z;
+            }
+            _last = z;
+        }
+    }
+
     // The band of the adventure ring in planar coordinates: z runs along the ring and never wraps in the simulation
     // (the player keeps a continuous coordinate), x runs across and ends at the two rims at centerX +- halfWidth.
     // The ring look is a vertex bend (Shaders/DriftCurve.hlsl, DriftRingWS): a point dz ahead of the focus lands at
@@ -88,10 +122,13 @@ namespace Drift.Islands
     //    within half a circumference of the view (moving it by exactly one circumference is invisible),
     //  - lays the plates out along the band (PlateSystem.SetRingLayout) so there are surf lanes,
     //  - lowers the chase camera so the band climbing into the sky ahead is in view,
-    //  - and runs the difficulty: the longer the run lasts, the more obstacle islands lie on the track (extra islands
-    //    per level, and volcanoes rising ahead of the player), the more of them drift across it, the faster the base
-    //    pace, the faster the island sinks and the rarer the flotsam (Encounters reads FlotsamSpacing). Islands are
-    //    never merged in Adventure (IslandWorld) - they are dodged.
+    //  - and runs the difficulty: the further the island gets, the more obstacle islands lie on the track (extra
+    //    islands per level, and volcanoes rising ahead of the player), the more of them drift across it, the faster
+    //    the base pace, the faster the island sinks and the rarer the flotsam (Encounters reads FlotsamSpacing).
+    //    Islands are never merged in Adventure (IslandWorld) - they are dodged.
+    // The score is the distance (RunDistance) and the levels follow it. Every level is longer by as much as its base
+    // pace is higher, so at the base pace each still lasts levelSeconds - the seconds-based knobs below (difficulty
+    // ramp, volcano schedule) are read as "seconds at the base pace" (ProgressSeconds).
     // CurvedWorld reads Active, bends the world into the ring (the sea ends at the rims) and lays the foam line of
     // Visuals/RingRims on the water there. The rims themselves are invisible: there is nothing to fall off, a run
     // only ever ends by sinking.
@@ -117,9 +154,11 @@ namespace Drift.Islands
         [Range(0f, 12f)] public float edgePush = 3f;
 
         [Header("Abenteuer-Schwierigkeit")]
-        [Tooltip("Sekunden, bis die Schwierigkeit ihr Höchstmaß erreicht hat. Danach bleibt sie dort.")]
+        [Tooltip("Sekunden bei Grundtempo, bis die Schwierigkeit ihr Höchstmaß erreicht hat. Danach bleibt sie dort.")]
         [Range(30f, 900f)] public float difficultyRampSeconds = 300f;
-        [Tooltip("Alle so viele Sekunden zeigt die Anzeige eine Stufe mehr.")]
+        [Tooltip("Länge der Stufe 1 in Metern (45 s bei Grundtempo). Jede weitere Stufe ist um so viel länger, wie ihr Grundtempo höher ist.")]
+        [Range(50f, 2000f)] public float levelDistance = 340f;
+        [Tooltip("So viele Sekunden dauert eine Stufe bei Grundtempo (rechnet die Strecke in Schwierigkeit und Vulkane um).")]
         [Range(10f, 180f)] public float levelSeconds = 45f;
         [Tooltip("So viele Hindernisinseln kommen mit jeder Stufe zusätzlich auf den Ring (weit weg, sie steigen dort aus dem Meer). 1,5 = drei je zwei Stufen.")]
         [Range(0f, 5f)] public float extraIslandsPerLevel = 2f;
@@ -183,13 +222,28 @@ namespace Drift.Islands
         // foam line, the soft push back and the HUD hint.
         public float EdgeWarning { get; private set; }
 
-        // The player slipped past an obstacle island with less than dodgeGap to spare (HUD cheer, tutorial step).
+        // The player slipped past an obstacle island with less than dodgeGap to spare (HUD cheer).
         public static event System.Action<Island> Dodged;
 
-        // Seconds this run has been under way (paused while the session is not playing) and the difficulty 0..1.
+        // Tilda's adventure briefing holds the race at the start line (GameSession.StartHold writes it - the Bridge
+        // is out of this assembly's reach): the island waits where it is, the obstacles stand still, and neither the
+        // distance nor the clock count. The race starts the moment the flag drops.
+        public static bool StartHeld;
+
+        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+        static void ResetStatics() => StartHeld = false;
+
+        // True while the hold is in force on the running ring.
+        public bool Holding => _holding;
+
+        // Seconds the race has really run (not while held, paused or sunk), and the score: metres travelled along
+        // the track in that time.
         public float RunSeconds { get; private set; }
-        public float Difficulty => difficultyRampSeconds > 0f ? Mathf.Clamp01(RunSeconds / difficultyRampSeconds) : 1f;
-        public int Level => 1 + Mathf.FloorToInt(RunSeconds / Mathf.Max(1f, levelSeconds));
+        public float RunDistance => _odometer.Distance;
+        // How far into the difficulty curve the run is, in seconds at the base pace (see the class comment).
+        public float ProgressSeconds => ProgressAt(RunDistance, out _);
+        public float Difficulty => difficultyRampSeconds > 0f ? Mathf.Clamp01(ProgressSeconds / difficultyRampSeconds) : 1f;
+        public int Level => LevelAt(RunDistance);
         // Counts up with every fresh fill of the ring: a new run (listeners reset their own state).
         public int FillCount { get; private set; }
         // Distance along the track between two flotsam groups right now (Visuals/Encounters lays them out).
@@ -198,8 +252,66 @@ namespace Drift.Islands
         public float DriftSpeed => Mathf.Lerp(driftSpeedStart, driftSpeedMax, Difficulty);
         // Pace: base and top speed go up a step with every level, not smoothly with the clock - that is what makes
         // "Stufe N" mean something ("die geschwindigkeit soll mit jedem level schneller werden").
-        public float Cruise => Mathf.Min(Mathf.Max(cruiseStart, cruiseMax), cruiseStart + cruisePerLevel * (Level - 1));
-        public float PaceScale => Mathf.Min(Mathf.Max(speedScaleStart, speedScaleMax), speedScaleStart + speedPerLevel * (Level - 1));
+        public float Cruise => CruiseAt(Level);
+        public float PaceScale => PaceScaleAt(Level);
+        public float CruiseAt(int level) => Mathf.Min(Mathf.Max(cruiseStart, cruiseMax), cruiseStart + cruisePerLevel * (Mathf.Max(1, level) - 1));
+        public float PaceScaleAt(int level) => Mathf.Min(Mathf.Max(speedScaleStart, speedScaleMax), speedScaleStart + speedPerLevel * (Mathf.Max(1, level) - 1));
+
+        // Metres of a level: level 1 is levelDistance, a later one is longer by its base pace (cruise x top speed)
+        // over the first level's, so at the base pace every level lasts the same levelSeconds.
+        public float LevelLength(int level)
+        {
+            float first = Mathf.Max(1e-4f, CruiseAt(1) * PaceScaleAt(1));
+            return Mathf.Max(1f, levelDistance) * CruiseAt(level) * PaceScaleAt(level) / first;
+        }
+
+        // Where a level begins, in metres from the start.
+        public float LevelStartDistance(int level)
+        {
+            float d = 0f;
+            int walked = Mathf.Min(level, MaxWalkedLevels);
+            for (int k = 1; k < walked; k++) d += LevelLength(k);
+            if (level > MaxWalkedLevels) d += (level - MaxWalkedLevels) * LevelLength(MaxWalkedLevels);
+            return d;
+        }
+
+        public int LevelAt(float distance)
+        {
+            ProgressAt(distance, out int level);
+            return level;
+        }
+
+        // Distance -> seconds at the base pace (every whole level counts levelSeconds) and the level it lies in.
+        // Past MaxWalkedLevels the pace has long reached its caps, so the rest is one division.
+        public float ProgressAt(float distance, out int level)
+        {
+            float d = Mathf.Max(0f, distance);
+            float secs = Mathf.Max(1f, levelSeconds);
+            int k = 1;
+            for (; k < MaxWalkedLevels; k++)
+            {
+                float len = LevelLength(k);
+                if (d < len)
+                {
+                    level = k;
+                    return (k - 1 + d / len) * secs;
+                }
+                d -= len;
+            }
+            float last = LevelLength(k);
+            level = k + Mathf.FloorToInt(d / last);
+            return (k - 1 + d / last) * secs;
+        }
+
+        // The inverse: how far a run at the base pace gets in this many seconds (tests, the debug menu).
+        public float DistanceForProgress(float seconds)
+        {
+            float t = Mathf.Max(0f, seconds) / Mathf.Max(1f, levelSeconds);
+            int whole = Mathf.FloorToInt(t);
+            return LevelStartDistance(whole + 1) + (t - whole) * LevelLength(whole + 1);
+        }
+
+        const int MaxWalkedLevels = 64;
         public int DriftingIslands { get; private set; }
         // The obstacles grow level by level ("mehr Inseln/Vulkane mit der Zeit"): extra islands on the far side of the
         // ring, and volcanoes that rise ahead of the player from volcanoFirstLevel on, spread evenly over each level.
@@ -212,10 +324,10 @@ namespace Drift.Islands
             int n = 1 + Mathf.FloorToInt((runSeconds - start) * volcanoesPerLevel / Mathf.Max(1f, levelSeconds) + 1e-4f);
             return Mathf.Clamp(n, 0, Mathf.Max(0, maxVolcanoes));
         }
-        public int VolcanoTarget => VolcanoesFor(RunSeconds);
+        public int VolcanoTarget => VolcanoesFor(ProgressSeconds);
 
         // Tests and the debug menu: jump to a point of the difficulty curve.
-        public void SetRunSeconds(float seconds) => RunSeconds = Mathf.Max(0f, seconds);
+        public void SetRunDistance(float metres) => _odometer.Distance = Mathf.Max(0f, metres);
 
         RingIslandSpawner _spawner;
         IslandChaseCamera _camera;
@@ -230,8 +342,12 @@ namespace Drift.Islands
         readonly List<Island> _islands = new();
         readonly Dictionary<Island, float> _drift = new(), _passDz = new(), _lastHit = new();
         readonly List<Island> _forget = new();
+        readonly Dictionary<Island, Vector2> _pinned = new();
         System.Func<Vector2, Vector2> _constraint;
         float _travelDir = 1f, _pruneTimer, _volcanoRetry;
+        RunOdometer _odometer;
+        bool _holding;
+        Vector2 _holdPos;
 
         void OnEnable()
         {
@@ -334,6 +450,8 @@ namespace Drift.Islands
                 _drift.Clear();
                 _passDz.Clear();
                 _lastHit.Clear();
+                _pinned.Clear();
+                _holding = false;
                 if (_cameraSaved && _camera != null)
                 {
                     _camera.height = _savedHeight;
@@ -388,12 +506,15 @@ namespace Drift.Islands
             }
             KeepIslandsOnRing(g, ReferenceZ());
             spawner.Step(g, pp, !Application.isPlaying);
-            if (Application.isPlaying) StepDifficulty(g, pp, Time.deltaTime);
+            if (Application.isPlaying) StepRace(Time.deltaTime);
         }
 
         void BeginRun()
         {
             RunSeconds = 0f;
+            _odometer.Reset();
+            _holding = false;
+            _pinned.Clear();
             FillCount++;
             AdventureRunStats.Reset();
             _drift.Clear();
@@ -418,16 +539,32 @@ namespace Drift.Islands
             if (obstacle != null) _lastHit[obstacle] = RunSeconds;
         }
 
-        // The whole difficulty curve in one place: the pace of the player, how fast it sinks, how many obstacles lie
-        // on the ring and how many of them drift across it. The run clock only runs while the race really runs
-        // (GameSession lets the island sink exactly then).
-        void StepDifficulty(RingGeometry g, Vector2 pp, float dt)
+        // One frame of the race (Update runs it in Play Mode; tests call it directly): the start hold, the distance,
+        // and the whole difficulty curve in one place - the pace of the player, how fast it sinks, how many obstacles
+        // lie on the ring and how many of them drift across it.
+        public void StepRace(float dt)
         {
-            // The island races as soon as the player has the controls - the tutorial's first step already drives,
-            // as Tilda says it does. The run clock (and with it the level) only starts once the island may sink.
-            bool racing = dt > 0f && !player.IsSunk && !Island.InputLocked;
+            if (player == null) return;
+            var g = Geometry;
+            Vector2 pp = player.PlanarPosition;
+            bool held = StartHeld;
+            if (held != _holding)
+            {
+                _holding = held;
+                _holdPos = pp;
+                _pinned.Clear();
+            }
+            if (held)
+            {
+                player.SetSelfVelocity(Vector2.zero);
+                if ((pp - _holdPos).sqrMagnitude > 1e-8f) player.SetPlanarPosition(pp = _holdPos);
+            }
+            // The island races whenever the player has the controls; the clock and the distance only count while
+            // the island may sink as well (GameSession lets it exactly while the race really runs).
+            bool racing = dt > 0f && !held && !player.IsSunk && !Island.InputLocked;
             bool running = racing && player.sinkEnabled;
             if (running) RunSeconds += dt;
+            _odometer.Step(pp.y, running);
             float d = Difficulty;
             player.AdventureSpeedScale = PaceScale;
             player.AdventureSinkScale = Mathf.Lerp(1f, sinkScaleMax, d);
@@ -440,7 +577,8 @@ namespace Drift.Islands
 
             _islands.Clear();
             Spawner.CollectIslands(_islands);
-            StepDrift(g, dt);
+            if (held) PinIslands();
+            else StepDrift(g, dt);
             StepPasses(g, pp);
             if (running) StepVolcanoes(g, pp, dt);
 
@@ -450,6 +588,21 @@ namespace Drift.Islands
             Prune(_drift);
             Prune(_passDz);
             Prune(_lastHit);
+            Prune(_pinned);
+        }
+
+        // During the start hold nothing on the track moves: every obstacle stays where it was when the hold began,
+        // whatever the plate lanes or its own drift would do, so nothing can run into the waiting island.
+        void PinIslands()
+        {
+            for (int i = 0; i < _islands.Count; i++)
+            {
+                var isl = _islands[i];
+                if (isl == null || !isl.isActiveAndEnabled) continue;
+                isl.SetSelfVelocity(Vector2.zero);
+                if (!_pinned.TryGetValue(isl, out Vector2 at)) _pinned[isl] = isl.PlanarPosition;
+                else if ((isl.PlanarPosition - at).sqrMagnitude > 1e-8f) isl.SetPlanarPosition(at);
+            }
         }
 
         // One volcano at a time rises ahead of the player whenever the level asks for more than there are; a spot that
@@ -486,14 +639,16 @@ namespace Drift.Islands
         }
 
         // Island.PositionConstraint for the player: it stays on the band, a whole island radius away from the rim,
-        // so the island is never squashed onto the edge fold of the bend.
-        Vector2 ClampPlayer(Vector2 p)
+        // so the island is never squashed onto the edge fold of the bend. During the start hold it keeps the island
+        // on its spot: the plate current, a bump or the surf cannot move it there either.
+        public Vector2 ClampPlayer(Vector2 p)
         {
+            if (_holding) return _holdPos;
             float margin = player != null ? player.BoundingRadius * playerWallMargin : 0f;
             return Geometry.ClampAcross(p, margin);
         }
 
-        void Prune(Dictionary<Island, float> map)
+        void Prune<T>(Dictionary<Island, T> map)
         {
             _forget.Clear();
             foreach (var kv in map) if (kv.Key == null || !kv.Key.isActiveAndEnabled) _forget.Add(kv.Key);

@@ -3,27 +3,21 @@ using UnityEngine;
 
 namespace Drift.SaveSystem
 {
-    public enum AdventureTutorialStep { Ring, Clock, Flotsam, Dodge, Surf, Go, Done }
+    public enum AdventureTutorialStep { Ring, Score, Flotsam, Dodge, Surf, Go, Done }
 
-    // Tilda's short Abenteuer briefing as plain state: six punchy steps that advance on real race events (a piece
-    // of flotsam collected, an island dodged, riding a plate boundary) or on "Weiter", and every step ends by itself
-    // after a while, so the briefing never holds the race up. The only thing it asks of the game is SinkingSuspended
-    // (the first step).
+    // Tilda's short Abenteuer briefing as plain state: six punchy explanations, told while the island waits at the
+    // start line (HoldsStart - owner: "die Insel soll erst losfahren können, wenn das Tutorial fertig ist"). Every
+    // step turns on "Weiter" or by itself after a while, and the race starts the moment the last one ends ("Los!")
+    // or the briefing is skipped.
     public sealed class AdventureTutorialModel
     {
         public const int StepCount = 6;
 
-        // Explanation steps turn by themselves after this long, action steps give up waiting after actionSeconds.
+        // Steps turn by themselves after this long; the last one ("Los!") after goSeconds.
         public float explainSeconds = 12f;
-        public float actionSeconds = 22f;
         public float goSeconds = 6f;
-        public float cheerSeconds = 1.4f;
-        // Riding a boundary counts once the surf has been at least surfThreshold strong for surfSeconds in total.
-        public float surfThreshold = 0.35f;
-        public float surfSeconds = 0.6f;
 
-        float _stepTime, _cheer, _surfTime;
-        bool _dodged, _surfed, _collected;
+        float _stepTime;
 
         public AdventureTutorialStep Step { get; private set; } = AdventureTutorialStep.Done;
         public bool Active { get; private set; }
@@ -38,25 +32,19 @@ namespace Drift.SaveSystem
 
         public int StepNumber => Math.Min((int)Step, StepCount - 1) + 1;
         public float StepTime => _stepTime;
-        public bool Cheering => Active && _cheer > 0f;
-        // Only while she explains the ring: from the clock step on the island sinks, as she says it does.
-        public bool SinkingSuspended => Active && Step == AdventureTutorialStep.Ring;
-        public bool CanContinue => Active && !IsAction(Step);
-        // The arrow points at the next piece of flotsam, or at the island to go round.
+        // The whole briefing long the island stands at the start line and does not sink.
+        public bool HoldsStart => Active;
+        public bool CanContinue => Active;
+        // The arrow points at the next piece of flotsam ahead, or at the next island on the track.
         public bool ShowsArrow => Active && (Step == AdventureTutorialStep.Flotsam || Step == AdventureTutorialStep.Dodge);
 
-        public static bool IsAction(AdventureTutorialStep step) =>
-            step == AdventureTutorialStep.Flotsam || step == AdventureTutorialStep.Dodge || step == AdventureTutorialStep.Surf;
-
-        public float StepLimit => Step == AdventureTutorialStep.Go ? goSeconds : IsAction(Step) ? actionSeconds : explainSeconds;
+        public float StepLimit => Step == AdventureTutorialStep.Go ? goSeconds : explainSeconds;
 
         public void Begin()
         {
             Active = true;
             Done = false;
             Skipped = false;
-            _dodged = _surfed = _collected = false;
-            _cheer = 0f;
             Enter(AdventureTutorialStep.Ring);
         }
 
@@ -79,62 +67,22 @@ namespace Drift.SaveSystem
         public bool Continue()
         {
             if (!CanContinue) return false;
-            Advance(false);
+            Advance();
             return true;
-        }
-
-        // What the player already did before its step came up is remembered, so that step is skipped.
-        public void ReportDodge()
-        {
-            if (!Active) return;
-            _dodged = true;
-            if (Step == AdventureTutorialStep.Dodge) Advance(true);
-        }
-
-        public void ReportSurf(float strength, float dt)
-        {
-            if (!Active || _surfed || dt <= 0f || strength < surfThreshold) return;
-            _surfTime += dt;
-            if (_surfTime < surfSeconds) return;
-            _surfed = true;
-            if (Step == AdventureTutorialStep.Surf) Advance(true);
-        }
-
-        public void ReportFlotsam()
-        {
-            if (!Active) return;
-            _collected = true;
-            if (Step == AdventureTutorialStep.Flotsam) Advance(true);
         }
 
         public void Tick(float dt)
         {
             if (!Active || dt <= 0f) return;
             _stepTime += dt;
-            if (_cheer > 0f) _cheer = Math.Max(0f, _cheer - dt);
             if (_stepTime < StepLimit) return;
-            if (Step == AdventureTutorialStep.Go) Finish();
-            else
-            {
-                Advance(false);
-                TimedOut = true;
-            }
+            Advance();
+            if (Active) TimedOut = true;
         }
 
-        bool Solved(AdventureTutorialStep step) =>
-            (step == AdventureTutorialStep.Dodge && _dodged) ||
-            (step == AdventureTutorialStep.Surf && _surfed) ||
-            (step == AdventureTutorialStep.Flotsam && _collected);
-
-        void Advance(bool cheer)
+        void Advance()
         {
-            if (cheer) _cheer = cheerSeconds;
             var next = Step + 1;
-            while (next < AdventureTutorialStep.Done && Solved(next))
-            {
-                next++;
-                _cheer = cheerSeconds;
-            }
             if (next >= AdventureTutorialStep.Done) Finish();
             else Enter(next);
         }
@@ -154,7 +102,6 @@ namespace Drift.SaveSystem
             Active = false;
             Done = true;
             Step = AdventureTutorialStep.Done;
-            _cheer = 0f;
             Version++;
             StepChanged?.Invoke(AdventureTutorialStep.Done);
             Finished?.Invoke();

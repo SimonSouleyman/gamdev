@@ -116,8 +116,10 @@ namespace Drift.Tectonics
         public static void Unregister(IPlateRider rider) => Riders.Remove(rider);
 
         [Header("Plattenraster")]
-        public float cellSize = 110f;
-        public int gridPeriod = 6;
+        [Tooltip("Kantenlänge einer Plattenzelle: so groß ist eine Platte ungefähr. cellSize · gridPeriod muss genau die Weltbreite sein (WorldStreamer: chunkSize · worldChunks), sonst passen die Platten an der Weltkante nicht aneinander. Gemütliche Welt: 3 × 102 = 306.")]
+        public float cellSize = 102f;
+        [Tooltip("Platten pro Weltseite (die Welt wiederholt sich danach). Mindestens 3, damit keine Platte ihr eigener Nachbar ist.")]
+        public int gridPeriod = 3;
         public float jitter = 0.25f;
         public int seed = 4242;
 
@@ -187,6 +189,14 @@ namespace Drift.Tectonics
         [Range(0f, 3f)] public float surfPull = 0.5f;
         [Tooltip("Stärke an aufeinander zu- oder auseinanderlaufenden Grenzen (an Gleitgrenzen immer 1).")]
         [Range(0f, 2f)] public float surfOtherKinds = 0.75f;
+        [Tooltip("Gemütlich: Faktor auf das Surf-Tempo an einer Grenze. Die Grenzen sind der Ort für richtig viel Schub – im Inneren der Platten ist die Strömung sanft (siehe unten). Das Abenteuer nutzt ringSurfBoost.")]
+        [Range(1f, 3f)] public float cozySurfBoost = 1.6f;
+
+        [Header("Strömung im Platteninneren (Gemütlich)")]
+        [Tooltip("Welchen Anteil der Plattenbewegung eine Insel als Strömung spürt. Kleiner = man kommt auch gegen die Strömung gut voran. Eine ruhende Insel treibt trotzdem langsam mit ihrer Platte. Das Abenteuer spürt immer die volle Strömung seiner Spuren.")]
+        [Range(0f, 1f)] public float interiorCurrentShare = 0.55f;
+        [Tooltip("Obergrenze dieser Strömung als Anteil des Höchsttempos der Insel, weich erreicht. 0,4 = gegen die stärkste Strömung bleiben immer mindestens 60 % des eigenen Tempos, mit ihr kommen höchstens 40 % dazu.")]
+        [Range(0.05f, 1f)] public float interiorCurrentCap = 0.4f;
         public Transform focus;
         public float viewRadius = 130f;
         public bool showBorders = true;
@@ -312,6 +322,8 @@ namespace Drift.Tectonics
             _waveClock = d.waveClock >= 0f ? d.waveClock : d.time * waveSpeed;
             foreach (var o in d.offsets)
             {
+                // A save from a finer plate grid (4 x 76.5 before 2026-09-23) names cells this grid does not have.
+                if (!_ring && gridPeriod > 0 && (o.cx < 0 || o.cz < 0 || o.cx >= gridPeriod || o.cz >= gridPeriod)) continue;
                 var core = GetCore(o.cx, o.cz);
                 core.offset = new Vector2(o.ox, o.oy);
                 core.pushVel = new Vector2(o.px, o.py);
@@ -500,6 +512,26 @@ namespace Drift.Tectonics
 
         public Vector2 SampleVelocity(Vector2 pos) => NearestPlate(pos).velocity;
 
+        // The current a floating island feels inside a plate: interiorCurrentShare of the plate's motion, eased
+        // into interiorCurrentCap x the rider's own top speed, so steering against it always keeps
+        // (1 - cap) of that speed. The plates themselves (seams, events, mountains, surf slide) keep their full
+        // velocity; only the carry is gentle. The adventure ring's lanes carry in full.
+        public Vector2 CarryVelocity(Vector2 pos, float riderTopSpeed)
+        {
+            Vector2 v = NearestPlate(pos).velocity;
+            return _ring ? v : InteriorCurrent(v, riderTopSpeed);
+        }
+
+        public Vector2 InteriorCurrent(Vector2 plateVelocity, float riderTopSpeed)
+        {
+            float speed = plateVelocity.magnitude;
+            float felt = speed * interiorCurrentShare;
+            if (felt < 1e-5f) return Vector2.zero;
+            float cap = interiorCurrentCap * Mathf.Max(0f, riderTopSpeed);
+            felt = cap > 1e-4f ? cap * (1f - Mathf.Exp(-felt / cap)) : 0f;
+            return plateVelocity * (felt / speed);
+        }
+
         public void Impulse(Vector2 pos, Vector2 velocity)
         {
             var p = NearestPlate(pos);
@@ -530,7 +562,7 @@ namespace Drift.Tectonics
             float slide = Mathf.Abs(Vector2.Dot(b.a.velocity - b.b.velocity, tan));
             // In the ring a lane boundary only carries while the two lanes really slide past each other: where their
             // currents have come together the lanes have merged and the line is worth little.
-            float push = _ring ? surfSpeed * ringSurfBoost * Mathf.Lerp(ringCalmSurf, 1f, SlideShare(slide)) : surfSpeed;
+            float push = _ring ? surfSpeed * ringSurfBoost * Mathf.Lerp(ringCalmSurf, 1f, SlideShare(slide)) : surfSpeed * cozySurfBoost;
             Vector2 along = tan * (Mathf.Sign(cos) * (push + surfPlateGain * slide));
             return (along + toSeam * surfPull) * strength;
         }

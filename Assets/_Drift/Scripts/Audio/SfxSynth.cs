@@ -21,8 +21,9 @@ namespace Drift.Audio
         public float FlowAmount;
         public float SurfAmount;
         public float Volume = 1f;
-        public float WindGain = 0.55f;
-        public float WhistleGain = 0.05f;
+        // Wind and its whistle 30 % quieter than first tuned (owner, 2026-09-23: 0.55 / 0.05).
+        public float WindGain = 0.385f;
+        public float WhistleGain = 0.035f;
         public float WaterGain = 0.5f;
         public float ImpactGain = 0.9f;
         public float WarningGain = 0.3f;

@@ -28,6 +28,8 @@ namespace Drift.Islands
         [Tooltip("Abenteuer-Ring: Mindestabstand der Kamera zu den Randwänden.")]
         [Range(0f, 10f)] public float ringWallMargin = 3f;
         public float followLerp = 5f;
+        [Tooltip("Abenteuer-Ring: wie eng die Kamera seitlich an der Insel bleibt (pro Sekunde). Größer = die Insel bleibt beim seitlichen Lenken mittiger im Bild.")]
+        [Range(0f, 60f)] public float ringLateralFollow = 28f;
         public float lookLerp = 7f;
         public float referenceRadius = 3f;
         public float zoomExponent = 0.85f;
@@ -576,6 +578,11 @@ namespace Drift.Islands
             ApplyNearClip(close);
 
             _pose = SmoothPose(_pose, desiredPos, followLerp, feelDt);
+            // Across the ring the soft follow lagged ~speed/followLerp = 2-3 u behind a sideways dash, and a portrait
+            // phone sees only ~3 u either side of the island at race distance: the island slid off the screen edge
+            // (owner, first APK test). Across the track the camera stays close; along it the lag keeps the speed feel.
+            if (RingWorld.Active != null && _followPos == null && ringLateralFollow > 0f)
+                _pose.x = Mathf.Lerp(_pose.x, desiredPos.x, 1f - Mathf.Exp(-ringLateralFollow * feelDt));
             Quaternion rot = Quaternion.Slerp(transform.rotation, desiredRot, 1f - Mathf.Exp(-lookLerp * feelDt));
 
             Vector3 shake = Vector3.zero;

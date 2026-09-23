@@ -12,13 +12,15 @@ namespace Drift.Bridge
     // Tilda's Abenteuer briefing: in her "schnelle Brille" she talks a first-time racer through the ring in six
     // short steps (AdventureTutorialModel), in the same speech bubble and portrait as the cozy tutorial. It runs
     // only in Abenteuer (the cozy TutorialGuide only in Gemütlich), starts with the first adventure run while
-    // AdventureTutorialProgress is not done or a replay was requested, and never holds the race up: steps end by
-    // themselves, and the only write to the simulation is GameSession.SinkingSuspended during the first step.
+    // AdventureTutorialProgress is not done or a replay was requested (also in the middle of a run). While she talks
+    // the island waits at the start line: the only write to the simulation is GameSession.StartHold (no input, no
+    // sinking, the ring pins the island and the track, distance and clock stand still), cleared the moment she
+    // is done, skipped or disabled.
     [ExecuteAlways]
     [DisallowMultipleComponent]
     public class AdventureTutorialGuide : MonoBehaviour
     {
-        public enum EditorPreview { None, Ring, Clock, Flotsam, Dodge, Surf, Go }
+        public enum EditorPreview { None, Ring, Score, Flotsam, Dodge, Surf, Go }
 
         const string CanvasName = "AdventureTutorialCanvas";
         const float BubbleWidth = 1000f, PortraitSize = 330f, WidePortraitSize = 680f, MinWidePortraitSize = 480f;
@@ -52,9 +54,9 @@ namespace Drift.Bridge
 
         AdventureTutorialModel _model = new AdventureTutorialModel();
         int _initSession = -1;
-        bool _savedDone, _holdingSink, _wasVisible, _wide, _layoutNext;
+        bool _savedDone, _holding, _wasVisible, _wide, _layoutNext;
         GameSession.State _lastState = (GameSession.State)(-1);
-        int _flotsamSeen = -1, _shownVersion = -1;
+        int _shownVersion = -1;
         float _lookupTimer, _targetTimer, _layoutWidth = -1f, _layoutHeight = -1f;
         Vector2 _arrowTarget;
         bool _hasArrowTarget;
@@ -94,7 +96,6 @@ namespace Drift.Bridge
         {
             s_instance = this;
             Build();
-            RingWorld.Dodged += OnDodged;
             TildaVoice.LineStarted += OnLineStarted;
             _shownVersion = -1;
             _lookupTimer = 0f;
@@ -102,23 +103,20 @@ namespace Drift.Bridge
 
         void OnDisable()
         {
-            RingWorld.Dodged -= OnDodged;
             TildaVoice.LineStarted -= OnLineStarted;
             if (s_instance == this) s_instance = null;
-            ReleaseSink();
+            ReleaseHold();
         }
 
-        public void Skip() => _model.Skip();
+        public void Skip()
+        {
+            _model.Skip();
+            ApplyHold();
+        }
 
         public void Continue()
         {
             if (_bubble != null) _bubble.Next();
-        }
-
-        void OnDodged(Island island)
-        {
-            if (!Application.isPlaying || !GameModes.IsAdventure) return;
-            _model.ReportDodge();
         }
 
         // During the briefing the bubble is hers; a remark that starts meanwhile is claimed and faded out at once.
@@ -132,9 +130,9 @@ namespace Drift.Bridge
         void BeginBriefing()
         {
             _model.Begin();
-            _flotsamSeen = ships != null ? ships.FlotsamCollectedTotal : -1;
             _shownVersion = -1;
             TildaVoice.Hush();
+            ApplyHold();
         }
 
         // ---------------------------------------------------------------- update
@@ -183,7 +181,7 @@ namespace Drift.Bridge
                 _savedDone = _model.Done;
                 _lastState = (GameSession.State)(-1);
                 _shownVersion = -1;
-                _holdingSink = false;
+                _holding = false;
             }
             if (session == null) { Show(false); return; }
 
@@ -194,16 +192,20 @@ namespace Drift.Bridge
                 bool begins = adventure && s == GameSession.State.Playing && _lastState != GameSession.State.Paused
                               && session.Stats.timeSurvived < 0.5f && session.Stats.islandsAbsorbed == 0;
                 _lastState = s;
-                // A run that sank during the briefing starts it again, unless it was already past the ring and clock.
+                // A new run (after "Zum Titel" in the middle of the briefing) starts it again from the top.
                 if (begins && (!_model.Done || s_replayRequested))
                 {
-                    if (!_model.Active || _model.Step < AdventureTutorialStep.Flotsam) BeginBriefing();
+                    BeginBriefing();
                     s_replayRequested = false;
                 }
             }
 
             bool visible = adventure && _model.Active && s == GameSession.State.Playing && !(watch != null && (watch.PhotoActive || watch.JournalOpen));
-            if (visible) Feed();
+            if (visible)
+            {
+                _model.Tick(Time.unscaledDeltaTime);
+                if (!_model.Active) ApplyHold();
+            }
             visible &= _model.Active;
 
             if (_model.Done && !_savedDone)
@@ -218,34 +220,24 @@ namespace Drift.Bridge
             if (visible) Draw(Time.unscaledDeltaTime, Time.unscaledTime);
         }
 
-        // After every Update, so a guide that clears the shared flag earlier in the frame cannot undo the hold.
-        void LateUpdate()
+        // Every frame as well as right where the briefing begins or ends, so the race is held from the first frame and
+        // starts in the frame of "Los!". It holds through a pause too: resuming must not let the island slip away.
+        void LateUpdate() => ApplyHold();
+
+        void ApplyHold()
         {
             if (!Application.isPlaying || session == null) return;
-            bool hold = session.Mode == GameMode.Adventure && session.Current == GameSession.State.Playing && _model.SinkingSuspended;
-            if (hold == _holdingSink && !hold) return;
-            _holdingSink = hold;
-            session.SinkingSuspended = hold;
+            bool hold = session.Mode == GameMode.Adventure && session.Model.InGame && _model.HoldsStart;
+            if (hold == _holding && !hold) return;
+            _holding = hold;
+            session.StartHold = hold;
         }
 
-        void ReleaseSink()
+        void ReleaseHold()
         {
-            if (!_holdingSink) return;
-            _holdingSink = false;
-            if (session != null) session.SinkingSuspended = false;
-        }
-
-        void Feed()
-        {
-            float dt = Time.unscaledDeltaTime;
-            if (player != null) _model.ReportSurf(player.SurfStrength, Time.deltaTime);
-            if (ships != null)
-            {
-                int total = ships.FlotsamCollectedTotal;
-                if (_flotsamSeen >= 0 && total > _flotsamSeen) _model.ReportFlotsam();
-                _flotsamSeen = total;
-            }
-            _model.Tick(dt);
+            if (!_holding) return;
+            _holding = false;
+            if (session != null) session.StartHold = false;
         }
 
         void Show(bool on)
@@ -267,15 +259,16 @@ namespace Drift.Bridge
 
         static string K(string word) => TildaBubble.Key(word);
 
-        // Race-coach Tilda, still warm. Rich text: TildaBubble.Key marks the one or two words a step is about.
+        // Race-coach Tilda, still warm. Rich text: TildaBubble.Key marks the one or two words a step is about. The
+        // island waits while she talks, so she tells what is coming instead of asking for it.
         public static string TextFor(AdventureTutorialStep step, bool touchDevice)
         {
             switch (step)
             {
                 case AdventureTutorialStep.Ring:
-                    return "Brille auf, Schatz – jetzt wird gerast! Du fährst " + K("immer") + ", ganz von allein. Du " + K("lenkst nur") + " nach links und rechts; zurück bremst, stehen bleibst du nie.";
-                case AdventureTutorialStep.Clock:
-                    return "Die " + K("Uhr") + " oben ist deine Punktzahl: Jede Sekunde zählt. Aber Achtung, ab jetzt " + K("sinkt") + " deine Insel langsam!";
+                    return "Brille auf – gleich wird gerast! Sobald ich fertig bin, fährst du " + K("von allein") + ". Du " + K("lenkst nur") + " nach links und rechts; zurück bremst, stehen bleibst du nie.";
+                case AdventureTutorialStep.Score:
+                    return "Die " + K("Meter") + " oben sind deine Punktzahl: Je weiter du kommst, desto besser. Aber Achtung, unterwegs " + K("sinkt") + " deine Insel langsam!";
                 case AdventureTutorialStep.Flotsam:
                     return touchDevice
                         ? "Dagegen hilft " + K("Treibgut") + ": Kisten, Fässer, Flaschen. Einfach drüberfahren – jedes Teil " + K("hebt") + " dich wieder."
@@ -295,9 +288,8 @@ namespace Drift.Bridge
         {
             switch (step)
             {
-                case AdventureTutorialStep.Flotsam: return "Schnapp dir Treibgut!";
-                case AdventureTutorialStep.Dodge: return "Weich der Insel aus!";
-                case AdventureTutorialStep.Surf: return "Ab an die Plattengrenze!";
+                case AdventureTutorialStep.Flotsam: return "Der Pfeil zeigt aufs Treibgut";
+                case AdventureTutorialStep.Dodge: return "Der Pfeil zeigt die nächste Insel";
                 default: return "";
             }
         }
@@ -317,17 +309,16 @@ namespace Drift.Bridge
             {
                 _shownVersion = _model.Version;
                 SetStepTexts(step, _model.StepNumber, _model.CanContinue);
-                bool cheer = _model.Cheering;
-                var mood = cheer ? GrumbleMood.Giggly : step == AdventureTutorialStep.Ring || step == AdventureTutorialStep.Go ? GrumbleMood.Cheerful : GrumbleMood.Warm;
+                var mood = step == AdventureTutorialStep.Ring || step == AdventureTutorialStep.Go ? GrumbleMood.Cheerful : GrumbleMood.Warm;
                 _layoutWidth = -1f;
                 PlaceBubble();
                 _bubble.Show(TextFor(step, TouchDevice), mood, charsPerSecond, !_model.CanContinue);
             }
             PlaceBubble();
             bool typing = _bubble.Typing;
-            _tilda.SetPose(PoseFor(step, _model.Cheering, typing, _wide), typing);
+            _tilda.SetPose(PoseFor(step, false, typing, _wide), typing);
             UpdateArrow(step, _model.ShowsArrow, dt, time);
-            UpdateRing(step == AdventureTutorialStep.Clock && hud != null ? hud.BuoyancyRect : null, time);
+            UpdateRing(step == AdventureTutorialStep.Score && hud != null ? hud.DistanceRect : null, time);
         }
 
         void SetStepTexts(AdventureTutorialStep step, int number, bool canContinue)
@@ -518,7 +509,7 @@ namespace Drift.Bridge
             if (shown != _previewShown)
             {
                 _previewShown = shown;
-                SetStepTexts(step, (int)step + 1, !AdventureTutorialModel.IsAction(step));
+                SetStepTexts(step, (int)step + 1, true);
                 _layoutWidth = -1f;
                 PlaceBubble();
                 _bubble.ShowStill(TextFor(step, TouchDevice));
@@ -528,8 +519,8 @@ namespace Drift.Bridge
             var pose = PoseFor(step, false, true, _wide);
             _tilda.SetPose(pose, pose != TildaPose.Cheer);
             _targetTimer = 0f;
-            UpdateArrow(step, AdventureTutorialModel.IsAction(step) && step != AdventureTutorialStep.Surf, 0f, 0.4f);
-            UpdateRing(step == AdventureTutorialStep.Clock && hud != null ? hud.BuoyancyRect : null, 0.45f);
+            UpdateArrow(step, step == AdventureTutorialStep.Flotsam || step == AdventureTutorialStep.Dodge, 0f, 0.4f);
+            UpdateRing(step == AdventureTutorialStep.Score && hud != null ? hud.DistanceRect : null, 0.45f);
         }
 
         // ---------------------------------------------------------------- layout

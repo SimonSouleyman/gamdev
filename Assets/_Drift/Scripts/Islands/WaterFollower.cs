@@ -24,6 +24,12 @@ namespace Drift.Islands
         [Range(1, 6)] public int levels = 5;
         [Tooltip("Ring (Abenteuer): größter Abstand der Wasser-Gitterzeilen entlang der Strecke.")]
         [Range(1f, 6f)] public float ringRowSpacing = 3.2f;
+        [Tooltip("Ring: Abstand der Wasser-Gitterspalten quer über das Band. Fein genug, dass die gebogene Wasserfläche vor der tiefen Rennkamera nicht in Kacheln zerfällt.")]
+        [Range(0.5f, 6f)] public float ringColumnSpacing = 1.5f;
+        [Tooltip("Ring: so viele grobe Zeilen vor und hinter dem Blickpunkt werden fein unterteilt (bei 3,2 Abstand: 12 = ±38 Einheiten).")]
+        [Range(0, 40)] public int ringNearRows = 12;
+        [Tooltip("Ring: in wie viele Zeilen jede grobe Zeile nahe dem Blickpunkt geteilt wird.")]
+        [Range(1, 8)] public int ringNearSubdiv = 4;
 
         const string MeshName = "DriftWaterGrid";
 
@@ -34,7 +40,8 @@ namespace Drift.Islands
         float _builtCell;
         int _builtCells, _builtLevels;
         bool _builtRing;
-        float _builtHalfWidth, _builtCircumference, _builtRowSpacing, _ringRowStep;
+        float _builtHalfWidth, _builtCircumference, _builtRowSpacing, _ringRowStep, _builtColumnSpacing;
+        int _builtNearRows, _builtNearSubdiv;
         Transform _followed;
         bool _followedIsCamera;
 
@@ -76,20 +83,35 @@ namespace Drift.Islands
         // Local vertices around the strip centre (x = band centre, z = snapped focus), divided by the transform scale.
         // Column 0 and column `columns` lie exactly on -halfWidth / +halfWidth. Faces are wound to look up.
         public static void BuildRingStrip(in RingStripLayout layout, float halfWidth, float invScaleX, float invScaleZ,
-            List<Vector3> verts, List<int> tris)
+            List<Vector3> verts, List<int> tris) => BuildRingStrip(layout, halfWidth, invScaleX, invScaleZ, 0, 1, verts, tris);
+
+        // nearRows coarse rows either side of the centre are cut into nearSubdiv rows each. The ring bend is non-linear,
+        // so big flat quads right in front of the low race camera read as a checkerboard (first APK test); the fine
+        // rows sit on the coarse row lattice, so the snapped strip still keeps every vertex on a fixed world z.
+        public static void BuildRingStrip(in RingStripLayout layout, float halfWidth, float invScaleX, float invScaleZ,
+            int nearRows, int nearSubdiv, List<Vector3> verts, List<int> tris)
         {
             verts.Clear();
             tris.Clear();
-            int cols = layout.columns, rows = layout.Rows;
-            for (int k = 0; k <= rows; k++)
+            int cols = layout.columns;
+            int sub = Mathf.Max(1, nearSubdiv);
+            int rowCount = 0;
+            for (int k = 0; k <= layout.Rows; k++)
             {
-                float z = (k - layout.halfRows) * layout.rowStep * invScaleZ;
-                for (int i = 0; i <= cols; i++)
+                int parts = k < layout.Rows && Mathf.Abs(k - layout.halfRows + 0.5f) < nearRows ? sub : 1;
+                for (int p = 0; p < parts; p++)
                 {
-                    float x = i == 0 ? -halfWidth : i == cols ? halfWidth : -halfWidth + i * layout.columnStep;
-                    verts.Add(new Vector3(x * invScaleX, 0f, z));
+                    if (k == layout.Rows && p > 0) break;
+                    float z = ((k - layout.halfRows) + p / (float)parts) * layout.rowStep * invScaleZ;
+                    for (int i = 0; i <= cols; i++)
+                    {
+                        float x = i == 0 ? -halfWidth : i == cols ? halfWidth : -halfWidth + i * layout.columnStep;
+                        verts.Add(new Vector3(x * invScaleX, 0f, z));
+                    }
+                    rowCount++;
                 }
             }
+            int rows = rowCount - 1;
             int stride = cols + 1;
             for (int k = 0; k < rows; k++)
                 for (int i = 0; i < cols; i++)
@@ -170,7 +192,8 @@ namespace Drift.Islands
             RingGeometry g = ringMode ? ring.Geometry : default;
             bool stale = _mesh == null || scale != _builtScale || cellSize != _builtCell || ringMode != _builtRing;
             if (!stale && ringMode)
-                stale = g.halfWidth != _builtHalfWidth || g.circumference != _builtCircumference || ringRowSpacing != _builtRowSpacing;
+                stale = g.halfWidth != _builtHalfWidth || g.circumference != _builtCircumference || ringRowSpacing != _builtRowSpacing
+                        || ringColumnSpacing != _builtColumnSpacing || ringNearRows != _builtNearRows || ringNearSubdiv != _builtNearSubdiv;
             else if (!stale)
                 stale = innerCells != _builtCells || levels != _builtLevels;
             if (stale)
@@ -193,14 +216,17 @@ namespace Drift.Islands
             _builtHalfWidth = g.halfWidth;
             _builtCircumference = g.circumference;
             _builtRowSpacing = ringRowSpacing;
-            var layout = RingStrip(2f * g.halfWidth, g.circumference, Mathf.Max(0.25f, cellSize), ringRowSpacing);
+            _builtColumnSpacing = ringColumnSpacing;
+            _builtNearRows = ringNearRows;
+            _builtNearSubdiv = ringNearSubdiv;
+            var layout = RingStrip(2f * g.halfWidth, g.circumference, Mathf.Max(0.25f, Mathf.Min(cellSize, ringColumnSpacing)), ringRowSpacing);
             _ringRowStep = layout.rowStep;
 
             var verts = new List<Vector3>(layout.VertexCount);
             var tris = new List<int>(layout.columns * layout.Rows * 6);
             float sx = Mathf.Abs(scale.x) > 1e-5f ? 1f / scale.x : 1f;
             float sz = Mathf.Abs(scale.z) > 1e-5f ? 1f / scale.z : 1f;
-            BuildRingStrip(layout, g.halfWidth, sx, sz, verts, tris);
+            BuildRingStrip(layout, g.halfWidth, sx, sz, ringNearRows, ringNearSubdiv, verts, tris);
             float sy = Mathf.Abs(scale.y) > 1e-5f ? 1f / scale.y : 1f;
             Upload(verts, tris, new Vector3(2f * g.halfWidth * sx, 100f * sy, 2f * layout.halfRows * layout.rowStep * sz));
         }

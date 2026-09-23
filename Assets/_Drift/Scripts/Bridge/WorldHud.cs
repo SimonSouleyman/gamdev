@@ -74,6 +74,7 @@ namespace Drift.Bridge
         // Targets of the tutorial's highlight ring.
         public RectTransform BuoyancyRect => _buoyBar != null ? _buoyBar.Root : null;
         public RectTransform FormRect => _formText != null ? _formText.rectTransform : null;
+        public RectTransform DistanceRect => _timerText != null ? _timerText.rectTransform : null;
         // Canvas units from the top of the safe area down to the lower edge of the top panel in the current mode
         // (for toasts that sit under it).
         public float PanelBottom => UiStyle.Margin + (Mode == GameMode.Adventure ? AdventureHeight : CozyHeight);
@@ -224,8 +225,8 @@ namespace Drift.Bridge
             : GameModes.Current;
 
         // Gemütlich: land mass with what it is doing, a labelled world bar ("x von N Inseln"), a labelled buoyancy
-        // bar with the island's form, the next milestone and the minimap. Abenteuer: one slim strip - timer, the
-        // race calls and the best time on top, the buoyancy bar and the level below - and the ring as a small map.
+        // bar with the island's form, the next milestone and the minimap. Abenteuer: one slim strip - distance, the
+        // race calls and the record on top, the buoyancy bar and the level below - and the ring as a small map.
         void ApplyMode(GameMode mode)
         {
             _shownMode = mode;
@@ -370,24 +371,24 @@ namespace Drift.Bridge
             if (_explain != null && _explain.gameObject.activeSelf != on) _explain.gameObject.SetActive(on);
         }
 
-        // Every frame, but the strings only change once a second (timer, best time) or with the calls.
+        // Every frame, but the strings only change with a whole metre (distance, record) or with the calls.
         void UpdateAdventure(float buoy)
         {
             bool live = Application.isPlaying && session != null;
-            float t = live ? session.Stats.timeSurvived : 222f;
-            float best = live ? BestTimes.Get(GameMode.Adventure) : 262f;
-            int ti = Mathf.FloorToInt(t);
-            if (ti != _lastTimer)
+            float metres = live ? session.Stats.distance : 1234f;
+            float best = live ? BestDistances.Get(GameMode.Adventure) : 3456f;
+            int mi = BestDistances.Metres(metres);
+            if (mi != _lastTimer)
             {
-                _lastTimer = ti;
-                _timerText.text = BestTimes.Format(t);
+                _lastTimer = mi;
+                _timerText.text = BestDistances.Format(metres);
             }
-            // Past the old best the line turns into a cheer.
-            int bi = best > 0f && t > best ? -2 : Mathf.FloorToInt(best);
+            // Past the old record the line turns into a cheer.
+            int bi = best > 0f && metres > best ? -2 : BestDistances.Metres(best);
             if (bi != _lastBest)
             {
                 _lastBest = bi;
-                _bestText.text = bi == -2 ? "Neuer Rekord!" : best > 0f ? "Bestzeit " + BestTimes.Format(best) : "Erster Versuch";
+                _bestText.text = bi == -2 ? ModeTexts.NewRecordLabel : best > 0f ? ModeTexts.RecordLabel(best) : ModeTexts.FirstRunLabel;
                 _bestText.color = bi == -2 ? UiStyle.Mint : UiStyle.Muted;
             }
             // One slot for the calls of the race, loudest first: the rim of the band, a hit or a dodge just now,
@@ -636,11 +637,11 @@ namespace Drift.Bridge
         void BuildAdventure(RectTransform top)
         {
             _adventure = UiStyle.Rect(top, "Adventure").Stretch();
-            // Row 1: the clock, the call of the moment, the best time.
+            // Row 1: the distance (the score), the call of the moment, the record.
             var head = Row(_adventure, "Head", 12f, 76f);
-            _timerText = RowText(head, "", 64, UiStyle.Cream, TextAnchor.MiddleLeft, true, 0f, 190f);
-            _boostText = RowText(head, "", 40, UiStyle.Mint, TextAnchor.MiddleCenter, true, -5f, 330f);
-            _bestText = RowText(head, "", UiStyle.Caption, UiStyle.Muted, TextAnchor.MiddleRight, true, 0f, 190f);
+            _timerText = RowText(head, "", 60, UiStyle.Cream, TextAnchor.MiddleLeft, true, 0f, 260f);
+            _boostText = RowText(head, "", 40, UiStyle.Mint, TextAnchor.MiddleCenter, true, 15f, 230f);
+            _bestText = RowText(head, "", UiStyle.Caption, UiStyle.Muted, TextAnchor.MiddleRight, true, 0f, 220f);
             _boostText.gameObject.SetActive(false);
             // Row 2: what keeps you afloat, and the level.
             var row = Row(_adventure, "Buoyancy", 98f, 38f);

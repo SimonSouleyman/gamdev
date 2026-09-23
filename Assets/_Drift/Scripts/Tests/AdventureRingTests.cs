@@ -311,7 +311,7 @@ namespace Drift.Tests
             float last = 0f;
             for (int level = 1; level <= 6; level++)
             {
-                ring.SetRunSeconds((level - 1) * ring.levelSeconds + 1f);
+                ring.SetRunDistance(ring.LevelStartDistance(level) + 1f);
                 Assert.AreEqual(level, ring.Level);
                 player.AdventureSpeedScale = ring.PaceScale;
                 player.AdventureCruise = ring.Cruise;
@@ -390,16 +390,16 @@ namespace Drift.Tests
             ring.difficultyRampSeconds = 300f;
             ring.levelSeconds = 45f;
 
-            ring.SetRunSeconds(0f);
+            ring.SetRunDistance(0f);
             Assert.AreEqual(0f, ring.Difficulty);
             Assert.AreEqual(1, ring.Level);
             float spacing0 = ring.FlotsamSpacing, cruise0 = ring.Cruise, drift0 = ring.DriftShare;
 
-            ring.SetRunSeconds(150f);
+            ring.SetRunDistance(ring.DistanceForProgress(150f));
             Assert.AreEqual(0.5f, ring.Difficulty, 1e-3f);
             Assert.AreEqual(4, ring.Level);
 
-            ring.SetRunSeconds(600f);
+            ring.SetRunDistance(ring.DistanceForProgress(600f));
             Assert.AreEqual(1f, ring.Difficulty);
             Assert.Greater(ring.FlotsamSpacing, spacing0, "flotsam gets rarer");
             Assert.Greater(ring.Cruise, cruise0, "the base pace rises");

@@ -16,71 +16,51 @@ namespace Drift.Tests
         }
 
         [Test]
-        public void BeginsAtTheRingWithSinkingHeldOnlyThere()
+        public void HoldsTheStartForTheWholeBriefing()
         {
             var m = Started();
             Assert.IsTrue(m.Active);
             Assert.AreEqual(AdventureTutorialStep.Ring, m.Step);
             Assert.AreEqual(1, m.StepNumber);
-            Assert.IsTrue(m.SinkingSuspended);
-            Assert.IsTrue(m.CanContinue);
-            Assert.IsTrue(m.Continue());
-            Assert.AreEqual(AdventureTutorialStep.Clock, m.Step);
-            Assert.IsFalse(m.SinkingSuspended, "from the clock step on the island sinks");
+            var seen = new List<AdventureTutorialStep>();
+            m.StepChanged += s => seen.Add(s);
+            for (int i = 0; i < AdventureTutorialModel.StepCount; i++)
+            {
+                Assert.IsTrue(m.HoldsStart, "the island waits at the start line during " + m.Step);
+                Assert.IsTrue(m.CanContinue, m.Step + " turns on a tap: nothing to do while the island waits");
+                Assert.IsTrue(m.Continue());
+            }
+            Assert.IsTrue(m.Done);
+            Assert.IsFalse(m.Active);
+            Assert.IsFalse(m.HoldsStart, "\"Los!\" starts the race");
+            Assert.IsFalse(m.Skipped);
+            CollectionAssert.AreEqual(new[]
+            {
+                AdventureTutorialStep.Score, AdventureTutorialStep.Flotsam, AdventureTutorialStep.Dodge,
+                AdventureTutorialStep.Surf, AdventureTutorialStep.Go, AdventureTutorialStep.Done,
+            }, seen);
         }
 
         [Test]
-        public void ActionStepsWaitForTheirEventAndCannotBeClickedThrough()
+        public void TheArrowShowsFlotsamAndTheNextIsland()
         {
             var m = Started();
+            Assert.IsFalse(m.ShowsArrow);
             m.Continue();
             m.Continue();
             Assert.AreEqual(AdventureTutorialStep.Flotsam, m.Step);
-            Assert.IsFalse(m.CanContinue);
-            Assert.IsFalse(m.Continue());
             Assert.IsTrue(m.ShowsArrow);
-
-            m.ReportFlotsam();
+            m.Continue();
             Assert.AreEqual(AdventureTutorialStep.Dodge, m.Step);
-            Assert.IsTrue(m.Cheering);
-            Assert.IsTrue(m.ShowsArrow, "the arrow now points at the island to go round");
-
-            m.ReportDodge();
-            Assert.AreEqual(AdventureTutorialStep.Surf, m.Step);
-
-            m.ReportSurf(0.2f, 1f);
-            Assert.AreEqual(AdventureTutorialStep.Surf, m.Step, "too weak to count");
-            m.ReportSurf(0.8f, 0.3f);
-            Assert.AreEqual(AdventureTutorialStep.Surf, m.Step, "not long enough yet");
-            m.ReportSurf(0.8f, 0.4f);
-            Assert.AreEqual(AdventureTutorialStep.Go, m.Step);
-            Assert.AreEqual(AdventureTutorialModel.StepCount, m.StepNumber);
-            Assert.IsTrue(m.CanContinue);
-            Assert.IsTrue(m.Continue());
-            Assert.IsTrue(m.Done);
-            Assert.IsFalse(m.Active);
-            Assert.IsFalse(m.Skipped);
+            Assert.IsTrue(m.ShowsArrow);
+            m.Continue();
+            Assert.IsFalse(m.ShowsArrow);
         }
 
         [Test]
-        public void WhatWasDoneEarlySkipsItsStep()
+        public void EveryStepEndsByItselfSoTheIslandNeverWaitsForever()
         {
             var m = Started();
-            m.ReportFlotsam();
-            m.ReportDodge();
-            Assert.AreEqual(AdventureTutorialStep.Ring, m.Step, "the explanation is not cut short");
-            m.Continue();
-            m.Continue();
-            Assert.AreEqual(AdventureTutorialStep.Surf, m.Step, "flotsam and dodging already done");
-            Assert.IsTrue(m.Cheering);
-        }
-
-        [Test]
-        public void EveryStepEndsByItselfSoTheRaceIsNeverHeldUp()
-        {
-            var m = Started();
-            var seen = new List<AdventureTutorialStep>();
-            m.StepChanged += s => seen.Add(s);
             float total = 0f;
             while (m.Active && total < 300f)
             {
@@ -88,43 +68,38 @@ namespace Drift.Tests
                 total += 0.1f;
             }
             Assert.IsTrue(m.Done);
-            float bound = 2f * m.explainSeconds + 3f * m.actionSeconds + m.goSeconds + 1f;
-            Assert.Less(total, bound);
-            CollectionAssert.AreEqual(new[]
-            {
-                AdventureTutorialStep.Clock, AdventureTutorialStep.Flotsam, AdventureTutorialStep.Dodge,
-                AdventureTutorialStep.Surf, AdventureTutorialStep.Go, AdventureTutorialStep.Done,
-            }, seen);
+            Assert.IsFalse(m.HoldsStart);
+            Assert.Less(total, 5f * m.explainSeconds + m.goSeconds + 1f);
         }
 
         [Test]
-        public void ATimeoutIsNotACheer()
+        public void ATimeoutIsMarked()
         {
             var m = Started();
-            m.Continue();
-            m.Continue();
-            m.Tick(m.actionSeconds + 0.01f);
-            Assert.AreEqual(AdventureTutorialStep.Dodge, m.Step);
+            m.Tick(m.explainSeconds + 0.01f);
+            Assert.AreEqual(AdventureTutorialStep.Score, m.Step);
             Assert.IsTrue(m.TimedOut);
-            Assert.IsFalse(m.Cheering);
+            m.Continue();
+            Assert.IsFalse(m.TimedOut);
         }
 
         [Test]
-        public void SkipFinishesOnceAndEventsFire()
+        public void SkipFinishesOnceReleasesTheStartAndEventsFire()
         {
             var m = new AdventureTutorialModel();
             int finished = 0;
             m.Finished += () => finished++;
             m.Skip();
             Assert.AreEqual(0, finished, "nothing to skip before it begins");
+            Assert.IsFalse(m.HoldsStart);
             m.Begin();
+            Assert.IsTrue(m.HoldsStart);
             m.Skip();
             m.Skip();
             Assert.AreEqual(1, finished);
             Assert.IsTrue(m.Skipped);
             Assert.IsTrue(m.Done);
-            Assert.IsFalse(m.SinkingSuspended);
-            m.ReportDodge();
+            Assert.IsFalse(m.HoldsStart);
             m.Tick(100f);
             Assert.AreEqual(AdventureTutorialStep.Done, m.Step);
         }
@@ -182,6 +157,12 @@ namespace Drift.Tests
                     Assert.Less(TildaBubble.Plain(text).Length, 190, s.ToString());
                 }
             Assert.AreEqual("", AdventureTutorialGuide.TextFor(AdventureTutorialStep.Done, false));
+            string score = TildaBubble.Plain(AdventureTutorialGuide.TextFor(AdventureTutorialStep.Score, true));
+            StringAssert.Contains("Meter", score, "the score is the distance now");
+            StringAssert.DoesNotContain("Uhr", score);
+            StringAssert.DoesNotContain("Sekunde", score);
+            StringAssert.Contains("Sobald ich fertig bin", TildaBubble.Plain(AdventureTutorialGuide.TextFor(AdventureTutorialStep.Ring, false)),
+                "she says the island waits for her");
         }
 
         [Test]
@@ -189,6 +170,7 @@ namespace Drift.Tests
         {
             Assert.AreEqual(TildaPose.Wave, AdventureTutorialGuide.PoseFor(AdventureTutorialStep.Ring, false, true, false));
             Assert.AreEqual(TildaPose.Cheer, AdventureTutorialGuide.PoseFor(AdventureTutorialStep.Surf, true, true, false));
+            Assert.AreEqual(TildaPose.Talk, AdventureTutorialGuide.PoseFor(AdventureTutorialStep.Surf, false, true, false));
             Assert.AreEqual(TildaPose.Cheer, AdventureTutorialGuide.PoseFor(AdventureTutorialStep.Go, false, false, false));
             Assert.AreEqual(TildaPose.Present, AdventureTutorialGuide.PoseFor(AdventureTutorialStep.Dodge, false, true, true));
             Assert.AreEqual(TildaPose.Idle, AdventureTutorialGuide.PoseFor(AdventureTutorialStep.Dodge, false, false, true));
@@ -201,6 +183,8 @@ namespace Drift.Tests
             Assert.AreEqual(TildaVoiceLines.GameOver, TildaVoiceLines.ForMode(TildaVoiceLines.GameOver, false));
             Assert.AreEqual(TildaVoiceLines.VoiceOn, TildaVoiceLines.ForMode(TildaVoiceLines.VoiceOn, true), "no variant: the usual line");
             Assert.IsNotNull(TildaVoiceLines.TextOf(TildaVoiceLines.AdventureRecord));
+            StringAssert.DoesNotContain("Bestzeit", TildaVoiceLines.TextOf(TildaVoiceLines.AdventureRecord));
+            StringAssert.DoesNotContain("Zeit", TildaVoiceLines.TextOf("adv_gameover"));
         }
 
         [Test]

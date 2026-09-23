@@ -1,0 +1,58 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!21 &2100000
+Material:
+  serializedVersion: 8
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_Name: Ref_Critter
+  m_Shader: {fileID: 4800000, guid: 5cc49a60e6ab24148ae7c53afa3fe9bc, type: 3}
+  m_Parent: {fileID: 0}
+  m_ModifiedSerializedProperties: 0
+  m_ValidKeywords: []
+  m_InvalidKeywords: []
+  m_LightmapFlags: 4
+  m_EnableInstancingVariants: 0
+  m_DoubleSidedGI: 0
+  m_CustomRenderQueue: -1
+  stringTagMap: {}
+  disabledShaderPasses: []
+  m_LockedProperties: 
+  m_SavedProperties:
+    serializedVersion: 3
+    m_TexEnvs: []
+    m_Ints: []
+    m_Floats:
+    - _Ambient: 0.45
+    - _BlinkSpeed: 1.7
+    - _BlobStrength: 1
+    - _BobSpeed: 3.2
+    - _CoreRadius: 0.22
+    - _CoreStrength: 1.6
+    - _Cull: 0
+    - _DriftSpeed: 0.35
+    - _DstBlend: 0
+    - _FireflyAmount: 1
+    - _FlapAngle: 75
+    - _FlapSpeed: 17
+    - _GlowMax: 1.8
+    - _GlowMin: 0.15
+    - _GlowMode: 0
+    - _HaloStrength: 0.6
+    - _LightAmount: 1
+    - _Markings: 1
+    - _OffsetFactor: 0
+    - _OffsetUnits: 0
+    - _SrcBlend: 1
+    - _SweepSpeed: 4.5
+    - _SyncPeriod: 1.2
+    - _SyncSpeed: 2.2
+    - _WaveSpeed: 7
+    - _ZWrite: 1
+    m_Colors:
+    - _SyncWave: {r: 0, g: 0, b: -1000, a: 0}
+    - _Tint: {r: 1, g: 1, b: 1, a: 1}
+  m_BuildTextureStacks: []
+  m_AllowLocking: 1

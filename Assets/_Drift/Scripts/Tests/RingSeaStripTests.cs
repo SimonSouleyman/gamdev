@@ -170,5 +170,29 @@ namespace Drift.Tests
                 }
             }
         }
+    
+        [Test]
+        public void NearRowsAreFineAndStayOnTheCoarseLattice()
+        {
+            var layout = WaterFollower.RingStrip(56f, 640f, 1.5f, 3.2f);
+            var verts = new List<Vector3>();
+            var tris = new List<int>();
+            WaterFollower.BuildRingStrip(layout, 28f, 1f, 1f, 12, 4, verts, tris);
+            int stride = layout.columns + 1;
+            var zs = new List<float>();
+            for (int v = 0; v < verts.Count; v += stride) zs.Add(verts[v].z);
+            float fine = layout.rowStep / 4f;
+            int nearGaps = 0;
+            for (int k = 1; k < zs.Count; k++)
+            {
+                float gap = zs[k] - zs[k - 1];
+                Assert.Greater(gap, 0f, "rows ascend");
+                if (Mathf.Abs(zs[k]) < 30f) { Assert.AreEqual(fine, gap, 1e-3f, "fine rows in front of the camera"); nearGaps++; }
+                else Assert.LessOrEqual(gap, layout.rowStep + 1e-3f);
+            }
+            Assert.Greater(nearGaps, 60);
+            Assert.AreEqual((zs.Count - 1) * layout.columns * 6, tris.Count);
+            Assert.Less(verts.Count, 14000, "mobile budget");
+        }
     }
 }
