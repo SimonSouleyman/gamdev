@@ -33,7 +33,7 @@ namespace Drift.Life
     // flat triangles through ShapeBuilder.Fin, so winding is decided by the outward vector of each face.
     // Windows and lamps live in a separate "glow" template that the system blends towards an HDR warm colour
     // with the night; flags carry a sway weight for the wind channel of Drift/VertexColor.
-    public static class SettlementMeshes
+    public static partial class SettlementMeshes
     {
         public const int KindCount = 14;
         public const int Variants = 3;

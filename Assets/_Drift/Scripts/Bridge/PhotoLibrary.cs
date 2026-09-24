@@ -16,7 +16,7 @@ namespace Drift.Bridge
     // Everything takes the directory as a parameter so tests run against a temp folder.
     public static class PhotoLibrary
     {
-        public const string Prefix = "drift_";
+        public const string Prefix = Drift.SaveSystem.JournalReset.PhotoPrefix;
         public const string Extension = ".png";
         public const string ThumbSuffix = "_thumb.jpg";
         public const string StampFormat = "yyyyMMdd_HHmmss";
@@ -27,7 +27,7 @@ namespace Drift.Bridge
             "Januar", "Februar", "März", "April", "Mai", "Juni", "Juli", "August", "September", "Oktober", "November", "Dezember",
         };
 
-        public static string DefaultDirectory => Path.Combine(Application.persistentDataPath, "Photos");
+        public static string DefaultDirectory => Path.Combine(Application.persistentDataPath, Drift.SaveSystem.JournalReset.PhotoFolderName);
 
         public static string FileNameFor(DateTime time) => Prefix + time.ToString(StampFormat, CultureInfo.InvariantCulture) + Extension;
 

@@ -1010,6 +1010,7 @@ MonoBehaviour:
   pickupDrift: 0.5
   whaleBoostGap: 0.8
   whaleBoostLead: 1.1
+  whaleBoostCrossSeconds: 0.5
 --- !u!114 &479351225
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -1167,8 +1168,8 @@ MonoBehaviour:
   animalSpacing: 110
   animalWhaleShare: 0.3
   animalTurtleShare: 0.3
-  whaleBoostSeconds: 4
-  whaleBoostFactor: 2.5
+  whaleBoostSeconds: 3
+  whaleBoostFactor: 2
   whaleMomentumPieces: 2
   companionBoost: 0.06
   maxCompanionStack: 3
@@ -2006,6 +2007,9 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 5865cd2216fca0b48a4943899655ac30, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Drift.Life::Drift.Life.IslandHerdSystem
+  idleRate: 1
+  idlePauseMin: 0.6
+  idlePauseMax: 3.5
   meetRate: 0.006
   meetRange: 4
   meetDirectorRange: 6
@@ -2244,6 +2248,10 @@ MonoBehaviour:
   festivalEndNight: 0.96
   lanternPoles: 8
   lanternMargin: 0.28
+  harbourReserve: 0.32
+  hutlessPenalty: 2.5
+  hutTurn: 8
+  hutDryHeight: 0.06
   landmarkBuildScale: 0.12
   prehistory: 0
   prehistoryMax: 5400
@@ -2992,6 +3000,9 @@ MonoBehaviour:
   tapRange: 60
   popupShowSeconds: 7
   popupFadeSeconds: 0.6
+  popupSteady: 1
+  popupDeadZone: {x: 110, y: 80}
+  popupFollowTime: 0.35
   followZoomLevel: 0.2
   discoverRange: 25
   discoverInterval: 1
@@ -3314,6 +3325,9 @@ MonoBehaviour:
   topMargin: 0.18
   sparkleWatched: 0
   debugLog: 0
+  whaleSparkleEvery: 0.14
+  whaleSparkleScale: 0.85
+  whaleSparkleSeconds: 0.6
 --- !u!1 &2114831827
 GameObject:
   m_ObjectHideFlags: 0

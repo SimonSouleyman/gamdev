@@ -265,6 +265,44 @@ namespace Drift.Tests
             }
         }
 
+        // Owner 2026-09-24: "Auf der Anfangsinsel soll erstmal nur eine Herde Tiere sein." More come with the first merge.
+        [Test]
+        public void StartIsland_HasExactlyOneHerd_UntilItsFirstMerge()
+        {
+            SpeciesPool.Set(Bit(LifeKind.Sheep) | Bit(LifeKind.Hare) | Bit(LifeKind.Goat) | Bit(LifeKind.Capybara) | Bit(LifeKind.Penguin) | Bit(LifeKind.Zebra), LifeKind.Sheep);
+            for (int seed = 1; seed <= 6; seed++)
+            {
+                var go = MakeObject(2.75f, seed * 131, LifeBiome.Temperate, 0.8f, true, false);
+                var herds = go.GetComponent<IslandHerdSystem>();
+                var plain = MakeObject(2.75f, seed * 131, LifeBiome.Temperate, 0.8f, false, false).GetComponent<IslandHerdSystem>();
+                Assert.Greater(plain.HerdCount, 1, "an ordinary island of the start size holds more than one herd");
+                Assert.AreEqual(1, herds.HerdCount, "seed " + seed);
+                Assert.AreEqual(LifeKind.Sheep, herds.HerdKind(0));
+                for (int i = 0; i < 1200; i++) herds.Step(0.05f);
+                Assert.AreEqual(1, herds.HerdCount, "seed " + seed + ": still one herd after a minute");
+
+                // Growing without a merge (it never does, but the cap must not hinge on it) keeps the one herd.
+                var surface = go.GetComponent<FakeIslandSurface>();
+                surface.radius = 3.2f;
+                surface.version++;
+                for (int i = 0; i < 20; i++) herds.Step(0.05f);
+                Assert.AreEqual(1, herds.HerdCount);
+
+                // The first merge lifts the cap: the guest's herds come along, and the bigger land brings more.
+                var guest = MakeObject(2.5f, seed * 17 + 3, LifeBiome.Temperate, 0.8f, false, false).GetComponent<IslandHerdSystem>();
+                int guestHerds = guest.HerdCount;
+                herds.AbsorbFrom(guest);
+                surface.radius = 5f;
+                surface.version++;
+                for (int i = 0; i < 20; i++) herds.Step(0.05f);
+                Assert.Greater(herds.HerdCount, 1 + guestHerds, "seed " + seed + ": new land after the merge brings new herds");
+            }
+
+            SpeciesPool.Clear();
+            var noPool = MakeObject(2.75f, 5, LifeBiome.Temperate, 0.8f, true, false).GetComponent<IslandHerdSystem>();
+            Assert.AreEqual(1, noPool.HerdCount, "without a pool (adventure) the start island has one herd too");
+        }
+
         [Test]
         public void Critters_OnlyThePoolsKindsLive()
         {

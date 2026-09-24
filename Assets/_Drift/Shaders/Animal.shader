@@ -2,7 +2,7 @@ Shader "Drift/Animal"
 {
     // Drift/VertexColor plus per-animal animation baked by TemplateBatch.AddAnimal:
     //   UV0 = (pitch lever: local forward in world units, up: height above ground in world units, phase, hop amplitude)
-    //   UV1 = (moving 0/1, alert 0/1, sleep 0/1, t0: state-change time on the _LifeClock)
+    //   UV1 = (moving 0/1 (+2 = the change at t0 kept the gait), alert 0/1, sleep 0/1, t0: state-change time on the _LifeClock)
     //   UV2 = (pitchFrom, pitchTo in degrees, restFrom, restTo 0..1)
     //   colour alpha = signed step lift of a leg vertex in world units (detail templates only, 0 otherwise)
     //   UV3 = procedural markings (Markings / DriftMarkings.hlsl: pattern coordinates in template units + code)
@@ -92,13 +92,15 @@ Shader "Drift/Animal"
                 float up = IN.anim0.y;
                 float phase = IN.anim0.z;
                 float hopAmp = IN.anim0.w;
-                float movingTo = saturate(IN.anim1.x);
+                // x = moving 0/1, or 2/3 when the change at t0 kept the gait (no walk blend, see AnimalPose.gaitSteady).
+                float steady = step(1.5, IN.anim1.x);
+                float movingTo = saturate(IN.anim1.x - 2.0 * steady);
                 float alert = saturate(IN.anim1.y);
                 float sleep = saturate(IN.anim1.z);
                 float age = _LifeClock - IN.anim1.w;
                 float blend = _LifeClock > 0.0 ? saturate(age / max(_TransitionTime, 0.01)) : 1.0;
                 float gaitBlend = _LifeClock > 0.0 ? saturate(age / 0.25) : 1.0;
-                float moving = lerp(1.0 - movingTo, movingTo, gaitBlend);
+                float moving = lerp(lerp(1.0 - movingTo, movingTo, steady), movingTo, gaitBlend);
                 float pitch = lerp(IN.anim2.x, IN.anim2.y, blend);
                 float rest = lerp(IN.anim2.z, IN.anim2.w, blend);
 

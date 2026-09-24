@@ -8,6 +8,9 @@ namespace Drift.Life
     public struct AnimalPose
     {
         public float phase, hopAmplitude, moving, alert, sleep, t0, pitchFrom, pitchTo, restFrom, restTo;
+        // The state change at t0 did not flip the gait (a head turn, a gesture): the shader must not play the
+        // quarter-second walk blend it otherwise assumes every change to be (hares hopped on every pose change).
+        public bool gaitSteady;
     }
 
     public class TemplateBatch
@@ -148,7 +151,7 @@ namespace Drift.Life
             }
             else System.Array.Clear(_uv3, baseIndex, verts.Length);
             var uv0 = _uv0; var uv1 = _uv1; var uv2 = _uv2;
-            var gait = new Vector4(pose.moving, pose.alert, pose.sleep, pose.t0);
+            var gait = new Vector4(pose.gaitSteady ? pose.moving + 2f : pose.moving, pose.alert, pose.sleep, pose.t0);
             var blend = new Vector4(pose.pitchFrom, pose.pitchTo, pose.restFrom, pose.restTo);
             var lever = tpl.lever;
             if (lever == null)

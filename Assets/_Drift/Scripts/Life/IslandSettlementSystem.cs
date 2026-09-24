@@ -148,6 +148,16 @@ namespace Drift.Life
         [Tooltip("Wie weit der Lampionkreis um den Festplatz steht, über die Größe der tanzenden Gruppe hinaus.")]
         [Range(0f, 1f)] public float lanternMargin = 0.28f;
 
+        [Header("Hafen (Fischerhütte am Steg)")]
+        [Tooltip("Freier Umkreis (in Hausgrößen) um die Fischerhütte samt Tonnen, Kisten und Seilen, den kein anderes Gebäude betritt.")]
+        [Range(0.2f, 0.6f)] public float harbourReserve = 0.32f;
+        [Tooltip("Um so viel näher (Einheiten) muss ein Ufer ohne Platz für die Hütte sein, damit der Steg trotzdem dort gebaut wird.")]
+        [Range(0f, 6f)] public float hutlessPenalty = 2.5f;
+        [Tooltip("Wie weit (Grad) die Hütte sich zum Steg hin dreht.")]
+        [Range(0f, 30f)] public float hutTurn = 8f;
+        [Tooltip("Mindesthöhe über dem Wasser für jede Ecke der Hütte.")]
+        [Range(0f, 0.3f)] public float hutDryHeight = 0.06f;
+
         [Header("Meilenstein-Bauwerke")]
         [Tooltip("Bauzeit-Faktor für Leuchtturm und Hafen aus einem Meilenstein: kleiner = der Spieler sieht sie gleich wachsen.")]
         [Range(0.02f, 1f)] public float landmarkBuildScale = 0.12f;
@@ -219,6 +229,9 @@ namespace Drift.Life
             public Village village;
             // A milestone building: it goes up quickly and the island caps never take it away again.
             public bool landmark;
+            // Jetties only: the spot of the fisherman's hut at its land end (HutSpot), -1 = no room for one. Not
+            // saved - picked again from the ground on load and after every shape change.
+            public int harbour = -1;
         }
 
         class Settler
@@ -371,6 +384,12 @@ namespace Drift.Life
             foreach (var b in _buildings)
             {
                 var spec = SettlementMeshes.Spec(b.kind);
+                if (b.harbour >= 0)
+                {
+                    HutSpot(b, b.harbour, out Vector2 hut, out _, out _);
+                    float hr = SettlementMeshes.HutHalfX * buildingScale;
+                    if ((hut - local).sqrMagnitude < hr * hr) return true;
+                }
                 if (spec.plot || b.kind == BuildingKind.Dock) continue;
                 float r = spec.radius * 0.8f * ScaleOf(b.kind);
                 if ((b.pos - local).sqrMagnitude < r * r) return true;
@@ -391,6 +410,12 @@ namespace Drift.Life
                 {
                     if (b.village != v) continue;
                     var spec = SettlementMeshes.Spec(b.kind);
+                    if (b.harbour >= 0)
+                    {
+                        HutSpot(b, b.harbour, out Vector2 hut, out _, out _);
+                        float hr = half + SettlementMeshes.HutWidth * buildingScale * clearReach + clearMargin;
+                        if (Mathf.Abs(hut.x - local.x) < hr && Mathf.Abs(hut.y - local.y) < hr) return true;
+                    }
                     if (spec.natural) continue;
                     float reach = half + spec.radius * buildingScale * clearReach + clearMargin;
                     if (Mathf.Abs(b.pos.x - local.x) < reach && Mathf.Abs(b.pos.y - local.y) < reach) return true;
@@ -571,6 +596,10 @@ namespace Drift.Life
                 if (b == ignore) continue;
                 float r = radius + ReserveRadius(b.kind) + 0.04f * Unit + siteGap;
                 if ((b.pos - p).sqrMagnitude < r * r) return false;
+                if (b.harbour < 0) continue;
+                HutSpot(b, b.harbour, out Vector2 hut, out _, out _);
+                r = radius + harbourReserve * buildingScale + 0.04f * Unit + siteGap;
+                if ((hut - p).sqrMagnitude < r * r) return false;
             }
             return true;
         }
@@ -647,6 +676,7 @@ namespace Drift.Life
                 variant = _rnd.Next(SettlementMeshes.Variants), phase = Rand(0f, 6.28f)
             };
             _buildings.Add(b);
+            if (kind == BuildingKind.Dock) b.harbour = ChooseHarbour(b);
             Placements++;
             RecomputeRadius(v);
             _staticDirty = true;
@@ -891,10 +921,209 @@ namespace Drift.Life
                 foreach (var b in _buildings)
                     if (b.kind == BuildingKind.Dock && (b.pos - lo).sqrMagnitude < 4f) apart = false;
                 if (!apart) continue;
-                float d = (lo - v.center).magnitude;
+                // A shore with room for the fisherman's hut wins over a nearer one without.
+                float d = (lo - v.center).magnitude + (HasHarbourRoom(lo, YawOf(dir)) ? 0f : hutlessPenalty);
                 if (d < best) { best = d; pos = lo; yaw = YawOf(dir); }
             }
             return best != float.MaxValue;
+        }
+
+        // ---------------------------------------------------------------- harbour
+
+        // Fisherman's hut spots behind a jetty's shore end in buildingScale units of the jetty frame (harbour index =
+        // (back * 2 + side) * 2 + lateral): nearest the water first, the jetty's own side (variant) before the other.
+        static readonly float[] HutBacks = { 0.2f, 0.3f, 0.42f, 0.56f, 0.72f };
+        static readonly float[] HutLats = { 0.42f, 0.52f };
+        const int HutSpotCount = 20;
+        // Platform corners (template units) the hut is levelled on; the step between them must stay within the stilts.
+        const float HutProbeX = 0.112f, HutProbeZ = 0.13f, HutMaxStep = 0.3f;
+        // Clutter round the hut in its frame (template units: x away from the jetty, z out to sea, yaw offset, prop).
+        static readonly Vector4[] HarbourLayout =
+        {
+            new Vector4(-0.2f, 0.07f, 0f, (int)SettlementMeshes.HarbourProp.Barrels),
+            new Vector4(0.245f, -0.07f, 12f, (int)SettlementMeshes.HarbourProp.Crates),
+            new Vector4(0.07f, 0.215f, 0f, (int)SettlementMeshes.HarbourProp.Coil),
+            new Vector4(0.23f, 0.13f, 35f, (int)SettlementMeshes.HarbourProp.Pot)
+        };
+
+        static Vector2 Rot(Vector2 o, float yaw)
+        {
+            Vector2 f = Fwd(yaw);
+            return new Vector2(f.y * o.x + f.x * o.y, -f.x * o.x + f.y * o.y);
+        }
+
+        void HutSpotAt(Vector2 root, float dockYaw, int variant, int spot, out Vector2 pos, out float yaw, out int side)
+        {
+            int lat = spot & 1, other = (spot >> 1) & 1, back = Mathf.Min(spot >> 2, HutBacks.Length - 1);
+            side = ((variant & 1) == 0 ? 1 : -1) * (other == 0 ? 1 : -1);
+            Vector2 f = Fwd(dockYaw), r = new Vector2(f.y, -f.x);
+            pos = root - f * (HutBacks[back] * buildingScale) + r * (side * HutLats[lat] * buildingScale);
+            yaw = dockYaw - side * hutTurn;
+        }
+
+        void HutSpot(Building b, int spot, out Vector2 pos, out float yaw, out int side) => HutSpotAt(b.pos, b.yaw, b.variant, spot, out pos, out yaw, out side);
+
+        // The hut stands level on its highest platform corner (a little sunk in), on stilts down the slope.
+        float HutBase(Vector2 hut, float yaw)
+        {
+            float hi = H(hut);
+            for (int i = 0; i < 4; i++)
+                hi = Mathf.Max(hi, H(hut + Rot(new Vector2((i & 1) == 0 ? -HutProbeX : HutProbeX, (i & 2) == 0 ? -HutProbeZ : HutProbeZ) * buildingScale, yaw)));
+            return hi - 0.02f * buildingScale;
+        }
+
+        Vector3 HutPoint(Vector2 hut, float yaw, int side, float baseY, Vector3 local)
+        {
+            Vector2 o = Rot(new Vector2(local.x * side, local.z) * buildingScale, yaw);
+            return new Vector3(hut.x + o.x, baseY + local.y * buildingScale, hut.y + o.y);
+        }
+
+        // Dry, not too steep for the plinth, off every jetty and clear of the other buildings (and their huts).
+        bool HutFitsAt(Vector2 root, float dockYaw, int variant, int spot, Building ignore)
+        {
+            HutSpotAt(root, dockYaw, variant, spot, out Vector2 hut, out float yaw, out _);
+            float lo = H(hut);
+            if (lo < hutDryHeight) return false;
+            float hi = lo;
+            for (int i = 0; i < 4; i++)
+            {
+                float sx = (i & 1) == 0 ? -1f : 1f, sz = (i & 2) == 0 ? -1f : 1f;
+                float h = H(hut + Rot(new Vector2(sx * HutProbeX, sz * HutProbeZ) * buildingScale, yaw));
+                lo = Mathf.Min(lo, h);
+                hi = Mathf.Max(hi, h);
+                if (DeckAt(hut + Rot(new Vector2(sx * SettlementMeshes.HutHalfX, sz * SettlementMeshes.HutHalfZ) * buildingScale, yaw)) != float.MinValue) return false;
+            }
+            if (lo < hutDryHeight || hi - lo > HutMaxStep * buildingScale) return false;
+            return IsFree(hut, harbourReserve * buildingScale, ignore);
+        }
+
+        bool HutFits(Building b, int spot) => HutFitsAt(b.pos, b.yaw, b.variant, spot, b);
+
+        int ChooseHarbour(Building b)
+        {
+            for (int spot = 0; spot < HutSpotCount; spot++)
+                if (HutFits(b, spot)) return spot;
+            return -1;
+        }
+
+        bool HasHarbourRoom(Vector2 root, float dockYaw)
+        {
+            for (int spot = 0; spot < HutSpotCount; spot++)
+                if (HutFitsAt(root, dockYaw, 0, spot, null)) return true;
+            return false;
+        }
+
+        // A piece of clutter on its own ground; false where that ground is under water or on a jetty.
+        bool HarbourPropAt(Vector2 hut, float yaw, int side, int i, out Vector3 pos, out float propYaw)
+        {
+            Vector4 l = HarbourLayout[i];
+            Vector2 q = hut + Rot(new Vector2(l.x * side, l.y) * buildingScale, yaw);
+            float h = H(q);
+            pos = new Vector3(q.x, h, q.y);
+            propYaw = yaw + l.z * side;
+            return h >= 0.03f && DeckAt(q) == float.MinValue;
+        }
+
+        void AddHarbour(Building b)
+        {
+            HutSpot(b, b.harbour, out Vector2 hut, out float yaw, out int side);
+            float k = buildingScale, baseY = HutBase(hut, yaw);
+            float charAmount = 0f, glow = 0f, drop = 0f, tilt = 0f;
+            bool props = true;
+            switch (b.state)
+            {
+                case BuildingState.Done: glow = GlowOf(b); break;
+                case BuildingState.Burning: charAmount = b.burn * 0.85f; break;
+                case BuildingState.Charred: charAmount = 0.9f; break;
+                case BuildingState.Sinking:
+                    tilt = 1f - Mathf.Clamp01(b.timer / Mathf.Max(0.1f, sinkTime));
+                    drop = tilt * tilt * (SettlementMeshes.HutHeight + 0.12f) * k;
+                    break;
+                default:
+                {
+                    // The hut goes up with the second half of the jetty's work, the clutter arrives when it is done.
+                    float up = Smooth(0.35f, 1f, b.progress);
+                    if (up <= 0.01f) return;
+                    drop = (1f - up) * (SettlementMeshes.HutHeight + 0.05f) * k;
+                    props = false;
+                    break;
+                }
+            }
+            Vector3 pos = new Vector3(hut.x, baseY - drop, hut.y);
+            var body = SettlementMeshes.FishHut(side);
+            var lights = SettlementMeshes.FishHutGlow(side);
+            if (tilt > 0f)
+            {
+                _batch.Add(body, pos, yaw, k, 9f * tilt * side, 5f * tilt, null, 0f, default, 0f);
+                _batch.Add(lights, pos, yaw, k, 9f * tilt * side, 5f * tilt, null, 0f, default, 0f);
+            }
+            else
+            {
+                _batch.AddPlant(body, pos, yaw, k, 0f, 0f, Color.white, Char, charAmount);
+                if (charAmount > 0f) _batch.AddPlant(lights, pos, yaw, k, 0f, 0f, Color.white, Char, charAmount);
+                else _batch.AddPlant(lights, pos, yaw, k, 0f, 0f, Color.white, WindowGlow, glow);
+            }
+            if (!props) return;
+            float dk = ScaleOf(BuildingKind.Dock);
+            if (tilt > 0f) _batch.Add(SettlementMeshes.JettyGear, new Vector3(b.pos.x, -tilt * tilt * 0.22f * dk, b.pos.y), b.yaw, dk, 9f * tilt, 5f * tilt, null, 0f, default, 0f);
+            else _batch.AddPlant(SettlementMeshes.JettyGear, new Vector3(b.pos.x, 0f, b.pos.y), b.yaw, dk, 0f, 0f, Color.white, Char, charAmount);
+            for (int i = 0; i < HarbourLayout.Length; i++)
+            {
+                if (!HarbourPropAt(hut, yaw, side, i, out Vector3 p, out float py)) continue;
+                p.y -= drop;
+                _batch.AddPlant(SettlementMeshes.Prop((SettlementMeshes.HarbourProp)HarbourLayout[i].w), p, py, k, 0f, 0f, Color.white, Char, charAmount);
+            }
+        }
+
+        // The hut and the clutter by building i (a jetty), island local: (x, z, footprint radius, ground y), the hut
+        // first. Empty for anything else or a jetty without room for a hut.
+        public int HarbourParts(int index, List<Vector4> parts)
+        {
+            parts.Clear();
+            if (index < 0 || index >= _buildings.Count || !Bind()) return 0;
+            var b = _buildings[index];
+            if (b.harbour < 0) return 0;
+            HutSpot(b, b.harbour, out Vector2 hut, out float yaw, out int side);
+            parts.Add(new Vector4(hut.x, hut.y, SettlementMeshes.HutHalfX * 1.4142f * buildingScale, HutBase(hut, yaw)));
+            for (int i = 0; i < HarbourLayout.Length; i++)
+                if (HarbourPropAt(hut, yaw, side, i, out Vector3 p, out _))
+                    parts.Add(new Vector4(p.x, p.z, SettlementMeshes.HarbourPropRadius((SettlementMeshes.HarbourProp)HarbourLayout[i].w) * buildingScale, p.y));
+            return parts.Count;
+        }
+
+        public bool HasHarbourHut(int index) => index >= 0 && index < _buildings.Count && _buildings[index].harbour >= 0;
+
+        static readonly List<Vector4> ViewParts = new();
+
+        // World centre and radius of a whole harbour (jetty, boat, fisherman's hut and its clutter) for a camera that
+        // wants all of it in view; without a hut it is the jetty and its boat.
+        public bool TryGetHarbourView(int index, out Vector3 centre, out float radius)
+        {
+            centre = default;
+            radius = 0f;
+            if (index < 0 || index >= _buildings.Count || _buildings[index].kind != BuildingKind.Dock || !Bind()) return false;
+            var b = _buildings[index];
+            float dk = ScaleOf(BuildingKind.Dock);
+            Vector2 f = Fwd(b.yaw);
+            Vector2 min = b.pos, max = b.pos;
+            void Grow(Vector2 p, float r)
+            {
+                min = Vector2.Min(min, p - Vector2.one * r);
+                max = Vector2.Max(max, p + Vector2.one * r);
+            }
+            Grow(b.pos, 0.07f * dk);
+            Grow(b.pos + f * (DeckLength * dk), 0.07f * dk);
+            Grow(b.pos + Rot(new Vector2(0.12f, 0.44f), b.yaw) * dk, 0.13f * dk);
+            float y = DeckHeight * dk;
+            if (HarbourParts(index, ViewParts) > 0)
+            {
+                foreach (var part in ViewParts) Grow(new Vector2(part.x, part.y), part.z);
+                y = 0.5f * (y + ViewParts[0].w + 0.45f * SettlementMeshes.HutHeight * buildingScale);
+            }
+            Vector2 c = (min + max) * 0.5f;
+            centre = transform.TransformPoint(c.x, y, c.y);
+            radius = (max - min).magnitude * 0.5f * transform.lossyScale.x;
+            return true;
         }
 
         // ---------------------------------------------------------------- growth
@@ -1093,6 +1322,9 @@ namespace Drift.Life
                 BeginSink(b);
                 if (b.village != null && HomesOfKind(b.kind) > 0 && regroupRest > 0f) b.village.restT = Mathf.Max(b.village.restT, regroupRest);
             }
+            foreach (var b in _buildings)
+                if (b.kind == BuildingKind.Dock && b.state != BuildingState.Sinking && (b.harbour < 0 || !HutFits(b, b.harbour)))
+                    b.harbour = ChooseHarbour(b);
             for (int i = _villages.Count - 1; i >= 0; i--)
             {
                 var v = _villages[i];
@@ -1896,6 +2128,7 @@ namespace Drift.Life
                         break;
                     }
                 }
+                if (b.harbour >= 0) AddHarbour(b);
                 if (_staticFar && b.state == BuildingState.Done) AddProps(b, pos, true);
             }
             if (_festival) AddLanterns(); else _lanterns.Clear();
@@ -1924,6 +2157,16 @@ namespace Drift.Life
                         _glow.AddHalo(new Vector3(b.pos.x, ground + 0.07f * k, b.pos.y), 0.3f * k, FireHaloColor * fire, b.phase, 0f, 0f, 0.35f, -1f, windowMinAngle * 1.3f);
                         _glow.AddBlob(_surface, b.pos, 1.1f * k + 0.25f, 0.04f, FireGroundColor * fire, b.phase, -1f);
                         continue;
+                    }
+                    if (b.harbour >= 0)
+                    {
+                        float hg = GlowOf(b);
+                        if (hg > 0.02f)
+                        {
+                            HutSpot(b, b.harbour, out Vector2 hut, out float hutYaw, out int side);
+                            Vector3 l = HutPoint(hut, hutYaw, side, HutBase(hut, hutYaw), SettlementMeshes.HutLantern);
+                            _glow.AddHalo(l, 0.3f * buildingScale, LampHaloColor * hg, b.phase, 0f, 0f, 0.15f, -1f, windowMinAngle);
+                        }
                     }
                     if (spec.glow[b.variant] == null) continue;
                     float g = GlowOf(b);
@@ -1989,6 +2232,17 @@ namespace Drift.Life
                     // The small boat must not be swamped by its own bob: it rides a little higher than modelled.
                     float roll = rest ? 0f : Mathf.Sin(_clock * 1.1f + b.phase) * 5f;
                     _batch.Add(SettlementMeshes.Boat, Local(b, pos, new Vector3(0.12f, 0.004f + bob, 0.44f)), b.yaw + 6f, k, roll, 0f);
+                    if (rest || b.harbour < 0) break;
+                    HutSpot(b, b.harbour, out Vector2 hut, out float hutYaw, out int side);
+                    Vector3 chimney = HutPoint(hut, hutYaw, side, HutBase(hut, hutYaw), SettlementMeshes.HutChimney);
+                    Vector2 wind = LifeEnvironment.Wind * 0.1f;
+                    for (int i = 0; i < 2; i++)
+                    {
+                        float t = Mathf.Repeat(_clock * 0.16f + i * 0.5f + b.phase, 1f);
+                        float size = (0.3f + 0.7f * t) * (1f - t * t) * buildingScale;
+                        if (size < 0.04f * buildingScale) continue;
+                        _batch.Add(SettlementMeshes.Smoke, chimney + new Vector3(wind.x * t * t, 0.03f + 0.25f * t, wind.y * t * t) * buildingScale, i * 70f, size);
+                    }
                     break;
                 }
                 case BuildingKind.Campfire:

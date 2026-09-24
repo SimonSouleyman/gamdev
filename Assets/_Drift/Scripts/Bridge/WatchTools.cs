@@ -56,6 +56,15 @@ namespace Drift.Bridge
         [Tooltip("So lange (Sekunden) bleibt die Karte eines angetippten Tiers stehen, bevor sie ausblendet.")]
         public float popupShowSeconds = 7f;
         public float popupFadeSeconds = 0.6f;
+        // The animal card used to sit on the picked animal every frame and shook with its steps and hops (owner:
+        // "zittert ... soll stabiler bleiben"). Now it stands still while the animal stays inside a dead zone around it
+        // and otherwise glides after it (critically damped), on whole pixels. Off = the old per-frame placement.
+        [Tooltip("Die Tierkarte bleibt ruhig stehen und gleitet dem Tier nur nach, wenn es sich weiter entfernt.")]
+        public bool popupSteady = true;
+        [Tooltip("So weit (Canvas-Einheiten, x/y) darf sich das Tier unter der Karte bewegen, ohne dass sie mitwandert.")]
+        public Vector2 popupDeadZone = new Vector2(110f, 80f);
+        [Tooltip("Glättungszeit (Sekunden), mit der die Karte dem Tier nachgleitet.")]
+        public float popupFollowTime = 0.35f;
         // Following a herd starts from (and R returns to) the chase framing at this zoom level.
         public float followZoomLevel = 0.3f;
         public float discoverRange = 25f;
@@ -149,6 +158,8 @@ namespace Drift.Bridge
         float _popupTimer;
         int _shownState = -1, _shownSize = -1, _shownYoung = -1;
         bool _popupForeign;
+        Vector2 _popupPos, _popupVel;
+        bool _popupPlaced, _popupBelow;
 
         GameObject _followButton, _followChip;
         Text _followChipText;
@@ -974,6 +985,7 @@ namespace Drift.Bridge
         void OpenPopup(bool canFollow)
         {
             _popupTimer = popupShowSeconds + popupFadeSeconds;
+            _popupPlaced = false;
             _stillMarker = 0f;
             _shownState = _shownSize = _shownYoung = -1;
             SetActive(_popupFollow, canFollow);
@@ -1112,12 +1124,56 @@ namespace Drift.Bridge
             RectTransformUtility.ScreenPointToLocalPointInRectangle(_root, screen, UiCamera, out var local);
             var rect = _root.rect;
             var size = _popupRect.sizeDelta;
-            // While following, the return button and the herd chip own the top centre: the card then hangs below the animal.
-            bool below = Following && local.y + lift + size.y > rect.yMax - FollowUiBottom;
+            // While following, the return button and the herd chip own the top centre: the card then hangs below the
+            // animal. The steady card only flips back once there is clear room again, so it never hops to and fro.
+            float room = rect.yMax - FollowUiBottom - (local.y + lift + size.y);
+            bool below = Following && (popupSteady && _popupPlaced && _popupBelow ? room < 60f : room < 0f);
+            bool flipped = _popupPlaced && below != _popupBelow;
+            _popupBelow = below;
             local.y = below ? local.y - lift - size.y : local.y + lift;
             local.x = Mathf.Clamp(local.x, rect.xMin + size.x * 0.5f, rect.xMax - size.x * 0.5f);
             local.y = Mathf.Clamp(local.y, rect.yMin, rect.yMax - size.y);
-            _popupRect.anchoredPosition = local;
+            if (!popupSteady || !Application.isPlaying)
+            {
+                _popupRect.anchoredPosition = local;
+                return;
+            }
+            if (!_popupPlaced || flipped)
+            {
+                _popupPos = local;
+                _popupVel = Vector2.zero;
+                _popupPlaced = true;
+            }
+            else _popupPos = SteadyStep(_popupPos, local, ref _popupVel, popupDeadZone, popupFollowTime, Time.unscaledDeltaTime);
+            _popupRect.anchoredPosition = SnapToPixels(_popupPos, CanvasScale);
+        }
+
+        // One step of the steady card: it stays where it is while the target is inside the dead zone around it, and
+        // otherwise glides (critically damped) until the target is back at the zone's edge. A target that wobbles
+        // (steps, hops, a swaying camera) never moves it back and forth.
+        public static Vector2 SteadyStep(Vector2 pos, Vector2 target, ref Vector2 vel, Vector2 deadZone, float smoothTime, float dt)
+        {
+            Vector2 goal = pos;
+            float dx = target.x - pos.x, dy = target.y - pos.y;
+            if (dx > deadZone.x) goal.x = target.x - deadZone.x;
+            else if (dx < -deadZone.x) goal.x = target.x + deadZone.x;
+            if (dy > deadZone.y) goal.y = target.y - deadZone.y;
+            else if (dy < -deadZone.y) goal.y = target.y + deadZone.y;
+            if (dt <= 0f) return pos;
+            // Inside the zone the card rests at once; one that passed its goal stops there instead of swinging back.
+            if (goal.x == pos.x) vel.x = 0f;
+            if (goal.y == pos.y) vel.y = 0f;
+            var next = Vector2.SmoothDamp(pos, goal, ref vel, Mathf.Max(0.01f, smoothTime), Mathf.Infinity, dt);
+            if ((goal.x - pos.x) * (goal.x - next.x) < 0f) { next.x = goal.x; vel.x = 0f; }
+            if ((goal.y - pos.y) * (goal.y - next.y) < 0f) { next.y = goal.y; vel.y = 0f; }
+            return next;
+        }
+
+        // Whole screen pixels, so a card at rest never shimmers between two.
+        public static Vector2 SnapToPixels(Vector2 local, float canvasScale)
+        {
+            float k = Mathf.Max(0.01f, canvasScale);
+            return new Vector2(Mathf.Round(local.x * k) / k, Mathf.Round(local.y * k) / k);
         }
 
         // ---------------------------------------------------------------- follow
@@ -1767,9 +1823,46 @@ namespace Drift.Bridge
         // 0-3 the biomes, 4 "Meer & Himmel", 5 "Insulaner".
         public void ShowJournalTab(int tab, int page = 0) => _journalPanel.SetTab(tab, page);
 
+        // Android back / Escape inside the journal: an open photo-task card or reset dialog first, then the journal.
+        public void JournalBack()
+        {
+            if (_journalPanel.Back()) return;
+            CloseJournal();
+        }
+
+        // "Tagebuch zurücksetzen" (the journal's confirmation dialog). Clears the live books too, so nothing that is
+        // still in memory writes the old album back; the run in progress keeps going with an empty journal layer
+        // (the island's species are collected again, silently, by the next scan). Returns what was cleared.
+        public List<string> ResetJournal(JournalResetScope scope)
+        {
+            Resolve();
+            bool files = Application.isPlaying;
+            var cleared = JournalReset.Run(scope, new JournalResetTargets
+            {
+                directory = files ? Application.persistentDataPath : null,
+                photoDirectory = files ? PhotoLibrary.DefaultDirectory : null,
+                journal = Journal,
+                book = _journalBook,
+                lifeBook = _lifeBook,
+                tasks = _photoTasks,
+                lifeBookKey = files ? LifeBook.PrefKey : null,
+                saveManager = files ? saveManager : null,
+                runJournal = files,
+            });
+            if (_journalBook != null) _journalBookSaved = _journalBook.Version;
+            ClearTaskThumbs();
+            _tasksVersion = -1;
+            _journalVersion = -1;
+            _cueActive = false;
+            if (files && saveManager != null && session != null && session.SavingAllowed && GameModes.Current == GameMode.Cozy) saveManager.Save();
+            Debug.Log("Tagebuch zurückgesetzt (" + scope + "): " + (cleared.Count > 0 ? string.Join(", ", cleared) : "nichts"));
+            return cleared;
+        }
+
         public void CloseJournal()
         {
             if (!_journalOpen) return;
+            _journalPanel.CloseOverlay();
             _journalOpen = false;
             _journal.SetActive(false);
             if (_journalPausedSession && session != null && session.Current == GameSession.State.Paused) session.Resume();
@@ -2748,7 +2841,7 @@ namespace Drift.Bridge
             _popup = BuildPopup(_root);
             _followButton = BuildFollowButton(_root);
             _followChip = BuildFollowChip(_root);
-            _journal = _journalPanel.Build(_root, CloseJournal, index => Watch(index));
+            _journal = _journalPanel.Build(_root, CloseJournal, index => Watch(index), scope => ResetJournal(scope));
             _photo = BuildPhoto(_root);
             _newsChip = BuildNews(_root);
             _hintChip = BuildHint(_root);

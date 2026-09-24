@@ -34,6 +34,14 @@ namespace Drift.SaveSystem
 
         public static int Random() => UnityEngine.Random.Range(1, 1000000);
 
+        // A random world that is not the one given ("Jede Runde neue Welt").
+        public static int RandomOther(int avoid)
+        {
+            int s = Random();
+            for (int i = 0; i < 8 && s == avoid; i++) s = Random();
+            return s == avoid ? (avoid % 999999) + 1 : s;
+        }
+
         public static int Clamp(long seed)
         {
             if (seed < 0) seed = -seed;

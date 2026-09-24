@@ -281,9 +281,9 @@ namespace Drift.Visuals
         [Tooltip("Anteil Schildkröten (nach den Walen).")]
         [Range(0f, 1f)] public float animalTurtleShare = 0.3f;
         [Tooltip("Wal eingesammelt: so viele Sekunden starker Schub, in denen die Insel durch Inseln hindurchfährt. Der Wal schwimmt so lange direkt daneben.")]
-        [Range(1f, 10f)] public float whaleBoostSeconds = 4f;
+        [Range(1f, 10f)] public float whaleBoostSeconds = 3f;
         [Tooltip("Schub-Faktor des Wals (Treibgut: flotsamBoostFactor).")]
-        [Range(1f, 4f)] public float whaleBoostFactor = 2.5f;
+        [Range(1f, 4f)] public float whaleBoostFactor = 2f;
         [Tooltip("So viel Schwung wie so viele Treibgut-Teile bringt ein Wal.")]
         [Range(0f, 5f)] public float whaleMomentumPieces = 2f;
         [Tooltip("Zusätzliches Grundtempo je mitschwimmendem Tier (0,06 = +6 %). Kein Schub-Ereignis: den gibt nur das Treibgut.")]
@@ -358,7 +358,7 @@ namespace Drift.Visuals
             CompanionJoined?.Invoke(kind, pos);
         }
 
-        public static float WhaleBoostSeconds => _instance != null ? _instance.whaleBoostSeconds : 4f;
+        public static float WhaleBoostSeconds => _instance != null ? _instance.whaleBoostSeconds : 3f;
         public static int WhaleBoosts { get; private set; }
 
         // A whale was run over (SeaLifeSystem): whaleBoostSeconds of whaleBoostFactor, and the island glides through
@@ -367,11 +367,11 @@ namespace Drift.Visuals
         {
             WhaleBoosts++;
             var inst = _instance;
-            float seconds = inst != null ? inst.whaleBoostSeconds : 4f;
+            float seconds = inst != null ? inst.whaleBoostSeconds : 3f;
             Island player = FindPlayer();
             if (player != null)
             {
-                player.SpeedBoost(seconds, inst != null ? inst.whaleBoostFactor : 2.5f);
+                player.SpeedBoost(seconds, inst != null ? inst.whaleBoostFactor : 2f);
                 player.Ghost(seconds);
                 RingWorld.Active?.BoostCollected(player, inst != null ? inst.whaleMomentumPieces : 2f);
             }

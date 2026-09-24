@@ -307,7 +307,8 @@ namespace Drift.Bridge
             if (_queue.Current == null || _queue.Current != _shownKey) EndShown();
             if (start != null) Begin(start);
 
-            if (_output != null)
+            // After a script reload in Play Mode the output component survives but the synth (not serialized) is gone.
+            if (_output != null && _synth != null)
             {
                 _output.Gain = volume;
                 _synth.Volume = _queue.Gain;

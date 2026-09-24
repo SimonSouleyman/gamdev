@@ -1189,7 +1189,7 @@ namespace Drift.Life
                 if (!x.moving)
                 {
                     SetMoving(x, true);
-                    x.yaw = x.baseYaw + MRand(-14f, 14f);
+                    TurnTo(x, x.baseYaw + MRand(-14f, 14f));
                     x.actT = 0.4f;
                 }
                 else

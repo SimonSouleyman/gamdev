@@ -204,6 +204,10 @@ namespace Drift.Life
             public float grazePitch = GrazePitch;
             // Flamingos rest and sleep standing (on one leg, AnimalModels.PoseSpecial) instead of lying down.
             public bool standsToRest;
+            // Idle gesture weights (IdleWeights) and the template z of the front / hind feet the body tilts about.
+            public float[] idleW;
+            public float frontZ, hindZ;
+            public bool feetKnown;
         }
 
         static readonly Species[] Specs =
@@ -243,6 +247,8 @@ namespace Drift.Life
             public float yaw, phase, scale;
             public int variant;
             public bool moving, alert, gaitOn = true;
+            // What the shader's gait was when the current t0 was stamped (see AnimalPose.gaitSteady).
+            public float gaitT0 = float.NaN, gaitFrom, shownMoving;
             public AnimalState state;
             public float timer, gaitT, t0, pitchFrom, pitchTo, restFrom, restTo;
             // growth 1 = adult. A young's offset is relative to its parent's formation slot (Slot), an adult's
@@ -265,6 +271,16 @@ namespace Drift.Life
             public Vector2 from, dir;
             // Timer / angle of a signature move.
             public float sigT;
+            // Idle gestures (IslandHerdSystem.Idle.cs): the running one, its clock/length/amplitudes, the countdown to
+            // the next, and what it adds to the bake (yaw, body pitch about the foot pivot iPivot, roll, template pose).
+            // yawLag = a turn still to be shown: a yaw jump of the state machine is eased out through it.
+            public IdleAction idle;
+            public byte idleStage;
+            public bool idleHead, idleRest, idleBaseAlert;
+            public AnimalState idleState;
+            public int idlePose;
+            public float idleT, idleDur, idleNext, idleA, idleB, idleHeadPitch, idleBasePitch;
+            public float iYaw, iPitch, iRoll, iPivot, yawLag;
         }
 
         class Herd
@@ -716,6 +732,8 @@ namespace Drift.Life
             if (area < minHerdArea) return 0;
             int n = Mathf.Max(1, Mathf.RoundToInt(area / areaPerHerd));
             if (Character == 2) n = Mathf.RoundToInt(n * 1.4f);
+            // Owner: "Auf der Anfangsinsel soll erstmal nur eine Herde Tiere sein." - more come with the first merge.
+            if (StartIsland && !_merged) n = 1;
             return Mathf.Min(n, maxHerds);
         }
 
@@ -734,6 +752,8 @@ namespace Drift.Life
             _version = _surface.Version;
             _populated = true;
             _peakArea = _surface.LandArea;
+            _merged = false;
+            _idleRnd = new System.Random(HerdSeed ^ 0x1D1E5);
             _night = LifeEnvironment.NightAmount;
             Populations++;
             _burrows.Clear();
@@ -746,8 +766,9 @@ namespace Drift.Life
         }
 
         // The player's start island (set by GameSession): with a species pool its first herd is always the pool's
-        // start species, one of the most common ones.
+        // start species, one of the most common ones; it holds that one herd only until its first merge (_merged).
         public bool StartIsland { get; set; }
+        bool _merged;
         // A pool species may stand on an island below its minArea (down to this share of it) when no pool species
         // of the biome fits there: the run drew the big animals for this biome, the small islands still get a herd.
         const float PoolAreaRelax = 0.3f;
@@ -1052,6 +1073,7 @@ namespace Drift.Life
             a.act = AnimalActivity.None;
             a.hasGoal = a.arrived = a.hidden = a.shore = false;
             a.roll = a.wallowIn = a.blocked = 0f;
+            ResetIdle(a);
         }
 
         void SeedStates()
@@ -1125,7 +1147,7 @@ namespace Drift.Life
                 case AnimalState.Graze:
                     if (Rand() < s.lookChance)
                     {
-                        a.yaw = Mathf.Repeat(a.yaw + Rand(-35f, 35f), 360f);
+                        TurnTo(a, Mathf.Repeat(a.yaw + Rand(-35f, 35f), 360f));
                         return SetState(a, AnimalState.Look, Rand(s.lookMin, s.lookMax), Rand() < 0.3f ? StretchPitch : LookPitch, true);
                     }
                     if (canRest && Rand() < s.restChance)
@@ -2198,7 +2220,7 @@ namespace Drift.Life
                 case AnimalActivity.Wade:
                     if (first)
                     {
-                        a.yaw = Mathf.Atan2(herd.errandDir.x, herd.errandDir.y) * Mathf.Rad2Deg;
+                        TurnTo(a, Mathf.Atan2(herd.errandDir.x, herd.errandDir.y) * Mathf.Rad2Deg);
                         SetState(a, AnimalState.Graze, Rand(3f, 7f), DrinkPitch, false);
                         return true;
                     }
@@ -2210,7 +2232,7 @@ namespace Drift.Life
                 case AnimalActivity.Watch:
                     if (first)
                     {
-                        a.yaw = Mathf.Atan2(herd.errandDir.x, herd.errandDir.y) * Mathf.Rad2Deg;
+                        TurnTo(a, Mathf.Atan2(herd.errandDir.x, herd.errandDir.y) * Mathf.Rad2Deg);
                         changed = true;
                     }
                     if (SetState(a, AnimalState.Look, 1f, LookPitch, true)) changed = true;
@@ -2240,14 +2262,14 @@ namespace Drift.Life
                     if (first)
                     {
                         Vector2 look = a.act == AnimalActivity.Visit ? herd.errandPos - a.pos : a.pos - herd.center;
-                        if (look.sqrMagnitude > 1e-4f) a.yaw = Mathf.Atan2(look.x, look.y) * Mathf.Rad2Deg + Rand(-35f, 35f);
+                        if (look.sqrMagnitude > 1e-4f) TurnTo(a, Mathf.Atan2(look.x, look.y) * Mathf.Rad2Deg + Rand(-35f, 35f));
                         SetState(a, AnimalState.Graze, Rand(3f, 7f), GrazePitch, false);
                         return true;
                     }
                     a.timer -= dt;
                     if (a.timer > 0f) return false;
                     if (a.state == AnimalState.Graze) return SetState(a, AnimalState.Look, Rand(1.5f, 3.5f), LookPitch, true);
-                    a.yaw = Mathf.Repeat(a.yaw + Rand(-40f, 40f), 360f);
+                    TurnTo(a, Mathf.Repeat(a.yaw + Rand(-40f, 40f), 360f));
                     return SetState(a, AnimalState.Graze, Rand(4f, 8f), GrazePitch, false);
                 case AnimalActivity.Browse:
                     return BrowseStep(herd, a, dt, first);
@@ -2273,7 +2295,7 @@ namespace Drift.Life
                     }
                     a.timer -= dt;
                     if (a.timer > 0f) return false;
-                    a.yaw = Mathf.Repeat(a.yaw + Rand(-50f, 50f), 360f);
+                    TurnTo(a, Mathf.Repeat(a.yaw + Rand(-50f, 50f), 360f));
                     a.timer = Rand(4f, 9f);
                     return true;
                 default:
@@ -3667,9 +3689,11 @@ namespace Drift.Life
             bool wedge = galloping && s.kind == LifeKind.Reindeer;
             Vector2 linePerp = new Vector2(-heading.y, heading.x);
             bool burrowBound = false;
+            bool idleOn = idleRate > 0f && Tier == LifeTier.Near;
             for (int i = 0; i < herd.members.Count; i++)
             {
                 var a = herd.members[i];
+                if (IdleSettle(a, idleOn, dt)) changed = true;
                 if (a.hidden)
                 {
                     burrowBound = true;
@@ -3830,12 +3854,22 @@ namespace Drift.Life
                     float yaw = Mathf.LerpAngle(a.yaw, Mathf.Atan2(face.x, face.y) * Mathf.Rad2Deg, turn);
                     if (yaw != a.yaw) { a.yaw = yaw; changed = true; }
                 }
-                if (SetMoving(a, memberMoving)) changed = true;
-                if (a.hasGoal && !memberMoving && d <= stop * 1.5f) { if (GoalStep(herd, a, dt)) changed = true; }
+                if (SetMoving(a, memberMoving || a.idle == IdleAction.Turn)) changed = true;
+                int idleMode = IdleOff;
+                if (a.hasGoal && !memberMoving && d <= stop * 1.5f)
+                {
+                    if (GoalStep(herd, a, dt)) changed = true;
+                    if (a.hasGoal && a.arrived && IdleCompatible(a.act)) idleMode = IdleGoal;
+                }
                 else if (memberMoving || (moving && !waiting && !a.hasGoal)) { if (SetState(a, AnimalState.Walk, 0f, wedge ? LookPitch : WalkPitch, false)) changed = true; }
                 else if (a.hasGoal || a.act == AnimalActivity.Dig) { }
                 else if (!safe) { if (SetState(a, AnimalState.Look, 0f, LookPitch, true)) changed = true; }
-                else if (IdleStep(herd, a, i, dt)) changed = true;
+                else
+                {
+                    if (IdleStep(herd, a, i, dt)) changed = true;
+                    if (a.act == AnimalActivity.None || a.act == AnimalActivity.Shade) idleMode = a.state == AnimalState.Sleep ? IdleOff : a.state == AnimalState.Rest ? IdleLying : IdleFull;
+                }
+                if (idleOn && StepIdle(herd, a, i, dt, idleMode)) changed = true;
                 if (a.shore && !a.hasGoal && _surface.SampleHeight(a.pos) >= s.minH)
                 {
                     a.shore = false;
@@ -3877,6 +3911,7 @@ namespace Drift.Life
             }
             _filter = _go.GetComponent<MeshFilter>();
             _renderer = _go.GetComponent<MeshRenderer>();
+            if (animalMaterial == null) TuneMaterial(LifeMeshes.AnimalMaterial);
             _renderer.sharedMaterial = AnimalMaterial;
             // After a domain reload the child still references the previous mesh; reuse it rather than leak it.
             if (_mesh == null) _mesh = _filter.sharedMesh;
@@ -3903,7 +3938,7 @@ namespace Drift.Life
                     a.bakedGrowth = a.growth;
                     if (a.hidden || a.dived) continue;
                     float h = _surface.SampleHeight(a.pos);
-                    int special = PoseOf(herd, a);
+                    int special = a.idlePose != 0 ? a.idlePose : PoseOf(herd, a);
                     var tpl = a.detailed ? LifeMeshes.GetDetailTemplate(s.kind, a.variant, a.growth < youngModelGrowth, special) : LifeMeshes.GetTemplate(s.kind, a.variant);
                     float size = SizeFactor(a);
                     float scale = a.scale * animalScale * size;
@@ -3923,11 +3958,12 @@ namespace Drift.Life
                     };
                     var pos = new Vector3(a.pos.x, h + a.lift, a.pos.y);
                     float roll = 0f, pitch = a.pitch;
+                    float yaw = a.yaw + a.iYaw + a.yawLag;
                     if (pitch < 0f && RearPivot(s.kind, a.act, out float pivotZ))
                     {
                         // Rearing up (a sitting-up hare, a goat on its hind legs) turns about the hind feet, not the
                         // middle of the body, so they stay on the ground.
-                        float pr = pitch * Mathf.Deg2Rad, yr = a.yaw * Mathf.Deg2Rad;
+                        float pr = pitch * Mathf.Deg2Rad, yr = yaw * Mathf.Deg2Rad;
                         float dz = pivotZ * (1f - Mathf.Cos(pr)), dy = pivotZ * Mathf.Sin(pr);
                         pos += new Vector3(Mathf.Sin(yr) * dz * scale, dy * scale, Mathf.Cos(yr) * dz * scale);
                     }
@@ -3943,6 +3979,16 @@ namespace Drift.Life
                     else if (a.detailed && a.moving && s.kind == LifeKind.Penguin) roll = 11f * Mathf.Sin(_clock * 9f + a.phase);
                     if (a.roll != 0f && a.act != AnimalActivity.Wallow) roll = a.roll;
                     if (pitch != 0f) { pose.pitchFrom = pose.pitchTo = 0f; pose.moving = 0f; }
+                    else if (a.iPitch != 0f && special == 0)
+                    {
+                        // An idle gesture's body tilt (bow, back stretch, sitting) turns about a pair of feet that
+                        // stays put; the head keeps its shader pitch.
+                        pitch = a.iPitch;
+                        float pr = pitch * Mathf.Deg2Rad, yr = yaw * Mathf.Deg2Rad;
+                        float dz = a.iPivot * (1f - Mathf.Cos(pr)), dy = a.iPivot * Mathf.Sin(pr);
+                        pos += new Vector3(Mathf.Sin(yr) * dz * scale, dy * scale, Mathf.Cos(yr) * dz * scale);
+                    }
+                    if (a.iRoll != 0f && a.act != AnimalActivity.Wallow) roll += a.iRoll;
                     if (a.act == AnimalActivity.Wallow && a.detailed && tpl.lever != null)
                     {
                         // The pose is baked instead of blended: lying = lowered by the leg length (the legs start
@@ -3951,7 +3997,7 @@ namespace Drift.Life
                         float rad = roll * Mathf.Deg2Rad, sn = Mathf.Sin(rad), cs = Mathf.Cos(rad);
                         float axisY = tpl.legLength + tpl.rollAxis;
                         float lift = tpl.rollAxis * (Mathf.Abs(sn) + Mathf.Abs(cs) - 1f);
-                        float yawRad = a.yaw * Mathf.Deg2Rad;
+                        float yawRad = yaw * Mathf.Deg2Rad;
                         Vector3 right = new Vector3(Mathf.Cos(yawRad), 0f, -Mathf.Sin(yawRad));
                         pos += right * (sn * axisY * scale) + Vector3.up * ((tpl.rollAxis + lift - cs * axisY) * scale);
                         pose.pitchFrom = pose.pitchTo = 0f;
@@ -3959,15 +4005,18 @@ namespace Drift.Life
                         pose.moving = pose.alert = 0f;
                         pose.sleep = 1f;
                     }
-                    _batch.AddAnimal(tpl, pos, a.yaw, scale, pose, youngTint, youngTintAmount * (1f - a.growth), roll, pitch,
+                    if (a.gaitT0 != a.t0) { a.gaitT0 = a.t0; a.gaitFrom = a.shownMoving; }
+                    pose.gaitSteady = a.gaitFrom == pose.moving;
+                    a.shownMoving = pose.moving;
+                    _batch.AddAnimal(tpl, pos, yaw, scale, pose, youngTint, youngTintAmount * (1f - a.growth), roll, pitch,
                         Markings.For(s.kind, a.variant, tpl), Markings.Seed(a.scale * 97.3f));
                     if (a == herd.sigA && a.act == AnimalActivity.Snuggle && a.step == MovePerform && a.sigT >= 1f)
                     {
                         // The capybara's passenger: a little egret on the back of the one in the middle of the star.
                         float back = a.detailed ? 0.23f : 0.19f;
-                        float yr = a.yaw * Mathf.Deg2Rad;
+                        float yr = yaw * Mathf.Deg2Rad;
                         var birdPos = new Vector3(a.pos.x - Mathf.Sin(yr) * 0.05f * scale, h + back * scale, a.pos.y - Mathf.Cos(yr) * 0.05f * scale);
-                        _batch.Add(AnimalModels.Egret, birdPos, a.yaw, scale);
+                        _batch.Add(AnimalModels.Egret, birdPos, yaw, scale);
                     }
                 }
             }
@@ -4012,6 +4061,7 @@ namespace Drift.Life
             other._herds.Clear();
             foreach (var b in other._burrows) AddBurrow(Convert(other.transform, b));
             other._burrows.Clear();
+            _merged = true;
             EnforceCaps();
             _meshDirty = true;
         }
@@ -4228,6 +4278,7 @@ namespace Drift.Life
             _version = _surface.Version;
             _populated = true;
             _peakArea = _surface.LandArea;
+            _merged = _herds.Count > 1;
             Relocate();
             PruneBurrows();
             EnforceCaps();

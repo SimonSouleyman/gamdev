@@ -82,6 +82,10 @@ namespace Drift.Bridge
         float _saveCheckTimer;
         float _lookupTimer;
         bool _hasSave;
+        // "Jede Runde neue Welt": the number the title's seed field offers while a saved run sits behind the title.
+        int _proposedSeed;
+        bool _fieldSaved;
+        int _fieldSeed = -1;
         GameSession.State _shown = (GameSession.State)(-1);
         Func<Vector2> _provider, _directionProvider;
         int _steerFrame = -10;
@@ -363,6 +367,7 @@ namespace Drift.Bridge
                 // A run starts from however the player happens to be holding the phone; a resume keeps the
                 // middle it had, so a pause in mid-turn does not silently re-zero the steering.
                 if (s == GameSession.State.Playing && _shown != GameSession.State.Paused && tilt != null) tilt.Recalibrate();
+                var from = _shown;
                 _shown = s;
                 ShowPanels(s == GameSession.State.Title, s == GameSession.State.Paused, s == GameSession.State.GameOver, s == GameSession.State.Playing);
                 if (s != GameSession.State.Title && s != GameSession.State.Paused) _help.Hide();
@@ -375,6 +380,11 @@ namespace Drift.Bridge
                     _hasSave = session.HasSave;
                     _saveCheckTimer = 0.5f;
                     RefreshTitleBest();
+                    // Back from a run: the next start never repeats its world. A saved run stays behind the title for
+                    // "Weiter" and the field offers a new number; otherwise the new world is built behind the title.
+                    if (ReturnedFromRun(from)) _proposedSeed = 0;
+                    if (Application.isPlaying && ReturnedFromRun(from) && !session.WorldIsSavedState)
+                        session.PreviewSeed(WorldSeeds.RandomOther(session.WorldSeed));
                     RefreshSeedField(true);
                 }
                 if (s == GameSession.State.Paused) SetPauseMode(session.Mode == GameMode.Adventure);
@@ -389,6 +399,9 @@ namespace Drift.Bridge
                     _hasSave = session.HasSave;
                 }
                 SetContinueVisible(_hasSave);
+                // The save is loaded behind the title a frame after the title appears; the field follows.
+                if (_seedField != null && !_seedField.isFocused && (session.WorldIsSavedState != _fieldSaved || session.WorldSeed != _fieldSeed))
+                    RefreshSeedField(true);
             }
             else if (s == GameSession.State.GameOver)
             {
@@ -427,7 +440,7 @@ namespace Drift.Bridge
                 else if (_help.IsOpen) _help.Hide();
                 else if (album) watch.AlbumBack();
                 else if (photo) watch.ExitPhotoMode();
-                else if (journal) watch.CloseJournal();
+                else if (journal) watch.JournalBack();
                 else if (watch != null && watch.Following) watch.ReturnToIsland();
                 else session.TogglePause();
             }
@@ -769,7 +782,7 @@ namespace Drift.Bridge
             if (session == null) return;
             if (session.Mode == GameMode.Adventure) session.StartNewGame(GameMode.Adventure);
             // A running cozy world is always lost by starting over, saved yet or not.
-            else OpenConfirm(() => session?.StartNewGame());
+            else OpenConfirm(() => session?.StartNewGame(WorldSeeds.RandomOther(session.WorldSeed)));
         }
 
         void OnCozyPressed()
@@ -833,8 +846,24 @@ namespace Drift.Bridge
         {
             if (_seedField == null || session == null) return;
             if (!force && _seedField.isFocused) return;
-            _seedField.SetTextWithoutNotify(session.LegacySeeds ? "" : session.WorldSeed.ToString());
+            _fieldSaved = session.WorldIsSavedState;
+            _fieldSeed = session.WorldSeed;
+            if (session.LegacySeeds && !_fieldSaved) { _seedField.SetTextWithoutNotify(""); return; }
+            _seedField.SetTextWithoutNotify(TitleFieldSeed(_fieldSaved, session.WorldSeed, ref _proposedSeed).ToString());
         }
+
+        // "Jede Runde neue Welt". The field names the world a fresh start builds: the world behind the title when it is
+        // a fresh one, and a new random number (kept until used) while a saved run sits there for "Weiter".
+        public static int TitleFieldSeed(bool savedWorldBehind, int worldSeed, ref int proposed)
+        {
+            if (!savedWorldBehind) return worldSeed;
+            if (proposed <= 0 || proposed == worldSeed) proposed = WorldSeeds.RandomOther(worldSeed);
+            return proposed;
+        }
+
+        // Title entered from a run (not the app's first title).
+        public static bool ReturnedFromRun(GameSession.State from) =>
+            from == GameSession.State.Playing || from == GameSession.State.Paused || from == GameSession.State.GameOver || from == GameSession.State.RunComplete;
 
         // ---------------------------------------------------------------- seed row
 
@@ -857,7 +886,8 @@ namespace Drift.Bridge
             if (session == null) return;
             var s = FieldSeed();
             if (!s.HasValue) { RefreshSeedField(true); return; }
-            if (!session.LegacySeeds && s.Value == session.WorldSeed) { RefreshSeedField(true); return; }
+            // The offered number is only built on Start, so "Weiter" keeps its loaded world.
+            if (session.WorldIsSavedState ? s.Value == _proposedSeed : !session.LegacySeeds && s.Value == session.WorldSeed) { RefreshSeedField(true); return; }
             session.PreviewSeed(s.Value);
             RefreshSeedField(true);
         }

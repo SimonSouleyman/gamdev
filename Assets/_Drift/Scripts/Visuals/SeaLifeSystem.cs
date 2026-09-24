@@ -103,6 +103,8 @@ namespace Drift.Visuals
         [Range(0.2f, 6f)] public float whaleBoostGap = 0.8f;
         [Tooltip("Wal-Schub: so weit (Anteil des Inselradius) schwimmt der Wal vor der Inselmitte.")]
         [Range(-0.5f, 2f)] public float whaleBoostLead = 1.1f;
+        [Tooltip("Wal-Schub: so lange (s) taucht der Wal beim Seitenwechsel unter der Insel hindurch (die Seite wechselt alle Schubdauer/3).")]
+        [Range(0.2f, 1f)] public float whaleBoostCrossSeconds = 0.5f;
 
         [System.NonSerialized] public Vector2 debugPlayerVelocity;
         // Tests: the island to treat as the player instead of WaterFeedback's.
@@ -134,6 +136,10 @@ namespace Drift.Visuals
             public float companion;
             // Dolphins passing across the view (state 4): where they are heading.
             public Vector2 goal;
+            // The boost whale: the boost's full length, its place in the island's frame (x across, y along the track)
+            // and how far it is dipped under the island while it changes flanks.
+            public float boostTotal, boostDip;
+            public Vector2 boostLocal, boostEase;
         }
 
         struct Puff
@@ -812,10 +818,12 @@ namespace Drift.Visuals
 
             bool any = false;
             bool circles = false;
+            bool escorting = false;
             for (int i = 0; i < _groups.Length; i++)
             {
                 if (!_groups[i].active) continue;
                 any = true;
+                if ((_groups[i].flags & (CompanionFlag | BoostFlag)) != 0) escorting = true;
                 if (dt > 0f && !circles && IsWhale(_groups[i].kind)) { BuildWhaleCircles(); circles = true; }
                 StepGroup(ref _groups[i], dt);
             }
@@ -835,6 +843,11 @@ namespace Drift.Visuals
 
             _rebuildTimer += dt;
             float interval = rebuildRate > 0f ? 1f / rebuildRate : 0f;
+            // Whatever swims along with the island at race pace is drawn every frame: at 15 Hz the boost whale jumped
+            // back by up to 4 u between two rebuilds while the island and the camera moved on smoothly ("der Wal
+            // laggt"). The same goes for the spray the ghost ride and the whale carry along.
+            if ((escorting && _playerSpeed > 4f) || (_player != null && _player.Ghosting)) interval = 0f;
+            EscortEveryFrame = interval == 0f;
             if (_dirty || (_rebuildTimer >= interval && (any || _ffActive || _gullFade > 0f || SealCount > 0 || _under.vc + _above.vc > 0)))
             {
                 _rebuildTimer = 0f;
@@ -1893,6 +1906,12 @@ namespace Drift.Visuals
         // Whale state of a group: 0 = down, 1 = up breathing, 2 = diving, 3 = breaching (-1 = no whale there).
         public int WhaleState(int i) => _groups != null && _groups[i].active && IsWhale(_groups[i].kind) ? _groups[i].state : -1;
         public int WhaleBoostsStarted { get; private set; }
+        // 0..1: how far a group's whales are pulled down (the boost whale's dip under the island, a deep dive).
+        public float GroupDepth(int i) => _groups != null ? _groups[i].depth : 0f;
+        // The boost whale's side of the island's course: +1 right, -1 left (0 = no boost whale in that slot).
+        public float WhaleBoostSide(int i) => GroupIsWhaleBoost(i) ? Mathf.Sign(_groups[i].boostLocal.x) : 0f;
+        // True while the meshes are rebuilt every frame (an escort at race pace, the ghost ride).
+        public bool EscortEveryFrame { get; private set; }
 
         public bool GroupIsPickup(int i) => _groups != null && _groups[i].active && (_groups[i].flags & PickupFlag) != 0;
         public bool GroupIsCompanion(int i) => _groups != null && _groups[i].active && (_groups[i].flags & CompanionFlag) != 0;
@@ -2017,30 +2036,38 @@ namespace Drift.Visuals
             if (Island.PositionConstraint != null) g.pos = Island.PositionConstraint(g.pos);
         }
 
-        // The player ran a waiting whale over (owner: 4 s of a stronger boost, driving through islands, the whale
-        // right beside the island all the while, then it dives and swims off). Encounters gives the boost and the
-        // ghost; the whale takes the flank with more room on the band.
+        // The player ran a waiting whale over (owner: a stronger boost, driving through islands, the whale right
+        // beside the island all the while, then it dives and swims off). Encounters gives the boost and the ghost.
+        // v0.6.5: the whale changes flanks every third of the boost ("1 s links, 1 s rechts, 1 s links"), dipping
+        // under the island in between and surfacing on the other side with a blow. It starts on the side it was met
+        // on unless the band ends too close there.
         public bool StartWhaleBoost(int slot, float seconds)
         {
             if (_groups == null || slot < 0 || slot >= _groups.Length || !_groups[slot].active) return false;
             ref Group g = ref _groups[slot];
             if (!IsWhale(g.kind) || (g.flags & BoostFlag) != 0) return false;
+            // One boost whale at a time: the one before hands over and dives (two whales used to flank the island,
+            // the older one held there on the new boost's ghost ride and never changing sides).
+            for (int i = 0; i < _groups.Length; i++)
+                if (i != slot && _groups[i].active && (_groups[i].flags & BoostFlag) != 0) EndWhaleBoost(ref _groups[i]);
             g.flags &= ~(PickupFlag | CompanionFlag | RightFlag);
             g.flags |= BoostFlag;
-            Vector2 fwd = _player != null ? PlayerCourse() : g.dir;
-            Vector2 right = new Vector2(fwd.y, -fwd.x);
+            BoostFrame(g.dir, out Vector2 fwd, out Vector2 right);
             Vector2 center = _player != null ? _playerPos : g.pos;
-            bool rightSide = Vector2.Dot(g.pos - center, right) >= 0f;
-            var ring = RingWorld.Active;
-            if (ring != null && ring.IsApplied)
+            Vector2 rel = g.pos - center;
+            bool rightSide = Vector2.Dot(rel, right) >= 0f;
+            if (_player != null)
             {
-                var geo = ring.Geometry;
-                float lane = WhaleBoostLane(ref g);
-                if (!geo.Inside(center + right * lane, 2f)) rightSide = false;
-                else if (!geo.Inside(center - right * lane, 2f)) rightSide = true;
+                float here = BoostRoom(rightSide ? 1f : -1f, right), there = BoostRoom(rightSide ? -1f : 1f, right);
+                if (here < WhaleBoostLane(ref g) + WhaleBoostHalfWidth(ref g) + 1f && there > here) rightSide = !rightSide;
             }
             if (rightSide) g.flags |= RightFlag;
             g.companion = Mathf.Max(0.5f, seconds);
+            g.boostTotal = g.companion;
+            g.boostDip = 0f;
+            g.boostLocal = new Vector2(Vector2.Dot(rel, right), Vector2.Dot(rel, fwd));
+            // From where it was met it eases into its place; the flank changes themselves are not eased (they would lag).
+            g.boostEase = _player != null ? g.boostLocal - WhaleBoostSpot(ref g, rightSide ? 1f : -1f, right) : Vector2.zero;
             g.cooldown = 0f;
             g.target = null;
             g.state = 1;
@@ -2058,46 +2085,128 @@ namespace Drift.Visuals
             return true;
         }
 
+        float WhaleBoostHalfWidth(ref Group g) => 0.13f * whaleLength * WhaleScale(ref g, 0);
+
         // Island edge + gap + the whale's half width: right beside the coast, not a whale length away.
-        float WhaleBoostLane(ref Group g) => _playerRadius + whaleBoostGap + 0.13f * whaleLength * WhaleScale(ref g, 0);
+        float WhaleBoostLane(ref Group g) => _playerRadius + whaleBoostGap + WhaleBoostHalfWidth(ref g);
+
+        // The frame the boost whale keeps its place in: on the ring the track (steady - what the chase camera looks
+        // along; the course swings with every sideways push), elsewhere the island's course.
+        void BoostFrame(Vector2 fallback, out Vector2 fwd, out Vector2 right)
+        {
+            fwd = _player == null ? (fallback.sqrMagnitude > 1e-6f ? fallback.normalized : Vector2.up)
+                : _player.AdventureRacing ? _player.TrackDirection : PlayerCourse();
+            right = new Vector2(fwd.y, -fwd.x);
+        }
+
+        // Open water (u) from the island's centre to the rim on one side of its course; unlimited off the ring.
+        float BoostRoom(float side, Vector2 right)
+        {
+            var ring = RingWorld.Active;
+            if (ring == null || !ring.IsApplied || Mathf.Abs(right.x) < 0.5f) return float.PositiveInfinity;
+            var geo = ring.Geometry;
+            return side * right.x > 0f ? geo.MaxX - _playerPos.x : _playerPos.x - geo.MinX;
+        }
+
+        // The whale's place on one flank (x across, y along the course). Where the band ends too close to that flank
+        // it tucks in behind the island's stern on that side instead of swimming off the band.
+        Vector2 WhaleBoostSpot(ref Group g, float side, Vector2 right)
+        {
+            float lane = WhaleBoostLane(ref g);
+            float lead = _playerRadius * whaleBoostLead;
+            float fit = BoostRoom(side, right) - WhaleBoostHalfWidth(ref g) - 1f;
+            if (fit >= lane) return new Vector2(side * lane, lead);
+            float tuck = Mathf.Clamp01((lane - fit) / Mathf.Max(0.5f, lane - 0.35f * _playerRadius));
+            float behind = -(_playerRadius + 0.45f * whaleLength * WhaleScale(ref g, 0));
+            return new Vector2(side * Mathf.Clamp(fit, 0.35f * _playerRadius, lane), Mathf.Lerp(lead, behind, tuck));
+        }
+
+        // The boost whale's flank over the boost: 0 = the side it started on, 1 = the other one. It changes every
+        // total / 3 and passes under the island within `cross` seconds around each change; dip 0..1 is how far down
+        // it is meanwhile. Past the end (the ghost ride held on inside a coast) it stays on its last side.
+        public static float WhaleBoostCrossing(float elapsed, float total, float cross, out float dip)
+        {
+            const int Sides = 3;
+            dip = 0f;
+            if (total <= 0f) return 0f;
+            float seg = total / Sides;
+            cross = Mathf.Clamp(cross, 0.05f, seg * 0.8f);
+            int k = Mathf.Clamp(Mathf.FloorToInt(elapsed / seg), 0, Sides - 1);
+            int j = Mathf.Clamp(Mathf.RoundToInt(elapsed / seg), 1, Sides - 1);
+            float u = (elapsed - (j * seg - 0.5f * cross)) / cross;
+            if (u > 0f && u < 1f)
+            {
+                dip = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(Mathf.Sin(Mathf.PI * u) * 1.4f));
+                return Mathf.Lerp((j - 1) % 2, j % 2, Mathf.SmoothStep(0f, 1f, u));
+            }
+            return k % 2;
+        }
 
         void StepWhaleBoost(ref Group g, float dt)
         {
             g.companion -= dt;
             // The whale stays beside the island until the island is clear of every coast it glides through.
-            if (_player == null || (g.companion <= 0f && !_player.Ghosting)) { EndWhaleBoost(ref g); return; }
-            Vector2 fwd = PlayerCourse();
-            Vector2 right = new Vector2(fwd.y, -fwd.x);
-            float lane = WhaleBoostLane(ref g);
+            if (_player == null || (g.companion <= 0f && !_player.GhostPassing)) { EndWhaleBoost(ref g); return; }
+            BoostFrame(g.dir, out Vector2 fwd, out Vector2 right);
+            float start = (g.flags & RightFlag) != 0 ? 1f : -1f;
+            float w = WhaleBoostCrossing(g.boostTotal - g.companion, g.boostTotal, whaleBoostCrossSeconds, out float dip);
+            Vector2 target = Vector2.Lerp(WhaleBoostSpot(ref g, start, right), WhaleBoostSpot(ref g, -start, right), w);
+            // Under the island's middle while it changes flanks, not across the bow.
+            target.y *= 1f - 0.7f * dip;
+            float sway = Mathf.Sin(_clock * 1.3f + g.phase) * 0.5f * (1f - dip);
+            target += new Vector2(0.3f * sway * Mathf.Sign(target.x), sway);
+            g.boostEase *= Mathf.Exp(-8f * dt);
+            float across = dt > 0f ? (target.x + g.boostEase.x - g.boostLocal.x) / dt : 0f;
+            g.boostLocal = target + g.boostEase;
+            // Placed in the island's frame from this frame's island position, so it moves exactly with the island
+            // (it used to chase a goal, and the mesh showed where it was up to four frames ago).
+            g.pos = _playerPos + right * g.boostLocal.x + fwd * g.boostLocal.y;
             var ring = RingWorld.Active;
-            if (ring != null && ring.IsApplied)
+            if (ring != null && ring.IsApplied) g.pos = ring.Geometry.ClampAcross(g.pos, 1f);
+
+            float was = g.boostDip;
+            g.boostDip = dip;
+            g.depth = dip;
+            if (was < 0.05f && dip >= 0.05f)
             {
-                // Swap flanks when the island runs along the rim and the whale's side leaves the band.
-                var geo = ring.Geometry;
-                float side = (g.flags & RightFlag) != 0 ? 1f : -1f;
-                if (!geo.Inside(_playerPos + right * (side * lane), 2f) && geo.Inside(_playerPos - right * (side * lane), 2f))
-                    g.flags ^= RightFlag;
+                BoostSplash(g.pos, 0.8f, 10);
+                // Past the blow of its breathing cycle: nothing spouts from under the water.
+                g.wander = 1.6f;
             }
-            float s = (g.flags & RightFlag) != 0 ? 1f : -1f;
-            float sway = Mathf.Sin(_clock * 1.3f + g.phase) * 0.5f;
-            Vector2 goal = _playerPos + right * (s * (lane + 0.3f * sway)) + fwd * (_playerRadius * whaleBoostLead + sway);
-            Vector2 to = goal - g.pos;
-            float d = to.magnitude;
-            // Tight: at x2.5 the island runs 60+ u/s and the whale has to be right there the whole time.
-            float speed = _playerSpeed + 6f + 8f * d;
-            g.pos += (d > 1e-4f ? to / d : fwd) * Mathf.Min(d, speed * dt);
-            Turn(ref g, fwd, 6f, dt);
-            if (ring != null && ring.IsApplied) g.pos = ring.Geometry.ClampAcross(g.pos, 2f);
+            else if (was >= 0.4f && dip < 0.4f)
+            {
+                // Up on the other side: it rises and blows at once.
+                BoostSplash(g.pos, 1f, 12);
+                g.wander = 0.85f;
+            }
+            Turn(ref g, (fwd + right * Mathf.Clamp(across * 0.03f, -0.8f, 0.8f)).normalized, 6f, dt);
         }
 
-        // Boost over: the whale lifts its fluke and dives, turned off to its own side, while the island races on.
+        // A splash that races along with the island: spray left standing in the water would be flown through by the
+        // chase camera a moment later.
+        void BoostSplash(Vector2 pos, float strength, int spray)
+        {
+            if (LifeLod.Distance(new Vector3(pos.x, 0f, pos.y)) > splashDistance) return;
+            if (water != null) water.Splash(pos, strength);
+            for (int i = 0; i < spray; i++)
+            {
+                uint h = SeaMath.Hash((uint)(pos.x * 31f) + (uint)i * 977u, (uint)(_clock * 60f) + 11u);
+                float a = i * (Mathf.PI * 2f / spray) + SeaMath.Rand(h, 0);
+                float out_ = (0.7f + 0.8f * SeaMath.Rand(h, 1)) * (0.6f + strength);
+                Vector3 vel = new Vector3(Mathf.Cos(a) * out_ + _playerVel.x, (1.6f + 1.4f * SeaMath.Rand(h, 2)) * (0.6f + strength), Mathf.Sin(a) * out_ + _playerVel.y);
+                EmitPuff(new Vector3(pos.x, 0.05f, pos.y), vel, 0.6f, 0.07f + 0.09f * strength, 6f);
+            }
+        }
+
+        // Boost over: the whale lifts its fluke and dives, turned off to the side it is on, while the island races on.
         void EndWhaleBoost(ref Group g)
         {
             Vector2 fwd = _player != null ? PlayerCourse() : g.dir;
             Vector2 right = new Vector2(fwd.y, -fwd.x);
-            float s = (g.flags & RightFlag) != 0 ? 1f : -1f;
+            float s = Mathf.Abs(g.boostLocal.x) > 0.1f ? Mathf.Sign(g.boostLocal.x) : (g.flags & RightFlag) != 0 ? 1f : -1f;
             g.flags &= ~(BoostFlag | PickupFlag | CompanionFlag);
             g.companion = 0f;
+            g.boostDip = 0f;
             g.dir = (fwd * 0.6f + right * (s * 0.8f)).normalized;
             g.state = 2;
             g.wander = 0f;

@@ -2134,3 +2134,24 @@ Structural rules that new content has to follow:
 - **Audio**: surf cue is band-passed noise (`SfxSynth.SurfNoiseLevel`) instead of a pitched tone (was heard as a motor);
   `Audio/AdventureMusicSynth.cs` (tropical, 112 BPM, +4 %/1000 m to +30 %, stage changes on the 4-bar line with a
   fill), crossfaded by `AudioDirector` while `AdventureRunning` (set by `SeaAudioBridge`).
+
+
+## v0.6.5 additions (2026-09-25)
+
+- **Whale boost** x2 / 3 s (`Encounters.whaleBoost*`); `SeaLifeSystem` rebuilds every frame while an escort swims
+  fast (`EscortEveryFrame`), places the boost whale from the island's same-frame position, switches sides every third
+  of the boost with a dive under the island (`whaleBoostCrossSeconds`), tucks behind the stern at the band edge.
+- **`TapSparkles.SparkleAt(world, scale, anchor, seconds)`**: the tap glint anywhere in any mode (pool of 8); the
+  island sparkles during the ghost ride (`whaleSparkle*`). Positioned in LateUpdate (order 900) after the camera.
+- **Idle gestures** (`Life/IslandHerdSystem.Idle.cs`, `IdleAction`): per-animal timers on their own random stream,
+  near LOD tier only; body tilts pivot about a pair of feet; `AnimalShownPose` includes them. `idleRate` 0 = off.
+- **Gait-steady pose changes**: `AnimalPose.gaitSteady` encodes UV1.x as moving+2 when the change at t0 kept the gait,
+  so `Animal.shader` skips its 0.25 s walk blend (hares used to hop on every head turn).
+- **Start island = one herd** until its first merge (`DesiredHerds`).
+- **Steady animal card** (`WatchTools.popupSteady`, dead zone 110x80, 0.35 s follow, pixel snapped).
+- **Journal**: no "Ansehen" icon; 100 px photo-task slot with its own tap target and a task detail overlay.
+- **`SaveSystem/JournalReset.cs`**: `Run(scope, targets)`; scopes species+tasks or everything (photos, chronicle).
+  One-time full reset before the first scene load, PlayerPrefs `drift_reset_v065`; the best-distance file is kept.
+- **New world per run** (`WorldSeeds`): the title proposes a fresh seed after every run; typed seeds are exact.
+- **Harbour** (`Life/SettlementMeshes.Harbour.cs`): fisherman's hut on stilts + props next to the jetty's land end,
+  reserved circle, re-derived from the terrain; `IslandSettlementSystem.TryGetHarbourView` feeds the watch framing.

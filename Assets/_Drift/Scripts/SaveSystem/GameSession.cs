@@ -507,7 +507,7 @@ namespace Drift.SaveSystem
         {
             GameModes.Set(mode);
             if (saveManager != null) saveManager.fileName = GameModes.SaveFile(mode);
-            StartNewGame(WorldSeeds.Random(), false);
+            StartNewGame(WorldSeeds.RandomOther(_worldSeed), false);
         }
 
         // Ends the free look and starts the finale: the run is over for good (its save is removed), the world stays
@@ -634,8 +634,10 @@ namespace Drift.SaveSystem
             else if (_model.Current == State.Paused) _model.Resume();
         }
 
+        // "Jede Runde neue Welt": a cozy run that ends starts the next one in another world.
         public void RestartFromGameOver()
         {
+            if (Mode == GameMode.Cozy && Application.isPlaying) ApplyWorldSeed(WorldSeeds.RandomOther(_worldSeed), false);
             Restart();
             if (titleAfterGameOver) _model.ReturnToTitle();
             else _model.BeginPlaying();

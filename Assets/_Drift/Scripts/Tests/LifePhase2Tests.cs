@@ -187,6 +187,8 @@ namespace Drift.Tests
         {
             var herds = Make(8f, 47);
             herds.playRate = 0f;
+            // The state machine alone; the idle gestures on top of it (HerdIdleTests) are meant to keep a standing herd moving.
+            herds.idleRate = 0f;
             _night = 1f;
             Run(herds, 150f);
             int builds = herds.MeshBuilds, changes = herds.StateChanges;

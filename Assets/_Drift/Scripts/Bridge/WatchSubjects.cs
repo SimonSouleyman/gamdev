@@ -420,6 +420,9 @@ namespace Drift.Bridge
             height = settlement.BuildingHeightOf(index);
             float ground = surface != null ? Mathf.Max(0f, surface.SampleHeight(local)) : 0f;
             Vector3 foot = tr.TransformPoint(local.x, ground, local.y);
+            // The harbour (v0.6.5): jetty, boat, the fisherman's hut and its clutter as one picture.
+            if (settlement.BuildingKindOf(index) == BuildingKind.Dock && settlement.TryGetHarbourView(index, out Vector3 centre, out _))
+                return centre;
             if (settlement.BuildingKindOf(index) == BuildingKind.Dock && settlement.TryGetDockWorld(out Vector3 end, out _))
             {
                 Vector3 mid = Vector3.Lerp(foot, end, 0.5f);
@@ -437,14 +440,19 @@ namespace Drift.Bridge
             var island = settlement.GetComponent<Island>();
             LandmarkWorld(settlement, index, out float height);
             string label = LandmarkName(kind);
+            float harbourRadius = 0f;
+            bool harbour = kind == BuildingKind.Dock && settlement.TryGetHarbourView(index, out _, out harbourRadius);
             return new WatchSubject
             {
                 label = label,
                 ground = island,
                 still = true,
                 // A lighthouse is framed with the ground round its foot; the jetty with the water it reaches into.
-                radius = kind == BuildingKind.Dock ? Mathf.Max(0.5f, height * 2f) : Mathf.Max(0.6f, height * 1.2f),
-                lift = height * 0.45f,
+                radius = harbour ? Mathf.Max(0.5f, harbourRadius) : kind == BuildingKind.Dock ? Mathf.Max(0.5f, height * 2f) : Mathf.Max(0.6f, height * 1.2f),
+                lift = harbour ? 0.1f : height * 0.45f,
+                // Hut, jetty and boat are small: frame them tight, a little from above (the hut stands behind the jetty).
+                fill = harbour ? SettlementFill : 0f,
+                pitch = harbour ? 32f : 0f,
                 gone = label + " ist nicht mehr da",
                 focus = (out Vector3 f) =>
                 {

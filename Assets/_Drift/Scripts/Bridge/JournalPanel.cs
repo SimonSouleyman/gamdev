@@ -28,6 +28,10 @@ namespace Drift.Bridge
         public const float WideFrom = 2100f;
         const int Pool = 15, MaxPages = 4;
         const float CardW = 424f, CardH = 128f, CardGap = 12f, TabH = 76f, MaxFit = 1.5f;
+        // Card inside: swatch on the left, text column, and on the right the photo slot (a big tap target of its own).
+        public const float SwatchSize = 76f, SwatchX = 52f, TextX = 102f, SlotSize = 100f, SlotHitW = 112f, SlotRight = 6f;
+        const float ChipW = 116f, WhenGap = 8f;
+        public static float TextWidth(bool slot) => (slot ? CardW - SlotRight - SlotHitW - 4f : CardW - 14f) - TextX;
         static readonly Vector2 TallSize = new Vector2(960f, 1500f), WideSize = new Vector2(1980f, 1080f);
 
         static readonly string[] TabNames = { "Gemäßigt", "Tropisch", "Nordisch", "Savanne", "Meer & Himmel", "Insulaner" };
@@ -47,7 +51,9 @@ namespace Drift.Bridge
             public int entry = -1;
             // Photo tasks: the big picture over the swatch (tasks view) and the small photo slot of a species card.
             public RawImage thumb, slotPicture;
-            public GameObject thumbFrame, slot, slotRing, slotPictureFrame, slotDone;
+            public GameObject thumbFrame, slot, slotRing, slotPictureFrame, slotDone, slotCheck;
+            public Button slotButton;
+            public int task = -1;
         }
 
         RectTransform _screen, _fit, _panel, _pager, _islandA, _islandB;
@@ -64,7 +70,7 @@ namespace Drift.Bridge
         LifeBook _bookRef;
         PhotoTaskBook _tasks;
         Func<int, Texture> _thumbOf;
-        Button _tasksButton;
+        Button _tasksButton, _resetButton;
         Text _tasksName, _tasksCount;
         Image _tasksLip;
         JournalIslandInfo _info;
@@ -96,9 +102,6 @@ namespace Drift.Bridge
             Refill();
         }
 
-        // The tasks view on the page that holds this task.
-        public void ShowTask(int task) => SetTab(TasksTab, Mathf.Max(0, task) / Mathf.Max(1, _capacity));
-
         // Taps the card of a catalog entry on the page that is up; false when it is not there (or not tappable).
         // The real button handler runs, so tests and eval take the same route as a finger.
         public bool TapCard(int entry)
@@ -113,14 +116,49 @@ namespace Drift.Bridge
             return false;
         }
 
+        // Taps the photo slot of a catalog entry's card (the real handler, like TapCard); false when it is not shown.
+        public bool TapSlot(int entry)
+        {
+            for (int i = 0; i < Pool; i++)
+            {
+                var c = _cards[i];
+                if (c == null || c.entry != entry || !c.root.gameObject.activeInHierarchy || c.slot == null || !c.slot.activeSelf) continue;
+                c.slotButton.onClick.Invoke();
+                return true;
+            }
+            return false;
+        }
+
+        // Screen rects of a card and of its photo slot (for tests of the layout: the slot must not overlap the texts).
+        public bool CardRects(int entry, out RectTransform card, out RectTransform slot, out Text name, out Text detail, out Text when)
+        {
+            for (int i = 0; i < Pool; i++)
+            {
+                var c = _cards[i];
+                if (c == null || c.entry != entry || !c.root.gameObject.activeInHierarchy) continue;
+                card = c.root;
+                slot = (RectTransform)c.slot.transform;
+                name = c.name;
+                detail = c.detail;
+                when = c.when;
+                return true;
+            }
+            card = slot = null;
+            name = detail = when = null;
+            return false;
+        }
+
         // ---------------------------------------------------------------- build
 
         Action<int> _onWatch;
+        Action<JournalResetScope> _onReset;
 
-        // onWatch gets the catalog index of a card the player tapped (only cards of seen or collected entries).
-        public GameObject Build(RectTransform root, Action onClose, Action<int> onWatch = null)
+        // onWatch gets the catalog index of a card the player tapped (only cards of seen or collected entries);
+        // onReset runs "Tagebuch zurücksetzen" once the player confirmed a scope (null hides the button).
+        public GameObject Build(RectTransform root, Action onClose, Action<int> onWatch = null, Action<JournalResetScope> onReset = null)
         {
             _onWatch = onWatch;
+            _onReset = onReset;
             _screen = UiStyle.Scrim(root, "JournalScreen", UiStyle.Dim);
             // The fade-in animates the panel's own scale, so the fit-to-screen scale sits one level above it.
             _fit = UiStyle.Rect(_screen, "Fit").Center(Vector2.zero, Vector2.zero);
@@ -168,6 +206,10 @@ namespace Drift.Bridge
                 {
                     if (card.entry >= 0) _onWatch?.Invoke(card.entry);
                 });
+                card.slotButton.onClick.AddListener(() =>
+                {
+                    if (card.task >= 0) ShowTaskDetail(card.task);
+                });
             }
 
             _islandA = UiStyle.Card(_panel, "Islanders", new Vector2(860f, 330f));
@@ -191,6 +233,15 @@ namespace Drift.Bridge
 
             _close = UiStyle.PrimaryButton(_panel, "Close", "Schließen", new Vector2(680f, 124f), onClose);
 
+            // A quiet ghost pill on the island page only; it opens a confirmation, never resets by itself.
+            _resetButton = UiStyle.SecondaryButton(_panel, "ResetJournal", "Tagebuch zurücksetzen", new Vector2(440f, 72f), OpenResetConfirm);
+            _resetButton.targetGraphic.color = UiStyle.WithAlpha(UiStyle.Rose, 0.3f);
+            var resetLabel = UiStyle.LabelOf(_resetButton);
+            resetLabel.fontSize = 28;
+            resetLabel.color = UiStyle.CreamSoft;
+
+            BuildOverlay();
+
             _wide = -1;
             Layout();
             UiStyle.OnResize(_screen, Layout);
@@ -211,59 +262,76 @@ namespace Drift.Bridge
         {
             var c = new CardView { root = UiStyle.Card(parent, "Card" + i, new Vector2(CardW, CardH)) };
             c.body = c.root.GetComponent<Image>();
-            c.swatch = UiStyle.Dot(c.root, "Swatch", 88f, Color.white);
-            c.swatch.rectTransform.Place(new Vector2(0f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(64f, 0f), new Vector2(88f, 88f));
+            c.swatch = UiStyle.Dot(c.root, "Swatch", SwatchSize, Color.white);
+            c.swatch.rectTransform.Place(new Vector2(0f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(SwatchX, 0f), new Vector2(SwatchSize, SwatchSize));
             UiStyle.Shape(c.swatch.transform, "Shade", UiSprites.CircleRing, UiStyle.WithAlpha(UiStyle.Shadow, 0.35f)).rectTransform.Stretch();
             c.glyph = UiStyle.Shape(c.swatch.transform, "Glyph", null, UiStyle.Ink);
-            c.glyph.rectTransform.Center(Vector2.zero, new Vector2(60f, 60f));
-            var badge = UiStyle.Dot(c.root, "Badge", 38f, UiStyle.Mint);
-            badge.rectTransform.Place(new Vector2(0f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(98f, -32f), new Vector2(38f, 38f));
-            UiStyle.Shape(badge.transform, "Check", JournalGlyphs.Of(JournalGlyph.Check), UiStyle.Ink).rectTransform.Center(Vector2.zero, new Vector2(26f, 26f));
+            c.glyph.rectTransform.Center(Vector2.zero, new Vector2(52f, 52f));
+            var badge = UiStyle.Dot(c.root, "Badge", 34f, UiStyle.Mint);
+            badge.rectTransform.Place(new Vector2(0f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(SwatchX + 30f, -30f), new Vector2(34f, 34f));
+            UiStyle.Shape(badge.transform, "Check", JournalGlyphs.Of(JournalGlyph.Check), UiStyle.Ink).rectTransform.Center(Vector2.zero, new Vector2(24f, 24f));
             c.badge = badge.gameObject;
 
-            c.name = UiStyle.FitWidth(UiStyle.Label(c.root, "", 32, UiStyle.Cream, TextAnchor.MiddleLeft, true));
-            c.name.rectTransform.Place(new Vector2(0f, 1f), new Vector2(0f, 0.5f), new Vector2(128f, -32f), new Vector2(236f, 42f));
+            c.name = UiStyle.FitWidth(UiStyle.Label(c.root, "", 30, UiStyle.Cream, TextAnchor.MiddleLeft, true));
+            c.name.rectTransform.Place(new Vector2(0f, 1f), new Vector2(0f, 0.5f), new Vector2(TextX, -30f), new Vector2(TextWidth(false), 42f));
 
-            // The whole card is the button ("Ansehen"); the eye in the corner says so on every known entry.
+            // The whole card is the button: tapping it watches the species. No icon for it any more (two camera
+            // symbols on one card read as two photo buttons); the photo slot on the right is a button of its own.
             c.body.raycastTarget = true;
             c.button = c.root.gameObject.AddComponent<Button>();
             c.button.targetGraphic = c.body;
             c.button.transition = Selectable.Transition.None;
             c.button.navigation = new Navigation { mode = Navigation.Mode.None };
             c.root.gameObject.AddComponent<UiPressFeedback>().pressedScale = 0.96f;
-            var eye = UiStyle.Dot(c.root, "Watch", 44f, UiStyle.WithAlpha(UiStyle.Sand, 0.22f));
-            eye.rectTransform.Place(new Vector2(1f, 1f), new Vector2(0.5f, 0.5f), new Vector2(-34f, -32f), new Vector2(44f, 44f));
-            UiStyle.Icon(eye.rectTransform, "Icon", UiIcon.Camera, 26f, UiStyle.Sand).rectTransform.Center(Vector2.zero, new Vector2(26f, 26f));
-            c.go = eye.gameObject;
-            c.chip = UiStyle.Pill(c.root, "State", new Vector2(148f, 32f), UiStyle.Ghost);
-            c.chip.rectTransform.Place(new Vector2(0f, 1f), new Vector2(0f, 0.5f), new Vector2(128f, -70f), new Vector2(148f, 32f));
-            c.state = UiStyle.Label(c.chip.transform, "", 22, UiStyle.Cream, TextAnchor.MiddleCenter, true);
+            c.go = c.root.gameObject;
+            c.chip = UiStyle.Pill(c.root, "State", new Vector2(ChipW, 30f), UiStyle.Ghost);
+            c.chip.rectTransform.Place(new Vector2(0f, 1f), new Vector2(0f, 0.5f), new Vector2(TextX, -68f), new Vector2(ChipW, 30f));
+            c.state = UiStyle.FitWidth(UiStyle.Label(c.chip.transform, "", 20, UiStyle.Cream, TextAnchor.MiddleCenter, true));
             c.state.rectTransform.Stretch(6f, 0f, 6f, 2f);
-            c.when = UiStyle.FitWidth(UiStyle.Label(c.root, "", 23, UiStyle.Muted, TextAnchor.MiddleLeft));
-            c.when.rectTransform.Place(new Vector2(0f, 1f), new Vector2(0f, 0.5f), new Vector2(288f, -70f), new Vector2(124f, 32f));
-            c.detail = UiStyle.FitWidth(UiStyle.Label(c.root, "", 23, UiStyle.CreamSoft, TextAnchor.MiddleLeft));
-            c.detail.rectTransform.Place(new Vector2(0f, 1f), new Vector2(0f, 0.5f), new Vector2(128f, -104f), new Vector2(282f, 32f));
+            c.when = UiStyle.FitWidth(UiStyle.Label(c.root, "", 21, UiStyle.Muted, TextAnchor.MiddleLeft));
+            c.when.rectTransform.Place(new Vector2(0f, 1f), new Vector2(0f, 0.5f), new Vector2(TextX + ChipW + WhenGap, -68f), new Vector2(TextWidth(false) - ChipW - WhenGap, 30f));
+            c.detail = UiStyle.FitWidth(UiStyle.Label(c.root, "", 22, UiStyle.CreamSoft, TextAnchor.MiddleLeft), 0.5f);
+            c.detail.rectTransform.Place(new Vector2(0f, 1f), new Vector2(0f, 0.5f), new Vector2(TextX, -103f), new Vector2(TextWidth(false), 30f));
 
-            c.thumb = UiStyle.Picture(c.root, "TaskPhoto", new Vector2(92f, 92f), out var frame);
-            frame.Place(new Vector2(0f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(64f, 0f), new Vector2(92f, 92f));
+            c.thumb = UiStyle.Picture(c.root, "TaskPhoto", new Vector2(SwatchSize + 6f, SwatchSize + 6f), out var frame);
+            frame.Place(new Vector2(0f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(SwatchX, 0f), new Vector2(SwatchSize + 6f, SwatchSize + 6f));
             frame.SetSiblingIndex(c.badge.transform.GetSiblingIndex());
             c.thumbFrame = frame.gameObject;
             c.thumbFrame.SetActive(false);
-            // The photo slot: an empty frame while the species' photo task is open, the picture once it is done.
+
+            // The photo slot: the open task (ring and camera) or its photo, at the right edge. Its hit area is the full
+            // card height, and it answers taps itself, so they never reach the card's watch button.
             var slot = UiStyle.Rect(c.root, "PhotoSlot");
-            slot.Place(new Vector2(1f, 1f), new Vector2(0.5f, 0.5f), new Vector2(-34f, -94f), new Vector2(46f, 46f));
+            slot.Place(new Vector2(1f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(-SlotRight - SlotHitW * 0.5f, 0f), new Vector2(SlotHitW, CardH));
+            var hit = UiStyle.Shape(slot, "Hit", null, new Color(1f, 1f, 1f, 0f), true);
+            hit.rectTransform.Stretch();
+            c.slotButton = slot.gameObject.AddComponent<Button>();
+            c.slotButton.targetGraphic = hit;
+            c.slotButton.transition = Selectable.Transition.None;
+            c.slotButton.navigation = new Navigation { mode = Navigation.Mode.None };
+            slot.gameObject.AddComponent<UiPressFeedback>().pressedScale = 0.92f;
+            var look = UiStyle.Rect(slot, "Look");
+            look.Center(Vector2.zero, new Vector2(SlotSize, SlotSize));
             c.slot = slot.gameObject;
-            var ring = UiStyle.Shape(slot, "Empty", UiSprites.Ring, UiStyle.WithAlpha(UiStyle.Sand, 0.45f));
+            var ring = UiStyle.Shape(look, "Empty", UiSprites.Rounded, UiStyle.WithAlpha(UiStyle.Sand, 0.12f));
             ring.rectTransform.Stretch();
-            UiStyle.Icon(ring.transform, "Icon", UiIcon.Camera, 22f, UiStyle.WithAlpha(UiStyle.Sand, 0.55f)).rectTransform.Center(Vector2.zero, new Vector2(22f, 22f));
+            UiStyle.Shape(ring.transform, "Rim", UiSprites.Ring, UiStyle.WithAlpha(UiStyle.Sand, 0.55f)).rectTransform.Stretch();
+            UiStyle.Icon(ring.transform, "Icon", UiIcon.Camera, 46f, UiStyle.WithAlpha(UiStyle.Sand, 0.85f)).rectTransform.Center(new Vector2(0f, 10f), new Vector2(46f, 46f));
+            var word = UiStyle.Label(ring.transform, "Aufgabe", 17, UiStyle.WithAlpha(UiStyle.Sand, 0.85f), TextAnchor.MiddleCenter, true);
+            word.rectTransform.Place(new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(0f, 10f), new Vector2(SlotSize - 20f, 22f));
+            UiStyle.FitWidth(word);
             c.slotRing = ring.gameObject;
-            c.slotPicture = UiStyle.Picture(slot, "Photo", new Vector2(46f, 46f), out var slotFrame);
+            c.slotPicture = UiStyle.Picture(look, "Photo", new Vector2(SlotSize, SlotSize), out var slotFrame);
             slotFrame.Stretch();
             c.slotPictureFrame = slotFrame.gameObject;
-            var done = UiStyle.Shape(slot, "Done", UiSprites.RoundedSmall, UiStyle.Mint);
+            var done = UiStyle.Shape(look, "Done", UiSprites.Rounded, UiStyle.Mint);
             done.rectTransform.Stretch();
-            UiStyle.Icon(done.transform, "Icon", UiIcon.Camera, 24f, UiStyle.Ink).rectTransform.Center(Vector2.zero, new Vector2(24f, 24f));
+            UiStyle.Icon(done.transform, "Icon", UiIcon.Camera, 48f, UiStyle.Ink).rectTransform.Center(Vector2.zero, new Vector2(48f, 48f));
             c.slotDone = done.gameObject;
+            var check = UiStyle.Dot(look, "Check", 32f, UiStyle.Mint);
+            check.rectTransform.Place(new Vector2(1f, 1f), new Vector2(0.5f, 0.5f), new Vector2(-8f, -8f), new Vector2(32f, 32f));
+            UiStyle.Shape(check.transform, "Mark", JournalGlyphs.Of(JournalGlyph.Check), UiStyle.Ink).rectTransform.Center(Vector2.zero, new Vector2(22f, 22f));
+            c.slotCheck = check.gameObject;
             c.slot.SetActive(false);
             return c;
         }
@@ -311,6 +379,7 @@ namespace Drift.Bridge
                 float iw = (gridW - CardGap) * 0.5f;
                 Put(_islandA, gx, 130f, iw, 470f);
                 Put(_islandB, gx + iw + CardGap, 130f, iw, 470f);
+                Put((RectTransform)_resetButton.transform, gx + gridW * 0.5f - 220f, 130f + 470f + 28f, 440f, 72f);
             }
             else
             {
@@ -332,8 +401,9 @@ namespace Drift.Bridge
                 _columns = 2;
                 Put(_pager, W * 0.5f - 210f, 552f + 5f * (CardH + CardGap) - 2f, 420f, 72f);
                 Put((RectTransform)_close.transform, W * 0.5f - 340f, H - 36f - 124f, 680f, 124f);
-                Put(_islandA, m, 552f, inner, 410f);
-                Put(_islandB, m, 552f + 410f + CardGap, inner, 310f);
+                Put(_islandA, m, 552f, inner, 372f);
+                Put(_islandB, m, 552f + 372f + CardGap, inner, 306f);
+                Put((RectTransform)_resetButton.transform, W * 0.5f - 220f, 552f + 372f + CardGap + 306f + 12f, 440f, 72f);
             }
             _capacity = _columns * 5;
             for (int i = 0; i < Pool; i++)
@@ -345,6 +415,8 @@ namespace Drift.Bridge
 
         public void SetTab(int tab, int page = 0)
         {
+            CloseOverlay();
+            _highlightTask = -1;
             _tab = Mathf.Clamp(tab, 0, _tasks != null ? TasksTab : TabCount - 1);
             _page = page;
             Refill();
@@ -432,6 +504,7 @@ namespace Drift.Bridge
             _sectionTitle.text = SectionTitles[_tab];
             _islandA.gameObject.SetActive(island);
             _islandB.gameObject.SetActive(island);
+            SetActive(_resetButton.gameObject, island && _onReset != null);
             _sectionBar.Root.gameObject.SetActive(!island);
             if (island)
             {
@@ -484,6 +557,7 @@ namespace Drift.Bridge
             _sectionCount.text = TasksProgressLine(_tasks);
             _islandA.gameObject.SetActive(false);
             _islandB.gameObject.SetActive(false);
+            SetActive(_resetButton.gameObject, false);
             _sectionBar.Root.gameObject.SetActive(true);
             _sectionBar.Fill.color = UiStyle.Sand;
             _sectionBar.Set(_tasks.DoneCount / (float)Mathf.Max(1, PhotoTaskBook.Total));
@@ -506,10 +580,11 @@ namespace Drift.Bridge
             var e = CollectionCatalog.At(t.entry);
             bool done = _tasks.IsDone(task), known = done || j.StateOf(t.entry) != CollectState.Unknown;
             c.entry = known ? t.entry : -1;
+            c.task = -1;
             c.button.interactable = known && _onWatch != null;
-            SetActive(c.go, known && _onWatch != null);
             Color sw = SwatchOf(e);
-            c.body.color = done ? UiStyle.WithAlpha(UiStyle.Sand, 0.16f) : known ? UiStyle.Veil : UiStyle.WithAlpha(UiStyle.Veil, 0.06f);
+            c.body.color = task == _highlightTask ? UiStyle.WithAlpha(UiStyle.Sand, 0.32f)
+                : done ? UiStyle.WithAlpha(UiStyle.Sand, 0.16f) : known ? UiStyle.Veil : UiStyle.WithAlpha(UiStyle.Veil, 0.06f);
             c.swatch.color = known ? sw : UiStyle.WithAlpha(UiStyle.Track, 0.6f);
             c.glyph.sprite = JournalGlyphs.Of(JournalGlyphs.For(e));
             c.glyph.color = !known ? UiStyle.Faint : sw.r * 0.3f + sw.g * 0.59f + sw.b * 0.11f > 0.5f ? UiStyle.WithAlpha(UiStyle.Ink, 0.9f) : UiStyle.Cream;
@@ -526,7 +601,7 @@ namespace Drift.Bridge
             c.when.text = done ? PhotoTaskBook.DateLabel(_tasks.DoneAt(task)) : "";
             c.detail.text = t.phrase;
             c.detail.color = done ? UiStyle.CreamSoft : UiStyle.Sand;
-            c.detail.rectTransform.sizeDelta = new Vector2(282f, 32f);
+            SetTextWidth(c, false);
         }
 
         static string TabProgress(DiscoveryJournal j, CollectSection s) =>
@@ -539,7 +614,6 @@ namespace Drift.Bridge
             bool known = state != CollectState.Unknown, collected = state == CollectState.Collected;
             c.entry = known ? index : -1;
             c.button.interactable = known && _onWatch != null;
-            SetActive(c.go, known && _onWatch != null);
             Color sw = SwatchOf(e);
             c.body.color = known ? UiStyle.Veil : UiStyle.WithAlpha(UiStyle.Veil, 0.06f);
             c.swatch.color = known ? sw : UiStyle.WithAlpha(UiStyle.Track, 0.6f);
@@ -557,8 +631,9 @@ namespace Drift.Bridge
             SetActive(c.thumbFrame, false);
 
             int task = _tasks != null && known ? PhotoTaskCatalog.IndexOfEntry(index) : -1;
+            c.task = task;
             SetActive(c.slot, task >= 0);
-            c.detail.rectTransform.sizeDelta = new Vector2(task >= 0 ? 226f : 282f, 32f);
+            SetTextWidth(c, task >= 0);
             if (task < 0) return;
             bool done = _tasks.IsDone(task);
             var picture = done && _thumbOf != null ? _thumbOf(task) : null;
@@ -566,6 +641,16 @@ namespace Drift.Bridge
             SetActive(c.slotRing, !done);
             SetActive(c.slotPictureFrame, picture != null);
             SetActive(c.slotDone, done && picture == null);
+            SetActive(c.slotCheck, picture != null);
+        }
+
+        // The text column ends before the photo slot when the card has one.
+        static void SetTextWidth(CardView c, bool slot)
+        {
+            float w = TextWidth(slot);
+            c.name.rectTransform.sizeDelta = new Vector2(w, 42f);
+            c.when.rectTransform.sizeDelta = new Vector2(w - ChipW - WhenGap, 30f);
+            c.detail.rectTransform.sizeDelta = new Vector2(w, 30f);
         }
 
         // The third line of a card: where it lives (unknown), what is missing (seen) or how it is doing on the island.
@@ -605,6 +690,153 @@ namespace Drift.Bridge
         static void SetActive(GameObject go, bool on)
         {
             if (go != null && go.activeSelf != on) go.SetActive(on);
+        }
+
+        // ---------------------------------------------------------------- overlays (photo task, reset)
+
+        RectTransform _overlay, _detailCard, _resetCard;
+        RawImage _detailPicture;
+        GameObject _detailPictureFrame, _detailEmpty;
+        Text _detailName, _detailTaskText, _detailState, _detailHint;
+        Button _detailAll;
+        int _detailTask = -1, _highlightTask = -1;
+        static readonly Vector2 DetailSize = new Vector2(780f, 930f), ResetSize = new Vector2(800f, 740f);
+
+        public bool OverlayOpen => _overlay != null && _overlay.gameObject.activeSelf;
+        // The photo task shown in the detail card, -1 while none is up.
+        public int DetailTask => OverlayOpen && _detailCard.gameObject.activeSelf ? _detailTask : -1;
+        public bool ResetConfirmOpen => OverlayOpen && _resetCard.gameObject.activeSelf;
+        public string DetailText => DetailTask >= 0 ? _detailTaskText.text : "";
+        public int HighlightTask => _highlightTask;
+        public bool ResetButtonShown => _resetButton != null && _resetButton.gameObject.activeSelf;
+
+        // "Fotografiere Flamingos beim Schlammtanz."
+        public static string TaskLine(int task)
+        {
+            var t = PhotoTaskCatalog.At(task);
+            return "Fotografiere " + LifeNames.Plural(t.kind) + " " + t.phrase + ".";
+        }
+
+        void BuildOverlay()
+        {
+            _overlay = UiStyle.Rect(_panel, "Overlay");
+            _overlay.Stretch();
+            // Tapping beside the card closes it; the card's own body swallows its taps.
+            var dim = UiStyle.Shape(_overlay, "Dim", UiSprites.RoundedLarge, UiStyle.WithAlpha(UiStyle.Dim, 0.88f), true);
+            dim.rectTransform.Stretch();
+            var dimButton = dim.gameObject.AddComponent<Button>();
+            dimButton.transition = Selectable.Transition.None;
+            dimButton.navigation = new Navigation { mode = Navigation.Mode.None };
+            dimButton.onClick.AddListener(CloseOverlay);
+
+            _detailCard = UiStyle.Panel(_overlay, "TaskDetail", DetailSize, true).Center(Vector2.zero, DetailSize);
+            OverlayLine(_detailCard, "Fotoaufgabe", UiStyle.Subheading, UiStyle.Sand, -40f, 64f, true);
+            _detailPicture = UiStyle.Picture(_detailCard, "Photo", new Vector2(340f, 340f), out var frame);
+            frame.TopCenter(new Vector2(0f, -122f), new Vector2(340f, 340f));
+            _detailPictureFrame = frame.gameObject;
+            var empty = UiStyle.Shape(_detailCard, "Empty", UiSprites.Rounded, UiStyle.WithAlpha(UiStyle.Sand, 0.12f));
+            empty.rectTransform.TopCenter(new Vector2(0f, -122f), new Vector2(340f, 340f));
+            UiStyle.Shape(empty.transform, "Rim", UiSprites.Ring, UiStyle.WithAlpha(UiStyle.Sand, 0.55f)).rectTransform.Stretch();
+            UiStyle.Icon(empty.transform, "Icon", UiIcon.Camera, 150f, UiStyle.WithAlpha(UiStyle.Sand, 0.8f));
+            _detailEmpty = empty.gameObject;
+            _detailName = UiStyle.FitWidth(OverlayLine(_detailCard, "", UiStyle.Subheading, UiStyle.Cream, -484f, 58f, true));
+            _detailTaskText = OverlayLine(_detailCard, "", UiStyle.Body, UiStyle.CreamSoft, -548f, 96f);
+            _detailState = UiStyle.FitWidth(OverlayLine(_detailCard, "", UiStyle.Caption, UiStyle.Sand, -676f, 40f, true));
+            _detailHint = OverlayLine(_detailCard, "", 26, UiStyle.Muted, -722f, 70f);
+            var half = new Vector2(340f, UiStyle.ButtonHeightSmall);
+            _detailAll = UiStyle.SecondaryButton(_detailCard, "AllTasks", "Alle Aufgaben", half, () => ShowTask(_detailTask));
+            ((RectTransform)_detailAll.transform).TopCenter(new Vector2(-180f, -808f), half);
+            var ok = UiStyle.PrimaryButton(_detailCard, "Ok", "Schließen", half, CloseOverlay);
+            ((RectTransform)ok.transform).TopCenter(new Vector2(180f, -808f), half);
+
+            _resetCard = UiStyle.Panel(_overlay, "ResetConfirm", ResetSize, true).Center(Vector2.zero, ResetSize);
+            UiStyle.FitWidth(OverlayLine(_resetCard, "Tagebuch zurücksetzen?", UiStyle.Subheading + 4, UiStyle.Sand, -44f, 70f, true));
+            OverlayLine(_resetCard, "Was soll gelöscht werden?\nDas lässt sich nicht rückgängig machen.", UiStyle.Caption + 2, UiStyle.CreamSoft, -132f, 100f);
+            var wide = new Vector2(700f, 112f);
+            var species = UiStyle.SecondaryButton(_resetCard, "ResetSpecies", JournalReset.SpeciesLabel, wide, () => ConfirmReset(JournalResetScope.SpeciesAndTasks), true);
+            ((RectTransform)species.transform).TopCenter(new Vector2(0f, -262f), wide);
+            UiStyle.LabelOf(species).fontSize = 34;
+            var tall = new Vector2(700f, 136f);
+            var all = UiStyle.SecondaryButton(_resetCard, "ResetAll", "", tall, () => ConfirmReset(JournalResetScope.Everything), true);
+            ((RectTransform)all.transform).TopCenter(new Vector2(0f, -402f), tall);
+            var allLabel = UiStyle.LabelOf(all);
+            allLabel.fontSize = 40;
+            allLabel.text = JournalReset.EverythingLabel;
+            allLabel.rectTransform.Stretch(UiStyle.Gap, 56f, UiStyle.Gap, 12f);
+            var note = UiStyle.FitWidth(UiStyle.Label(all.transform, JournalReset.EverythingNote, 27, UiStyle.CreamSoft, TextAnchor.MiddleCenter));
+            note.rectTransform.Stretch(UiStyle.Gap, 16f, UiStyle.Gap, 76f);
+            var cancel = UiStyle.PrimaryButton(_resetCard, "Cancel", "Abbrechen", wide, CloseOverlay);
+            ((RectTransform)cancel.transform).TopCenter(new Vector2(0f, -578f), wide);
+
+            _overlay.gameObject.SetActive(false);
+        }
+
+        static Text OverlayLine(RectTransform card, string text, int size, Color color, float y, float height, bool bold = false)
+        {
+            var t = UiStyle.Label(card, text, size, color, TextAnchor.UpperCenter, bold);
+            t.rectTransform.TopCenter(new Vector2(0f, y), new Vector2(card.sizeDelta.x - 80f, height));
+            return t;
+        }
+
+        // The photo task of a species card's slot: what to photograph, open or done (with its photo).
+        public void ShowTaskDetail(int task)
+        {
+            if (_overlay == null || _tasks == null || task < 0 || task >= PhotoTaskCatalog.Count) return;
+            _detailTask = task;
+            var t = PhotoTaskCatalog.At(task);
+            bool done = _tasks.IsDone(task);
+            var picture = done && _thumbOf != null ? _thumbOf(task) : null;
+            _detailPicture.texture = picture;
+            SetActive(_detailPictureFrame, picture != null);
+            SetActive(_detailEmpty, picture == null);
+            _detailName.text = CollectionCatalog.At(t.entry).name + "  ·  " + t.move;
+            _detailTaskText.text = TaskLine(task);
+            _detailState.text = done ? "Erfüllt" + (_tasks.DoneAt(task) != DateTime.MinValue ? " am " + PhotoTaskBook.DateLabel(_tasks.DoneAt(task)) : "") : "Noch offen";
+            _detailState.color = done ? UiStyle.Mint : UiStyle.Sand;
+            _detailHint.text = done ? "" : "Wenn es so weit ist, zeigt dir ein Kamera-Symbol die Stelle.";
+            SetActive(_detailCard.gameObject, true);
+            SetActive(_resetCard.gameObject, false);
+            _overlay.SetAsLastSibling();
+            SetActive(_overlay.gameObject, true);
+        }
+
+        public void OpenResetConfirm()
+        {
+            if (_overlay == null || _onReset == null) return;
+            SetActive(_detailCard.gameObject, false);
+            SetActive(_resetCard.gameObject, true);
+            _overlay.SetAsLastSibling();
+            SetActive(_overlay.gameObject, true);
+        }
+
+        public void CloseOverlay()
+        {
+            if (_overlay != null) SetActive(_overlay.gameObject, false);
+        }
+
+        // Android back / Escape: an open overlay first; false when there was none (the caller closes the journal).
+        public bool Back()
+        {
+            if (!OverlayOpen) return false;
+            CloseOverlay();
+            return true;
+        }
+
+        // The same route as the dialog's buttons (tests and eval).
+        public void ConfirmReset(JournalResetScope scope)
+        {
+            CloseOverlay();
+            _onReset?.Invoke(scope);
+            _highlightTask = -1;
+            SetTab(0);
+        }
+
+        // The tasks view on the page that holds this task, the task's card marked.
+        public void ShowTask(int task)
+        {
+            SetTab(TasksTab, Mathf.Max(0, task) / Mathf.Max(1, _capacity));
+            _highlightTask = task;
+            Refill();
         }
 
         // ---------------------------------------------------------------- colours

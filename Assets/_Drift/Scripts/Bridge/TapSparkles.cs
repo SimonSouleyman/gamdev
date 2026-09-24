@@ -368,11 +368,16 @@ namespace Drift.Bridge
     // overlay canvas under every other game canvas, so it keeps the same readable size at every camera distance;
     // 12 pooled images with one sprite (one batch), the canvas is off while nothing twinkles, and nothing is
     // allocated per frame. Off on the title, in the pause menu, photo mode, the journal, the album and the finale.
+    // The same stars also twinkle on request anywhere (SparkleAt, every mode - the cozy tap sparkles stay cozy-only)
+    // and all over the player's island while the adventure whale boost runs (owner, v0.6.5: "die Insel soll während
+    // des Walboosts funkeln"). Stars are placed in LateUpdate after the chase camera moved: at race pace a star placed
+    // with the last frame's camera sat a unit ahead of the island.
     [DisallowMultipleComponent]
+    [DefaultExecutionOrder(900)]
     public class TapSparkles : MonoBehaviour
     {
         const string CanvasName = "TapSparkleCanvas";
-        const int MaxBursts = 3, StarsPerBurst = 4;
+        const int MaxBursts = 3, StarsPerBurst = 4, MaxFree = 8;
 
         public WatchTools watch;
         public GameSession session;
@@ -399,6 +404,14 @@ namespace Drift.Bridge
         public bool sparkleWatched;
         public bool debugLog;
 
+        [Header("Wal-Schub (Abenteuer)")]
+        [Tooltip("Solange der Wal-Schub läuft, funkelt die Insel: alle so viele Sekunden ein neues Funkeln an einer zufälligen Stelle auf ihr oder an ihrer Küste.")]
+        [Range(0.05f, 1f)] public float whaleSparkleEvery = 0.14f;
+        [Tooltip("Größe eines Insel-Funkelns (Anteil der Sterngröße oben).")]
+        [Range(0.2f, 1.5f)] public float whaleSparkleScale = 0.85f;
+        [Tooltip("Dauer eines Insel-Funkelns (Sekunden).")]
+        [Range(0.2f, 2f)] public float whaleSparkleSeconds = 0.6f;
+
         struct Burst
         {
             public bool active;
@@ -417,11 +430,24 @@ namespace Drift.Bridge
         static readonly Color SmallTint = new Color(1f, 0.93f, 0.72f, 1f);
         static Sprite s_star;
 
+        // A twinkle on request: at a world point, or pinned to a transform (local point) so it rides along with it.
+        struct FreeBurst
+        {
+            public bool active, anchored;
+            public Transform anchor;
+            public Vector3 point;
+            public float age, life, scale, mirror, spin;
+        }
+
         Canvas _canvas;
         RectTransform _root;
-        readonly Image[] _stars = new Image[MaxBursts * StarsPerBurst];
-        readonly RectTransform[] _starRects = new RectTransform[MaxBursts * StarsPerBurst];
+        readonly Image[] _stars = new Image[(MaxBursts + MaxFree) * StarsPerBurst];
+        readonly RectTransform[] _starRects = new RectTransform[(MaxBursts + MaxFree) * StarsPerBurst];
         readonly Burst[] _bursts = new Burst[MaxBursts];
+        readonly FreeBurst[] _free = new FreeBurst[MaxFree];
+        readonly System.Random _freeRnd = new System.Random(97);
+        float _whaleSparkleTimer;
+        bool _cozyOn, _freeOn;
         readonly List<TapTarget> _candidates = new(256);
         readonly List<int> _eligible = new(256);
         readonly int[] _kindCount = new int[(int)TapTargetKind.Campfire + 1];
@@ -441,18 +467,43 @@ namespace Drift.Bridge
         public TapTarget LastTarget { get; private set; }
         public Vector2 LastScreen { get; private set; }
         public int LastCandidates { get; private set; }
+        public int FreeStarted { get; private set; }
+        public int ActiveFreeBursts
+        {
+            get
+            {
+                int n = 0;
+                for (int i = 0; i < MaxFree; i++) if (_free[i].active) n++;
+                return n;
+            }
+        }
+        // Stars on screen right now (tap sparkles and free ones).
+        public int VisibleStars
+        {
+            get
+            {
+                int n = 0;
+                if (_canvas != null && _canvas.enabled)
+                    for (int i = 0; i < _stars.Length; i++) if (_stars[i] != null && _stars[i].enabled) n++;
+                return n;
+            }
+        }
+        public static TapSparkles Active { get; private set; }
 
         void OnEnable()
         {
             if (!Application.isPlaying) return;
             Build();
             _schedule = new SparkleSchedule(seed);
+            Active = this;
         }
 
         void OnDisable()
         {
             if (_canvas != null) _canvas.enabled = false;
             for (int i = 0; i < MaxBursts; i++) _bursts[i].active = false;
+            for (int i = 0; i < MaxFree; i++) _free[i].active = false;
+            if (Active == this) Active = null;
         }
 
         void Build()
@@ -487,29 +538,180 @@ namespace Drift.Bridge
             && watch != null && watch.isActiveAndEnabled && !watch.PhotoActive && !watch.JournalOpen && !watch.AlbumOpen
             && !watch.Capturing && !WatchTools.HudHidden && (finale == null || !finale.Active);
 
+        // Free twinkles show in every mode while a run is on screen (not on the title, paused, hidden HUD, finale).
+        bool FreeAllowed =>
+            session != null && session.Current == GameSession.State.Playing && !WatchTools.HudHidden
+            && (finale == null || !finale.Active) && (watch == null || (!watch.PhotoActive && !watch.Capturing));
+
         void Update()
         {
             if (!Application.isPlaying || _canvas == null) return;
             Resolve();
             var cam = Camera.main;
-            if (!Allowed || cam == null)
-            {
-                StopAll();
-                return;
-            }
-            _schedule.interval = interval;
-            _schedule.jitter = intervalJitter;
-            _schedule.cooldown = subjectCooldown;
             float dt = Time.unscaledDeltaTime;
-            if (_schedule.Tick(dt) && !TryStart(cam)) _schedule.Missed();
-            StepBursts(cam, dt);
+            _cozyOn = Allowed && cam != null;
+            if (_cozyOn)
+            {
+                _schedule.interval = interval;
+                _schedule.jitter = intervalJitter;
+                _schedule.cooldown = subjectCooldown;
+                if (_schedule.Tick(dt) && !TryStart(cam)) _schedule.Missed();
+            }
+            else StopCozy();
+            _freeOn = FreeAllowed && cam != null;
+            if (_freeOn) EmitWhaleSparkles(dt);
+            else StopFree();
         }
 
-        void StopAll()
+        void LateUpdate()
+        {
+            if (!Application.isPlaying || _canvas == null) return;
+            var cam = Camera.main;
+            bool any = false;
+            if (cam != null)
+            {
+                float dt = Time.unscaledDeltaTime;
+                if (_cozyOn) any |= StepBursts(cam, dt);
+                if (_freeOn) any |= StepFree(cam, dt);
+            }
+            if (_canvas.enabled != any) _canvas.enabled = any;
+        }
+
+        void StopCozy()
         {
             for (int i = 0; i < MaxBursts; i++) _bursts[i].active = false;
-            for (int i = 0; i < _stars.Length; i++) if (_stars[i].enabled) _stars[i].enabled = false;
-            if (_canvas.enabled) _canvas.enabled = false;
+            for (int i = 0; i < MaxBursts * StarsPerBurst; i++) if (_stars[i].enabled) _stars[i].enabled = false;
+        }
+
+        void StopFree()
+        {
+            _whaleSparkleTimer = 0f;
+            for (int i = 0; i < MaxFree; i++) _free[i].active = false;
+            for (int i = MaxBursts * StarsPerBurst; i < _stars.Length; i++) if (_stars[i].enabled) _stars[i].enabled = false;
+        }
+
+        // A one-off twinkle of the same stars at a world point - pinned to `anchor` when given, so it rides along with
+        // a moving island. `scale` 1 = the tap sparkle's size, `seconds` <= 0 = sparkleSeconds. Works in every mode
+        // while a run is on screen; false when all free twinkles are busy.
+        public bool SparkleAt(Vector3 world, float scale = 1f, Transform anchor = null, float seconds = 0f)
+        {
+            if (!Application.isPlaying || _canvas == null) return false;
+            int slot = -1;
+            for (int i = 0; i < MaxFree; i++) if (!_free[i].active) { slot = i; break; }
+            if (slot < 0) return false;
+            _free[slot] = new FreeBurst
+            {
+                active = true, anchored = anchor != null, anchor = anchor,
+                point = anchor != null ? anchor.InverseTransformPoint(world) : world,
+                age = 0f, life = seconds > 0f ? seconds : sparkleSeconds, scale = Mathf.Max(0.05f, scale),
+                mirror = _freeRnd.Next(2) == 0 ? 1f : -1f, spin = _freeRnd.Next(90) - 45f,
+            };
+            FreeStarted++;
+            return true;
+        }
+
+        // The whale boost (the island's ghost ride) makes the whole island twinkle: a new twinkle every
+        // whaleSparkleEvery seconds on its top or right on its coast, riding along with it.
+        void EmitWhaleSparkles(float dt)
+        {
+            var player = session != null ? session.player : null;
+            if (player == null || !GameModes.IsAdventure || !player.Ghosting || player.IsSunk)
+            {
+                _whaleSparkleTimer = 0f;
+                return;
+            }
+            _whaleSparkleTimer -= dt;
+            if (_whaleSparkleTimer > 0f) return;
+            _whaleSparkleTimer = Mathf.Max(0f, _whaleSparkleTimer + Mathf.Max(0.05f, whaleSparkleEvery));
+            Vector3 local = IslandSparkleSpot(player);
+            float scale = whaleSparkleScale * (0.75f + 0.5f * (float)_freeRnd.NextDouble());
+            SparkleAt(player.transform.TransformPoint(local), scale, player.transform, whaleSparkleSeconds);
+        }
+
+        // A random spot on the island (local): every other one on its coast, the rest anywhere on the land.
+        Vector3 IslandSparkleSpot(Island island)
+        {
+            float r = Mathf.Max(0.5f, island.BoundingRadius);
+            float a = (float)_freeRnd.NextDouble() * Mathf.PI * 2f;
+            Vector2 dir = new Vector2(Mathf.Cos(a), Mathf.Sin(a));
+            if (_freeRnd.Next(2) == 0)
+            {
+                for (float d = r; d > 0.1f; d -= r * 0.1f)
+                {
+                    Vector2 p = dir * d;
+                    if (island.SampleHeight(p) > 0.02f) return new Vector3(p.x, 0.25f, p.y);
+                }
+            }
+            for (int k = 0; k < 4; k++)
+            {
+                Vector2 p = dir * (r * 0.85f * Mathf.Sqrt((float)_freeRnd.NextDouble()));
+                float h = island.SampleHeight(p);
+                if (h > 0.02f) return new Vector3(p.x, h + 0.35f, p.y);
+                a = (float)_freeRnd.NextDouble() * Mathf.PI * 2f;
+                dir = new Vector2(Mathf.Cos(a), Mathf.Sin(a));
+            }
+            return new Vector3(0f, Mathf.Max(0f, island.SampleHeight(Vector2.zero)) + 0.35f, 0f);
+        }
+
+        bool StepFree(Camera cam, float dt)
+        {
+            bool any = false;
+            for (int b = 0; b < MaxFree; b++)
+            {
+                ref FreeBurst burst = ref _free[b];
+                int first = (MaxBursts + b) * StarsPerBurst;
+                if (burst.active)
+                {
+                    burst.age += dt;
+                    if (burst.age >= burst.life || (burst.anchored && burst.anchor == null)) burst.active = false;
+                }
+                Vector3 screen = default;
+                if (burst.active)
+                    screen = cam.WorldToScreenPoint(burst.anchored ? burst.anchor.TransformPoint(burst.point) : burst.point);
+                if (!burst.active || screen.z <= 0f)
+                {
+                    HideStars(first);
+                    continue;
+                }
+                any = true;
+                RectTransformUtility.ScreenPointToLocalPointInRectangle(_root, screen, null, out Vector2 local);
+                DrawStars(first, local, burst.age, burst.age / burst.life, starSize * burst.scale, burst.mirror, burst.spin);
+            }
+            return any;
+        }
+
+        void HideStars(int first)
+        {
+            for (int s = 0; s < StarsPerBurst; s++) if (_stars[first + s].enabled) _stars[first + s].enabled = false;
+        }
+
+        // The four stars of one twinkle around a canvas point, `u` 0..1 through it.
+        void DrawStars(int first, Vector2 local, float age, float u, float size0, float mirror, float spin)
+        {
+            for (int s = 0; s < StarsPerBurst; s++)
+            {
+                var img = _stars[first + s];
+                float k = StarEnvelope(u, StarStart[s], StarLength[s]);
+                if (k <= 0.001f)
+                {
+                    if (img.enabled) img.enabled = false;
+                    continue;
+                }
+                if (!img.enabled) img.enabled = true;
+                float size = size0 * StarScale[s];
+                // A quick flicker on top of the swell: a star twinkles, it does not just grow.
+                float flicker = 0.88f + 0.12f * Mathf.Sin(age * 38f + s * 2.1f);
+                var rt = _starRects[first + s];
+                Vector2 off = StarOffset[s];
+                off.x *= mirror;
+                rt.anchoredPosition = local + off * size0;
+                float scale = size / 100f * k * flicker;
+                rt.localScale = new Vector3(scale, scale, 1f);
+                rt.localRotation = Quaternion.Euler(0f, 0f, spin * 0.2f + 35f * (u - StarStart[s]) * mirror);
+                var tint = s == 0 ? MainTint : SmallTint;
+                tint.a = Mathf.Clamp01(k * 1.6f);
+                img.color = tint;
+            }
         }
 
         bool Busy(int key)
@@ -587,7 +789,7 @@ namespace Drift.Bridge
             return true;
         }
 
-        void StepBursts(Camera cam, float dt)
+        bool StepBursts(Camera cam, float dt)
         {
             bool any = false;
             float life = Mathf.Max(0.1f, sparkleSeconds);
@@ -603,39 +805,15 @@ namespace Drift.Bridge
                 Vector3 screen = burst.active ? cam.WorldToScreenPoint(burst.target.world + Vector3.up * (burst.target.size * 0.45f)) : default;
                 if (!burst.active || screen.z <= 0f)
                 {
-                    for (int s = 0; s < StarsPerBurst; s++) if (_stars[first + s].enabled) _stars[first + s].enabled = false;
+                    HideStars(first);
                     continue;
                 }
                 any = true;
                 LastScreen = screen;
                 RectTransformUtility.ScreenPointToLocalPointInRectangle(_root, screen, null, out Vector2 local);
-                float u = burst.age / life;
-                for (int s = 0; s < StarsPerBurst; s++)
-                {
-                    var img = _stars[first + s];
-                    float k = StarEnvelope(u, StarStart[s], StarLength[s]);
-                    if (k <= 0.001f)
-                    {
-                        if (img.enabled) img.enabled = false;
-                        continue;
-                    }
-                    if (!img.enabled) img.enabled = true;
-                    float size = starSize * StarScale[s];
-                    // A quick flicker on top of the swell: a star twinkles, it does not just grow.
-                    float flicker = 0.88f + 0.12f * Mathf.Sin(burst.age * 38f + s * 2.1f);
-                    var rt = _starRects[first + s];
-                    Vector2 off = StarOffset[s];
-                    off.x *= burst.mirror;
-                    rt.anchoredPosition = local + off * starSize;
-                    float scale = size / 100f * k * flicker;
-                    rt.localScale = new Vector3(scale, scale, 1f);
-                    rt.localRotation = Quaternion.Euler(0f, 0f, burst.spin * 0.2f + 35f * (u - StarStart[s]) * burst.mirror);
-                    var tint = s == 0 ? MainTint : SmallTint;
-                    tint.a = Mathf.Clamp01(k * 1.6f);
-                    img.color = tint;
-                }
+                DrawStars(first, local, burst.age, burst.age / life, starSize, burst.mirror, burst.spin);
             }
-            if (_canvas.enabled != any) _canvas.enabled = any;
+            return any;
         }
 
         // 0..1..0 over one star's slice of the burst: a fast swell, a slower fade.
