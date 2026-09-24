@@ -117,3 +117,4 @@ InitTestScene*.unity*
 
 # Playtest screenshots and clips (Drift/Playtest); the JSON results next to them are kept
 /Playtests/shots/
+/Playtests/audio/
