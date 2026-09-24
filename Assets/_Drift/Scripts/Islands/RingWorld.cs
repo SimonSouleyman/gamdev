@@ -203,6 +203,20 @@ namespace Drift.Islands
         [Tooltip("Obergrenze für das Höchsttempo (Faktor).")]
         [Range(0.5f, 5f)] public float speedScaleMax = 3f;
 
+        [Header("Schwung")]
+        [Tooltip("Bei vollem Schwung ist die Insel um diesen Anteil schneller (1 = doppeltes Tempo). Grund- und Höchsttempo und das Lenken wachsen gleich mit.")]
+        [Range(0f, 2f)] public float momentumSpeedGain = 1f;
+        [Tooltip("So viel Schwung (Anteil) bringt jedes eingesammelte Schub-Teil. Eine Gruppe (1-3 Teile) nach der anderen: nach 5-6 Gruppen ist der Schwung fast voll.")]
+        [Range(0f, 0.5f)] public float momentumPerBoost = 0.13f;
+        [Tooltip("So viel Schwung pro Sekunde bringt das Surfen an einer Plattengrenze bei voller Stärke. Surfen allein trägt etwa bis momentumSurfRate / (ln2 / Halbwertszeit).")]
+        [Range(0f, 0.2f)] public float momentumSurfRate = 0.03f;
+        [Tooltip("Erst ab dieser Surf-Stärke zählt das Surfen für den Schwung.")]
+        [Range(0f, 1f)] public float momentumSurfStart = 0.35f;
+        [Tooltip("In so vielen Sekunden ohne Schub verliert die Insel die Hälfte ihres Schwungs (während eines Schubs bleibt er).")]
+        [Range(2f, 60f)] public float momentumHalfLife = 10f;
+        [Tooltip("Anteil des Schwungs, den ein Treffer an einer Insel kostet.")]
+        [Range(0f, 1f)] public float momentumHitLoss = 0.5f;
+
         [Header("Kamera im Abenteuer")]
         [Tooltip("Kamera flacher stellen, damit das Band vorne sichtbar in den Himmel steigt.")]
         public bool adjustCamera = true;
@@ -245,6 +259,8 @@ namespace Drift.Islands
         // How far into the difficulty curve the run is, in seconds at the base pace (see the class comment).
         public float ProgressSeconds => ProgressAt(RunDistance, out _);
         public float Difficulty => difficultyRampSeconds > 0f ? Mathf.Clamp01(ProgressSeconds / difficultyRampSeconds) : 1f;
+        // The same ramp on the race clock (seconds really raced), for what must not speed up with the player's pace.
+        public float TimeDifficulty => difficultyRampSeconds > 0f ? Mathf.Clamp01(RunSeconds / difficultyRampSeconds) : 1f;
         public int Level => LevelAt(RunDistance);
         // Counts up with every fresh fill of the ring: a new run (listeners reset their own state).
         public int FillCount { get; private set; }
@@ -330,6 +346,24 @@ namespace Drift.Islands
 
         // Tests and the debug menu: jump to a point of the difficulty curve.
         public void SetRunDistance(float metres) => _odometer.Distance = Mathf.Max(0f, metres);
+
+        // One step of the "Schwung": held while a boost runs, otherwise it halves every momentumHalfLife seconds;
+        // surfing a plate boundary (above momentumSurfStart) feeds it all the while. Pickups add momentumPerBoost
+        // each (Encounters), a hit costs momentumHitLoss of it (Island.Bump).
+        public float StepMomentum(float m, float dt, bool boosting, float surf)
+        {
+            if (dt <= 0f) return Mathf.Clamp01(m);
+            if (!boosting) m *= Mathf.Exp(-0.6931472f / Mathf.Max(0.1f, momentumHalfLife) * dt);
+            float s = Mathf.Clamp01((surf - momentumSurfStart) / Mathf.Max(0.05f, 1f - momentumSurfStart));
+            m += momentumSurfRate * s * dt;
+            return Mathf.Clamp01(m);
+        }
+
+        // A boost was collected (flotsam, whale): the chain builds the momentum.
+        public void BoostCollected(Island island, float pieces = 1f)
+        {
+            if (island != null && _applied && island == player) island.AddMomentum(momentumPerBoost * Mathf.Max(0f, pieces));
+        }
 
         RingIslandSpawner _spawner;
         IslandChaseCamera _camera;
@@ -445,6 +479,7 @@ namespace Drift.Islands
                     player.AdventureSinkScale = 1f;
                     player.AdventureTrack = Vector2.up;
                     player.EscortFactor = 1f;
+                    player.SetMomentum(0f);
                     player.EdgePush = Vector2.zero;
                     player.EdgeWarning = 0f;
                 }
@@ -531,6 +566,7 @@ namespace Drift.Islands
                 player.AdventureCruise = 0f;
                 player.AdventureSinkScale = 1f;
                 player.AdventureTrack = Vector2.up;
+                player.SetMomentum(0f);
             }
         }
 
@@ -569,8 +605,15 @@ namespace Drift.Islands
             _odometer.Step(pp.y, running);
             float d = Difficulty;
             player.AdventureSpeedScale = PaceScale;
-            player.AdventureSinkScale = Mathf.Max(0.1f, sinkSpeed) * Mathf.Lerp(1f, sinkScaleMax, d);
+            // The sink ramp follows the clock, not the distance: with momentum ("Schwung") a run covers the same metres
+            // in much less time, and a distance-driven ramp made the island sink faster the better it was driven
+            // (good bot 174 s -> 63 s). Obstacles and pace stay on the distance.
+            player.AdventureSinkScale = Mathf.Max(0.1f, sinkSpeed) * Mathf.Lerp(1f, sinkScaleMax, Mathf.Min(d, TimeDifficulty));
             player.AdventureCruise = racing ? Cruise : 0f;
+            player.MomentumGain = momentumSpeedGain;
+            player.MomentumHitLoss = momentumHitLoss;
+            if (racing) player.SetMomentum(StepMomentum(player.Momentum, dt, player.Boosting, player.SurfStrength));
+            else if (!held && player.IsSunk) player.SetMomentum(0f);
             // The band runs along z; the race always goes that way, so the heading, the camera and the surf lanes
             // all agree on where "ahead" is.
             player.AdventureTrack = Vector2.up;
@@ -714,7 +757,7 @@ namespace Drift.Islands
                     float gap = Mathf.Abs(isl.PlanarPosition.x - pp.x) - reach;
                     bool hit = _lastHit.TryGetValue(isl, out float when) && RunSeconds - when < 3f;
                     // Gliding through an island in the grace after a hit is not a dodge either.
-                    if (!hit && !player.HitGrace && gap < dodgeGap)
+                    if (!hit && !player.HitGrace && !player.Ghosting && gap < dodgeGap)
                     {
                         AdventureRunStats.Dodges++;
                         Dodged?.Invoke(isl);

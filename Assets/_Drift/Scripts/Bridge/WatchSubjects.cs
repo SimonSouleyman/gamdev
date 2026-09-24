@@ -32,6 +32,12 @@ namespace Drift.Bridge
         public bool still;
         // How far above the focus (its base on the ground) the camera aims - half a lighthouse, not its doorstep.
         public float lift;
+        // The camera's pitch for a still subject in degrees; 0 = WatchTools.stillPitch (a tower from the side). A
+        // village is looked at from higher up so the houses do not hide each other and the fire.
+        public float pitch;
+        // Share of half the short picture side the still subject fills at the start; 0 = WatchTools.stillFill. A
+        // village is framed closer than a tower, whose surroundings are the point.
+        public float fill;
         // The notice when it is gone; null = "<label> ist weitergezogen".
         public string gone;
     }
@@ -450,6 +456,119 @@ namespace Drift.Bridge
                     return true;
                 },
             };
+        }
+
+        // ---------------------------------------------------------------- settlements at their campfire
+
+        // The sparkle's height over the fire (it sits a little above the flames, not on the ground).
+        public const float CampfireSparkleSize = 0.5f;
+        // A village from above: steep enough that roofs do not hide the fire and the folk round it.
+        public const float SettlementPitch = 38f;
+        public const float SettlementFill = 0.85f;
+
+        static readonly string[] SettlementNames = { "Siedlung", "Zeltlager", "Weiler", "Dorf", "Stadt" };
+
+        // "Dorf am Lagerfeuer": what the follow chip says while a settlement is watched.
+        public static string SettlementLabel(SettlementStage stage)
+        {
+            int i = (int)stage;
+            return (i >= 0 && i < SettlementNames.Length ? SettlementNames[i] : SettlementNames[0]) + " am Lagerfeuer";
+        }
+
+        public static bool CampfireStands(IslandSettlementSystem s, int i)
+        {
+            if (s == null || i < 0 || i >= s.BuildingCount || s.BuildingKindOf(i) != BuildingKind.Campfire) return false;
+            var state = s.BuildingStateOf(i);
+            return state != BuildingState.Sinking && state != BuildingState.Charred;
+        }
+
+        // The campfire of a village, preferring the building index it had (-1 when the village has none standing).
+        public static int CampfireOf(IslandSettlementSystem s, int village, int hint = -1)
+        {
+            if (s == null) return -1;
+            if (CampfireStands(s, hint) && s.BuildingVillageOf(hint) == village) return hint;
+            if (village < 0) return -1;
+            for (int i = 0; i < s.BuildingCount; i++)
+                if (CampfireStands(s, i) && s.BuildingVillageOf(i) == village) return i;
+            return -1;
+        }
+
+        // The fire's foot on the ground, lifted a little: where a tap is measured.
+        public static Vector3 CampfireWorld(IslandSettlementSystem s, int i)
+        {
+            var surface = s.GetComponent<IIslandSurface>();
+            Vector2 local = s.BuildingPositionOf(i);
+            float ground = surface != null ? Mathf.Max(0f, surface.SampleHeight(local)) : 0f;
+            return s.transform.TransformPoint(local.x, ground + 0.15f, local.y);
+        }
+
+        // How much ground the camera frames round the fire: its village's homes with a margin, at least a camp's worth.
+        // A lighthouse or harbour counts to the village it was added to but stands far off at the coast, so landmarks
+        // are left out (a camp with a lighthouse framed the whole island from 60 units away).
+        public static float SettlementFrameRadius(IslandSettlementSystem s, int village, int fire)
+        {
+            if (s == null || fire < 0 || fire >= s.BuildingCount || village < 0) return 2.2f;
+            Vector2 c = s.BuildingPositionOf(fire);
+            float r = 0f;
+            for (int i = 0; i < s.BuildingCount; i++)
+            {
+                if (IsLandmark(s.BuildingKindOf(i)) || s.BuildingVillageOf(i) != village) continue;
+                r = Mathf.Max(r, (s.BuildingPositionOf(i) - c).magnitude + s.BuildingRadiusOf(i));
+            }
+            return Mathf.Clamp(r * 0.9f + 0.5f, 2.2f, 7f);
+        }
+
+        // Tapping a campfire watches its settlement: a still subject centred on the fire, framed wide enough to show
+        // the houses round it, slowly circled like a landmark. The village keeps growing while it is watched, so the
+        // framing radius and the label follow it.
+        public static WatchSubject OfCampfire(IslandSettlementSystem settlement, int building)
+        {
+            if (!CampfireStands(settlement, building)) return null;
+            var system = settlement;
+            var island = settlement.GetComponent<Island>();
+            int village = settlement.BuildingVillageOf(building);
+            int fire = building;
+            var stage = village >= 0 && village < settlement.VillageCount ? settlement.VillageStage(village) : SettlementStage.Camp;
+            var subject = new WatchSubject
+            {
+                label = SettlementLabel(stage),
+                ground = island,
+                still = true,
+                pitch = SettlementPitch,
+                fill = SettlementFill,
+                radius = SettlementFrameRadius(settlement, village, building),
+                lift = 0.2f,
+                gone = "Die Siedlung ist nicht mehr da",
+            };
+            Vector3 last = CampfireWorld(settlement, building);
+            subject.focus = (out Vector3 f) =>
+            {
+                f = default;
+                if (system == null || !system.isActiveAndEnabled || (island != null && (island.IsSunk || !island.isActiveAndEnabled))) return false;
+                int i = CampfireOf(system, village, fire);
+                if (i < 0)
+                {
+                    // Village indices shift when one is given up: the standing fire nearest to where this one was.
+                    float bestSqr = 9f;
+                    for (int k = 0; k < system.BuildingCount; k++)
+                    {
+                        if (!CampfireStands(system, k)) continue;
+                        float d = (CampfireWorld(system, k) - last).sqrMagnitude;
+                        if (d >= bestSqr) continue;
+                        bestSqr = d;
+                        i = k;
+                    }
+                    if (i < 0) return false;
+                    village = system.BuildingVillageOf(i);
+                }
+                fire = i;
+                last = CampfireWorld(system, i);
+                f = last - Vector3.up * 0.15f;
+                // The village grows while it is watched; the frame follows a few times a second.
+                if (Time.frameCount % 20 == 0) subject.radius = SettlementFrameRadius(system, village, i);
+                return true;
+            };
+            return subject;
         }
 
         // Where the folk hold their festival: the ground in the middle of the real villages while it runs, else the

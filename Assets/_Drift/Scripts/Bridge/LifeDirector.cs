@@ -14,6 +14,8 @@ namespace Drift.Bridge
         None = -1,
         HerdSignature, HerdPlay, HerdSpecies, HerdWander, Flock, Critter, Fireflies, Fish, Dolphins, Whale, SeaShow,
         SleepStir,
+        // Appended 2026-09-24: two herds near each other meet (IslandHerdSystem.TryStartMeeting).
+        HerdMeeting,
     }
 
     // Pure pacing of the cozy "something every 10 s" rhythm: remembers when the last noticed moment happened, asks
@@ -22,13 +24,13 @@ namespace Drift.Bridge
     // a shorter cooldown are allowed, so the rhythm holds even when a single kind is all there is to see.
     public sealed class LifePacer
     {
-        public const int Count = 12;
+        public const int Count = 13;
 
-        public float nudgeMin = 5.5f;
-        public float nudgeMax = 7.5f;
+        public float nudgeMin = 5f;
+        public float nudgeMax = 6.8f;
         public float retrySeconds = 1f;
         public float graceSeconds = 2.5f;
-        public float lastResortGap = 8.5f;
+        public float lastResortGap = 7.5f;
         public float lastResortCooldown = 4f;
         public readonly float[] weights = new float[Count];
         public readonly float[] cooldowns = new float[Count];
@@ -52,8 +54,8 @@ namespace Drift.Bridge
 
         public LifePacer(int seed)
         {
-            float[] w = { 3f, 2.5f, 2f, 0.7f, 1.5f, 1f, 2f, 1f, 1.5f, 1.5f, 2f, 1.5f };
-            float[] c = { 20f, 12f, 25f, 15f, 20f, 8f, 16f, 5f, 12f, 30f, 20f, 8f };
+            float[] w = { 3f, 2.5f, 2f, 0.7f, 1.5f, 1f, 2f, 1f, 1.5f, 1.5f, 2f, 1.5f, 2.5f };
+            float[] c = { 20f, 12f, 25f, 15f, 20f, 8f, 16f, 5f, 12f, 30f, 20f, 8f, 20f };
             Array.Copy(w, weights, Count);
             Array.Copy(c, cooldowns, Count);
             Reset(seed);
@@ -177,15 +179,15 @@ namespace Drift.Bridge
 
         [Header("Takt")]
         [Tooltip("Frühester Anstoß (s): so lange darf es in der Nähe der Kamera ruhig bleiben, bevor der Regisseur etwas beginnen lässt.")]
-        [Range(2f, 15f)] public float nudgeMin = 5.5f;
+        [Range(2f, 15f)] public float nudgeMin = 5f;
         [Tooltip("Spätester Anstoß (s). Dazwischen wird zufällig gewählt, damit es nicht wie ein Metronom wirkt.")]
-        [Range(2f, 15f)] public float nudgeMax = 7.5f;
+        [Range(2f, 15f)] public float nudgeMax = 6.8f;
         [Tooltip("Passt gerade nichts ins Bild, wird nach so vielen Sekunden erneut gesucht.")]
         [Range(0.2f, 5f)] public float retrySeconds = 1f;
         [Tooltip("Nach einem Anstoß so lange (s) warten, bis das Ereignis gemeldet wurde, bevor ein weiterer versucht wird.")]
         [Range(0.5f, 6f)] public float graceSeconds = 2.5f;
         [Tooltip("Ab dieser Lücke (s) darf auch dieselbe Art wie zuletzt noch einmal angestoßen werden (mit kurzer Abklingzeit).")]
-        [Range(4f, 15f)] public float lastResortGap = 8.5f;
+        [Range(4f, 15f)] public float lastResortGap = 7.5f;
         [Tooltip("Kürzeste Abklingzeit (s) einer Art, wenn die Lücke schon lang ist.")]
         [Range(1f, 15f)] public float lastResortCooldown = 4f;
 
@@ -248,6 +250,8 @@ namespace Drift.Bridge
         [Range(0f, 5f)] public float seaShowWeight = 2f;
         [Tooltip("Nachts: ein schlafendes Tier hebt kurz den Kopf und schläft weiter (die Herde wird nicht geweckt).")]
         [Range(0f, 5f)] public float sleepStirWeight = 1.5f;
+        [Tooltip("Zwei nahe Herden begegnen sich: Begrüßen, Fangenspiel, Kräftemessen, gemeinsamer Zug, Kreistanz.")]
+        [Range(0f, 5f)] public float meetingWeight = 2.5f;
 
         [Header("Abklingzeiten (s)")]
         [Range(0f, 120f)] public float signatureCooldown = 20f;
@@ -262,6 +266,7 @@ namespace Drift.Bridge
         [Range(0f, 120f)] public float whaleCooldown = 30f;
         [Range(0f, 120f)] public float seaShowCooldown = 20f;
         [Range(0f, 120f)] public float sleepStirCooldown = 8f;
+        [Range(0f, 120f)] public float meetingCooldown = 20f;
 
         // The playtest recorder's subject size for an encounter.
         const float EncounterSize = 4f;
@@ -357,6 +362,7 @@ namespace Drift.Bridge
             Set(LifeNudge.Whale, whaleWeight, whaleCooldown, night, herdWatch);
             Set(LifeNudge.SeaShow, seaShowWeight, seaShowCooldown, night, herdWatch);
             Set(LifeNudge.SleepStir, sleepStirWeight, sleepStirCooldown, night, herdWatch);
+            Set(LifeNudge.HerdMeeting, meetingWeight, meetingCooldown, night, herdWatch);
         }
 
         void Set(LifeNudge k, float weight, float cooldown, bool night, bool herdWatch)
@@ -366,7 +372,8 @@ namespace Drift.Bridge
         }
 
         public static bool IsHerdNudge(LifeNudge k) =>
-            k == LifeNudge.HerdSignature || k == LifeNudge.HerdPlay || k == LifeNudge.HerdSpecies || k == LifeNudge.HerdWander;
+            k == LifeNudge.HerdSignature || k == LifeNudge.HerdPlay || k == LifeNudge.HerdSpecies || k == LifeNudge.HerdWander
+            || k == LifeNudge.HerdMeeting;
 
         // By night the herds sleep (they are never woken for a show), crabs and turtles rest: what is awake or glows
         // gets the weight instead - fireflies, the sea and a sleeper stirring. Watching a herd favours its moves.
@@ -537,7 +544,8 @@ namespace Drift.Bridge
                 case LifeNudge.HerdSignature:
                 case LifeNudge.HerdPlay:
                 case LifeNudge.HerdSpecies:
-                case LifeNudge.HerdWander: return TryHerds(k);
+                case LifeNudge.HerdWander:
+                case LifeNudge.HerdMeeting: return TryHerds(k);
                 case LifeNudge.Flock: return TryFlock();
                 case LifeNudge.Critter: return TryCritters();
                 case LifeNudge.Fireflies: return TryFireflies();
@@ -574,7 +582,8 @@ namespace Drift.Bridge
             act != AnimalActivity.Stampede && act != AnimalActivity.Sentry && act != AnimalActivity.Pounce && act != AnimalActivity.Tuck;
 
         static MomentKind HerdMoment(LifeNudge k) =>
-            k == LifeNudge.HerdSignature ? MomentKind.Signature : k == LifeNudge.HerdPlay ? MomentKind.Play : MomentKind.Errand;
+            k == LifeNudge.HerdSignature ? MomentKind.Signature : k == LifeNudge.HerdPlay ? MomentKind.Play
+            : k == LifeNudge.HerdMeeting ? MomentKind.Meeting : MomentKind.Errand;
 
         bool TryHerds(LifeNudge k)
         {
@@ -624,6 +633,9 @@ namespace Drift.Bridge
                     if (!ReportsItself(move) && _momentSerial == before) Moments.Report(MomentKind.Errand, world);
                     return true;
                 }
+                case LifeNudge.HerdMeeting:
+                    // The herd in view walks over to its nearest free neighbour (within meetDirectorRange).
+                    return herds.TryStartMeeting(h);
                 case LifeNudge.HerdWander:
                 {
                     int s = _rng.Next(WanderMoves.Length);

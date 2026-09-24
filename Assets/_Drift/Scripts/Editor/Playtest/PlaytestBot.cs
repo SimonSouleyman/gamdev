@@ -118,6 +118,9 @@ namespace Drift.EditorTools.Playtest
                 float sign = track.y >= 0f ? 1f : -1f;
                 float v = Mathf.Max(1f, player.TrackSpeed);
                 float steerV = Mathf.Max(0.5f, player.AdventureSteerSpeed);
+                // A player looks further ahead the faster the island runs (the ring's momentum doubles the speed): the
+                // horizon is lookahead at the old race pace (24 u/s) and keeps its seconds above it.
+                float look = bot.lookahead * Mathf.Max(1f, v / 24f);
                 // Collisions and the game's own dodge count use the whole island with its shallow rim.
                 float pr = player.BoundingRadius * 0.85f;
                 float margin = pr + 1.5f;
@@ -131,7 +134,7 @@ namespace Drift.EditorTools.Playtest
                     void Consider(Vector2 pos, float r, bool good, float velX = 0f)
                     {
                         float along = geo.AlongDelta(pos.y, p.y) * sign;
-                        if (along < -r || along > bot.lookahead) return;
+                        if (along < -r || along > look) return;
                         float tt = Mathf.Max(0f, along) / v;
                         float xAt = p.x + Mathf.Clamp(xc - p.x, -steerV * tt, steerV * tt);
                         float gap = Mathf.Abs(pos.x + velX * tt - xAt) - r - pr;

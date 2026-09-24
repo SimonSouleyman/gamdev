@@ -52,7 +52,22 @@ namespace Drift.Audio
         [Tooltip("Zusätzlicher Platscher beim Verschmelzen (die Gischt). 0 = aus.")]
         [Range(0f, 1f)] public float mergeSplash = 0.7f;
 
+        [Header("Abenteuer-Musik")]
+        [Tooltip("Eigene, schnellere Musik im Abenteuer (tropisch; alle 1000 m etwas schneller und bunter). Aus = die gemütliche Musik läuft weiter.")]
+        public bool adventureMusicEnabled = true;
+        [Tooltip("Sekunden für die Überblendung zwischen gemütlicher Musik und Abenteuer-Musik.")]
+        [Range(0.2f, 8f)] public float musicCrossfadeSeconds = 2.5f;
+        [Tooltip("Lautstärke der Abenteuer-Musik relativ zur Musik-Lautstärke.")]
+        [Range(0f, 2f)] public float adventureMusicGain = 1f;
+
         public MusicSynth Music { get; private set; }
+        public AdventureMusicSynth AdventureMusic { get; private set; }
+        // True while an adventure run is being played (also paused and during the start briefing), false on the
+        // title and the game-over screen. Written by Bridge.SeaAudioBridge from GameSession, which this assembly
+        // cannot see.
+        public static bool AdventureRunning { get; set; }
+        // 0 = cozy music, 1 = adventure music (the crossfade position).
+        public float AdventureMix => _advMix;
         public SfxSynth Sfx { get; private set; }
         public LifeSynth Life { get; private set; }
         public LifeSoundScout Scout { get; private set; }
@@ -69,7 +84,10 @@ namespace Drift.Audio
         public float FlowAmount => _feel.Flow;
         public float SurfAmount => _feel.Surf;
 
-        SynthAudioOutput _musicOut, _sfxOut, _lifeOut;
+        SynthAudioOutput _musicOut, _sfxOut, _lifeOut, _advOut;
+        float _advMix;
+        bool _advWanted;
+        int _advFill = -1;
         Island _player;
         FlockSystem _flocks;
         float _lfoT, _playTime, _lifeTimer, _flockSearchTimer, _impactDuck, _voiceDuck;
@@ -84,6 +102,7 @@ namespace Drift.Audio
             Instance = this;
             EnsureSynths();
             _musicOut = GetOrCreateOutput("Music", Music);
+            _advOut = GetOrCreateOutput("AdventureMusic", AdventureMusic);
             _sfxOut = GetOrCreateOutput("Sfx", Sfx);
             _lifeOut = GetOrCreateOutput("Life", Life);
             if (!_subscribed)
@@ -109,10 +128,14 @@ namespace Drift.Audio
             if (Instance == this) Instance = null;
         }
 
+        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+        static void ResetStatics() => AdventureRunning = false;
+
         void EnsureSynths()
         {
             int sr = AudioSettings.outputSampleRate > 0 ? AudioSettings.outputSampleRate : 48000;
             if (Music == null) Music = new MusicSynth(sr);
+            if (AdventureMusic == null) AdventureMusic = new AdventureMusicSynth(sr);
             if (Sfx == null) Sfx = new SfxSynth(sr);
             if (Life == null) Life = new LifeSynth(sr);
             if (Scout == null) Scout = new LifeSoundScout();
@@ -141,7 +164,7 @@ namespace Drift.Audio
         void Update()
         {
             if (!Application.isPlaying) return;
-            if (Music == null || _musicOut == null) OnEnable();
+            if (Music == null || _musicOut == null || _advOut == null) OnEnable();
             float dt = Time.deltaTime;
             _playTime += dt;
             _lfoT += dt;
@@ -169,11 +192,16 @@ namespace Drift.Audio
 
             UpdateGrind(player, dt);
             UpdateLife(player, speedN, dt);
+            UpdateAdventureMusic();
 
             // Unscaled: she also grumbles in the pause menu, where deltaTime is 0.
             _voiceDuck = Mathf.MoveTowards(_voiceDuck, Mathf.Clamp01(VoiceDuck), Time.unscaledDeltaTime / Mathf.Max(0.01f, voiceDuckSeconds));
             float voiceGain = VoiceDuckGain;
-            _musicOut.Gain = musicEnabled ? musicVolume * voiceGain : 0f;
+            // Equal-power crossfade; an output at gain 0 does not render at all.
+            float music = musicEnabled ? musicVolume * voiceGain : 0f;
+            float advAngle = _advMix * (0.5f * Mathf.PI);
+            _musicOut.Gain = _advMix >= 1f ? 0f : music * Mathf.Cos(advAngle);
+            _advOut.Gain = _advMix <= 0f ? 0f : music * adventureMusicGain * Mathf.Sin(advAngle);
             _sfxOut.Gain = sfxEnabled ? sfxVolume * voiceGain : 0f;
             _lifeOut.Gain = lifeEnabled ? lifeVolume * voiceGain : 0f;
 
@@ -181,6 +209,7 @@ namespace Drift.Audio
             {
                 FilterFallbackActive = true;
                 _musicOut.SwitchToClipStreaming();
+                _advOut.SwitchToClipStreaming();
                 _sfxOut.SwitchToClipStreaming();
                 _lifeOut.SwitchToClipStreaming();
                 Debug.LogWarning("AudioDirector: OnAudioFilterRead never ran on a clip-less AudioSource; switched to streamed AudioClip output.");
@@ -199,6 +228,22 @@ namespace Drift.Audio
             Sfx.SurfAmount = on ? _feel.Surf : 0f;
             Sfx.FlowGain = SfxSynth.FlowGainFull * flowVolume;
             Sfx.SurfGain = SfxSynth.SurfGainFull * surfVolume;
+        }
+
+        // The adventure music runs from the start briefing to the game over, following the run's distance; a fresh
+        // run (or a refilled ring) starts it over. Unscaled time: the fade also runs in the pause menu.
+        void UpdateAdventureMusic()
+        {
+            var ring = RingWorld.Active;
+            bool want = adventureMusicEnabled && GameModes.IsAdventure && AdventureRunning;
+            var adv = AdventureMusic;
+            adv.Distance = ring != null ? ring.RunDistance : 0f;
+            adv.Holding = RingWorld.StartHeld;
+            int fill = ring != null ? ring.FillCount : -1;
+            if (want && (!_advWanted || fill != _advFill)) adv.Restart();
+            _advWanted = want;
+            _advFill = fill;
+            _advMix = Mathf.MoveTowards(_advMix, want ? 1f : 0f, Time.unscaledDeltaTime / Mathf.Max(0.05f, musicCrossfadeSeconds));
         }
 
         // Densities are re-read from the scene every lifeUpdateInterval; the duck follows tension and impacts
@@ -346,7 +391,9 @@ namespace Drift.Audio
         void PlayImpact(float intensity, float duration)
         {
             if (intensity <= 0f) return;
-            if (Music != null) Music.Impact(intensity);
+            // Only the music that is playing hears the hit: a parked impact would sound when the other one comes back.
+            if (_advMix > 0.5f) { if (AdventureMusic != null) AdventureMusic.Impact(intensity); }
+            else if (Music != null) Music.Impact(intensity);
             if (Sfx != null) Sfx.Impact(intensity, duration);
             _impactDuck = Mathf.Max(_impactDuck, Mathf.Clamp01(0.5f + 0.5f * intensity));
         }

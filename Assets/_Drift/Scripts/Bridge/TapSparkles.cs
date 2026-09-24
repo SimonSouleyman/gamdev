@@ -11,7 +11,7 @@ using UnityEngine.UI;
 
 namespace Drift.Bridge
 {
-    public enum TapTargetKind { Animal, Critter, Seal, Flock, SeaGroup, Landmark }
+    public enum TapTargetKind { Animal, Critter, Seal, Flock, SeaGroup, Landmark, Campfire }
 
     [Flags]
     public enum TapGather
@@ -23,9 +23,11 @@ namespace Drift.Bridge
         Flocks = 8,
         Sea = 16,
         Landmarks = 32,
+        // The campfire in the middle of every village: a tap watches the settlement.
+        Campfires = 64,
         // What WatchTools.Tap looks for once no animal, critter or seal is under the finger.
-        Extras = Flocks | Sea | Landmarks,
-        All = Animals | Critters | Seals | Flocks | Sea | Landmarks,
+        Extras = Flocks | Sea | Landmarks | Campfires,
+        All = Animals | Critters | Seals | Flocks | Sea | Landmarks | Campfires,
     }
 
     // One thing a tap can pick: enough to find it again next frame (most of them move) and to key a cooldown.
@@ -34,7 +36,8 @@ namespace Drift.Bridge
         public TapTargetKind kind;
         public Island island;
         public Component system;
-        // Animal: herd, member. Critter / seal / flock / sea group: slot. Landmark: building index.
+        // Animal: herd, member. Critter / seal / flock / sea group: slot. Landmark: building index. Campfire: building
+        // index, village index.
         public int a, b;
         // The point a tap is measured against (an animal at body height, a lighthouse at half its height).
         public Vector3 world;
@@ -48,7 +51,7 @@ namespace Drift.Bridge
     // What can be tapped in the world, shared by WatchTools.Tap and the sparkle so both always mean the same things:
     // herd animals and visible critters on islands in reach whose life is not in the Far tier, seals that are out,
     // flocks, the sea animals one can see (dolphins, turtles, rays, whales at the surface) and the landmarks
-    // (lighthouse, harbour) of the islands in reach.
+    // (lighthouse, harbour) and village campfires of the islands in reach.
     public static class TapTargets
     {
         public static bool InReach(Island island, Vector2 camXZ, Vector2 focusXZ, float range)
@@ -109,7 +112,7 @@ namespace Drift.Bridge
         public static void Gather(List<TapTarget> into, Vector2 camXZ, Vector2 focusXZ, float range, FlockSystem flocks,
                                   SeaLifeSystem sea, TapGather what, int memberPick = 0)
         {
-            bool life = (what & (TapGather.Animals | TapGather.Critters | TapGather.Landmarks)) != 0;
+            bool life = (what & (TapGather.Animals | TapGather.Critters | TapGather.Landmarks | TapGather.Campfires)) != 0;
             var all = Island.All;
             for (int k = 0; life && k < all.Count; k++)
             {
@@ -141,11 +144,22 @@ namespace Drift.Bridge
                         });
                     }
                 }
-                if ((what & TapGather.Landmarks) != 0 && island.TryGetComponent(out IslandSettlementSystem settlement) && settlement.isActiveAndEnabled)
+                if ((what & (TapGather.Landmarks | TapGather.Campfires)) != 0 && island.TryGetComponent(out IslandSettlementSystem settlement) && settlement.isActiveAndEnabled)
                 {
                     for (int i = 0; i < settlement.BuildingCount; i++)
                     {
                         var kind = settlement.BuildingKindOf(i);
+                        if (kind == BuildingKind.Campfire)
+                        {
+                            if ((what & TapGather.Campfires) == 0 || !WatchSubjects.CampfireStands(settlement, i)) continue;
+                            into.Add(new TapTarget
+                            {
+                                kind = TapTargetKind.Campfire, island = island, system = settlement, a = i, b = settlement.BuildingVillageOf(i),
+                                world = WatchSubjects.CampfireWorld(settlement, i), size = WatchSubjects.CampfireSparkleSize,
+                            });
+                            continue;
+                        }
+                        if ((what & TapGather.Landmarks) == 0) continue;
                         if (!WatchSubjects.IsLandmark(kind) || WatchSubjects.LandmarkIndex(settlement, kind) != i) continue;
                         Vector3 foot = WatchSubjects.LandmarkWorld(settlement, i, out float height);
                         into.Add(new TapTarget
@@ -231,6 +245,17 @@ namespace Drift.Bridge
                     t.world = new Vector3(p.x, 0.2f, p.y);
                     return true;
                 }
+                case TapTargetKind.Campfire:
+                {
+                    var settlement = t.system as IslandSettlementSystem;
+                    if (settlement == null || !settlement.isActiveAndEnabled) return false;
+                    int i = WatchSubjects.CampfireOf(settlement, t.b, t.a);
+                    if (i < 0) return false;
+                    t.a = i;
+                    t.world = WatchSubjects.CampfireWorld(settlement, i);
+                    t.size = WatchSubjects.CampfireSparkleSize;
+                    return true;
+                }
                 default:
                 {
                     var settlement = t.system as IslandSettlementSystem;
@@ -261,6 +286,7 @@ namespace Drift.Bridge
                 case TapTargetKind.Seal: return WatchSubjects.OfSeal(t.system as SeaLifeSystem, t.a);
                 case TapTargetKind.Flock: return WatchSubjects.OfFlock(t.system as FlockSystem, t.a);
                 case TapTargetKind.SeaGroup: return WatchSubjects.OfSeaGroup(t.system as SeaLifeSystem, t.a);
+                case TapTargetKind.Campfire: return WatchSubjects.OfCampfire(t.system as IslandSettlementSystem, t.a);
                 default: return WatchSubjects.OfLandmark(t.system as IslandSettlementSystem, (BuildingKind)t.b);
             }
         }
@@ -337,7 +363,7 @@ namespace Drift.Bridge
     }
 
     // "Die klickbaren Dinge sollen ab und zu funkeln": every few seconds one random tappable subject in view (an
-    // animal, a critter, a flock, a seal or dolphin, the lighthouse or harbour) twinkles with a few stars for under
+    // animal, a critter, a flock, a seal or dolphin, the lighthouse or harbour, a village campfire) twinkles with a few stars for under
     // a second, and the same subject waits subjectCooldown before its next turn. Drawn in screen space on its own
     // overlay canvas under every other game canvas, so it keeps the same readable size at every camera distance;
     // 12 pooled images with one sprite (one batch), the canvas is off while nothing twinkles, and nothing is
@@ -355,7 +381,7 @@ namespace Drift.Bridge
         public int seed = 71;
 
         [Header("Funkeln")]
-        [Tooltip("Im Mittel alle so viele Sekunden funkelt ein antippbares Ding im Bild (Tier, Vogelschwarm, Meeresbesucher, Leuchtturm, Hafen).")]
+        [Tooltip("Im Mittel alle so viele Sekunden funkelt ein antippbares Ding im Bild (Tier, Vogelschwarm, Meeresbesucher, Leuchtturm, Hafen, Lagerfeuer).")]
         [Range(1f, 20f)] public float interval = 3.5f;
         [Tooltip("Zufällige Abweichung vom Takt (Anteil des Takts).")]
         [Range(0f, 0.9f)] public float intervalJitter = 0.35f;
@@ -398,7 +424,7 @@ namespace Drift.Bridge
         readonly Burst[] _bursts = new Burst[MaxBursts];
         readonly List<TapTarget> _candidates = new(256);
         readonly List<int> _eligible = new(256);
-        readonly int[] _kindCount = new int[6];
+        readonly int[] _kindCount = new int[(int)TapTargetKind.Campfire + 1];
         SparkleSchedule _schedule;
         float _lookup;
 

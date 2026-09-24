@@ -512,7 +512,7 @@ namespace Drift.Tests
         {
             for (int v = 0; v < LifeMeshes.Variants; v++)
             {
-                Assert.LessOrEqual(LifeMeshes.GetTemplate(LifeKind.Crab, v).vertices.Length, 24);
+                Assert.LessOrEqual(LifeMeshes.GetTemplate(LifeKind.Crab, v).vertices.Length, 80);
                 Assert.LessOrEqual(LifeMeshes.GetTemplate(LifeKind.Turtle, v).vertices.Length, 24);
                 Assert.LessOrEqual(LifeMeshes.GetTemplate(LifeKind.Butterfly, v).vertices.Length, 6);
                 Assert.LessOrEqual(LifeMeshes.GetTemplate(LifeKind.Firefly, v).vertices.Length, 6);
@@ -521,7 +521,7 @@ namespace Drift.Tests
             var c = Make(14f, 101, "Worst");
             _night = 1f;
             Run(c, 60f);
-            Assert.LessOrEqual(c.MeshVertexCount, 12 * 24 + 3 * 24 + 24 * 6 + 16 * 6);
+            Assert.LessOrEqual(c.MeshVertexCount, 12 * 80 + 3 * 24 + 24 * 6 + 16 * 6);
             Assert.AreEqual("Drift/Critter", c.CritterMaterial.shader.name);
         }
     }

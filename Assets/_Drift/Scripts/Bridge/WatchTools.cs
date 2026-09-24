@@ -82,6 +82,10 @@ namespace Drift.Bridge
         public bool watchClearView = true;
         [Tooltip("Wie schnell die Kamera der Mitte der Herde folgt (pro Sekunde). Kleiner = ruhiger, größer = enger an den Tieren.")]
         [Range(0.5f, 10f)] public float watchFocusFollow = 3f;
+        [Tooltip("Dreht sich die Insel unter dem Beobachteten (z. B. nach einem Zusammenstoß), kreist die Kamera um denselben Winkel mit, damit die Tiere im Bild bleiben.")]
+        public bool watchTurnWithIsland = true;
+        [Tooltip("Wie schnell (pro Sekunde) die Kamera einem Sprung des Beobachteten auf seiner Insel nachgleitet. Der Bewegung der Insel selbst folgt sie immer sofort.")]
+        [Range(1f, 30f)] public float watchSubjectEase = 8f;
 
         [Header("Beobachten: Bauwerke")]
         [Tooltip("Neigung der Kamera, wenn ein Bauwerk (Leuchtturm, Hafen, Festplatz) beobachtet wird - flacher als bei Tieren, damit man den Turm von der Seite sieht.")]
@@ -363,7 +367,8 @@ namespace Drift.Bridge
         public PhotoRig Rig => _rig;
         public bool CameraDriven => _driving;
         public Vector3 CameraSubject => SubjectPosition();
-        public Vector3 CameraPivot => _rig.Pivot(SubjectPosition());
+        public Vector3 CameraPivot => _rig.Pivot(SubjectPosition() + _residual);
+        public Island WatchedGround => Following ? _followIsland : null;
         public string HintText => _hintText != null ? _hintText.text : "";
 
         void OnEnable()
@@ -374,10 +379,13 @@ namespace Drift.Bridge
             _lookupTimer = 0f;
             // The sparkle on tappable things; wired in the scene for tuning, added here when it is not.
             if (Application.isPlaying && !TryGetComponent(out TapSparkles _)) gameObject.AddComponent<TapSparkles>();
+            Island.Merged -= OnIslandMerged;
+            Island.Merged += OnIslandMerged;
         }
 
         void OnDisable()
         {
+            Island.Merged -= OnIslandMerged;
             SetNearFade(false);
             if (_photoActive) ExitPhotoMode();
             if (Following) ReturnToIsland();
@@ -534,7 +542,20 @@ namespace Drift.Bridge
             }
         }
 
-        const float NewsTop = -364f;
+        // The news chip at 1.5 x its first size (owner, 2026-09-24: "50 % größer"), capped to the portrait width.
+        // It sits under the round journal/photo buttons on the right (they end at -456), since at this width it
+        // would reach under them.
+        public static readonly Vector2 NewsSize = new Vector2(1000f, 114f);
+        public const float NewsTop = -476f;
+        // While watching: under "Zurück zur Insel", the herd chip and the orbit hint.
+        public const float NewsTopWatching = -FollowUiBottom - 24f;
+        float NewsY => Following ? NewsTopWatching : NewsTop;
+        public const int NewsFontStrong = 51, NewsFontSubtle = 45;
+        public const float NewsIconSize = 63f, NewsGoSize = 45f;
+        public RectTransform NewsRect => _newsRect;
+        public bool NewsShowing => _newsChip != null && _newsChip.activeInHierarchy;
+        // Lower edge of the news chip in the safe-area canvas (it may have grown to two lines).
+        public float NewsBottom => _newsRect != null ? _newsRect.anchoredPosition.y - _newsRect.sizeDelta.y : NewsTop - NewsSize.y;
 
         // Collection toasts wait while photo mode, the journal or the album is up and never outlive their run.
         float _noticeTimer;
@@ -584,6 +605,7 @@ namespace Drift.Bridge
             {
                 _noticeTimer -= dt;
                 SetActive(_newsChip, visible || Following);
+                _newsRect.anchoredPosition = new Vector2(0f, NewsY);
                 if (_noticeTimer > 0f) return;
                 SetActive(_newsChip, false);
             }
@@ -601,7 +623,7 @@ namespace Drift.Bridge
             }
             if (_toasts.Tick(dt) && _toasts.Showing) ShowNews(_toasts.Current);
             SetActive(_newsChip, _toasts.Showing);
-            if (_toasts.Showing) _newsRect.anchoredPosition = new Vector2(0f, Following ? -FollowUiBottom - 24f : NewsTop);
+            if (_toasts.Showing) _newsRect.anchoredPosition = new Vector2(0f, NewsY);
         }
 
         Image _newsGo;
@@ -611,8 +633,9 @@ namespace Drift.Bridge
             if (_newsText == null) return;
             if (_newsGo != null) _newsGo.gameObject.SetActive(toast.count > 0);
             _newsText.text = toast.text ?? "";
-            _newsText.fontSize = toast.strong ? 34 : 30;
+            _newsText.fontSize = toast.strong ? NewsFontStrong : NewsFontSubtle;
             _newsText.color = toast.strong ? UiStyle.Sand : UiStyle.CreamSoft;
+            NoticeChip.Fit(_newsRect, _newsText, NewsSize.y);
             _newsIcon.color = toast.strong || toast.photo ? UiStyle.Sand : UiStyle.Muted;
             _newsIcon.sprite = UiSprites.Icon(toast.photo ? UiIcon.Camera : UiIcon.Book);
         }
@@ -852,8 +875,8 @@ namespace Drift.Bridge
                 Ripple(screenPos, true);
                 return BeginWatch(WatchSubjects.OfSeal(seaLife, seal));
             }
-            // Flocks, dolphins, turtles, surfacing whales and the lighthouse or harbour are watched straight away too;
-            // an animal under the finger still wins unless the other one is clearly closer.
+            // Flocks, dolphins, turtles, surfacing whales, the lighthouse or harbour and village campfires are watched
+            // straight away too; an animal under the finger still wins unless the other one is clearly closer.
             int extra = PickExtra(cam, screenPos, radius, camXZ, focusXZ, out float extraPx);
             if (extra >= 0 && (!hit || extraPx * 1.3f < (critter ? bestCritter : best)))
             {
@@ -1307,8 +1330,8 @@ namespace Drift.Bridge
             {
                 // A building: from the side at a lower angle, far enough to show the ground (or water) round it.
                 var cam = Camera.main;
-                pitch = stillPitch;
-                dist = WatchFraming.Distance(frameRadius, 0f, cam != null ? cam.fieldOfView : 60f, cam != null ? cam.aspect : 9f / 16f, stillFill, 0f);
+                pitch = _watch.pitch > 0f ? _watch.pitch : stillPitch;
+                dist = WatchFraming.Distance(frameRadius, 0f, cam != null ? cam.fieldOfView : 60f, cam != null ? cam.aspect : 9f / 16f, _watch.fill > 0f ? _watch.fill : stillFill, 0f);
             }
             dist = Mathf.Clamp(dist, _rig.minDistance, _rig.maxDistance);
             if (watchClearView) yaw = ClearestYaw(yaw, pitch, dist, frameRadius);
@@ -2201,12 +2224,14 @@ namespace Drift.Bridge
             _rig.FromPose(cam.transform.position, SubjectPosition());
             _rotBlendFrom = cam.transform.rotation;
             _rotBlend = 0f;
+            _frameValid = false;
         }
 
         void EndDrive()
         {
             if (!_driving) return;
             _driving = false;
+            _frameValid = false;
             _lift = 0f;
             ResetPointers();
             if (chaseCamera == null) return;
@@ -2342,9 +2367,10 @@ namespace Drift.Bridge
             var cam = Camera.main;
             if (!_driving || cam == null) return;
             ConfigureRig();
+            Vector3 raw = SubjectPosition();
+            Vector3 subject = TrackGround(raw, dt);
             _rig.Step(input, dt);
-            Vector3 subject = SubjectPosition();
-            _lastSubject = subject;
+            _lastSubject = raw;
             _rig.EaseHeight(GroundHeight(_rig.PivotPlanar(subject)), dt);
             _rig.Pose(subject, out Vector3 pos, out Quaternion rot);
             Vector3 pivot = _rig.Pivot(subject);
@@ -2385,6 +2411,124 @@ namespace Drift.Bridge
             // The orbit camera knows exactly how close it stands to what it watches; the vegetation calms its wind
             // by that distance instead of guessing from the view ray.
             IslandLifeSystem.ReportViewDistance((pos - pivot).magnitude);
+        }
+
+        // ---------------------------------------------------------------- the ground under the subject
+
+        // The island the orbit rides on (the watched subject's island, the player's in photo mode): its body yaw and
+        // position last frame, the subject where it was, and how far the pivot still trails a jump of the subject.
+        Island _frameIsland;
+        float _frameYaw;
+        Vector3 _framePos, _rawPrev, _residual;
+        bool _frameValid, _groundShifted;
+
+        public static float BodyWorldYaw(Island island)
+        {
+            Vector3 f = island.BodyForward;
+            return Mathf.Atan2(f.x, f.z) * Mathf.Rad2Deg;
+        }
+
+        // Owner, 2026-09-24: while watching, a merge turned the island (Island.BeginBodyTurn) but not the camera, and
+        // the animals slid out of the picture. The rig turns with the island's body by the same yaw, around the
+        // subject, and the pivot rides along with the island rigidly; only what the subject itself does on the island
+        // (a herd found again, a critter hopping, a new village centre) is eased in with watchSubjectEase. Sea subjects
+        // have no ground and are followed as they are.
+        Vector3 TrackGround(Vector3 raw, float dt)
+        {
+            var island = SubjectIsland;
+            if (island != null && (!island.isActiveAndEnabled || island.IsSunk)) island = null;
+            if (!_frameValid || island != _frameIsland)
+            {
+                _frameIsland = island;
+                _frameValid = true;
+                _groundShifted = false;
+                _residual = Vector3.zero;
+                _rawPrev = raw;
+                if (island != null)
+                {
+                    _frameYaw = BodyWorldYaw(island);
+                    _framePos = island.transform.position;
+                }
+                return raw;
+            }
+            if (island == null)
+            {
+                _rawPrev = raw;
+                _residual = Vector3.zero;
+                return raw;
+            }
+            float yaw = BodyWorldYaw(island);
+            Vector3 pos = island.transform.position;
+            float turn = watchTurnWithIsland ? Mathf.DeltaAngle(_frameYaw, yaw) : 0f;
+            _rig.TurnBy(turn);
+            var spin = Quaternion.Euler(0f, turn, 0f);
+            // A merge re-centres the host on the joined land: its origin jumps, the ground does not move.
+            Vector3 carried = _groundShifted ? _rawPrev : pos + spin * (_rawPrev - _framePos);
+            _groundShifted = false;
+            _frameYaw = yaw;
+            _framePos = pos;
+            _rawPrev = raw;
+            if (!Following || watchSubjectEase <= 0f)
+            {
+                _residual = Vector3.zero;
+                return raw;
+            }
+            _residual = spin * _residual + (carried - raw);
+            _residual *= Mathf.Exp(-watchSubjectEase * Mathf.Max(0f, dt));
+            if (_residual.sqrMagnitude < 1e-8f) _residual = Vector3.zero;
+            return raw + _residual;
+        }
+
+        // Island.MergeFrom shifts every local position of the host by the new land centroid (herds, plants), so the
+        // herd focus kept here in the island's frame is moved the same way. A herd on the guest lives on in the host
+        // (AbsorbFrom): the watch goes with it instead of ending.
+        void OnIslandMerged(Island host, Island guest, float energy)
+        {
+            if (!Following || host == null) return;
+            if (host == _frameIsland) _groundShifted = true;
+            if (host == _followIsland)
+            {
+                if (_followHerds != null)
+                {
+                    Vector2 now = LocalXZ(host, _followFocus);
+                    _followCenter += now - _focusLocal;
+                    _focusLocal = now;
+                }
+                return;
+            }
+            if (guest == null || guest != _followIsland || _followHerds == null) return;
+            if (!host.TryGetComponent(out IslandHerdSystem herds) || !herds.isActiveAndEnabled) return;
+            Vector2 local = LocalXZ(host, _followFocus);
+            int found = -1;
+            float bestSqr = 36f;
+            for (int h = 0; h < herds.HerdCount; h++)
+            {
+                if (herds.HerdKind(h) != _followKind || herds.HerdSize(h) == 0) continue;
+                float d = (herds.HerdCenter(h) - local).sqrMagnitude;
+                if (d >= bestSqr) continue;
+                bestSqr = d;
+                found = h;
+            }
+            if (found < 0) return;
+            _followIsland = host;
+            _followHerds = herds;
+            _followHerd = found;
+            _followHerdCount = herds.HerdCount;
+            _followCenter = herds.HerdCenter(found);
+            _focusLocal = local;
+            if (_watch != null)
+            {
+                _watch.ground = host;
+                _watch.herds = herds;
+                _watch.herd = found;
+            }
+            _groundShifted = true;
+        }
+
+        static Vector2 LocalXZ(Island island, Vector3 world)
+        {
+            Vector3 l = island.transform.InverseTransformPoint(world);
+            return new Vector2(l.x, l.z);
         }
 
         // Share of the picture height the follow controls cover from the top (return button, herd chip, hint).
@@ -2473,7 +2617,7 @@ namespace Drift.Bridge
                 FillPopup(LifeKind.Flamingo, true, 7, (int)AnimalState.Play);
                 FillFollowChip(LifeKind.Sheep, 7, (int)AnimalState.Graze);
                 ShowNews(new CollectionToast { text = CollectionToasts.CollectedText(new[] { CollectionCatalog.IndexOf(LifeKind.Flamingo) }, 1, 1), strong = true });
-                _newsRect.anchoredPosition = new Vector2(0f, -FollowUiBottom - 24f);
+                _newsRect.anchoredPosition = new Vector2(0f, NewsTopWatching);
                 _popupRect.anchoredPosition = new Vector2(60f, -160f);
                 _marker.anchoredPosition = new Vector2(60f, -200f);
                 _marker.localScale = new Vector3(1.5f, 0.93f, 1f);
@@ -2717,12 +2861,12 @@ namespace Drift.Bridge
         // Collection news: one chip under the HUD panel (under the follow controls while a herd is followed).
         GameObject BuildNews(RectTransform root)
         {
-            var size = new Vector2(700f, 76f);
+            var size = NewsSize;
             _newsRect = UiStyle.Chip(root, "CollectionNews", "", size, out _newsText);
             _newsRect.TopCenter(new Vector2(0f, NewsTop), size);
-            _newsText.rectTransform.Stretch(84f, 0f, UiStyle.Gap + 8f, 2f);
-            _newsIcon = UiStyle.Icon(_newsRect, "Icon", UiIcon.Book, 42f, UiStyle.Sand);
-            _newsIcon.rectTransform.Place(new Vector2(0f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(50f, 0f), new Vector2(42f, 42f));
+            _newsText = NoticeChip.WrapLabel(_newsRect, _newsText, NewsFontStrong, UiStyle.Sand);
+            _newsIcon = UiStyle.Icon(_newsRect, "Icon", UiIcon.Book, NewsIconSize, UiStyle.Sand);
+            _newsIcon.rectTransform.Place(new Vector2(0f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(75f, 0f), new Vector2(NewsIconSize, NewsIconSize));
             // Tapping a toast shows what it is about: one entry is watched right away, several open the journal
             // on their tab. The chevron says it can be tapped.
             var body = _newsRect.Find("Body");
@@ -2734,10 +2878,10 @@ namespace Drift.Bridge
             button.navigation = new Navigation { mode = Navigation.Mode.None };
             button.onClick.AddListener(OnNewsTapped);
             _newsRect.gameObject.AddComponent<UiPressFeedback>().pressedScale = 0.96f;
-            _newsGo = UiStyle.Icon(_newsRect, "Go", UiIcon.Back, 30f, UiStyle.Sand);
-            _newsGo.rectTransform.Place(new Vector2(1f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(-40f, 0f), new Vector2(30f, 30f));
+            _newsGo = UiStyle.Icon(_newsRect, "Go", UiIcon.Back, NewsGoSize, UiStyle.Sand);
+            _newsGo.rectTransform.Place(new Vector2(1f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(-60f, 0f), new Vector2(NewsGoSize, NewsGoSize));
             _newsGo.rectTransform.localRotation = Quaternion.Euler(0f, 0f, 180f);
-            _newsText.rectTransform.Stretch(84f, 0f, 70f, 2f);
+            _newsText.rectTransform.Stretch(126f, 0f, 105f, 3f);
             UiStyle.FadeIn(_newsRect.gameObject, null);
             return _newsRect.gameObject;
         }

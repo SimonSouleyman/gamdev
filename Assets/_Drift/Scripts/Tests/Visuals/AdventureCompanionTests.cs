@@ -119,9 +119,9 @@ namespace Drift.Tests
             sea.maxPickups = 4;
             sea.maxCompanions = 2;
             var at = new Vector2(500f, 500f);
+            // Turtles: a whale is no escort any more but the 4-s boost (AdventureWhaleBoostTests).
             for (int i = 0; i < 4; i++)
-                sea.SpawnPickup(i % 2 == 0 ? SeaLifeSystem.Kind.Whale : SeaLifeSystem.Kind.Turtle,
-                    at + new Vector2(i * 0.5f, 0f), Vector2.up);
+                sea.SpawnPickup(SeaLifeSystem.Kind.Turtle, at + new Vector2(i * 0.5f, 0f), Vector2.up);
             Assert.AreEqual(sea.maxPickups, sea.PickupCount, "no more pickups than the cap");
 
             int joined = 0;

@@ -50,6 +50,11 @@ namespace Drift.Bridge
         // Abenteuer
         Text _timerText, _bestText, _boostText, _levelText, _advBuoyLabel;
         UiBar _advBuoyBar;
+        // Abenteuer "Schwung": a thin bar under the buoyancy, filled by chained boosts and surfing.
+        UiBar _momentumBar;
+        Text _momentumLabel;
+        int _momentumLit = -1;
+        const string MomentumCaption = "Schwung";
         Image _advTrack;
         UiBar _buoyBar;
         string _lastMilestone = "";
@@ -391,10 +396,25 @@ namespace Drift.Bridge
                 _bestText.text = bi == -2 ? ModeTexts.NewRecordLabel : best > 0f ? ModeTexts.RecordLabel(best) : ModeTexts.FirstRunLabel;
                 _bestText.color = bi == -2 ? UiStyle.Mint : UiStyle.Muted;
             }
+            if (_momentumBar != null)
+            {
+                float mom = live ? player.Momentum : 0.55f;
+                _momentumBar.Set(mom);
+                Color mc = Color.Lerp(UiStyle.Sand, UiStyle.Mint, Mathf.Clamp01(mom * 1.25f));
+                if (mom > 0.9f) mc = Color.Lerp(mc, UiStyle.Cream, 0.35f + 0.35f * Mathf.Sin(Time.unscaledTime * 6f));
+                _momentumBar.Fill.color = mc;
+                int lit = mom > 0.05f ? 1 : 0;
+                if (lit != _momentumLit)
+                {
+                    _momentumLit = lit;
+                    _momentumLabel.color = lit == 1 ? UiStyle.CreamSoft : UiStyle.Muted;
+                }
+            }
             // One slot for the calls of the race, loudest first: the rim of the band, a hit or a dodge just now,
             // the flotsam boost, the empty bar, surfing.
             if (_callLeft > 0f) _callLeft -= Time.unscaledDeltaTime;
-            bool boosting = live ? player.Boosting : editorMode == EditorMode.Adventure;
+            // The tail of a boost (x1.0 after rounding) is no call any more.
+            bool boosting = live ? player.Boosting && player.BoostFactor >= 1.05f : editorMode == EditorMode.Adventure;
             float factor = live ? player.BoostFactor : 1.6f;
             bool surfing = live && player.SurfStrength > 0.35f;
             bool low = live && buoy < ModeTexts.LowBuoyancy;
@@ -649,6 +669,12 @@ namespace Drift.Bridge
             _levelText.color = UiStyle.Sand;
             _levelText.fontStyle = UiStyle.Weight(true);
             _advTrack = _advBuoyBar.Root.GetComponent<Image>();
+            // Row 3, a slim one: the momentum ("Schwung") that makes the island faster.
+            var mrow = Row(_adventure, "Momentum", 136f, 16f);
+            _momentumLabel = RowText(mrow, MomentumCaption, 20, UiStyle.Muted, TextAnchor.MiddleLeft, true, 0f, LabelColumn - 8f);
+            float mw = Inner - LabelColumn - LevelColumn;
+            _momentumBar = UiStyle.Bar(mrow, "MomentumBar", new Vector2(mw, 8f), UiStyle.Sand);
+            _momentumBar.Root.Place(new Vector2(0f, 0.5f), new Vector2(0f, 0.5f), new Vector2(LabelColumn, 0f), new Vector2(mw, 8f));
             _adventure.gameObject.SetActive(false);
         }
 

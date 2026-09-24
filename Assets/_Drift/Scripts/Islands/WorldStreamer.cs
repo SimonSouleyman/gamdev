@@ -44,6 +44,8 @@ namespace Drift.Islands
         [Range(0, 12)] public int worldBig = 4;
         [Tooltip("Davon mittlere Inseln (Radius 3–6); der Rest ist klein (Radius 2–3).")]
         [Range(0, 30)] public int worldMedium = 6;
+        [Tooltip("Flächenfaktor für die kleinen Inseln und Inselchen (v0.6.4: doppelte Mindestgröße, Radius × Wurzel daraus). Mittlere und große Inseln bleiben gleich.")]
+        [Range(1f, 4f)] public float smallIslandAreaScale = 2f;
         [Tooltip("Mindestabstand der Inselmitten als Anteil eines gleichmäßigen Rasters (Weltbreite / Wurzel der Inselzahl): größer = gleichmäßiger verteilt und längere Fahrten zwischen den Inseln.")]
         [Range(0f, 1f)] public float worldSpacing = 0.7f;
 
@@ -530,6 +532,8 @@ namespace Drift.Islands
             else { radius = 2f + t; type = Pick(rnd, SmallWeights); }
         }
 
+        float SmallScale => Mathf.Sqrt(Mathf.Max(1f, smallIslandAreaScale));
+
         static void RollIslet(System.Random rnd, out float radius, out IslandArchetype type)
         {
             radius = 1.2f + 0.8f * Mathf.Pow((float)rnd.NextDouble(), 1.3f);
@@ -611,8 +615,8 @@ namespace Drift.Islands
                 if (i < large) { radii[i] = 9f + 4f * t * t; types[i] = Pick(rnd, LargeWeights); }
                 else if (i < large + big) { radii[i] = 6f + 3f * t; types[i] = Pick(rnd, BigWeights); }
                 else if (i < large + big + medium) { radii[i] = 3f + 3f * t; types[i] = Pick(rnd, MediumWeights); }
-                else if (i < mains) { radii[i] = 2f + t; types[i] = Pick(rnd, SmallWeights); }
-                else RollIslet(rnd, out radii[i], out types[i]);
+                else if (i < mains) { radii[i] = (2f + t) * SmallScale; types[i] = Pick(rnd, SmallWeights); }
+                else { RollIslet(rnd, out radii[i], out types[i]); radii[i] *= SmallScale; }
                 seeds[i] = rnd.Next();
             }
             for (int i = 1; i < n; i++)

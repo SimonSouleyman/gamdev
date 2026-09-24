@@ -47,6 +47,22 @@ namespace Drift.SaveSystem
         public DateTime CollectedOn(int index) => _collectedOn[index];
         public int BestOf(int index) => _best[index];
 
+        // Bit (int)LifeKind of every island kind the book has at least seen (what SpeciesPool.Choose calls found).
+        public ulong SeenLifeMask
+        {
+            get
+            {
+                ulong m = 0;
+                for (int i = 0; i < _state.Length; i++)
+                {
+                    if (_state[i] == 0) continue;
+                    var e = CollectionCatalog.At(i);
+                    if (e.hasLife) m |= 1UL << (int)e.life;
+                }
+                return m;
+            }
+        }
+
         // Raises one entry; false when it knew all of it already.
         public bool Learn(int index, CollectState state, DateTime seenOn, DateTime collectedOn, int best)
         {

@@ -95,13 +95,52 @@ namespace Drift.Bridge
     // the chip shows no chevron and takes no input, so a tap under it still reaches the world.
     // Nothing here blocks play: everything is retried instead of forced, and a missing reference just means the
     // milestone is applied as soon as it is there.
+    // The notice chips (news and milestone toast) at their 1.5 x size: a long line wraps onto a second line and the
+    // chip grows, instead of UiStyle.Chip's label shrinking the text back below its old size.
+    public static class NoticeChip
+    {
+        public const float Pad = 20f;
+
+        public static Text WrapLabel(RectTransform chip, Text chipLabel, int fontSize, Color color)
+        {
+            if (chipLabel != null)
+            {
+                chipLabel.gameObject.SetActive(false);
+                if (Application.isPlaying) Object.Destroy(chipLabel.gameObject);
+                else Object.DestroyImmediate(chipLabel.gameObject);
+            }
+            var t = UiStyle.Label(chip, "", fontSize, color, TextAnchor.MiddleCenter);
+            t.horizontalOverflow = HorizontalWrapMode.Wrap;
+            t.verticalOverflow = VerticalWrapMode.Overflow;
+            t.lineSpacing = 0.92f;
+            t.raycastTarget = false;
+            return t;
+        }
+
+        // Height for the label's text at its current width, never below minHeight; applied to the chip.
+        public static float Fit(RectTransform chip, Text label, float minHeight)
+        {
+            if (chip == null || label == null) return minHeight;
+            float height = Mathf.Max(minHeight, Mathf.Ceil(label.preferredHeight + 2f * Pad));
+            if (Mathf.Abs(chip.sizeDelta.y - height) > 0.5f) chip.sizeDelta = new Vector2(chip.sizeDelta.x, height);
+            return height;
+        }
+    }
+
     [DisallowMultipleComponent]
     public class MilestoneToasts : MonoBehaviour
     {
         const string CanvasName = "MilestoneCanvas";
-        const float ToastTop = -470f;
+        // 1.5 x the first size (owner, 2026-09-24), the width capped to the portrait screen like the news chip.
+        public static readonly Vector2 ToastSize = new Vector2(1000f, 126f);
+        public const int ToastFont = 54;
+        public const float GoSize = 45f;
+        const float TextInset = UiStyle.Gap + 12f, GoInset = 105f;
+        // Under the news chip (WatchTools.NewsTop, 114 high), which sits under the round buttons on the right.
+        public const float ToastTop = -606f;
         // Under the watch controls and the news chip that sits under them while something is watched.
-        const float ToastTopWatching = -816f;
+        public const float ToastTopWatching = -854f;
+        public RectTransform ToastRect => _chip;
 
         public GameSession session;
         public SaveManager saveManager;
@@ -156,12 +195,11 @@ namespace Drift.Bridge
         {
             UiStyle.DestroyChildrenNamed(transform, CanvasName);
             _canvas = UiStyle.Canvas(transform, CanvasName, sortingOrder, true, out _root);
-            var size = new Vector2(820f, 84f);
+            var size = ToastSize;
             _chip = UiStyle.Chip(_root, "MilestoneToast", "", size, out _text);
             _chip.TopCenter(new Vector2(0f, ToastTop), size);
-            _text.rectTransform.Stretch(UiStyle.Gap + 8f, 0f, 70f, 2f);
-            _text.fontSize = UiStyle.Body;
-            _text.color = UiStyle.Sand;
+            _text = NoticeChip.WrapLabel(_chip, _text, ToastFont, UiStyle.Sand);
+            _text.rectTransform.Stretch(TextInset, 0f, GoInset, 3f);
             _group = _chip.gameObject.AddComponent<CanvasGroup>();
             _group.blocksRaycasts = false;
             _group.interactable = false;
@@ -176,8 +214,8 @@ namespace Drift.Bridge
             button.navigation = new Navigation { mode = Navigation.Mode.None };
             button.onClick.AddListener(() => OnToastTapped());
             _chip.gameObject.AddComponent<UiPressFeedback>().pressedScale = 0.96f;
-            _go = UiStyle.Icon(_chip, "Go", UiIcon.Back, 30f, UiStyle.Sand);
-            _go.rectTransform.Place(new Vector2(1f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(-40f, 0f), new Vector2(30f, 30f));
+            _go = UiStyle.Icon(_chip, "Go", UiIcon.Back, GoSize, UiStyle.Sand);
+            _go.rectTransform.Place(new Vector2(1f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(-60f, 0f), new Vector2(GoSize, GoSize));
             _go.rectTransform.localRotation = Quaternion.Euler(0f, 0f, 180f);
             _go.raycastTarget = false;
             SetTappable(false);
@@ -282,7 +320,7 @@ namespace Drift.Bridge
             int m = _queue.Current;
             if (m == MilestoneToastQueue.FreeText) _text.text = _freeText;
             else if (m >= 0) _text.text = Milestones.ToastOf((Milestone)m);
-            UiStyle.FitWidth(_text);
+            NoticeChip.Fit(_chip, _text, ToastSize.y);
             _tapCheck = 0f;
             UpdateTappable(0f);
         }
@@ -298,7 +336,11 @@ namespace Drift.Bridge
                 _group.interactable = on;
             }
             // Without the chevron the text may use the whole chip.
-            if (_text != null) _text.rectTransform.Stretch(UiStyle.Gap + 8f, 0f, on ? 70f : UiStyle.Gap + 8f, 2f);
+            if (_text != null)
+            {
+                _text.rectTransform.Stretch(TextInset, 0f, on ? GoInset : TextInset, 3f);
+                NoticeChip.Fit(_chip, _text, ToastSize.y);
+            }
         }
 
         // Whether the milestone has something to look at right now; asked a few times a second, not every frame.
@@ -325,7 +367,10 @@ namespace Drift.Bridge
             // A toast waits while it cannot be seen (pause menu, photo mode) instead of running out unread.
             if (!hidden && _queue.Tick(dt)) Refresh();
             if (_queue.Showing) UpdateTappable(dt);
-            _chip.anchoredPosition = new Vector2(0f, watch != null && watch.Following ? ToastTopWatching : ToastTop);
+            // Under the news chip whenever that one shows (a two-line news chip pushes the toast further down).
+            float top = watch != null && watch.Following ? ToastTopWatching : ToastTop;
+            if (watch != null && watch.NewsShowing) top = Mathf.Min(top, watch.NewsBottom - 16f);
+            _chip.anchoredPosition = new Vector2(0f, top);
             float target = _queue.Showing && !hidden ? 1f : 0f;
             _group.alpha = Mathf.MoveTowards(_group.alpha, target, dt / 0.25f);
             if (target <= 0f && _tappable) SetTappable(false);

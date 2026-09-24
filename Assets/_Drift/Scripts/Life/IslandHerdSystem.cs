@@ -17,7 +17,9 @@ namespace Drift.Life
         // Patterns every species knows (2026-09-21).
         Stroll, Visit, Spread,
         // Signature moves: one per species, no other species has it (IslandHerdSystem.Signature.cs).
-        Zigzag, Carousel, Rear, Scratch, Snuggle, StampDance, NeckDuel, SkyCall, Crater, TailChase, WarDance, Groom, Necking
+        Zigzag, Carousel, Rear, Scratch, Snuggle, StampDance, NeckDuel, SkyCall, Crater, TailChase, WarDance, Groom, Necking,
+        // Two herds meeting (IslandHerdSystem.Meetings.cs); Cheer = the onlookers of a chase or a shoving match.
+        Greet, Tag, Shove, Cheer, Trek, RingDance
     }
 
     [ExecuteAlways]
@@ -50,7 +52,9 @@ namespace Drift.Life
             "macht Männchen und schlägt Haken", "läuft mit der Herde im Kreis", "stellt sich auf die Hinterbeine",
             "scheuert sich am Baum", "kuschelt im Stern – ein Vogel sitzt obenauf", "trippelt im Kreis und seiht den Schlamm",
             "reckt den Hals im Kräftemessen", "reckt den Schnabel zum Himmel und ruft", "scharrt nach Flechten",
-            "jagt den eigenen Schwanz", "hüpft im Kriegstanz", "krault einem anderen Zebra das Fell", "schwingt den Hals im Halskampf"
+            "jagt den eigenen Schwanz", "hüpft im Kriegstanz", "krault einem anderen Zebra das Fell", "schwingt den Hals im Halskampf",
+            "begrüßt die Nachbarherde – Nase an Nase", "spielt Fangen mit der Nachbarherde", "misst spielerisch die Kräfte mit dem Nachbarn",
+            "schaut dem Spiel der beiden Herden zu", "zieht mit der Nachbarherde in einer langen Reihe", "tanzt mit der Nachbarherde im Kreis"
         };
 
         // Steps of the choreographies as ActivityStep reports them.
@@ -63,7 +67,7 @@ namespace Drift.Life
         public const int CircleWalk = 0, CircleGuard = 1;
         public const int PounceStalk = 0, PounceLeap = 1, PounceHeadIn = 2, PounceShake = 3;
 
-        enum Errand { None, Drink, Wade, Shade, Watch, Slide, Parade, Browse, Soak, Circle, Stroll, Visit, Spread, Signature }
+        enum Errand { None, Drink, Wade, Shade, Watch, Slide, Parade, Browse, Soak, Circle, Stroll, Visit, Spread, Signature, Meet }
         enum PlayKind { Chase, Spar, Race }
 
         public int seed = 1;
@@ -302,6 +306,9 @@ namespace Drift.Life
             // A herd that has just come into being (spawn, merge, load) settles for this long before it shows its
             // signature move, so a fresh island first reads as calm grazing clusters.
             public float settleT = 30f;
+            // A meeting with another herd (Meetings.cs), shared by both; no new one before _stepClock reaches meetAt.
+            public Meeting meeting;
+            public float meetAt;
         }
 
         readonly List<Herd> _herds = new();
@@ -738,8 +745,16 @@ namespace Drift.Life
             _meshDirty = false;
         }
 
+        // The player's start island (set by GameSession): with a species pool its first herd is always the pool's
+        // start species, one of the most common ones.
+        public bool StartIsland { get; set; }
+        // A pool species may stand on an island below its minArea (down to this share of it) when no pool species
+        // of the biome fits there: the run drew the big animals for this biome, the small islands still get a herd.
+        const float PoolAreaRelax = 0.3f;
+
         Species PickSpecies(int biome)
         {
+            if (SpeciesPool.Active) return PickPooled(biome);
             float area = _surface.LandArea;
             float minScale = Character == 2 ? 0.7f : 1f;
             float total = 0f;
@@ -754,6 +769,40 @@ namespace Drift.Life
                 if (r <= 0f) return Specs[i];
             }
             return null;
+        }
+
+        // The run's species pool: only its species, weighted by rarity (SpeciesPool.SpawnWeight).
+        Species PickPooled(int biome)
+        {
+            float area = _surface.LandArea;
+            float minScale = Character == 2 ? 0.7f : 1f;
+            for (int pass = 0; pass < 2; pass++)
+            {
+                float scale = pass == 0 ? minScale : minScale * PoolAreaRelax;
+                float total = 0f;
+                for (int i = 0; i < Specs.Length; i++)
+                    if (PoolEligible(i, biome, area, scale)) total += SpeciesPool.SpawnWeight(Specs[i].kind);
+                if (total <= 0f) continue;
+                float r = Rand() * total;
+                for (int i = 0; i < Specs.Length; i++)
+                {
+                    if (!PoolEligible(i, biome, area, scale)) continue;
+                    r -= SpeciesPool.SpawnWeight(Specs[i].kind);
+                    if (r <= 0f) return Specs[i];
+                }
+            }
+            return null;
+        }
+
+        static bool PoolEligible(int i, int biome, float area, float scale) =>
+            !Excluded[i] && Specs[i].biome == biome && area >= Specs[i].minArea * scale && SpeciesPool.Allows(Specs[i].kind);
+
+        bool TrySpawnStartHerd()
+        {
+            var s = SpecFor((int)SpeciesPool.StartSpecies);
+            if (s == null || s.biome != Biome || !TryRandomPos(s, out var c)) return false;
+            SpawnHerd(s, c);
+            return true;
         }
 
         // One bit set in BiomesPresent: the island is all one biome, as every island is before its first merge.
@@ -773,6 +822,7 @@ namespace Drift.Life
             System.Array.Clear(Excluded, 0, Excluded.Length);
             System.Array.Clear(Misses, 0, Misses.Length);
             bool one = OneBiome;
+            if (StartIsland && SpeciesPool.Active && _herds.Count == 0) TrySpawnStartHerd();
             int guard = 0, rounds = one ? 32 : 64;
             while (_herds.Count < want && AnimalCount + 2 <= maxAnimals && guard++ < rounds)
             {
@@ -1437,6 +1487,7 @@ namespace Drift.Life
         void CancelErrand(Herd herd)
         {
             if (herd.errand == Errand.None) return;
+            if (herd.errand == Errand.Meet) { AbortMeeting(herd); return; }
             if (herd.errand == Errand.Watch) herd.watchCool = Rand(40f, 60f);
             else herd.errandCool = Rand(40f, 70f);
             herd.errand = Errand.None;
@@ -1469,6 +1520,7 @@ namespace Drift.Life
             herd.diving = herd.walking = false;
             herd.lookout = herd.digger = null;
             herd.visit = null;
+            herd.meeting = null;
             herd.sigA = herd.sigB = null;
             herd.choreoStep = 0;
             herd.choreoT = herd.stampT = herd.tuckT = 0f;
@@ -1650,6 +1702,9 @@ namespace Drift.Life
                 case Errand.Signature:
                     ArriveSignature(herd);
                     break;
+                case Errand.Meet:
+                    ArriveMeeting(herd);
+                    break;
             }
         }
 
@@ -1748,7 +1803,7 @@ namespace Drift.Life
             float bestD = visitRange * visitRange;
             foreach (var other in _herds)
             {
-                if (other == herd || other.members.Count == 0 || other.fleeing || other.errand == Errand.Visit) continue;
+                if (other == herd || other.members.Count == 0 || other.fleeing || other.errand == Errand.Visit || other.errand == Errand.Meet) continue;
                 float d = (other.center - herd.center).sqrMagnitude;
                 if (d >= bestD) continue;
                 bestD = d;
@@ -1859,6 +1914,8 @@ namespace Drift.Life
                     return true;
                 case Errand.Signature:
                     return SignatureSurvivesReshape(herd);
+                case Errand.Meet:
+                    return MeetingSurvivesReshape(herd);
                 case Errand.Stroll:
                 case Errand.Visit:
                 case Errand.Spread:
@@ -2239,6 +2296,7 @@ namespace Drift.Life
                 herd.dawnDrink = false;
                 if (shoreOk && StartShoreErrand(herd, Errand.Drink)) return true;
             }
+            if (MeetThink(herd)) return true;
             if (herd.errandCool <= 0f)
             {
                 if (s.kind == LifeKind.Sheep && (Raining || Noon) && StartShade(herd)) return true;
@@ -3495,6 +3553,11 @@ namespace Drift.Life
             if (galloping) mul = Mathf.Max(mul, s.kind == LifeKind.Reindeer ? 2.4f : 3.2f);
             if (herd.errand == Errand.Parade && herd.errandStage == 1 && ParadeStep(herd, dt)) changed = true;
             if (herd.errand == Errand.Signature && herd.errandStage == 1 && StepSignature(herd, dt)) changed = true;
+            if (herd.errand == Errand.Meet)
+            {
+                if (herd.errandStage == 0) mul = Mathf.Max(mul, meetApproachPace);
+                if (MeetHerd(herd, dt)) changed = true;
+            }
             if (herd.diving && safe && herd.wait < 1f) herd.wait = 1f;
             if (herd.errand == Errand.Shade && herd.errandStage == 1 && herd.wait < 2f && (Raining || Noon)) herd.wait = 2f;
             if (herd.errand == Errand.Watch)
@@ -3581,7 +3644,7 @@ namespace Drift.Life
                 else StepPlay(herd, dt);
                 changed = true;
             }
-            else if (calm && !huddle && !moving && herd.wait > 3f && _night < sleepThreshold && herd.members.Count >= 3 && s.play > 0f && herd.errand != Errand.Signature)
+            else if (calm && !huddle && !moving && herd.wait > 3f && _night < sleepThreshold && herd.members.Count >= 3 && s.play > 0f && herd.errand != Errand.Signature && herd.errand != Errand.Meet)
             {
                 float rate = s.play * playRate * (_night > 0.1f ? 3f : 1f) * (HasAwakeYoung(herd) ? youngPlayRate : 1f);
                 if (Rand() < rate * dt)
@@ -3623,6 +3686,14 @@ namespace Drift.Life
                 {
                     if (SignatureStep(herd, a, dt)) changed = true;
                     continue;
+                }
+                // Meeting members are moved by the meeting's lead herd (StepMeeting); one that lost its meeting (its herd
+                // was folded into another by EnforceCaps) goes back to normal life.
+                if (IsMeeting(a.act))
+                {
+                    if (herd.meeting != null) continue;
+                    ClearGoal(a);
+                    changed = true;
                 }
                 if (a.act == AnimalActivity.Burrowed) burrowBound = true;
                 if (a.act == AnimalActivity.Binky || a.act == AnimalActivity.Wallow)
@@ -3840,6 +3911,7 @@ namespace Drift.Life
                     bool jump = a.act == AnimalActivity.HopChain;
                     bool dance = a.act == AnimalActivity.WarDance && a.step == MovePerform;
                     float hopMul = binky ? 6f : jump ? 9f : dance ? 7f : a.act == AnimalActivity.Zigzag && a.moving ? 2.5f
+                        : a.act == AnimalActivity.Tag && a.moving ? 2.2f : a.act == AnimalActivity.RingDance && a.moving ? 1.8f
                         : a.act == AnimalActivity.Stampede && a.moving ? (s.kind == LifeKind.Reindeer ? 1.4f : 3f) : 1f;
                     var pose = new AnimalPose
                     {
@@ -3912,6 +3984,7 @@ namespace Drift.Life
                 h.sparMid += delta;
                 h.errandPos += delta;
                 h.stampC += delta;
+                if (h.meeting != null && h.meeting.a == h) ShiftMeeting(h.meeting, delta);
                 foreach (var a in h.members)
                 {
                     a.pos += delta;

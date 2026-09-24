@@ -14,6 +14,9 @@ namespace Drift.Tests
             Assert.AreEqual(0.6f, SpeedStreaks.Target(0f, 1f, 0f, 1f, 1f, 0.6f, 0.2f), 1e-6f, "a pickup flares them");
             Assert.AreEqual(0.2f, SpeedStreaks.Target(0f, 0f, 1f, 1f, 1f, 0.6f, 0.2f), 1e-6f, "a hint at top speed");
             Assert.AreEqual(0.5f, SpeedStreaks.Target(1f, 0f, 0f, 0.5f, 1f, 0.6f, 0.2f), 1e-6f, "cozy plays it softer");
+            // Adventure "Schwung": a faint hint that only shows once the momentum is high.
+            Assert.AreEqual(0.3f, SpeedStreaks.Target(0f, 0f, 0f, 1f, 1f, 0.6f, 0.2f, 1f, 0.3f), 1e-6f);
+            Assert.Less(SpeedStreaks.Target(0f, 0f, 0f, 1f, 1f, 0.6f, 0.2f, 0.4f, 0.3f), 0.05f, "little of it at low momentum");
         }
 
         [Test]

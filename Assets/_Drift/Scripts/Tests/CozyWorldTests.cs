@@ -419,8 +419,10 @@ namespace Drift.Tests
                 Assert.AreEqual(306f, ws.WorldSize, 1e-3f, "the cozy world, 15 % smaller since 2026-09-22");
                 var slots = ws.WorldSlots();
                 Assert.AreEqual(ws.worldIslands, slots.Count, "seed " + seed);
-                // Barren islands are planned 0.8 times smaller, so a small one can drop under radius 2 as well.
-                Assert.GreaterOrEqual(slots.Count(s => s.radius < 2f), ws.worldIslets, "islets, seed " + seed);
+                // Barren islands are planned 0.8 times smaller, so a small one can drop under the islet bound as well.
+                float isletMax = 2f * Mathf.Sqrt(ws.smallIslandAreaScale);
+                Assert.GreaterOrEqual(slots.Count(s => s.radius < isletMax), ws.worldIslets, "islets, seed " + seed);
+                Assert.GreaterOrEqual(slots.Min(s => s.radius), 1.2f * 0.8f * Mathf.Sqrt(ws.smallIslandAreaScale) - 1e-3f, "doubled minimum area, seed " + seed);
                 Assert.That(slots.Count(s => s.radius >= 9f * 0.8f), Is.InRange(ws.worldLarge, ws.worldLarge + ws.worldBig), "large, seed " + seed);
 
                 float w = ws.WorldSize, nearestSum = 0f, minPair = float.MaxValue, area = 0f;

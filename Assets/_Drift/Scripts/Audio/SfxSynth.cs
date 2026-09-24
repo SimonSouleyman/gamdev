@@ -16,8 +16,8 @@ namespace Drift.Audio
         // 0..1, held by the main thread while two islands drive into each other before the merge.
         public float GrindAmount;
         // 0..1 how long the island has been travelling with the plate current: a rushing band of water that
-        // opens up as the flow builds. 0..1 surf on a plate boundary: a tone that rises while it carries and
-        // falls away the moment it is lost, so surfing is audible without looking at anything.
+        // opens up as the flow builds. 0..1 surf on a plate boundary: an airy rush of spray that brightens while
+        // it carries and falls away the moment it is lost, so surfing is audible without looking at anything.
         public float FlowAmount;
         public float SurfAmount;
         public float Volume = 1f;
@@ -39,6 +39,8 @@ namespace Drift.Audio
         // Gains at a fully open "Strömung"/"Surfen" slider; the defaults sit at the middle of those sliders.
         public const float FlowGainFull = 0.24f;
         public const float SurfGainFull = 0.2f;
+        // The surf's noise band against the old tone's amplitude: hiss at 1-3 kHz reads louder than a 300 Hz sine.
+        public float SurfNoiseLevel = 0.4f;
         public float FlowGain = FlowGainFull * 0.5f;
         public float SurfGain = SurfGainFull * 0.5f;
         public int Layers = LayerAll;
@@ -61,10 +63,13 @@ namespace Drift.Audio
         // Smoothed levels actually being rendered (for tests and tuning).
         public float FlowLevel => _flowAmp;
         public float SurfLevel => _surfAmp;
+        // Centre of the surf's noise band (it has no pitch any more).
         public float SurfHz => _surfHz;
 
         // 1/Q of the flow band: broad enough to read as rushing water rather than as a whistle.
         const float FlowDamp = 0.22f;
+        // 1/Q of the surf band: wider still, spray and air.
+        const float SurfDamp = 0.9f;
 
         const int Block = 64;
         const int MaxGrains = 32;
@@ -111,7 +116,7 @@ namespace Drift.Audio
         float _whLow, _whBand, _whF, _whAmp;
         float _waLpL, _waHpL, _waLpR, _waHpR, _waLpCoef, _waHpCoef, _waAmp, _waAmpTarget;
         float _flLow, _flBand, _flF, _flowAmp, _flowAmpTarget;
-        float _surfP, _surfInc, _surfAmp, _surfAmpTarget, _surfHz;
+        float _sfLowL, _sfBandL, _sfLowR, _sfBandR, _sfF, _surfAmp, _surfAmpTarget, _surfHz;
 
         float _warnP, _warnInc, _warnT, _warnEnv, _warnLvl, _warnDecay, _warnAmt;
         bool _pendingWarn;
@@ -296,11 +301,13 @@ namespace Drift.Audio
             _flowAmpTarget = FlowGain * flow * flow * BandNorm(flowHz, FlowDamp) * (0.75f + 0.25f * lfo);
             _flowAmp += (_flowAmpTarget - _flowAmp) * smooth;
 
-            // Surf: one clear tone, rising with the strength of the boundary carrying the island.
+            // Surf: a band of hissing spray that opens and brightens with the strength of the boundary. It was a
+            // pitched tone (165-415 Hz plus a fifth) until 2026-09-24: an adventure run surfs 60-90 % of the time,
+            // and that held, speed-following pitch sounded like an engine.
             float surf = SynthMath.Clamp01(SurfAmount);
-            _surfHz = 165f + 250f * surf * surf;
-            _surfInc = _surfHz * _invSr;
-            _surfAmpTarget = SurfGain * surf;
+            _surfHz = 1100f + 2300f * surf * surf;
+            _sfF = SynthMath.SvfCoef(_surfHz, _sr);
+            _surfAmpTarget = SurfGain * SurfNoiseLevel * surf * BandNorm(_surfHz, SurfDamp) * (0.8f + 0.2f * lfo);
             _surfAmp += (_surfAmpTarget - _surfAmp) * smooth;
 
             float warn = SynthMath.Clamp01(SinkWarning);
@@ -819,7 +826,7 @@ namespace Drift.Audio
             bool flowOn = _flowAmp > 1e-5f;
             float flLow = _flLow, flBand = _flBand, flF = _flF, flAmp = _flowAmp;
             bool surfOn = _surfAmp > 1e-5f;
-            float sfP = _surfP, sfInc = _surfInc, sfAmp = _surfAmp;
+            float sfLowL = _sfLowL, sfBandL = _sfBandL, sfLowR = _sfLowR, sfBandR = _sfBandR, sfF = _sfF, sfAmp = _surfAmp;
 
             for (int i = 0; i < n; i++)
             {
@@ -853,10 +860,13 @@ namespace Drift.Audio
 
                 if (surfOn)
                 {
-                    // Tone plus its fifth, so it sings over the wind without being loud.
-                    float s = (SynthMath.Sine(sfP) + 0.35f * SynthMath.Sine(sfP * 1.5f)) * sfAmp;
-                    sfP += sfInc; if (sfP >= 1f) sfP -= 1f;
-                    outL += s; outR += s;
+                    sfLowL += sfF * sfBandL;
+                    float hiL = xL - sfLowL - SurfDamp * sfBandL;
+                    sfBandL += sfF * hiL;
+                    sfLowR += sfF * sfBandR;
+                    float hiR = xR - sfLowR - SurfDamp * sfBandR;
+                    sfBandR += sfF * hiR;
+                    outL += sfBandL * sfAmp; outR += sfBandR * sfAmp;
                 }
 
                 if (warn)
@@ -875,7 +885,7 @@ namespace Drift.Audio
             _whLow = whLow; _whBand = whBand;
             _waLpL = waLpL; _waHpL = waHpL; _waLpR = waLpR; _waHpR = waHpR;
             _flLow = flLow; _flBand = flBand;
-            _surfP = sfP;
+            _sfLowL = sfLowL; _sfBandL = sfBandL; _sfLowR = sfLowR; _sfBandR = sfBandR;
             _warnP = wP; _warnEnv = wEnv; _warnLvl = wLvl;
 
             float vol = Volume;

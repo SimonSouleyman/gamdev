@@ -414,12 +414,32 @@ namespace Drift.Life
                 {
                     Color[] shell = { new Color(0.85f, 0.3f, 0.14f), new Color(0.95f, 0.48f, 0.15f), new Color(0.78f, 0.22f, 0.18f) };
                     Color c = shell[v];
-                    Color dark = c * 0.8f;
-                    b.Cone(new Vector3(0f, 0.05f, 0f), Vector3.up, 0.5f, 0.14f, 4, c);
-                    b.Fin(new Vector3(0.22f, 0.05f, 0.35f), new Vector3(0.6f, 0.05f, 0.8f), new Vector3(0.12f, 0.05f, 0.7f), Vector3.up, dark);
-                    b.Fin(new Vector3(-0.22f, 0.05f, 0.35f), new Vector3(-0.12f, 0.05f, 0.7f), new Vector3(-0.6f, 0.05f, 0.8f), Vector3.up, dark);
-                    b.Fin(new Vector3(-0.4f, 0.03f, 0.15f), new Vector3(-1f, 0.03f, 0.35f), new Vector3(-1f, 0.03f, -0.25f), Vector3.up, dark);
-                    b.Fin(new Vector3(0.4f, 0.03f, 0.15f), new Vector3(1f, 0.03f, -0.25f), new Vector3(1f, 0.03f, 0.35f), Vector3.up, dark);
+                    Color dark = c * 0.72f;
+                    Color claw = new Color(Mathf.Min(1f, c.r * 1.08f), c.g * 1.1f, c.b * 1.05f);
+                    // A domed shell (hexagonal double cone, a bit wider than long) on six legs that reach down to the
+                    // sand, two raised claws and stalk eyes (78 verts): the old flat 4-sided cone was 0.14 high and
+                    // vanished into any sloping beach. The body stands 0.04..0.46 above the pivot. Claw tips (z beyond
+                    // 0.55) are the parts CritterBatch pivots about (+-0.22, 0.35) for the wave dance.
+                    b.Cone(new Vector3(0f, 0.14f, 0f), Vector3.up, 0.5f, 0.32f, 6, c);
+                    b.Cone(new Vector3(0f, 0.14f, 0f), Vector3.down, 0.5f, 0.1f, 6, dark);
+                    for (int i = 0; i < b.VertexCount; i++)
+                    {
+                        Vector3 p = b.VertexAt(i);
+                        b.SetVertex(i, new Vector3(p.x, p.y, p.z * 0.78f));
+                    }
+                    for (int s = -1; s <= 1; s += 2)
+                    {
+                        for (int l = 0; l < 3; l++)
+                        {
+                            float z = 0.2f - 0.2f * l;
+                            b.Fin(new Vector3(0.36f * s, 0.2f, z + 0.07f), new Vector3(0.36f * s, 0.16f, z - 0.07f),
+                                new Vector3(0.84f * s, -0.02f, z - 0.06f * l), Vector3.up + Vector3.right * (0.4f * s), dark);
+                        }
+                        b.Fin(new Vector3(0.24f * s, 0.2f, 0.3f), new Vector3(0.46f * s, 0.26f, 0.5f), new Vector3(0.3f * s, 0.3f, 0.54f), Vector3.up, claw * 0.9f);
+                        b.Fin(new Vector3(0.3f * s, 0.3f, 0.56f), new Vector3(0.5f * s, 0.32f, 0.57f), new Vector3(0.36f * s, 0.44f, 0.98f), Vector3.up, claw);
+                        b.Fin(new Vector3(0.5f * s, 0.32f, 0.57f), new Vector3(0.68f * s, 0.34f, 0.6f), new Vector3(0.7f * s, 0.4f, 0.9f), Vector3.up, claw);
+                        b.Fin(new Vector3(0.1f * s, 0.26f, 0.3f), new Vector3(0.18f * s, 0.26f, 0.3f), new Vector3(0.15f * s, 0.5f, 0.36f), Vector3.forward, new Color(0.08f, 0.06f, 0.06f));
+                    }
                     break;
                 }
                 case LifeKind.Turtle:

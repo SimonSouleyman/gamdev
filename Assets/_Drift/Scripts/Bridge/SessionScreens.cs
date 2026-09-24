@@ -85,6 +85,7 @@ namespace Drift.Bridge
         GameSession.State _shown = (GameSession.State)(-1);
         Func<Vector2> _provider, _directionProvider;
         int _steerFrame = -10;
+        bool _wasFlyOver;
         Vector2 _flyLook;
         float _flyZoom = 1f;
 
@@ -229,8 +230,25 @@ namespace Drift.Bridge
         public static System.Func<Vector2> ScreenOverride;
         public static System.Func<Vector2> MoveOverride;
 
-        // The raw screen direction of stick, keys or tilt (0..1), without any of the locks: the fly-over uses
-        // the very same input to move the camera once the island has stopped.
+        // Whether the tilt steers: only while the island itself is steered, never in the Pangäa fly-over.
+        public static bool TiltSteers(bool steering, bool flyOver) => steering && !flyOver;
+        // Whether the thumbstick is there: always in the fly-over, otherwise only while the tilt is not steering.
+        public static bool StickShown(bool tiltActive, bool flyOver) => flyOver || !tiltActive;
+
+        // The fly-over's move: stick or keys, whatever steering scheme and tilt setting the run uses.
+        public Vector2 ReadFlyScreen()
+        {
+            Vector2 screen = Vector2.zero;
+            if (ScreenOverride != null) screen = ScreenOverride();
+            else
+            {
+                if (touch != null && touch.inputEnabled && touch.stickEnabled) screen = touch.Move;
+                if (screen.sqrMagnitude < 1e-6f) screen = ReadKeys();
+            }
+            return TiltMath.ClampStick(screen);
+        }
+
+        // The raw screen direction of stick, keys or tilt (0..1), without any of the locks.
         public Vector2 ReadSteerScreen()
         {
             Vector2 screen = Vector2.zero;
@@ -415,17 +433,22 @@ namespace Drift.Bridge
             }
 
             bool steering = s == GameSession.State.Playing && !photo && !journal && !album && !(watch != null && watch.Following);
+            // The fly-over over the finished Pangäa: the island is locked, so the stick and keys fly the camera
+            // instead, a drag looks around and the pinch changes the height.
+            bool flyOver = session.PangaeaFreeLook && !photo && !journal && !album && !(watch != null && watch.Following);
             if (tilt != null)
             {
-                // Paused, in the album, in photo mode or while a herd is followed the phone may be moved freely.
-                tilt.inputEnabled = steering;
+                // Paused, in the album, in photo mode, while a herd is followed and over the finished Pangäa the phone
+                // may be moved freely: the owner holds it differently there, so the tilt never flies the camera.
+                bool tiltWas = tilt.inputEnabled;
+                tilt.inputEnabled = TiltSteers(steering, flyOver);
+                // Back from the fly-over the tilt starts from however the phone is held now, not from the pose of
+                // the run before it.
+                if (_wasFlyOver && !flyOver && tilt.inputEnabled && !tiltWas) tilt.Recalibrate();
                 if (_tiltScreen.IsOpen) _tiltScreen.Tick();
                 else if (tilt.previewing) tilt.previewing = false;
             }
-
-            // The fly-over over the finished Pangäa: the island is locked, so the same stick, keys and tilt fly
-            // the camera instead, a drag looks around and the pinch changes the height.
-            bool flyOver = session.PangaeaFreeLook && !photo && !journal && !album && !(watch != null && watch.Following);
+            _wasFlyOver = flyOver;
             if (chaseCamera != null)
             {
                 chaseCamera.SteerHeld = !flyOver && Time.frameCount - _steerFrame <= 1;
@@ -438,8 +461,9 @@ namespace Drift.Bridge
             {
                 bool following = watch != null && watch.Following;
                 touch.inputEnabled = steering;
-                // While the tilt drives, the thumbstick is gone (every tap is a tap again) but pinch zoom stays.
-                touch.stickEnabled = tilt == null || !tilt.Active;
+                // While the tilt drives, the thumbstick is gone (every tap is a tap again) but pinch zoom stays; the
+                // fly-over always has its stick.
+                touch.stickEnabled = StickShown(tilt != null && tilt.Active, flyOver);
                 touch.lookEnabled = flyOver;
                 float pinch = touch.ConsumePinchFactor();
                 if (flyOver) _flyZoom *= pinch;
@@ -484,7 +508,7 @@ namespace Drift.Bridge
         {
             var input = new FlyOverCamera.Input
             {
-                move = session != null && session.PangaeaFreeLook ? ReadSteerScreen() : Vector2.zero,
+                move = session != null && session.PangaeaFreeLook ? ReadFlyScreen() : Vector2.zero,
                 look = _flyLook,
                 zoomFactor = _flyZoom,
             };

@@ -12,10 +12,11 @@ namespace Drift.Visuals
     // Three species (small silver sardines, gold reef fish, a few large blue mackerel) and, rarely in open
     // water, a bait ball: a big tight swirling sardine school other systems can look up (TryGetBaitBall).
     // Cozy mode keeps a couple of schools on the player's own coast (they arrive at the edge of the picture) and lets
-    // them jump more often, sometimes two fish right after each other.
+    // them jump more often, sometimes two fish right after each other, and adds a camera-framed layer of many more
+    // schools of seven other kinds (FishSystem.Ambient.cs).
     [ExecuteAlways]
     [DefaultExecutionOrder(210)]
-    public class FishSystem : MonoBehaviour
+    public partial class FishSystem : MonoBehaviour
     {
         public WaterFeedback water;
         public int maxSchools = 10;
@@ -106,9 +107,14 @@ namespace Drift.Visuals
             public float escort, side;
             // More jumps still to come right after this one (TriggerJumpNear).
             public int burst;
+            // Cozy layer (FishSystem.Ambient.cs): index into Kinds, band colour, lifetime and fade.
+            public bool ambient, leaving;
+            public int kind;
+            public Color accent;
+            public float age, life, fade, avoid;
         }
 
-        public enum FishSpecies { Sardine, Gold, Mackerel }
+        public enum FishSpecies { Sardine, Gold, Mackerel, Silverling, Glitter, Reef, Tuna, Needlefish, Sunfish, Grouper }
 
         School[] _schools;
         readonly long[] _spent = new long[16];
@@ -116,7 +122,7 @@ namespace Drift.Visuals
         Vector3[] _verts;
         Color[] _cols;
         int[] _tris;
-        int _vc, _tc;
+        int _vc, _tc, _mainSlots;
         Mesh _mesh;
         GameObject _go;
         Material _mat;
@@ -127,7 +133,9 @@ namespace Drift.Visuals
         float _playerRadius, _playerSpeed;
         Island _player;
 
-        static bool Cozy => !GameModes.IsAdventure;
+        // Tests pin the mode here instead of flipping GameModes (that rebuilds the adventure ring in the scene).
+        public GameMode? ModeOverride { get; set; }
+        bool Cozy => ModeOverride.HasValue ? ModeOverride.Value != GameMode.Adventure : !GameModes.IsAdventure;
 
         public float Clock => _clock;
         public int VertexCount => _vc;
@@ -247,15 +255,19 @@ namespace Drift.Visuals
             maxSchools = Mathf.Clamp(maxSchools, 1, 16);
             maxFish = Mathf.Max(maxFish, 1);
             minFish = Mathf.Clamp(minFish, 1, maxFish);
-            if (_schools == null || _schools.Length != maxSchools) _schools = new School[maxSchools];
+            // Slots past maxSchools belong to the cozy layer; adventure has none, so its pool is exactly as before.
+            int slots = maxSchools + AmbientSlots;
+            if (_schools == null || _mainSlots != maxSchools) { _schools = new School[slots]; _mainSlots = maxSchools; }
+            else if (_schools.Length != slots) System.Array.Resize(ref _schools, slots);
             maxBaitBalls = Mathf.Clamp(maxBaitBalls, 0, 2);
             baitBallFish = Mathf.Clamp(baitBallFish, 0, 80);
             int fish = maxSchools * maxFish + maxBaitBalls * baitBallFish;
-            if (_verts == null || _verts.Length < fish * VertsPerFish)
+            int extra = AmbientSlots > 0 ? Mathf.Max(0, cozyAmbientVertexBudget) : 0;
+            if (_verts == null || _verts.Length < fish * VertsPerFish + extra)
             {
-                _verts = new Vector3[fish * VertsPerFish];
-                _cols = new Color[fish * VertsPerFish];
-                _tris = new int[fish * IndicesPerFish];
+                _verts = new Vector3[fish * VertsPerFish + extra];
+                _cols = new Color[fish * VertsPerFish + extra];
+                _tris = new int[fish * IndicesPerFish + extra * 3];
             }
         }
 
@@ -348,7 +360,7 @@ namespace Drift.Visuals
         {
             int n = 0;
             for (int i = 0; i < _schools.Length; i++)
-                if (i != except && _schools[i].active && _schools[i].island == isl) n++;
+                if (i != except && _schools[i].active && !_schools[i].ambient && _schools[i].island == isl) n++;
             return n;
         }
 
@@ -412,7 +424,7 @@ namespace Drift.Visuals
             float far2 = recycleRadius * recycleRadius;
             for (int i = 0; i < _schools.Length; i++)
             {
-                if (!_schools[i].active) continue;
+                if (!_schools[i].active || _schools[i].ambient) continue;
                 // A shoal laid on the track waits further out than the seeded ones, and an escort is glued to the
                 // island: neither may be recycled at the ordinary range.
                 float keep = _schools[i].pickup || _schools[i].escort > 0f ? PickupKeepRadius * PickupKeepRadius : far2;
@@ -428,6 +440,7 @@ namespace Drift.Visuals
             }
             CleanSpent();
             if (Cozy && _player != null && cozyCoastSchools > 0 && SchoolsOn(_player, -1) < Mathf.Min(cozyCoastSchools, maxSchoolsPerIsland)) AddCoastSchool();
+            if (Cozy && _viewOk) ScanAmbient();
 
             float near2 = spawnRadius * spawnRadius;
             int x0 = Mathf.FloorToInt((_playerPos.x - spawnRadius) / cellSize);
@@ -444,7 +457,7 @@ namespace Drift.Visuals
                     long key = Key(cx, cy);
                     if (IsOccupied(key) || IsSpent(key)) continue;
                     int slot = -1;
-                    for (int i = 0; i < _schools.Length; i++) if (!_schools[i].active) { slot = i; break; }
+                    for (int i = 0; i < maxSchools; i++) if (!_schools[i].active) { slot = i; break; }
                     if (slot < 0) return;
                     if (!Activate(slot, key, sp, h)) MarkSpent(key);
                 }
@@ -455,7 +468,7 @@ namespace Drift.Visuals
         void AddCoastSchool()
         {
             int slot = -1;
-            for (int i = 0; i < _schools.Length; i++) if (!_schools[i].active) { slot = i; break; }
+            for (int i = 0; i < maxSchools; i++) if (!_schools[i].active) { slot = i; break; }
             if (slot < 0) return;
             var cam = Camera.main;
             Vector2 fwd = _playerFwd;
@@ -477,6 +490,8 @@ namespace Drift.Visuals
 
             ref School s = ref _schools[slot];
             s.active = true;
+            s.ambient = false;
+            s.leaving = false;
             s.key = key;
             s.seed = h;
             s.island = isl;
@@ -682,19 +697,21 @@ namespace Drift.Visuals
 
         Vector2 FishWorld(ref School s, int i, out Vector2 forward, out float phase, out float size)
         {
+            if (s.ambient) return AmbientFishWorld(ref s, i, out forward, out phase, out size);
+            float k = MainScale;
             if (s.ball)
             {
                 uint h = Hash(s.seed, (uint)i + 101u);
                 phase = Rand(h, 2) * Mathf.PI * 2f;
                 size = 0.75f + 0.25f * Rand(h, 3);
-                float rr = baitBallRadius * (0.35f + 0.65f * Mathf.Sqrt(Rand(h, 1))) * (1f + s.scatter * 1.6f);
+                float rr = baitBallRadius * k * (0.35f + 0.65f * Mathf.Sqrt(Rand(h, 1))) * (1f + s.scatter * 1.6f);
                 rr *= 1f + 0.12f * Mathf.Sin(_clock * 0.9f + phase);
                 float a = Rand(h, 0) * Mathf.PI * 2f + _clock * baitBallSpin * s.orbitSign * (0.75f + 0.5f * Rand(h, 4));
                 float ca = Mathf.Cos(a), sa = Mathf.Sin(a);
                 forward = new Vector2(-sa, ca) * s.orbitSign;
                 return s.pos + new Vector2(ca, sa) * rr;
             }
-            Vector2 o = FishLocal(s.seed, i, s.count, _clock, s.scatter, out phase, out size);
+            Vector2 o = FishLocal(s.seed, i, s.count, _clock, s.scatter, out phase, out size) * k;
             Vector2 right = new Vector2(s.dir.y, -s.dir.x);
             float wig = Mathf.Sin(_clock * 1.1f + phase) * 0.22f;
             float cs = Mathf.Cos(wig), sn = Mathf.Sin(wig);
@@ -710,6 +727,7 @@ namespace Drift.Visuals
             if (water == null) Resolve();
             _clock += dt;
 
+            UpdateView(dt);
             var p = FindPlayer();
             _player = p != null && !p.IsSunk ? p : null;
             if (p != null && !p.IsSunk)
@@ -737,7 +755,11 @@ namespace Drift.Visuals
 
             if (dt > 0f)
                 for (int i = 0; i < _schools.Length; i++)
-                    if (_schools[i].active) StepSchool(i, dt);
+                {
+                    if (!_schools[i].active) continue;
+                    if (_schools[i].ambient) StepAmbient(i, dt);
+                    else StepSchool(i, dt);
+                }
             if (GameModes.IsAdventure && _playerRadius > 0f) CollectPickups();
 
             _rebuildTimer += dt;
@@ -874,24 +896,26 @@ namespace Drift.Visuals
             EnsureObject();
             _vc = 0;
             _tc = 0;
+            float k = MainScale;
             for (int si = 0; si < _schools.Length; si++)
             {
-                if (!_schools[si].active) continue;
+                if (!_schools[si].active || _schools[si].ambient) continue;
                 ref School s = ref _schools[si];
+                if (_vc + s.count * VertsPerFish > _verts.Length) break;
                 Color body = s.color;
                 Color tail = new Color(body.r * 0.75f, body.g * 0.75f, body.b * 0.8f, 1f);
                 Color nose = new Color(Mathf.Min(1f, body.r * 1.1f), Mathf.Min(1f, body.g * 1.1f), Mathf.Min(1f, body.b * 1.1f), 1f);
                 for (int i = 0; i < s.count; i++)
                 {
                     Vector2 w = FishWorld(ref s, i, out Vector2 f2, out float phase, out float size);
-                    float len = fishLength * size * s.size;
+                    float len = fishLength * size * s.size * k;
                     float y = swimDepth * (s.size > 1.2f ? 2.2f : 1f);
                     float pitch = 0f;
                     if (s.jumpT >= 0f && i == s.jumper)
                     {
                         float jt = s.jumpT;
-                        y += Mathf.Sin(jt * Mathf.PI) * jumpHeight;
-                        w += f2 * (jt * 0.6f);
+                        y += Mathf.Sin(jt * Mathf.PI) * jumpHeight * k;
+                        w += f2 * (jt * 0.6f * k);
                         pitch = Mathf.Cos(jt * Mathf.PI) * 0.9f;
                     }
                     float cp = Mathf.Cos(pitch), sp = Mathf.Sin(pitch);
@@ -924,11 +948,14 @@ namespace Drift.Visuals
                 }
             }
 
+            RebuildAmbient();
+
             _mesh.Clear(false);
             _mesh.SetVertices(_verts, 0, _vc);
             _mesh.SetColors(_cols, 0, _vc);
             _mesh.SetTriangles(_tris, 0, _tc, 0, false);
             float ext = recycleRadius * 2f + 10f;
+            if (Cozy && _viewOk) ext = Mathf.Max(ext, 2f * ((_viewCenter - _playerPos).magnitude + _viewRadius * 1.5f + 12f));
             _mesh.bounds = new Bounds(new Vector3(_playerPos.x, 0f, _playerPos.y), new Vector3(ext, 4f, ext));
         }
     }

@@ -26,6 +26,8 @@ namespace Drift.Visuals
         [Range(0f, 1.5f)] public float pickupStrength = 0.6f;
         [Tooltip("Stärke schon ohne Schub bei Höchsttempo (0 = nur beim Schub).")]
         [Range(0f, 1f)] public float topSpeedStrength = 0.2f;
+        [Tooltip("Abenteuer: Stärke bei vollem Schwung (wächst quadratisch, zeigt sich also erst bei viel Schwung).")]
+        [Range(0f, 1f)] public float momentumStrength = 0.3f;
         [Tooltip("Bildmitte bleibt frei: die Streifen beginnen erst so weit von der Fluchtrichtung weg (Anteil des Wegs zum Bildrand).")]
         [Range(0.1f, 1.2f)] public float innerRadius = 0.55f;
         [Tooltip("Länge eines Streifens (Anteil der halben Bildhöhe).")]
@@ -55,6 +57,11 @@ namespace Drift.Visuals
         public static float Target(float boostFeel, float boostPunch, float topSpeedShare, float modeScale,
             float boostStrength, float pickupStrength, float topSpeedStrength) =>
             Mathf.Max(0f, modeScale * (boostStrength * boostFeel + pickupStrength * boostPunch) + topSpeedStrength * topSpeedShare);
+
+        public static float Target(float boostFeel, float boostPunch, float topSpeedShare, float modeScale,
+            float boostStrength, float pickupStrength, float topSpeedStrength, float momentum, float momentumStrength) =>
+            Target(boostFeel, boostPunch, topSpeedShare, modeScale, boostStrength, pickupStrength, topSpeedStrength)
+            + momentumStrength * Mathf.Clamp01(momentum) * Mathf.Clamp01(momentum);
 
         // Where the streaks radiate from (viewport 0..1): the far point along the travel direction, kept inside the
         // upper-middle of the screen (a steep cozy view would put it far off the top).
@@ -96,7 +103,7 @@ namespace Drift.Visuals
             float want = 0f;
             if (streaksEnabled && _chase != null && _chase.isActiveAndEnabled && _chase.target != null && _chase.FeelVisible)
                 want = Target(_chase.BoostFeel, _chase.BoostPunch, _chase.TopSpeedShare, _chase.BoostModeScale,
-                    boostStrength, pickupStrength, topSpeedStrength);
+                    boostStrength, pickupStrength, topSpeedStrength, _chase.MomentumFeel, momentumStrength);
             Amount = Mathf.Lerp(Amount, Mathf.Min(1.5f, want), 1f - Mathf.Exp(-response * dt));
             if (Amount < 0.01f) return;
 

@@ -903,12 +903,15 @@ namespace Drift.Bridge
         // camera; like SessionScreens' tagline it is replaced (by the line for the input in use) until someone
         // writes their own.
         public const string DefaultBannerBody = "Stick fliegt, Ziehen schaut umher, Tiere antippen.";
-        public const string TiltBannerBody = "Kippen fliegt, Ziehen schaut umher, Tiere antippen.";
+        // The tilt never flies the camera here (owner: the phone is held differently over the finished island),
+        // so a tilt player is told the stick has taken over.
+        public const string TiltBannerBody = "Stick fliegt, Ziehen schaut umher – Kippen ruht.";
         public const string KeyboardBannerBody = "WASD fliegt, Maus ziehen schaut umher, Q/E Höhe.";
         static readonly string[] LegacyBannerBodies =
         {
             "Schau dich in Ruhe um.",
             "Flieg über deine Insel: Stick bewegt, Ziehen schaut um, Tiere antippen.",
+            "Kippen fliegt, Ziehen schaut umher, Tiere antippen.",
         };
 
         public string BannerBody
@@ -916,7 +919,7 @@ namespace Drift.Bridge
             get
             {
                 if (!string.IsNullOrEmpty(bannerBody) && System.Array.IndexOf(LegacyBannerBodies, bannerBody) < 0) return bannerBody;
-                return BannerBodyFor(screens != null && screens.tilt != null && screens.tilt.Active,
+                return BannerBodyFor(screens != null && screens.tilt != null && screens.tilt.On && screens.tilt.Available,
                     InputMode.TouchPreferred || (screens != null && screens.touch != null && screens.touch.forceShowTouch));
             }
         }

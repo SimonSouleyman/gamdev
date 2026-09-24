@@ -158,6 +158,11 @@ namespace Drift.SaveSystem
             }
         }
 
+        // Herd animals and critters come in rarity tiers (SpeciesPool): a rare one turns up only in some runs.
+        public static bool IsRare(CollectEntry e) => e.hasLife && SpeciesPool.IsPooled(e.life) && SpeciesPool.RarityOf(e.life) == Rarity.Rare;
+
+        public static string RarityLabel(CollectEntry e) => e.hasLife && SpeciesPool.IsPooled(e.life) ? SpeciesPool.LabelOf(SpeciesPool.RarityOf(e.life)) : "";
+
         // "von tropischen Inseln" for a kind that belongs to another biome; "" for kinds without a home biome.
         public static string OriginOf(LifeKind kind) =>
             Biomes.TryHomeOf(kind, out var home) ? "von " + SectionIslands[(int)home] : "";

@@ -556,7 +556,46 @@ namespace Drift.SaveSystem
                 Resolve();
                 WorldSeeds.Apply(seed, player, streamer);
             }
+            ChooseSpeciesPool(seed);
             if (changed) WorldSeedChanged?.Invoke();
+        }
+
+        // "Artenauswahl der Runde" (Drift.Life.SpeciesPool): a cozy run brings forth only a few species, chosen here
+        // before the world is built from the seed and what the album already holds; SaveManager.Load puts a saved
+        // run's pool back right after this. Adventure and Edit Mode keep every species.
+        void ChooseSpeciesPool(int seed)
+        {
+            Resolve();
+            var herds = player != null ? player.GetComponent<Drift.Life.IslandHerdSystem>() : null;
+            if (herds != null) herds.StartIsland = true;
+            if (!Application.isPlaying) return;
+            if (Mode != GameMode.Cozy)
+            {
+                Drift.Life.SpeciesPool.Clear();
+                return;
+            }
+            ulong mask = Drift.Life.SpeciesPool.Choose(seed, FoundLifeMask(), out var start);
+            Drift.Life.SpeciesPool.Set(mask, start);
+            Debug.Log("Artenauswahl der Runde: " + Drift.Life.SpeciesPool.Describe(mask));
+        }
+
+        // What the album holds across runs: the journal (with its book once WatchTools attached it), else the book file,
+        // plus the collected kinds of the LifeBook.
+        ulong FoundLifeMask()
+        {
+            ulong m = 0;
+            var journal = saveManager != null ? saveManager.Journal : null;
+            if (journal != null) m |= journal.SeenLifeMask;
+            if (journal != null && journal.Book != null) m |= journal.Book.SeenLifeMask;
+            else
+            {
+                var book = new JournalBook(JournalBook.DefaultDirectory);
+                book.Load();
+                m |= book.SeenLifeMask;
+            }
+            var lifeBook = new LifeBook();
+            lifeBook.Load();
+            return m | lifeBook.Mask;
         }
 
         public bool ContinueGame()

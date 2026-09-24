@@ -120,6 +120,26 @@ namespace Drift.Bridge
 
         public void Center() => offsetTarget = Vector2.zero;
 
+        // The ground under the subject turned by `degrees` about the vertical (an island's body turning after a
+        // merge): the whole orbit turns with it - live values, targets, home and the pan offset - so the picture of
+        // the subject stays exactly as it was framed instead of the island swinging round under a still camera.
+        public void TurnBy(float degrees)
+        {
+            if (Mathf.Abs(degrees) < 1e-6f) return;
+            yaw += degrees;
+            yawTarget += degrees;
+            homeYaw += degrees;
+            offset = RotateXZ(offset, degrees);
+            offsetTarget = RotateXZ(offsetTarget, degrees);
+        }
+
+        // Rotates a planar (x, z) vector about the vertical by degrees, the same sense as a yaw.
+        public static Vector2 RotateXZ(Vector2 v, float degrees)
+        {
+            float r = degrees * Mathf.Deg2Rad, c = Mathf.Cos(r), sn = Mathf.Sin(r);
+            return new Vector2(v.x * c + v.y * sn, -v.x * sn + v.y * c);
+        }
+
         public void Orbit(float dxPixels, float dyPixels)
         {
             yawTarget += dxPixels * orbitDegPerPixel;

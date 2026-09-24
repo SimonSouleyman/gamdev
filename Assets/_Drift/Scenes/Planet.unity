@@ -382,6 +382,9 @@ MonoBehaviour:
   turnRoll: 1.2
   ringSpeedFovGain: 4.5
   ringSpeedDolly: 0.12
+  ringMomentumFov: 3
+  ringLagSpeed: 24
+  ringGhostLift: 5
   boostFovGain: 4
   boostReference: 1.65
   boostFovKick: 3.5
@@ -429,6 +432,7 @@ MonoBehaviour:
   boostStrength: 1
   pickupStrength: 0.6
   topSpeedStrength: 0.2
+  momentumStrength: 0.3
   innerRadius: 0.55
   length: 0.3
   width: 0.006
@@ -730,6 +734,16 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 6848e8c43e91c584d9180ed1597f844e, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Drift.Visuals::Drift.Visuals.FishSystem
+  cozyAmbientSchools: 20
+  cozyAmbientAreaPerSchool: 90
+  cozyAmbientMin: 8
+  cozyAmbientViewTop: 0.85
+  cozyViewRefDistance: 14
+  cozyViewScaleExponent: 0.6
+  cozyViewScaleMax: 2.4
+  cozyAmbientVertexBudget: 9000
+  cozyAmbientLifetime: {x: 70, y: 150}
+  cozyAmbientFade: 2
   water: {fileID: 479351218}
   maxSchools: 10
   minFish: 8
@@ -994,6 +1008,8 @@ MonoBehaviour:
   companionCatchUp: 16
   pickupGrab: 2.5
   pickupDrift: 0.5
+  whaleBoostGap: 0.8
+  whaleBoostLead: 1.1
 --- !u!114 &479351225
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -1151,6 +1167,9 @@ MonoBehaviour:
   animalSpacing: 110
   animalWhaleShare: 0.3
   animalTurtleShare: 0.3
+  whaleBoostSeconds: 4
+  whaleBoostFactor: 2.5
+  whaleMomentumPieces: 2
   companionBoost: 0.06
   maxCompanionStack: 3
   shipStaggerSeconds: 1.1
@@ -1284,6 +1303,12 @@ MonoBehaviour:
   speedScaleStart: 1.45
   speedPerLevel: 0.18
   speedScaleMax: 3
+  momentumSpeedGain: 1
+  momentumPerBoost: 0.13
+  momentumSurfRate: 0.03
+  momentumSurfStart: 0.35
+  momentumHalfLife: 10
+  momentumHitLoss: 0.5
   adjustCamera: 1
   cameraHeight: 1.6
   cameraDistance: 11
@@ -1710,6 +1735,9 @@ MonoBehaviour:
   surfVolume: 0.45
   speedWaterBoost: 0.35
   mergeSplash: 0.7
+  adventureMusicEnabled: 1
+  musicCrossfadeSeconds: 2.5
+  adventureMusicGain: 1
 --- !u!114 &935930040
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -1724,6 +1752,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: Drift.Bridge::Drift.Bridge.SeaAudioBridge
   seaLife: {fileID: 0}
   pollInterval: 0.25
+  session: {fileID: 0}
 --- !u!1 &1204434036
 GameObject:
   m_ObjectHideFlags: 0
@@ -1847,15 +1876,16 @@ MonoBehaviour:
   leanResponse: 3
   driftRotation: 3
   driftPeriod: 40
-  bodyTurnTime: 2.5
-  bodyTurnTimeHuge: 5
-  bodyTurnMaxRate: 70
-  bodyTurnMaxRateHuge: 35
+  bodyTurnTime: 5
+  bodyTurnTimeHuge: 10
+  bodyTurnMaxRate: 35
+  bodyTurnMaxRateHuge: 17.5
+  bodyTurnAmount: 0.33333334
   bodyTurnRefArea: 24
   bodyTurnHugeArea: 2000
   bodyTurnCooldown: 8
   bodyTurnRapidAngle: 25
-  bodyTurnMaxQueued: 120
+  bodyTurnMaxQueued: 40
   agilityArea: 40
   useKeyboardInput: 1
   shapeSeed: 12346
@@ -1976,6 +2006,14 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 5865cd2216fca0b48a4943899655ac30, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Drift.Life::Drift.Life.IslandHerdSystem
+  meetRate: 0.006
+  meetRange: 4
+  meetDirectorRange: 6
+  meetCooldown: {x: 70, y: 130}
+  meetGap: {x: 10, y: 20}
+  maxMeetings: 2
+  meetApproachPace: 1.5
+  meetApproachTime: 8
   seed: 1
   simDistance: 100
   hideDistance: 260
@@ -2970,6 +3008,8 @@ MonoBehaviour:
   watchCenterBelowHud: 1
   watchClearView: 1
   watchFocusFollow: 3
+  watchTurnWithIsland: 1
+  watchSubjectEase: 8
   stillPitch: 28
   stillFill: 0.4
   stillOrbitDegPerSecond: 5
@@ -3203,11 +3243,11 @@ MonoBehaviour:
   fish: {fileID: 0}
   seaLife: {fileID: 0}
   seed: 53
-  nudgeMin: 5.5
-  nudgeMax: 7.5
+  nudgeMin: 5
+  nudgeMax: 6.8
   retrySeconds: 1
   graceSeconds: 2.5
-  lastResortGap: 8.5
+  lastResortGap: 7.5
   lastResortCooldown: 4
   noticePx: 20
   pickPx: 26
@@ -3234,6 +3274,7 @@ MonoBehaviour:
   whaleWeight: 1.5
   seaShowWeight: 2
   sleepStirWeight: 1.5
+  meetingWeight: 2.5
   signatureCooldown: 20
   playCooldown: 12
   speciesCooldown: 25
@@ -3246,6 +3287,7 @@ MonoBehaviour:
   whaleCooldown: 30
   seaShowCooldown: 20
   sleepStirCooldown: 8
+  meetingCooldown: 20
 --- !u!114 &2011694588
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -3328,6 +3370,7 @@ MonoBehaviour:
   worldLarge: 2
   worldBig: 4
   worldMedium: 6
+  smallIslandAreaScale: 2
   worldSpacing: 0.7
   minPerChunk: 2
   maxPerChunk: 4

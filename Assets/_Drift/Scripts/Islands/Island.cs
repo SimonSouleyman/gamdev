@@ -55,15 +55,18 @@ namespace Drift.Islands
         // Merge turn = a critically damped angular spring. bodyTurnTime / bodyTurnMaxRate: seconds to get within
         // 5 % of the target and yaw rate cap (deg/s) for a start-sized island (bodyTurnRefArea); the ...Huge
         // values hold from bodyTurnHugeArea on, in between it follows the square root of the Agility.
-        public float bodyTurnTime = 2.5f;
-        public float bodyTurnTimeHuge = 5f;
-        public float bodyTurnMaxRate = 70f;
-        public float bodyTurnMaxRateHuge = 35f;
+        // v0.6.3 -> v0.6.4 (owner: "zu stark und zu ruckartig"): half as fast (times x2, rate caps /2) and a third
+        // of the angle (bodyTurnAmount).
+        public float bodyTurnTime = 5f;
+        public float bodyTurnTimeHuge = 10f;
+        public float bodyTurnMaxRate = 35f;
+        public float bodyTurnMaxRateHuge = 17.5f;
+        [Range(0f, 1f)] public float bodyTurnAmount = 1f / 3f;
         public float bodyTurnRefArea = 24f;
         public float bodyTurnHugeArea = 2000f;
         public float bodyTurnCooldown = 8f;
         public float bodyTurnRapidAngle = 25f;
-        public float bodyTurnMaxQueued = 120f;
+        public float bodyTurnMaxQueued = 40f;
         public float agilityArea = 40f;
         public bool useKeyboardInput = true;
         public int shapeSeed = 12345;
@@ -205,6 +208,7 @@ namespace Drift.Islands
         [NonSerialized] float _startArea;
         [NonSerialized] float _hitCooldownLeft, _hitStunLeft, _hitSinkLeft, _hitGraceLeft;
         [NonSerialized] float _staggerLeft, _staggerFactor = 1f;
+        [NonSerialized] float _ghostLeft, _ghostTouch;
 
         // The ring's rim (RingWorld, Adventure only): near the edge of the band the water foams and pushes gently
         // back towards the middle; the hard stop is PositionConstraint. Never set in Cozy.
@@ -222,6 +226,15 @@ namespace Drift.Islands
         // frame, 1 = nobody). A factor on the top speed like AdventureSpeedScale - deliberately not a SpeedBoost, so
         // Boosting stays the rare flotsam event instead of being on whenever an escort swims along.
         [NonSerialized] public float EscortFactor = 1f;
+        // Adventure "Schwung" (0..1): chained boost pickups and surfing build it up, RingWorld lets it decay and a hit
+        // halves it. The top speed (pace, steering and thrust alike) grows by MomentumGain x Momentum - owner: the top
+        // speed doubles, the boosts themselves stay as strong as they were (see the boost block in Tick).
+        [NonSerialized] public float MomentumGain = 1f;
+        [NonSerialized] public float MomentumHitLoss = 0.5f;
+        public float Momentum { get; private set; }
+        public void SetMomentum(float value) => Momentum = Mathf.Clamp01(value);
+        public void AddMomentum(float amount) => Momentum = Mathf.Clamp01(Momentum + Mathf.Max(0f, amount));
+        public float MomentumScale => AdventurePlayer ? 1f + Mathf.Max(0f, MomentumGain) * Momentum : 1f;
 
         public Vector3 Normal { get; private set; } = Vector3.up;
         // Heading: steering, thrust and the chase camera. Only player input turns it.
@@ -434,6 +447,17 @@ namespace Drift.Islands
         public bool HitGrace => _hitGraceLeft > 0f;
         public float HitGraceRemaining => Mathf.Max(0f, _hitGraceLeft);
 
+        // Adventure whale boost: for its seconds the island passes through obstacle islands untouched - no bounce, no
+        // hit, no buoyancy lost. It never ends inside a coast: every contact keeps it alive for GraceHold more.
+        public bool Ghosting => _ghostLeft > 0f;
+        public float GhostRemaining => Mathf.Max(0f, _ghostLeft);
+        // Gliding through an island right now (spray, the whale's cue).
+        public bool GhostPassing => _ghostLeft > 0f && _ghostTouch > 0f;
+        public void Ghost(float seconds)
+        {
+            if (seconds > 0f) _ghostLeft = Mathf.Max(_ghostLeft, seconds);
+        }
+
         // Adventure: the player ran into an obstacle island. Bounces off along the contact normal (always at least
         // hitMinBounce, so even a slow scrape pushes clear), keeps only hitSpeedKeep of the speed along the coast and
         // - outside the cooldown - costs hitBuoyancyLoss of the buoyancy, then gets a sideways shove clear of the
@@ -441,6 +465,12 @@ namespace Drift.Islands
         public bool Bump(Island obstacle, Vector2 contactLocal, float dt)
         {
             if (obstacle == null || _shape == null) return false;
+            if (_ghostLeft > 0f)
+            {
+                _ghostLeft = Mathf.Max(_ghostLeft, GraceHold);
+                _ghostTouch = GraceHold;
+                return false;
+            }
             // Gliding through: the grace does not run out while the island is still inside a coast, or it would
             // end in the middle of a big island and count the next hit at once.
             if (_hitGraceLeft > 0f)
@@ -471,6 +501,7 @@ namespace Drift.Islands
             _hitStunLeft = hitStun;
             _hitGraceLeft = Mathf.Max(0f, hitGrace);
             Hits++;
+            Momentum *= Mathf.Clamp01(1f - MomentumHitLoss);
             selfN = Vector2.Dot(_selfVel, n);
             _selfVel = n * selfN + (_selfVel - n * selfN) * Mathf.Clamp01(hitSpeedKeep);
             Sidestep(obstacle);
@@ -575,7 +606,7 @@ namespace Drift.Islands
         public float Agility => AgilityFor(_area);
         public float AgilityFor(float area) => Mathf.Pow(agilityArea / (agilityArea + Mathf.Max(0f, area)), 0.6f);
         public float MaxSpeed => moveSpeed * (0.55f + 0.45f * Agility) * SpeedScale;
-        float SpeedScale => AdventurePlayer ? Mathf.Max(0.1f, AdventureSpeedScale) * Mathf.Max(1f, EscortFactor) : 1f;
+        float SpeedScale => AdventurePlayer ? Mathf.Max(0.1f, AdventureSpeedScale) * Mathf.Max(1f, EscortFactor) * MomentumScale : 1f;
 
         // Adventure is a race: the island always runs along the track and the input only steers sideways and
         // brakes. Whatever the steering scheme (direct direction or the old wheel), it comes down to the same
@@ -772,6 +803,8 @@ namespace Drift.Islands
             if (_hitCooldownLeft > 0f) _hitCooldownLeft = Mathf.Max(0f, _hitCooldownLeft - dt);
             if (_hitStunLeft > 0f) _hitStunLeft = Mathf.Max(0f, _hitStunLeft - dt);
             if (_hitGraceLeft > 0f) _hitGraceLeft = Mathf.Max(0f, _hitGraceLeft - dt);
+            if (_ghostLeft > 0f) _ghostLeft = Mathf.Max(0f, _ghostLeft - dt);
+            if (_ghostTouch > 0f) _ghostTouch = Mathf.Max(0f, _ghostTouch - dt);
             if (_staggerLeft > 0f) _staggerLeft = Mathf.Max(0f, _staggerLeft - dt);
 
             // The race reads both schemes into one pair of numbers: sideways = steer, backwards = brake. Pushing
@@ -886,8 +919,10 @@ namespace Drift.Islands
             }
             if (_boostLeft > 0f)
             {
-                // The boost surges the island along the direction it is driven in, towards the boosted top speed.
-                max *= BoostFactor;
+                // The boost surges the island along the direction it is driven in, towards the boosted top speed. It
+                // adds its share of the top speed WITHOUT the momentum: chained boosts raise the speed through the
+                // momentum, the single boost does not get stronger with it.
+                max += (BoostFactor - 1f) * max / MomentumScale;
                 cap = Mathf.Max(cap, max);
                 Vector2 f2 = drive2;
                 float along = Vector2.Dot(_selfVel, f2);
@@ -924,6 +959,8 @@ namespace Drift.Islands
                 Vector2 f2 = drive2;
                 float drive = Mathf.Clamp01(Vector2.Dot(_selfVel, f2) / Mathf.Max(0.1f, 0.35f * max));
                 surf = PlateSystem.Instance.SurfVelocity(_pos, f2, _boundRadius, drive, out surfStrength);
+                // The momentum makes the whole island faster, the push it takes from a plate boundary included.
+                surf *= MomentumScale;
             }
             SurfStrength = surfStrength;
             _surf = Vector2.Lerp(_surf, surf, 1f - Mathf.Exp(-surfResponse * dt));
@@ -1049,7 +1086,7 @@ namespace Drift.Islands
 
             float w = bodyTurnCooldown > 0f ? Mathf.Clamp01((_clock - _lastMergeClock) / bodyTurnCooldown) : 1f;
             _lastMergeClock = _clock;
-            float angle = sign * Mathf.Lerp(Mathf.Min(bodyTurnRapidAngle, full), full, w);
+            float angle = sign * Mathf.Lerp(Mathf.Min(bodyTurnRapidAngle, full), full, w) * Mathf.Clamp01(bodyTurnAmount);
             if (Mathf.Abs(pending) > 1f)
                 angle = Mathf.Clamp(pending + angle, -bodyTurnMaxQueued, bodyTurnMaxQueued) - pending;
             LastBodyTurn = angle;
@@ -1392,6 +1429,8 @@ namespace Drift.Islands
             _hitStunLeft = 0f;
             _hitSinkLeft = 0f;
             _hitGraceLeft = 0f;
+            _ghostLeft = _ghostTouch = 0f;
+            Momentum = 0f;
         }
 
         float LandShareAt(float buoyancy) => Mathf.Pow(Mathf.Clamp01(buoyancy), Mathf.Max(0.05f, sinkLandExponent));

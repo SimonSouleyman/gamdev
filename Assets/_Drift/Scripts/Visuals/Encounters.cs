@@ -280,6 +280,12 @@ namespace Drift.Visuals
         [Range(0f, 1f)] public float animalWhaleShare = 0.3f;
         [Tooltip("Anteil Schildkröten (nach den Walen).")]
         [Range(0f, 1f)] public float animalTurtleShare = 0.3f;
+        [Tooltip("Wal eingesammelt: so viele Sekunden starker Schub, in denen die Insel durch Inseln hindurchfährt. Der Wal schwimmt so lange direkt daneben.")]
+        [Range(1f, 10f)] public float whaleBoostSeconds = 4f;
+        [Tooltip("Schub-Faktor des Wals (Treibgut: flotsamBoostFactor).")]
+        [Range(1f, 4f)] public float whaleBoostFactor = 2.5f;
+        [Tooltip("So viel Schwung wie so viele Treibgut-Teile bringt ein Wal.")]
+        [Range(0f, 5f)] public float whaleMomentumPieces = 2f;
         [Tooltip("Zusätzliches Grundtempo je mitschwimmendem Tier (0,06 = +6 %). Kein Schub-Ereignis: den gibt nur das Treibgut.")]
         [Range(0f, 0.5f)] public float companionBoost = 0.06f;
         [Tooltip("So viele Begleiter zählen höchstens für das Tempo.")]
@@ -303,6 +309,8 @@ namespace Drift.Visuals
         public static event Action<string> BottleNoteFound;
         // Adventure: a sea animal joined the island as an escort (toast, audio sting).
         public static event Action<CompanionKind, Vector3> CompanionJoined;
+        // Adventure: a whale was collected - the strong boost with gliding through islands starts (audio sting, HUD).
+        public static event Action<Vector3> WhaleBoostStarted;
         // Adventure: the island rammed a ship - no reward, only the bump (audio, HUD, camera shake).
         public static event Action<ShipSystem.ShipKind, Vector3> ShipHit;
 
@@ -350,6 +358,27 @@ namespace Drift.Visuals
             CompanionJoined?.Invoke(kind, pos);
         }
 
+        public static float WhaleBoostSeconds => _instance != null ? _instance.whaleBoostSeconds : 4f;
+        public static int WhaleBoosts { get; private set; }
+
+        // A whale was run over (SeaLifeSystem): whaleBoostSeconds of whaleBoostFactor, and the island glides through
+        // the obstacle islands for the same time (Island.Ghost). It still counts as a companion for the stats.
+        internal static void NotifyWhaleBoost(Vector3 pos)
+        {
+            WhaleBoosts++;
+            var inst = _instance;
+            float seconds = inst != null ? inst.whaleBoostSeconds : 4f;
+            Island player = FindPlayer();
+            if (player != null)
+            {
+                player.SpeedBoost(seconds, inst != null ? inst.whaleBoostFactor : 2.5f);
+                player.Ghost(seconds);
+                RingWorld.Active?.BoostCollected(player, inst != null ? inst.whaleMomentumPieces : 2f);
+            }
+            NotifyCompanion(CompanionKind.Whale, pos);
+            WhaleBoostStarted?.Invoke(pos);
+        }
+
         // The island drove into a ship: ships are obstacles in Adventure, never a reward. Costs speed, not buoyancy
         // (owner: the obstacle islands stay the hard danger).
         public static void NotifyShipHit(ShipSystem.ShipKind kind, Vector3 pos)
@@ -358,7 +387,7 @@ namespace Drift.Visuals
             var inst = _instance;
             Island player = FindPlayer();
             // Right after an island hit the player glides through (Island.HitGrace): a ship must not start the series.
-            if (player != null && inst != null && !player.HitGrace) player.Stagger(inst.shipStaggerSeconds, inst.shipStaggerFactor);
+            if (player != null && inst != null && !player.HitGrace && !player.Ghosting) player.Stagger(inst.shipStaggerSeconds, inst.shipStaggerFactor);
             ShipHit?.Invoke(kind, pos);
         }
 
@@ -381,7 +410,11 @@ namespace Drift.Visuals
             Island player = FindPlayer();
             if (player == null) return;
             if (reward.buoyancy > 0f) player.AddBuoyancy(reward.buoyancy);
-            if (reward.boostSeconds > 0f) player.SpeedBoost(reward.boostSeconds, _instance != null ? _instance.flotsamBoostFactor : 1.35f);
+            if (reward.boostSeconds > 0f)
+            {
+                player.SpeedBoost(reward.boostSeconds, _instance != null ? _instance.flotsamBoostFactor : 1.35f);
+                if (GameModes.IsAdventure) RingWorld.Active?.BoostCollected(player);
+            }
         }
 
         void OnEnable()

@@ -40,6 +40,9 @@ namespace Drift.SaveSystem
         // Bit per Milestone reached in this run. An older file has no such key and reads 0; the milestones are
         // then derived from stats.islandsAbsorbed alone (Milestones.Restore), so no version bump is needed.
         public int milestones;
+        // The run's species pool (Drift.Life.SpeciesPool.Mask, bit per LifeKind); 0 in an older file, which then keeps
+        // the pool GameSession chose for its seed.
+        public long speciesPool;
     }
 
     public class SaveManager : MonoBehaviour
@@ -244,6 +247,7 @@ namespace Drift.SaveSystem
                 startX = streamer != null ? streamer.StartPosition.x : 0f,
                 startZ = streamer != null ? streamer.StartPosition.y : 0f,
                 milestones = Milestones.Capture(),
+                speciesPool = (long)SpeciesPool.Mask,
             };
             // A copy: the live stats keep counting while the worker serialises.
             data.stats.CopyFrom(session != null ? session.Stats : LoadedStats);
@@ -323,6 +327,7 @@ namespace Drift.SaveSystem
                 if (session == null) session = FindAnyObjectByType<GameSession>();
                 if (session != null) session.ApplyWorldSeed(worldSeed, legacySeeds);
                 else if (!legacySeeds) WorldSeeds.Apply(worldSeed, player, streamer);
+                if (data.speciesPool != 0 && Drift.Core.GameModes.Current == Drift.Core.GameMode.Cozy) SpeciesPool.Restore((ulong)data.speciesPool);
 
                 var plates = PlateSystem.Instance;
                 if (plates != null) plates.Restore(data.plates);

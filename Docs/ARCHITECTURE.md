@@ -2108,3 +2108,29 @@ Structural rules that new content has to follow:
 - **Adventure**: every ring boundary always surfs at full strength (`ringCalmSurf` removed; push = surfSpeed * ringSurfBoost +
   surfPlateGain * ringSlideFull); `RingWorld.sinkSpeed` 1.15 on top of the level scaling; flotsam lines use
   `trackLineStep` 7 and `trackScatter` 2.5 (lateral and ±30 % along-line jitter).
+
+
+## v0.6.4 additions (2026-09-24)
+
+- **Merge body turn tuned down**: `Island.bodyTurnAmount` (1/3) scales the chosen 90..180 deg; times 5/10 s, rate caps
+  35/17.5 deg/s, `bodyTurnMaxQueued` 40. Tests pin the algorithm at full scale and the defaults separately.
+- **Small islands**: `WorldStreamer.smallIslandAreaScale` (2) multiplies small/islet radii by its square root.
+- **Species pool per run** (`Life/SpeciesPool.cs`): drawn from the world seed + album (unfound species weigh more),
+  rarity tiers Common/Occasional/Rare drive both pool membership and herd spawn weights (3/1.5/0.8); cozy only
+  (Adventure/Edit Mode/tests: no pool = all species). Persisted in the run save (`speciesPool`). Start island's first
+  herd = the start species (Hare or Sheep). Critters outside the pool don't spawn. Median album completion 8 runs.
+- **Herd meetings** (`Life/IslandHerdSystem.Meetings.cs`, `Errand.Meet`): Greet, Tag, Shove, Trek, RingDance; natural
+  trigger `meetRate`/`meetRange`, cooldowns, max 2 per island, day only; `MomentKind.Meeting`,
+  `LifeNudge.HerdMeeting` in the director.
+- **Watch turns with the island** (`WatchTools.watchTurnWithIsland`, `watchSubjectEase`); merge re-centering shifts the
+  stored herd focus. Campfires are tap/sparkle targets (`TapTargetKind.Campfire`) with a village still-subject framing.
+- **Finale fly-over ignores tilt** (`SessionScreens.ReadFlyScreen`), stick always shown.
+- **Ambient fish layer** (`Visuals/FishSystem.Ambient.cs`, `FishShapes.cs`): cozy-only camera-following schools
+  (`cozyAmbientMin` 8 in view), 7 new kinds, one mesh/material with the existing fish, view-distance scale up to 2.4.
+- **Adventure momentum** ("Schwung", `RingWorld.momentum*`): 0..1, +0.13 per boost pickup (+0.26 whale), surf feed,
+  half-life 10 s, hit halves; top speed/cruise/steer/thrust/surf scale up to x2. HUD bar under Auftrieb.
+- **Whale boost**: 4 s x2.5 + ghost through obstacles (`Island.GhostPassing`, extended while overlapping), whale swims
+  at the island's flank then dives (`SeaLifeSystem.whaleBoost*`, `Encounters.whaleBoost*`, event `WhaleBoostStarted`).
+- **Audio**: surf cue is band-passed noise (`SfxSynth.SurfNoiseLevel`) instead of a pitched tone (was heard as a motor);
+  `Audio/AdventureMusicSynth.cs` (tropical, 112 BPM, +4 %/1000 m to +30 %, stage changes on the 4-bar line with a
+  fill), crossfaded by `AudioDirector` while `AdventureRunning` (set by `SeaAudioBridge`).

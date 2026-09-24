@@ -71,6 +71,12 @@ namespace Drift.Islands
         [Range(0f, 12f)] public float ringSpeedFovGain = 4.5f;
         [Tooltip("Abenteuer: um diesen Anteil rückt die Kamera bei vollem Tempo näher und tiefer heran, statt zurückzuweichen. Mit dem weiteren Blickwinkel rauscht das Wasser schneller vorbei, die Insel bleibt gleich groß.")]
         [Range(0f, 0.3f)] public float ringSpeedDolly = 0.12f;
+        [Tooltip("Abenteuer: so viele Grad öffnet der Blickwinkel bei vollem Schwung zusätzlich (das Tempo selbst ist dann bis doppelt so hoch).")]
+        [Range(0f, 8f)] public float ringMomentumFov = 3f;
+        [Tooltip("Abenteuer: bis zu diesem Tempo (u/s) bleibt die Kamera weich hinter der Insel zurück; schneller (Schwung, Wal) holt sie entlang der Strecke auf, damit die Insel nicht im Bild schrumpft.")]
+        [Range(5f, 80f)] public float ringLagSpeed = 24f;
+        [Tooltip("Abenteuer, Wal-Schub (die Insel fährt durch Inseln): so viele Einheiten steigt die Kamera, damit man von oben sieht, wie die Insel hindurchgleitet, statt dass ein Berg das Bild füllt.")]
+        [Range(0f, 12f)] public float ringGhostLift = 5f;
 
         [Header("Schub")]
         [Tooltip("So viele Grad weiter wird der Blickwinkel, solange ein voller Schub läuft (klingt mit dem Schub aus).")]
@@ -142,7 +148,7 @@ namespace Drift.Islands
         Vector3 _pose;
         bool _hasPose;
         float _viewYaw, _steerYaw;
-        float _boostFeel, _boostKick, _lastBoostLeft, _lastBoostFactor = 1f, _dodgeKick, _dodgeSide;
+        float _boostFeel, _boostKick, _lastBoostLeft, _lastBoostFactor = 1f, _dodgeKick, _dodgeSide, _momentumFeel, _ghostFeel;
         float _idleSeconds, _lifeZoom = 1f;
 
         public float Zoom => _zoom;
@@ -185,6 +191,8 @@ namespace Drift.Islands
         public float MergeKick => _mergeKick;
         // Share of a full boost running right now (smoothed, 0 while suspended or zoomed close).
         public float BoostFeel => _boostFeel;
+        // The island's "Schwung" as the ring camera shows it (smoothed, 0 off the ring / while suspended).
+        public float MomentumFeel => _momentumFeel;
         // The swell of the last boost pickup and of the last near miss (0..1, see SpeedFeel.Bump).
         public float BoostPunch => SpeedFeel.Bump(_boostKick);
         public float DodgePunch => SpeedFeel.Bump(_dodgeKick);
@@ -197,7 +205,7 @@ namespace Drift.Islands
         public float BaseFieldOfView => baseFieldOfView > 0f ? baseFieldOfView : _capturedFov;
         float SpeedFovGain => RingWorld.Active != null ? ringSpeedFovGain : speedFovGain;
         // What the camera would set the field of view to right now (base + speed + boost + kicks).
-        public float FieldOfViewTarget => BaseFieldOfView + SpeedFovGain * _framing + mergeFovKick * _mergeKick
+        public float FieldOfViewTarget => BaseFieldOfView + SpeedFovGain * _framing + ringMomentumFov * _momentumFeel + mergeFovKick * _mergeKick
             + BoostModeScale * (boostFovGain * _boostFeel + boostFovKick * BoostPunch) + dodgeFovKick * DodgePunch;
         // Screen effects of the speed feel (streaks) only show while the chase camera itself drives the view.
         public bool FeelVisible => !Suspended && _followPos == null && speedFeelEnabled && CloseBlend(_zoom) < 1f;
@@ -395,7 +403,7 @@ namespace Drift.Islands
 
         void ResetKicks()
         {
-            _boostFeel = _boostKick = _dodgeKick = 0f;
+            _boostFeel = _boostKick = _dodgeKick = _momentumFeel = _ghostFeel = 0f;
             _lastBoostLeft = target != null ? target.BoostRemaining : 0f;
             _lastBoostFactor = target != null ? target.BoostFactor : 1f;
             _idleSeconds = 0f;
@@ -416,6 +424,10 @@ namespace Drift.Islands
             _lastBoostFactor = factor;
             float want = visible ? SpeedFeel.BoostShare(factor, boostReference) * (1f - CloseBlend(_zoom)) : 0f;
             _boostFeel = dt > 0f ? Mathf.Lerp(_boostFeel, want, 1f - Mathf.Exp(-4f * dt)) : want;
+            float mom = visible && RingWorld.Active != null ? target.Momentum * (1f - CloseBlend(_zoom)) : 0f;
+            _momentumFeel = dt > 0f ? Mathf.Lerp(_momentumFeel, mom, 1f - Mathf.Exp(-1.5f * dt)) : mom;
+            float ghost = visible && RingWorld.Active != null && target.Ghosting ? 1f : 0f;
+            _ghostFeel = dt > 0f ? Mathf.Lerp(_ghostFeel, ghost, 1f - Mathf.Exp(-(ghost > _ghostFeel ? 3f : 1.2f) * dt)) : ghost;
             _boostKick = SpeedFeel.Decay(_boostKick, dt, boostKickSeconds);
             _dodgeKick = SpeedFeel.Decay(_dodgeKick, dt, dodgeKickSeconds);
         }
@@ -598,6 +610,14 @@ namespace Drift.Islands
             // (owner, first APK test). Across the track the camera stays close; along it the lag keeps the speed feel.
             if (RingWorld.Active != null && _followPos == null && ringLateralFollow > 0f)
                 _pose.x = Mathf.Lerp(_pose.x, desiredPos.x, 1f - Mathf.Exp(-ringLateralFollow * feelDt));
+            // Along the track the lag is speed / followLerp: at double speed or in the whale's x2.5 it put the camera
+            // 6-10 u further back and the island shrank on screen. Above ringLagSpeed the follow tightens with the
+            // speed, so the lag tops out at ringLagSpeed / followLerp while a surge still reads as pulling ahead.
+            if (RingWorld.Active != null && _followPos == null && ringLagSpeed > 0f)
+            {
+                float extra = Mathf.Abs(target.PlanarVelocity.y) / ringLagSpeed - 1f;
+                if (extra > 0f) _pose.z = Mathf.Lerp(_pose.z, desiredPos.z, 1f - Mathf.Exp(-followLerp * extra * feelDt));
+            }
             Quaternion rot = Quaternion.Slerp(transform.rotation, desiredRot, 1f - Mathf.Exp(-lookLerp * feelDt));
 
             Vector3 shake = Vector3.zero;
@@ -677,6 +697,10 @@ namespace Drift.Islands
                 float dolly = SpeedFeel.RingDolly(_framing, ringSpeedDolly);
                 dist = distanceBehind * dolly * kick;
                 high = height * dolly * kick;
+                // The whale's ghost ride: up and a little back, looking down on the island gliding through.
+                float lift = Mathf.SmoothStep(0f, 1f, _ghostFeel);
+                high += ringGhostLift * lift;
+                dist *= 1f + 0.12f * lift;
             }
             else
             {

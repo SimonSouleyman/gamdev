@@ -73,6 +73,8 @@ namespace Drift.SaveSystem
         public bool Baselined { get; private set; }
         // Bit (int)LifeKind of the catalogued life kinds nobody has seen yet; 0 lets a scan skip the islands.
         public ulong UnseenLifeMask => _unseenLife;
+        // The complement: every catalogued life kind seen in any run the album knows of.
+        public ulong SeenLifeMask => CollectionCatalog.LifeMask & ~_unseenLife;
         // The same for this run: what a sighting scan still has to look for.
         public ulong RunUnseenLifeMask => _runUnseenLife;
         public bool RunAllSeen => RunSeenCount == _n;

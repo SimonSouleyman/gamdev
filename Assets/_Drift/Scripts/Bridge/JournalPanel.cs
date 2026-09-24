@@ -571,7 +571,8 @@ namespace Drift.Bridge
         // The third line of a card: where it lives (unknown), what is missing (seen) or how it is doing on the island.
         public static string DetailOf(DiscoveryJournal j, CollectEntry e, CollectState state)
         {
-            if (state == CollectState.Unknown) return CollectionCatalog.HintOf(e);
+            if (state == CollectState.Unknown) return (CollectionCatalog.IsRare(e) ? "selten · " : "") + CollectionCatalog.HintOf(e);
+            if (state == CollectState.Seen && CollectionCatalog.IsRare(e)) return e.collectible ? "selten · noch nicht auf deiner Insel" : "selten · in freier Wildbahn gesehen";
             if (state == CollectState.Seen) return e.collectible ? "noch nicht auf deiner Insel" : e.type == CollectType.Boat ? "auf dem Meer gesichtet" : "in freier Wildbahn gesehen";
             if (!j.PresentNow(e.index)) return e.type == CollectType.Critter ? "gerade nicht zu sehen" : "zurzeit nicht auf deiner Insel";
             int now = j.CurrentOf(e.index), best = j.BestOf(e.index);

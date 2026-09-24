@@ -17,7 +17,7 @@ namespace Drift.Tests
             _objects.Clear();
         }
 
-        Island MakeIsland(Vector2 pos, int seed, float yaw, bool player, float radius = 3f)
+        Island MakeIsland(Vector2 pos, int seed, float yaw, bool player, float radius = 3f, bool fullScale = true)
         {
             var go = new GameObject(player ? "TestPlayer" : "TestIsle_" + seed);
             go.SetActive(false);
@@ -29,9 +29,40 @@ namespace Drift.Tests
             isl.landRadius = radius;
             isl.shapeSeed = seed;
             isl.carryResponse = 0f;
+            // These tests pin the turn algorithm on its full scale; the tuned-down defaults are checked below.
+            if (fullScale)
+            {
+                isl.bodyTurnAmount = 1f;
+                isl.bodyTurnMaxQueued = 120f;
+                isl.bodyTurnTime = 2.5f;
+                isl.bodyTurnTimeHuge = 5f;
+                isl.bodyTurnMaxRate = 70f;
+                isl.bodyTurnMaxRateHuge = 35f;
+            }
             go.SetActive(true);
             _objects.Add(go);
             return isl;
+        }
+
+        [Test]
+        public void Defaults_TurnAThirdAsFar_AtHalfTheRate()
+        {
+            var host = MakeIsland(Vector2.zero, 11, 20f, true, 3f, false);
+            for (int k = 0; k < 50; k++) host.Tick(new Vector2(0f, 1f), 0.02f);
+            Vector2 fwd = new Vector2(host.Forward.x, host.Forward.z);
+            var guest = MakeIsland(host.PlanarPosition + fwd * 5.2f, 777, 140f, false, 3f, false);
+            host.MergeFrom(guest, 3f, 0f);
+            host.FinishUplift();
+            Assert.GreaterOrEqual(Mathf.Abs(host.LastBodyTurn), 30f - 1e-3f);
+            Assert.LessOrEqual(Mathf.Abs(host.LastBodyTurn), 60f + 1e-3f, "a third of the old 90..180");
+            host.driftRotation = 0f;
+            float maxRate = 0f;
+            for (int k = 0; k < 300; k++)
+            {
+                host.Tick(new Vector2(0f, 1f), 0.02f);
+                maxRate = Mathf.Max(maxRate, Mathf.Abs(host.BodyTurnRate));
+            }
+            Assert.LessOrEqual(maxRate, 35f + 0.5f, "half the old 70 deg/s cap");
         }
 
         [Test]

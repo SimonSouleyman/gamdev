@@ -393,7 +393,7 @@ namespace Drift.Life
         public int DesiredFireflies()
         {
             float area = _surface.LandArea;
-            if (area <= 0.5f || maxFireflies <= 0) return 0;
+            if (area <= 0.5f || maxFireflies <= 0 || !SpeciesPool.Allows(LifeKind.Firefly)) return 0;
             int floor = Mathf.Min(minFireflies, Mathf.CeilToInt(area * 1.5f));
             return Mathf.Clamp(Mathf.RoundToInt(area / Mathf.Max(0.5f, areaPerFirefly)), Mathf.Min(floor, maxFireflies), maxFireflies);
         }
@@ -472,7 +472,7 @@ namespace Drift.Life
         public int DesiredCrabs()
         {
             float area = _surface.LandArea;
-            if (area <= 1f) return 0;
+            if (area <= 1f || !SpeciesPool.Allows(LifeKind.Crab)) return 0;
             float shore = 2f * Mathf.Sqrt(Mathf.PI * area);
             return Mathf.Clamp(Mathf.RoundToInt(shore / Mathf.Max(0.5f, crabShoreSpacing)), 0, maxCrabs);
         }
@@ -480,7 +480,7 @@ namespace Drift.Life
         public int DesiredTurtles()
         {
             float area = _surface.LandArea;
-            if (area <= turtleMinArea) return 0;
+            if (area <= turtleMinArea || !SpeciesPool.Allows(LifeKind.Turtle)) return 0;
             return Mathf.Min(maxTurtles, 1 + Mathf.FloorToInt((area - turtleMinArea) / 40f));
         }
 
@@ -1084,7 +1084,7 @@ namespace Drift.Life
         // in round the point for the wave and leaves with it. Near tier only (the visitors are near-tier critters).
         public bool TriggerFireflyWaveAt(Vector2 local)
         {
-            if (_rnd == null || _surface == null || Tier != LifeTier.Near) return false;
+            if (_rnd == null || _surface == null || Tier != LifeTier.Near || !SpeciesPool.Allows(LifeKind.Firefly)) return false;
             if (_homeVersion < 0 || _amount < 0.3f || _surface.StormIntensity >= 0.3f || _surface.SampleHeight(local) < 0.03f) return false;
             float r2 = visitRadius * visitRadius;
             int near = 0;
@@ -1401,7 +1401,7 @@ namespace Drift.Life
             int butterflies = 0;
             foreach (var c in _critters)
                 if (!c.dying && c.kind == LifeKind.Butterfly) butterflies++;
-            int wantB = day && _life != null ? Mathf.Min(maxButterflies, _life.CountOf(LifeKind.Flower) / Mathf.Max(1, butterflyFlowers)) : 0;
+            int wantB = day && _life != null && SpeciesPool.Allows(LifeKind.Butterfly) ? Mathf.Min(maxButterflies, _life.CountOf(LifeKind.Flower) / Mathf.Max(1, butterflyFlowers)) : 0;
             for (int n = 0; n < spawnsPerInterval && butterflies < wantB; n++)
             {
                 if (!_life.TryRandomPlant(LifeKind.Flower, _rnd, default, 0f, out var p)) break;
@@ -1467,7 +1467,9 @@ namespace Drift.Life
                 {
                     case LifeKind.Crab:
                         size = crabScale * c.scale;
-                        if (c.state == CritterState.Dig) y -= size * 0.4f;
+                        y = CrabGround(c.pos, size);
+                        // Digging sinks the shell by half: the dome, the eyes and the claws stay above the sand.
+                        if (c.state == CritterState.Dig) y -= size * 0.2f;
                         if (c.state == CritterState.Wave) { move = CritterBatch.MoveClawWave; amp = size * 0.25f; }
                         break;
                     case LifeKind.Turtle:
@@ -1512,6 +1514,20 @@ namespace Drift.Life
                 _batch.AddDisc(_surface, _nestPos[i], r, turtleScale * 0.35f * k, MoundSand, 0.01f);
             }
             _batch.Apply(_mesh);
+        }
+
+        // A crab's footprint spans about its shell (0.5 template units round the pivot): on a sloping beach the centre
+        // height left the uphill half of the shell inside the sand, so it stands on the highest point under it, and
+        // never below the calm water line.
+        public float CrabGround(Vector2 pos, float size)
+        {
+            float r = size * 0.5f;
+            float h = _surface.SampleHeight(pos);
+            h = Mathf.Max(h, _surface.SampleHeight(pos + new Vector2(r, 0f)));
+            h = Mathf.Max(h, _surface.SampleHeight(pos - new Vector2(r, 0f)));
+            h = Mathf.Max(h, _surface.SampleHeight(pos + new Vector2(0f, r)));
+            h = Mathf.Max(h, _surface.SampleHeight(pos - new Vector2(0f, r)));
+            return Mathf.Max(h, 0f);
         }
 
         static readonly Color PitSand = new Color(0.56f, 0.45f, 0.3f);

@@ -15,6 +15,8 @@ namespace Drift.Core
         TurtleBreath, RayLeap, FlyingFish, GullDive, GullsTakeOff, JellySwarm, WhaleFluke, SealPopUp, SealHaulOut,
         // Appended 2026-09-23 (LifeDirector, night): a sleeping animal lifts its head and settles again.
         SleepStir,
+        // Appended 2026-09-24 (herd meetings): two herds meet and greet, chase, shove, trek or dance together.
+        Meeting,
     }
 
     // Something a watcher would notice, reported where and when it starts. Costs a null check without listeners;
@@ -69,6 +71,7 @@ namespace Drift.Core
                 case MomentKind.SealPopUp: return 0.6f;
                 case MomentKind.SealHaulOut: return 1.3f;
                 case MomentKind.SleepStir: return 0.5f;
+                case MomentKind.Meeting: return 1.5f;
                 default: return 4f;
             }
         }

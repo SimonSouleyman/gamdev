@@ -4,7 +4,8 @@ namespace Drift.Islands
 {
     // The camera the player flies over their finished Pangäa. Once the last island is merged the island itself
     // stops taking any steering (GameSession locks it and PangaeaFinale pins it) and this drives the main camera
-    // instead: a free flight. The stick, W/A/S/D and the tilt fly the CAMERA across the island (up the screen is
+    // instead: a free flight. The stick and W/A/S/D fly the CAMERA across the island (the tilt is ignored here: the
+    // owner holds the phone differently over the finished island; up the screen is
     // straight ahead), a drag turns the view where the camera stands, pinch and Q/E change the flying height.
     // The first version moved a focus point and kept the camera behind it: a drag then orbited that point, which at
     // the start is the middle of the island - on the phone it felt nailed to the island centre (owner, v0.6.2).
@@ -14,7 +15,7 @@ namespace Drift.Islands
     {
         public struct Input
         {
-            // Screen direction of the stick / keys / tilt, length 0..1.
+            // Screen direction of the stick / keys, length 0..1.
             public Vector2 move;
             // Drag since the last frame, in pixels. Dragging right swings the view round to the left (the finger
             // pulls the world along), dragging up lifts it towards the horizon.
