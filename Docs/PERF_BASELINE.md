@@ -218,7 +218,8 @@ or spread, never bunched.
   40 detailed animals / 10.4k detail vertices on top (`IslandHerdSystem.maxDetailed`, `maxDetailVertices`), i.e.
   ≤ ~16k for that island (measured: 39 detailed of 120, 15.4k verts, rebuild 0.38 ms desktop ≈ 3.5 ms phone estimate);
   every other island keeps the ≤ 10k cap.
-- **Caps:** per island 40 herds / **120 animals also after merges** (today a merged island carries
+- **Caps (v0.6.7.3):** at most 3 herds per species per island (`maxHerdsPerSpecies`), new herds one every 4 s (`herdSpawnGap`); the player island keeps 60 herds / 200 animals (scene), AI islands 40 / 120 - with the species cap the animal cap is no longer reached after merges.
+- **Caps (old note):** per island 40 herds / **120 animals also after merges** (today a merged island carries
   every guest herd: 102 herds / 663 animals / 40.8k verts), `maxPlants` 3000 but the vegetation mesh
   must stay ≤ 60k vertices (≈ 1,300 old-growth plants: cheaper far templates or a plant LOD are
   needed before the cap is real); world-wide ≤ 1,000 simulated animals (start world: 907), ≤ 300 in

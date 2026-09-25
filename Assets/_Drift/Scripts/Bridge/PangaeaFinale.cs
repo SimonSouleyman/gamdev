@@ -61,7 +61,7 @@ namespace Drift.Bridge
         // Renamed from freeFlight when the fly-over became a map view (v0.6.6): the old values (a pitch down to 8 deg,
         // heights instead of distances) belong to the stick flight and must not carry over.
         public FlyOverCamera.Settings mapView = new FlyOverCamera.Settings();
-        [Tooltip("Die Leiste „Sehenswürdigkeiten“ unten: ‹ › fliegen zur vorigen / nächsten Herde, zum Leuchtturm, Hafen, Dorf oder Gipfel.")]
+        [Tooltip("Die Leiste „Sehenswürdigkeiten“ unten: ‹ › fliegen zur vorigen / nächsten Herde, zum Leuchtturm, Hafen, Dorf oder Gipfel; die Leiste selbst antippen fliegt zum angezeigten Ziel (ohne eines zum nächstgelegenen).")]
         public bool sightsBar = true;
         // Not "sightsBottom": that first default (64) put the bar over the map and the controls hint in the corners.
         [Tooltip("Abstand der Leiste vom unteren Bildrand: über der Karte und dem Steuerungshinweis in den unteren Ecken.")]
@@ -512,13 +512,26 @@ namespace Drift.Bridge
             return false;
         }
 
-        // Tapping the label flies back to the stop shown.
-        void OnSightAgain()
+        // A tap on the bar flies to what it names: the stop shown (back to it after a drag), the tapped animal it
+        // names, or with neither the stop nearest the view's centre. The list is rebuilt first, so a herd is flown
+        // to where it grazes now (and FollowSubject keeps up with it from there).
+        public bool FlyToShownSight()
         {
-            if (player == null || !_flying) return;
-            int i = _sights.Index;
-            if (i < 0) { FlyToSight(1); return; }
-            if (FlyToSubject(_sights.SubjectOf(i, player, _flocks))) _subjectName = null;
+            if (player == null || !_flying) return false;
+            if (_sights.Index < 0 && _subject != null && !string.IsNullOrEmpty(_subjectName) && FlyToSubject(_subject)) return true;
+            _sights.Rebuild(player, _flocks);
+            _sightsTimer = 0f;
+            int i = _sights.TapIndex(_fly.Focus);
+            if (i < 0) return false;
+            _sights.Select(i);
+            if (!FlyToSubject(_sights.SubjectOf(i, player, _flocks)))
+            {
+                _sights.Select(-1);
+                return FlyToSight(1);
+            }
+            _subjectName = null;
+            if (_watch != null) _watch.HidePopup();
+            return true;
         }
 
         // A tap flies to what is under the finger, picked by the same rule as WatchTools.Tap (which answers the tap
@@ -650,7 +663,7 @@ namespace Drift.Bridge
             _shownIndex = i;
             _shownCount = n;
             _shownLabel = name;
-            _sightsLabel.text = i >= 0 ? _sights.Label(i) : !string.IsNullOrEmpty(name) ? name : n == 1 ? "1 Ziel · ‹ › fliegt hin" : n > 0 ? $"{n} Ziele · ‹ › fliegt hin" : "Nichts in Sicht";
+            _sightsLabel.text = _sights.BarLabel(_subjectName);
         }
 
         void SetSightsBar(bool on, float alpha)
@@ -667,8 +680,8 @@ namespace Drift.Bridge
         static readonly Vector2 SightsSize = new Vector2(980f, 150f);
         const float SightsButton = 138f;
 
-        // ‹ [Zebras (3/12)] ›: two round candy buttons for thumbs and a glass label between them that flies back to
-        // the stop shown when it is tapped.
+        // ‹ [Zebras (3/12)] ›: two round candy buttons for thumbs and between them a glass button, the whole label,
+        // that flies to the stop it names (FlyToShownSight).
         void BuildSightsBar(RectTransform root)
         {
             _sightsRoot = UiStyle.Rect(root, "SightsBar");
@@ -677,9 +690,24 @@ namespace Drift.Bridge
             float labelWidth = SightsSize.x - 2f * (SightsButton + 20f);
             var pill = UiStyle.Pill(_sightsRoot, "Label", new Vector2(labelWidth, 124f), UiStyle.GlassDense, true);
             pill.rectTransform.Center(Vector2.zero, new Vector2(labelWidth, 124f));
+            var sheen = UiStyle.Pill(pill.rectTransform, "Sheen", new Vector2(labelWidth, 124f), UiStyle.WithAlpha(Color.white, 0.12f));
+            sheen.sprite = UiSprites.PillHighlightOf(124f);
+            sheen.rectTransform.Stretch(2f, 2f, 2f, 2f);
+            // The tint multiplies its graphic, and darker dark glass would not read as a press: the target is a
+            // light glow over the glass that is invisible at rest (alpha 0 in the colour block).
+            var glow = UiStyle.Pill(pill.rectTransform, "PressGlow", new Vector2(labelWidth, 124f), UiStyle.WithAlpha(UiStyle.Sky, 0.24f));
+            glow.rectTransform.Stretch();
             var again = pill.gameObject.AddComponent<Button>();
-            again.targetGraphic = pill;
-            again.onClick.AddListener(OnSightAgain);
+            again.targetGraphic = glow;
+            again.navigation = new Navigation { mode = Navigation.Mode.None };
+            var colors = again.colors;
+            colors.normalColor = colors.selectedColor = colors.disabledColor = new Color(1f, 1f, 1f, 0f);
+            colors.highlightedColor = new Color(1f, 1f, 1f, 0.35f);
+            colors.pressedColor = Color.white;
+            colors.fadeDuration = 0.08f;
+            again.colors = colors;
+            pill.gameObject.AddComponent<UiPressFeedback>();
+            again.onClick.AddListener(() => FlyToShownSight());
             var caption = UiStyle.Label(pill.rectTransform, SightsTitle, UiStyle.Caption - 5, UiStyle.Muted, TextAnchor.MiddleCenter);
             caption.rectTransform.Place(new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0f, -10f), new Vector2(labelWidth - 60f, 34f));
             _sightsLabel = UiStyle.FitWidth(UiStyle.Label(pill.rectTransform, "", UiStyle.Body + 4, UiStyle.Cream, TextAnchor.MiddleCenter, true), 0.55f);

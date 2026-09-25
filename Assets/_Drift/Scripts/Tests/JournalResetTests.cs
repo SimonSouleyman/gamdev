@@ -215,5 +215,38 @@ namespace Drift.Tests
             Assert.AreEqual(JournalReset.PhotoFolderName, Path.GetFileName(PhotoLibrary.DefaultDirectory));
             StringAssert.StartsWith(JournalReset.PhotoPrefix, PhotoLibrary.FileNameFor(DateTime.Now));
         }
+
+        // The two resets are apart (owner 2026-09-26): "Tagebuch zurücksetzen" keeps the adventure runs and record,
+        // "Abenteuer-Rekord zurücksetzen" keeps the Pangäas.
+        [Test]
+        public void TheJournalResetAndTheAdventureResetLeaveEachOtherAlone()
+        {
+            AdventureRunLog.PathOverride = P(AdventureRunLog.FileName);
+            BestDistances.PathOverride = P(BestDistances.FileName);
+            try
+            {
+                BestDistances.Submit(Drift.Core.GameMode.Adventure, 900f);
+                AdventureRunLog.Add(AdventureRunLog.Make(900f, 2, 0, 1, 2, true, DateTime.Now));
+                RunJournal.Add(new RunRecord { seed = 3 }, null);
+                RunJournal.WaitForWrite();
+
+                JournalReset.Run(JournalResetScope.Everything, new JournalResetTargets { directory = _dir, lifeBookKey = LifeKey });
+                Assert.AreEqual(0, RunJournal.Records.Count);
+                AdventureRunLog.PathOverride = P(AdventureRunLog.FileName);
+                Assert.AreEqual(1, AdventureRunLog.Runs.Count, "the adventure runs stay");
+                Assert.AreEqual(900f, BestDistances.Get(Drift.Core.GameMode.Adventure), 1e-3f);
+
+                RunJournal.Add(new RunRecord { seed = 4 }, null);
+                AdventureRunLog.ResetAdventure();
+                Assert.AreEqual(0, AdventureRunLog.Runs.Count);
+                Assert.AreEqual(0f, BestDistances.Get(Drift.Core.GameMode.Adventure));
+                Assert.AreEqual(1, RunJournal.Records.Count, "the Pangäas stay");
+            }
+            finally
+            {
+                AdventureRunLog.PathOverride = null;
+                BestDistances.PathOverride = null;
+            }
+        }
     }
 }

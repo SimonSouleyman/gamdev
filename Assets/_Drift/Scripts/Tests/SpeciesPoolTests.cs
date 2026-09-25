@@ -294,10 +294,12 @@ namespace Drift.Tests
                 var guest = MakeObject(2.5f, seed * 17 + 3, LifeBiome.Temperate, 0.8f, false, false).GetComponent<IslandHerdSystem>();
                 int guestHerds = guest.HerdCount;
                 herds.AbsorbFrom(guest);
+                int merged = herds.HerdCount;
+                Assert.Greater(merged, 1, "seed " + seed + ": the guest's herds came along");
                 surface.radius = 5f;
                 surface.version++;
                 for (int i = 0; i < 20; i++) herds.Step(0.05f);
-                Assert.Greater(herds.HerdCount, 1 + guestHerds, "seed " + seed + ": new land after the merge brings new herds");
+                Assert.Greater(herds.HerdCount, merged, "seed " + seed + ": new land after the merge brings new herds");
             }
 
             SpeciesPool.Clear();

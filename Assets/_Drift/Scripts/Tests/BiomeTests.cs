@@ -239,6 +239,7 @@ namespace Drift.Tests
 
             // New land brings new herds, and those are the host biome's.
             ulong beforeMask = host.SpeciesPresent;
+            host.maxHerdsPerSpecies = 10;
             Surface(host).radius = 14f;
             Surface(host).version++;
             Run(host, 1f, 0.1f);

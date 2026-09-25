@@ -138,5 +138,63 @@ namespace Drift.Tests
             Assert.IsFalse(PangaeaFinale.ShowBanner(true, true, true, false), "photo mode / following a herd");
             Assert.IsFalse(PangaeaFinale.ShowBanner(true, true, false, true), "the flight into space has started");
         }
+
+        // ---------------------------------------------------------------- tapping the Sehenswürdigkeiten bar
+
+        static PangaeaSights Ring()
+        {
+            var s = new PangaeaSights();
+            s.Add(new Sight { kind = SightKind.Lighthouse, name = "Leuchtturm", world = new Vector3(0f, 6f, 30f) });
+            s.Add(new Sight { kind = SightKind.Harbour, name = "Hafen", world = new Vector3(30f, 0f, 0f) });
+            s.Add(new Sight { kind = SightKind.Summit, name = "Gipfel", world = new Vector3(0f, 12f, -30f) });
+            s.Add(new Sight { kind = SightKind.Herd, name = "Zebras", world = new Vector3(-30f, 0f, 0f) });
+            s.Arrange(Vector2.zero);
+            return s;
+        }
+
+        static int IndexOf(PangaeaSights s, string name)
+        {
+            for (int i = 0; i < s.Count; i++) if (s[i].name == name) return i;
+            return -1;
+        }
+
+        [Test]
+        public void SightsBarTap_WithoutAStop_FliesToTheNearest()
+        {
+            var s = Ring();
+            Assert.AreEqual(-1, s.Index);
+            Assert.AreEqual(IndexOf(s, "Hafen"), s.TapIndex(new Vector3(22f, 0f, 4f)));
+            Assert.AreEqual(IndexOf(s, "Zebras"), s.TapIndex(new Vector3(-12f, 0f, -3f)));
+            // The map distance counts, not the height: the summit is 12 u up but straight below the view.
+            Assert.AreEqual(IndexOf(s, "Gipfel"), s.TapIndex(new Vector3(2f, 0f, -26f)));
+            Assert.AreEqual(-1, s.Index, "asking does not select");
+            Assert.AreEqual(-1, new PangaeaSights().TapIndex(Vector3.zero), "nothing to fly to");
+        }
+
+        [Test]
+        public void SightsBarTap_WithAStop_FliesBackToIt()
+        {
+            var s = Ring();
+            int zebras = IndexOf(s, "Zebras");
+            s.Select(zebras);
+            Assert.AreEqual(zebras, s.TapIndex(new Vector3(28f, 0f, 1f)), "dragged over to the harbour: back to the zebras");
+            Assert.AreEqual(zebras, s.TapIndex(new Vector3(-30f, 0f, 0f)));
+            s.Select(-1);
+            Assert.AreEqual(IndexOf(s, "Hafen"), s.TapIndex(new Vector3(28f, 0f, 1f)));
+        }
+
+        [Test]
+        public void SightsBarLabel_SaysTheBarCanBeTapped()
+        {
+            var s = Ring();
+            Assert.AreEqual("4 Ziele · Tippen: hinfliegen", s.BarLabel(null));
+            Assert.AreEqual("Hase", s.BarLabel("Hase"), "a tapped animal that is no stop of the tour");
+            s.Select(IndexOf(s, "Hafen"));
+            Assert.AreEqual($"Hafen ({IndexOf(s, "Hafen") + 1}/4)", s.BarLabel("Hase"));
+            Assert.AreEqual("1 Ziel · Tippen: hinfliegen", PangaeaSights.IdleLabel(1));
+            Assert.AreEqual("13 Ziele · Tippen: hinfliegen", PangaeaSights.IdleLabel(13));
+            Assert.AreEqual("Nichts in Sicht", PangaeaSights.IdleLabel(0));
+            Assert.AreEqual("Nichts in Sicht", new PangaeaSights().BarLabel(null));
+        }
     }
 }

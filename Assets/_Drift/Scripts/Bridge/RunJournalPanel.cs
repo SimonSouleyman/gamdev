@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using Drift.Core;
 using Drift.SaveSystem;
 using Drift.UI;
 using UnityEngine;
@@ -13,15 +14,20 @@ namespace Drift.Bridge
     // the pause menu and the finale (its own canvas sorts above them) and pauses nothing. A scrolling list of cards,
     // newest first, one column in portrait and two in landscape; a card opens its space picture in a full view.
     // Pictures are loaded only for the cards around the visible part of the list, one per frame.
+    // Two tabs: "Gemütlich" (the Pangäas) and "Abenteuer" (AdventureRunLog: the record on top, one line per run, and
+    // the reset of the adventure record and runs only, owner 2026-09-26).
     [ExecuteAlways]
     public class RunJournalPanel : MonoBehaviour
     {
-        public enum EditorPreview { None, List, Empty, Picture }
+        public enum EditorPreview { None, List, Empty, Picture, Adventure, AdventureEmpty, AdventureReset }
 
         const string CanvasName = "RunJournalCanvas";
         public const float WideFrom = 2100f;
         const float CardH = 310f, CardGap = 20f, PicH = 270f, PicW = 480f, CardPad = 20f, MaxFit = 1.5f;
-        const float HeaderH = 204f, FooterH = 36f + 124f + 24f;
+        const float HeaderH = 330f, FooterH = 36f + 124f + 24f;
+        // The Abenteuer page: record lines on top, the reset button at the bottom, the runs in between.
+        const float RowH = 128f, RowGap = 12f, RecordH = 150f, ResetH = 112f;
+        static readonly Vector2 TabSize = new Vector2(400f, 104f), ResetCardSize = new Vector2(820f, 670f);
         const int LoadAhead = 1, KeepAhead = 3;
         static readonly Vector2 TallSize = new Vector2(960f, 1680f), WideSize = new Vector2(1980f, 1080f);
         static readonly string[] Months =
@@ -52,8 +58,15 @@ namespace Drift.Bridge
         const int StatCount = 5;
         static readonly string[] StatNames = { "Spielzeit", "Inseln vereint", "Landmasse", "Arten gesehen", "Fotos" };
 
+        sealed class RowView
+        {
+            public RectTransform root;
+            public Text line, details;
+        }
+
         static RunJournalPanel s_active;
         static int s_closedFrame = -1;
+        static GameMode s_lastPage = GameMode.Cozy;
 
         Canvas _canvas;
         RectTransform _root, _screen, _fit, _panel, _list, _content, _empty, _viewFrame;
@@ -66,6 +79,16 @@ namespace Drift.Bridge
         readonly List<CardView> _cards = new List<CardView>();
         readonly List<RunRecord> _sample = new List<RunRecord>();
         IReadOnlyList<RunRecord> _records;
+        GameMode _page = GameMode.Cozy;
+        RectTransform _tabs, _adv, _advList, _advContent, _advEmpty, _confirm;
+        readonly GameObject[] _tabOn = new GameObject[2], _tabOff = new GameObject[2];
+        Text _advRecord, _advRecordDate;
+        Button _advReset;
+        ScrollRect _advScroll;
+        readonly List<RowView> _rows = new List<RowView>();
+        readonly List<AdventureRun> _advSample = new List<AdventureRun>();
+        IReadOnlyList<AdventureRun> _runs;
+        float _advSampleBest;
         bool _open, _usingSample, _dirty;
         int _wide = -1, _columns = 1, _viewIndex = -1;
         Vector2 _viewFittedFor;
@@ -90,6 +113,15 @@ namespace Drift.Bridge
         }
         public GameObject Root => _screen != null ? _screen.gameObject : null;
         public bool Wide => _wide == 1;
+        // The tab shown; the title reopens the journal on the one last chosen there.
+        public GameMode Page => _page;
+        public static GameMode LastPage => s_lastPage;
+        public int AdventureRowCount => _runs != null ? _runs.Count : 0;
+        public bool ResetButtonShown => _advReset != null && _advReset.gameObject.activeInHierarchy;
+        public bool ResetConfirmOpen => _confirm != null && _confirm.gameObject.activeSelf;
+        public string AdventureRecordText => _advRecord != null ? _advRecord.text : "";
+        // The shown line of a row, newest first.
+        public string AdventureLine(int row) => row >= 0 && row < _rows.Count && _rows[row].root.gameObject.activeSelf ? _rows[row].line.text : "";
 
         // Without a component in the scene the game still gets its run journal.
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
@@ -109,24 +141,30 @@ namespace Drift.Bridge
             Build();
             RunJournal.OpenRequested += OnOpenRequested;
             RunJournal.Changed += OnJournalChanged;
+            AdventureRunLog.Changed += OnJournalChanged;
+            BestDistances.Changed += OnBestChanged;
         }
 
         void OnDisable()
         {
             RunJournal.OpenRequested -= OnOpenRequested;
             RunJournal.Changed -= OnJournalChanged;
+            AdventureRunLog.Changed -= OnJournalChanged;
+            BestDistances.Changed -= OnBestChanged;
             Close();
             ReleaseSample();
             _previewShown = EditorPreview.None;
             if (s_active == this) s_active = null;
         }
 
-        void OnOpenRequested() => Open();
+        void OnOpenRequested(GameMode page) => Open(page);
 
         void OnJournalChanged()
         {
             if (_open && !_usingSample) _dirty = true;
         }
+
+        void OnBestChanged(GameMode mode) => OnJournalChanged();
 
         void Update()
         {
@@ -154,22 +192,30 @@ namespace Drift.Bridge
             _previewShown = editorPreview;
             Close();
             if (editorPreview == EditorPreview.None) return;
-            OpenSample(editorPreview == EditorPreview.Empty ? 0 : 7);
+            bool adventure = editorPreview == EditorPreview.Adventure || editorPreview == EditorPreview.AdventureEmpty || editorPreview == EditorPreview.AdventureReset;
+            OpenSample(editorPreview == EditorPreview.Empty ? 0 : 7, editorPreview == EditorPreview.AdventureEmpty ? 0 : 14);
+            if (adventure) ShowPage(GameMode.Adventure);
             if (editorPreview == EditorPreview.Picture) ShowPicture(0);
+            if (editorPreview == EditorPreview.AdventureReset) OpenResetConfirm();
         }
 
         // ---------------------------------------------------------------- control
 
-        public void Open()
+        public void Open() => Open(GameMode.Cozy);
+
+        public void Open(GameMode page)
         {
             if (_canvas == null) Build();
-            _usingSample = false;
+            ReleaseSample();
             _records = RunJournal.Records;
+            _runs = AdventureRunLog.Runs;
+            _page = page;
             Show();
         }
 
-        // Edit Mode preview and tests: made-up records with generated pictures, nothing is read or written.
-        public void OpenSample(int count)
+        // Edit Mode preview and tests: made-up records with generated pictures and made-up adventure runs, nothing is
+        // read or written (the reset only empties the made-up runs).
+        public void OpenSample(int count, int adventureRuns = 14)
         {
             if (_canvas == null) Build();
             ReleaseSample();
@@ -188,9 +234,35 @@ namespace Drift.Bridge
                     photos = i % 4 * 3,
                     image = i == 2 ? "" : "sample",
                 });
+            _advSampleBest = 0f;
+            for (int i = 0; i < adventureRuns; i++)
+            {
+                float metres = 600f + (i * 7919 % 13) * 850f + i * 37f;
+                bool record = metres > _advSampleBest;
+                if (record) _advSampleBest = metres;
+                _advSample.Add(AdventureRunLog.Make(metres, 1 + Mathf.FloorToInt(metres / 1100f), i % 5, 3 + i % 7, 4 + i * 3 % 11, record,
+                    t.AddDays(-(adventureRuns - 1 - i) * 0.6).AddMinutes(-13 * i)));
+            }
             _usingSample = true;
             _records = _sample;
+            _runs = _advSample;
+            _page = GameMode.Cozy;
             Show();
+        }
+
+        // The tab buttons' route.
+        public void ShowPage(GameMode page)
+        {
+            _page = page;
+            if (Application.isPlaying && !_usingSample) s_lastPage = page;
+            CloseResetConfirm();
+            if (!_open) return;
+            Refill();
+            _content.anchoredPosition = Vector2.zero;
+            _advContent.anchoredPosition = Vector2.zero;
+            _scroll.velocity = Vector2.zero;
+            _advScroll.velocity = Vector2.zero;
+            if (!Application.isPlaying && _page == GameMode.Cozy) for (int i = 0; i < 12 && LoadNext(); i++) { }
         }
 
         void Show()
@@ -200,11 +272,15 @@ namespace Drift.Bridge
             _screen.gameObject.SetActive(true);
             _screen.SetAsLastSibling();
             _view.SetActive(false);
+            SetActive(_confirm.gameObject, false);
             _viewIndex = -1;
             _wide = -1;
             Layout();
+            Refill();
             _content.anchoredPosition = Vector2.zero;
             _scroll.velocity = Vector2.zero;
+            _advContent.anchoredPosition = Vector2.zero;
+            _advScroll.velocity = Vector2.zero;
             if (!Application.isPlaying) for (int i = 0; i < 12 && LoadNext(); i++) { }
         }
 
@@ -216,17 +292,20 @@ namespace Drift.Bridge
             ReleaseView();
             foreach (var c in _cards) ReleaseCard(c);
             if (_view != null) _view.SetActive(false);
+            if (_confirm != null) SetActive(_confirm.gameObject, false);
             if (_screen != null) _screen.gameObject.SetActive(false);
             if (_canvas != null) _canvas.enabled = false;
             _records = null;
+            _runs = null;
             _viewIndex = -1;
             if (was) s_closedFrame = Time.frameCount;
         }
 
-        // Escape / Android back: full picture -> list -> closed.
+        // Escape / Android back: reset question -> full picture -> list -> closed.
         public void Back()
         {
-            if (ViewingPicture) HidePicture();
+            if (ResetConfirmOpen) CloseResetConfirm();
+            else if (ViewingPicture) HidePicture();
             else Close();
         }
 
@@ -238,7 +317,7 @@ namespace Drift.Bridge
                 if (_root.rect.size != _viewFittedFor) FitPicture();
                 return;
             }
-            LoadNext();
+            if (_page == GameMode.Cozy) LoadNext();
         }
 
         // ---------------------------------------------------------------- list
@@ -246,12 +325,25 @@ namespace Drift.Bridge
         void Refill()
         {
             _dirty = false;
-            if (!_usingSample) _records = RunJournal.Records;
+            if (!_usingSample)
+            {
+                _records = RunJournal.Records;
+                _runs = AdventureRunLog.Runs;
+            }
+            bool cozy = _page == GameMode.Cozy;
+            for (int t = 0; t < 2; t++)
+            {
+                bool selected = (t == 0) == cozy;
+                SetActive(_tabOn[t], selected);
+                SetActive(_tabOff[t], !selected);
+            }
+            SetActive(_adv.gameObject, !cozy);
+            RefillAdventure();
             int n = _records != null ? _records.Count : 0;
             while (_cards.Count < n) _cards.Add(BuildCard(_content, _cards.Count));
-            _count.text = n == 0 ? "Deine vollendeten Welten" : n == 1 ? "1 vollendete Welt" : n + " vollendete Welten";
-            SetActive(_empty.gameObject, n == 0);
-            SetActive(_list.gameObject, n > 0);
+            if (cozy) _count.text = n == 0 ? "Deine vollendeten Welten" : n == 1 ? "1 vollendete Welt" : n + " vollendete Welten";
+            SetActive(_empty.gameObject, cozy && n == 0);
+            SetActive(_list.gameObject, cozy && n > 0);
 
             float w = CardWidth();
             int rows = (n + _columns - 1) / _columns;
@@ -273,6 +365,74 @@ namespace Drift.Bridge
                 c.root.Place(new Vector2(0f, 1f), new Vector2(0f, 1f), new Vector2(i % _columns * (w + CardGap), -(i / _columns) * (CardH + CardGap)), new Vector2(w, CardH));
                 FillCard(c, _records[record], record + 1);
             }
+        }
+
+        void RefillAdventure()
+        {
+            int n = _runs != null ? _runs.Count : 0;
+            float best = _usingSample ? _advSampleBest : BestDistances.Get(GameMode.Adventure);
+            if (_page == GameMode.Adventure) _count.text = ModeTexts.AdventureRunCount(n);
+            _advRecord.text = ModeTexts.AdventureRecordHeader(best);
+            _advRecordDate.text = RecordDate(_runs, best);
+            SetActive(_advEmpty.gameObject, n == 0);
+            SetActive(_advList.gameObject, n > 0);
+            while (_rows.Count < n) _rows.Add(BuildRow(_advContent, _rows.Count));
+            _advContent.sizeDelta = new Vector2(0f, Mathf.Max(0f, n * (RowH + RowGap) - RowGap));
+            for (int i = 0; i < _rows.Count; i++)
+            {
+                var row = _rows[i];
+                bool on = i < n;
+                SetActive(row.root.gameObject, on);
+                if (!on) continue;
+                // Newest first.
+                var r = _runs[n - 1 - i];
+                row.line.text = ModeTexts.AdventureRunLine(r);
+                row.line.color = r.record ? UiStyle.Sand : UiStyle.Cream;
+                row.details.text = ModeTexts.AdventureRunDetails(r);
+                row.details.color = r.record ? UiStyle.Sand : UiStyle.Muted;
+            }
+        }
+
+        // "aufgestellt am 26.09.2026" under the record: the newest run that set it, if the log still has it.
+        static string RecordDate(IReadOnlyList<AdventureRun> runs, float best)
+        {
+            if (runs == null || best <= 0f) return "";
+            int shown = BestDistances.Metres(best);
+            for (int i = runs.Count - 1; i >= 0; i--)
+            {
+                var r = runs[i];
+                if (!r.record || BestDistances.Metres(r.metres) != shown) continue;
+                if (DateTime.TryParse(r.date, CultureInfo.InvariantCulture, DateTimeStyles.None, out var t))
+                    return "aufgestellt am " + t.ToString("dd.MM.yyyy", CultureInfo.InvariantCulture);
+                break;
+            }
+            return "";
+        }
+
+        public void OpenResetConfirm()
+        {
+            if (!_open || _confirm == null) return;
+            _confirm.SetAsLastSibling();
+            SetActive(_confirm.gameObject, true);
+        }
+
+        public void CloseResetConfirm()
+        {
+            if (_confirm != null) SetActive(_confirm.gameObject, false);
+        }
+
+        // "Ja" in the reset question (tests and eval take the same route): the adventure record and runs are gone,
+        // the cozy journal stays. The made-up preview runs are only emptied.
+        public void ConfirmAdventureReset()
+        {
+            CloseResetConfirm();
+            if (_usingSample)
+            {
+                _advSample.Clear();
+                _advSampleBest = 0f;
+            }
+            else AdventureRunLog.ResetAdventure();
+            if (_open) Refill();
         }
 
         float CardWidth()
@@ -450,6 +610,7 @@ namespace Drift.Bridge
         {
             UiStyle.DestroyChildrenNamed(transform, CanvasName);
             _cards.Clear();
+            _rows.Clear();
             _canvas = UiStyle.Canvas(transform, CanvasName, sortingOrder, true, out _root);
 
             _screen = UiStyle.Scrim(_root, "RunJournalScreen", UiStyle.Dim);
@@ -461,7 +622,10 @@ namespace Drift.Bridge
             _title = UiStyle.FitWidth(UiStyle.Label(_panel, "Durchgangs-Tagebuch", 80, UiStyle.Sand, TextAnchor.MiddleCenter, true));
             _title.rectTransform.Place(new Vector2(0.5f, 1f), new Vector2(0.5f, 0.5f), new Vector2(0f, -85f), new Vector2(860f, 110f));
             _count = UiStyle.FitWidth(UiStyle.Label(_panel, "", 34, UiStyle.CreamSoft, TextAnchor.MiddleCenter));
-            _count.rectTransform.Place(new Vector2(0.5f, 1f), new Vector2(0.5f, 0.5f), new Vector2(0f, -162f), new Vector2(860f, 44f));
+            _count.rectTransform.Place(new Vector2(0.5f, 1f), new Vector2(0.5f, 0.5f), new Vector2(0f, -292f), new Vector2(860f, 44f));
+            _tabs = UiStyle.Rect(_panel, "ModeTabs").Place(new Vector2(0.5f, 1f), new Vector2(0.5f, 0.5f), new Vector2(0f, -208f), new Vector2(2f * TabSize.x + 16f, TabSize.y));
+            BuildTab(0, GameMode.Cozy, -(TabSize.x + 16f) * 0.5f);
+            BuildTab(1, GameMode.Adventure, (TabSize.x + 16f) * 0.5f);
 
             // The list: a clipped viewport that scrolls by drag, wheel and inertia; the transparent body makes the
             // gaps between cards draggable too.
@@ -494,18 +658,122 @@ namespace Drift.Bridge
             var line2 = UiStyle.Label(_empty, "Vereine alle Inseln einer Welt zu einem einzigen Kontinent. Jedes vollendete Pangäa bekommt hier eine Seite mit seinem Bild aus dem All.", UiStyle.Body, UiStyle.Muted);
             line2.rectTransform.TopCenter(new Vector2(0f, -316f), new Vector2(740f, 220f));
 
+            BuildAdventure();
+
             _close = UiStyle.PrimaryButton(_panel, "CloseRunJournal", "Zurück", new Vector2(680f, 124f), Close);
             ((RectTransform)_close.transform).Place(new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(0f, 36f), new Vector2(680f, 124f));
             UiStyle.ButtonIcon(_close, UiIcon.Back);
+
+            BuildResetConfirm();
 
             BuildView(_root);
 
             _screen.gameObject.SetActive(false);
             _view.SetActive(false);
+            _confirm.gameObject.SetActive(false);
             _canvas.enabled = false;
             _open = false;
             _wide = -1;
             UiStyle.OnResize(_screen, Layout);
+        }
+
+        void BuildTab(int index, GameMode mode, float x)
+        {
+            string label = GameModes.Label(mode);
+            var on = UiStyle.PrimaryButton(_tabs, "Tab" + mode + "On", label, TabSize, () => ShowPage(mode));
+            ((RectTransform)on.transform).Center(new Vector2(x, 0f), TabSize);
+            var off = UiStyle.SecondaryButton(_tabs, "Tab" + mode, label, TabSize, () => ShowPage(mode));
+            ((RectTransform)off.transform).Center(new Vector2(x, 0f), TabSize);
+            UiStyle.FitWidth(UiStyle.LabelOf(on));
+            UiStyle.FitWidth(UiStyle.LabelOf(off));
+            _tabOn[index] = on.gameObject;
+            _tabOff[index] = off.gameObject;
+        }
+
+        void BuildAdventure()
+        {
+            _adv = UiStyle.Rect(_panel, "Adventure");
+            _advRecord = UiStyle.FitWidth(UiStyle.Label(_adv, "", UiStyle.Heading, UiStyle.Sand, TextAnchor.MiddleCenter, true));
+            Row(_advRecord.rectTransform, 0f, 0f, 0f, 84f, 0.5f);
+            _advRecordDate = UiStyle.FitWidth(UiStyle.Label(_adv, "", UiStyle.Caption, UiStyle.Muted, TextAnchor.MiddleCenter));
+            Row(_advRecordDate.rectTransform, 0f, 0f, 86f, 40f, 0.5f);
+            var line = UiStyle.Shape(_adv, "Divider", UiSprites.PillOf(4f), UiStyle.Line);
+            Row(line.rectTransform, 0f, 0f, RecordH - 12f, 3f, 0.5f);
+
+            var viewport = UiStyle.Shape(_adv, "Runs", null, UiStyle.WithAlpha(Color.white, 0f), true);
+            _advList = viewport.rectTransform;
+            _advList.Stretch(0f, ResetH + 28f, 0f, RecordH);
+            _advList.gameObject.AddComponent<RectMask2D>();
+            _advContent = UiStyle.Rect(_advList, "Content");
+            _advContent.anchorMin = new Vector2(0f, 1f);
+            _advContent.anchorMax = new Vector2(1f, 1f);
+            _advContent.pivot = new Vector2(0.5f, 1f);
+            _advContent.anchoredPosition = Vector2.zero;
+            _advContent.sizeDelta = Vector2.zero;
+            _advScroll = _advList.gameObject.AddComponent<ScrollRect>();
+            _advScroll.viewport = _advList;
+            _advScroll.content = _advContent;
+            _advScroll.horizontal = false;
+            _advScroll.vertical = true;
+            _advScroll.movementType = ScrollRect.MovementType.Elastic;
+            _advScroll.elasticity = 0.12f;
+            _advScroll.inertia = true;
+            _advScroll.decelerationRate = 0.12f;
+            _advScroll.scrollSensitivity = 60f;
+
+            _advEmpty = UiStyle.Rect(_adv, "Empty");
+            _advEmpty.Stretch(0f, ResetH + 28f, 0f, RecordH + 30f);
+            var line1 = UiStyle.Label(_advEmpty, ModeTexts.AdventureLogEmpty, UiStyle.Subheading, UiStyle.Cream, TextAnchor.UpperCenter, true);
+            line1.rectTransform.TopCenter(new Vector2(0f, -40f), new Vector2(780f, 60f));
+            UiStyle.FitWidth(line1);
+            var line2 = UiStyle.Label(_advEmpty, ModeTexts.AdventureLogEmptyBody, UiStyle.Body, UiStyle.Muted);
+            line2.rectTransform.TopCenter(new Vector2(0f, -116f), new Vector2(740f, 180f));
+
+            var size = new Vector2(760f, ResetH);
+            _advReset = UiStyle.SecondaryButton(_adv, "ResetAdventure", ModeTexts.AdventureResetLabel, size, OpenResetConfirm, true);
+            ((RectTransform)_advReset.transform).Place(new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(0f, 0f), size);
+            var label = UiStyle.LabelOf(_advReset);
+            label.fontSize = 40;
+            UiStyle.FitWidth(label);
+        }
+
+        RowView BuildRow(RectTransform parent, int i)
+        {
+            var row = new RowView { root = UiStyle.Card(parent, "AdventureRun" + i, new Vector2(860f, RowH)) };
+            row.root.anchorMin = new Vector2(0f, 1f);
+            row.root.anchorMax = new Vector2(1f, 1f);
+            row.root.pivot = new Vector2(0.5f, 1f);
+            row.root.offsetMin = new Vector2(0f, -i * (RowH + RowGap) - RowH);
+            row.root.offsetMax = new Vector2(0f, -i * (RowH + RowGap));
+            row.line = UiStyle.FitWidth(UiStyle.Label(row.root, "", 42, UiStyle.Cream, TextAnchor.MiddleLeft, true));
+            Row(row.line.rectTransform, 30f, 30f, 14f, 56f, 0f);
+            row.details = UiStyle.FitWidth(UiStyle.Label(row.root, "", 28, UiStyle.Muted, TextAnchor.MiddleLeft));
+            Row(row.details.rectTransform, 30f, 30f, 74f, 40f, 0f);
+            return row;
+        }
+
+        // Asked once, in the look of the journal's own reset question: dim behind, a card with the question.
+        void BuildResetConfirm()
+        {
+            _confirm = UiStyle.Rect(_panel, "ResetConfirm");
+            _confirm.Stretch();
+            var dim = UiStyle.Shape(_confirm, "Dim", UiSprites.RoundedLarge, UiStyle.WithAlpha(UiStyle.Dim, 0.88f), true);
+            dim.rectTransform.Stretch();
+            var dimButton = dim.gameObject.AddComponent<Button>();
+            dimButton.transition = Selectable.Transition.None;
+            dimButton.navigation = new Navigation { mode = Navigation.Mode.None };
+            dimButton.onClick.AddListener(CloseResetConfirm);
+
+            var card = UiStyle.Panel(_confirm, "Card", ResetCardSize, true).Center(Vector2.zero, ResetCardSize);
+            var question = UiStyle.Label(card, ModeTexts.AdventureResetQuestion, UiStyle.Subheading + 4, UiStyle.Sand, TextAnchor.UpperCenter, true);
+            question.rectTransform.TopCenter(new Vector2(0f, -44f), new Vector2(ResetCardSize.x - 80f, 130f));
+            var note = UiStyle.Label(card, ModeTexts.AdventureResetNote, UiStyle.Caption + 2, UiStyle.CreamSoft, TextAnchor.UpperCenter);
+            note.rectTransform.TopCenter(new Vector2(0f, -200f), new Vector2(ResetCardSize.x - 80f, 100f));
+            var wide = new Vector2(700f, 112f);
+            var yes = UiStyle.SecondaryButton(card, "Yes", ModeTexts.AdventureResetYes, wide, ConfirmAdventureReset, true);
+            ((RectTransform)yes.transform).TopCenter(new Vector2(0f, -346f), wide);
+            var cancel = UiStyle.PrimaryButton(card, "Cancel", ModeTexts.AdventureResetCancel, wide, CloseResetConfirm);
+            ((RectTransform)cancel.transform).TopCenter(new Vector2(0f, -482f), wide);
         }
 
         CardView BuildCard(RectTransform parent, int i)
@@ -587,6 +855,7 @@ namespace Drift.Bridge
             _count.rectTransform.sizeDelta = new Vector2(size.x - 100f, 44f);
             _list.Stretch(50f, FooterH, 50f, HeaderH);
             _empty.Stretch(50f, FooterH, 50f, HeaderH + 20f);
+            _adv.Stretch(50f, FooterH, 50f, HeaderH + 10f);
             if (_open) Refill();
         }
 
@@ -617,6 +886,8 @@ namespace Drift.Bridge
         void ReleaseSample()
         {
             _sample.Clear();
+            _advSample.Clear();
+            _advSampleBest = 0f;
             _usingSample = false;
         }
 

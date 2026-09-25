@@ -219,13 +219,13 @@ namespace Drift.EditorTools.Playtest
         static Vector2 BotScreen()
         {
             if (!_botOn || _bot == null || _rec == null) return Vector2.zero;
-            return _bot.Screen(_rec.time, Time.deltaTime, _chase != null ? _chase.ViewYawDeg : 0f);
+            return _bot.Screen(_rec.time, Time.deltaTime, _chase != null ? _chase.SteerYawDeg : 0f);
         }
 
         static Vector2 BotMove()
         {
             if (!_botOn || _bot == null || _rec == null || _rec.player == null) return Vector2.zero;
-            Vector2 screen = _bot.Screen(_rec.time, Time.deltaTime, _chase != null ? _chase.ViewYawDeg : 0f);
+            Vector2 screen = _bot.Screen(_rec.time, Time.deltaTime, _chase != null ? _chase.SteerYawDeg : 0f);
             if (screen.sqrMagnitude < 1e-6f) return Vector2.zero;
             Vector2 world = TiltMath.ToWorld(screen, _chase != null ? _chase.SteerYawDeg : 0f);
             var p = _rec.player;

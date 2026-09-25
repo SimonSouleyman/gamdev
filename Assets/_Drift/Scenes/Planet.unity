@@ -2051,14 +2051,17 @@ MonoBehaviour:
   idleRate: 1
   idlePauseMin: 0.6
   idlePauseMax: 3.5
-  meetRate: 0.006
-  meetRange: 4
+  meetRate: 0.5
+  meetRange: 8
+  meetSeekRange: 14
+  meetDriftChance: 0.25
+  meetDriftLeg: 5
   meetDirectorRange: 6
-  meetCooldown: {x: 70, y: 130}
+  meetCooldown: {x: 20, y: 40}
   meetGap: {x: 10, y: 20}
   maxMeetings: 2
   meetApproachPace: 1.5
-  meetApproachTime: 8
+  meetApproachTime: 12
   seed: 1
   simDistance: 100
   hideDistance: 260
@@ -2080,6 +2083,10 @@ MonoBehaviour:
   minHerdArea: 4
   maxHerds: 60
   maxAnimals: 200
+  maxHerdsPerSpecies: 3
+  animalsPerArea: 0
+  maxAnimalsLimit: 240
+  herdSpawnGap: 4
   herdSpacing: 1.6
   formationSpacing: 2.2
   shoreMargin: 0.2

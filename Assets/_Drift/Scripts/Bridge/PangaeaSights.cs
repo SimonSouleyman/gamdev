@@ -249,8 +249,36 @@ namespace Drift.Bridge
             return _index;
         }
 
+        // The stop nearest the view's centre (on the map, heights ignored), -1 = none.
+        public int Nearest(Vector3 focus)
+        {
+            int best = -1;
+            float bestD = float.MaxValue;
+            for (int i = 0; i < _list.Count; i++)
+            {
+                Vector3 w = _list[i].world;
+                float dx = w.x - focus.x, dz = w.z - focus.z, d = dx * dx + dz * dz;
+                if (d < bestD) { bestD = d; best = i; }
+            }
+            return best;
+        }
+
+        // Where a tap on the bar flies: to the stop it names (back to it after a drag), without one to the stop
+        // nearest the view's centre.
+        public int TapIndex(Vector3 focus) => _index >= 0 && _index < _list.Count ? _index : Nearest(focus);
+
         // "Zebras (3/12)".
         public string Label(int i) => i >= 0 && i < _list.Count ? $"{_list[i].name} ({i + 1}/{_list.Count})" : "";
+
+        public const string TapHint = "Tippen: hinfliegen";
+
+        // "13 Ziele · Tippen: hinfliegen": the bar with no stop shown says that it can be tapped.
+        public static string IdleLabel(int count) =>
+            count == 1 ? $"1 Ziel · {TapHint}" : count > 0 ? $"{count} Ziele · {TapHint}" : "Nichts in Sicht";
+
+        // What the bar shows: the current stop, else what the camera was sent to by a tap on the map, else the count.
+        public string BarLabel(string subjectName) =>
+            _index >= 0 && _index < _list.Count ? Label(_index) : !string.IsNullOrEmpty(subjectName) ? subjectName : IdleLabel(_list.Count);
 
         public static float AngleAround(Vector2 centre, Vector3 world) =>
             Mathf.Repeat(Mathf.Atan2(world.x - centre.x, world.z - centre.y) * Mathf.Rad2Deg, 360f);

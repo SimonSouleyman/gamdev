@@ -171,6 +171,53 @@ namespace Drift.Tests
             Assert.AreEqual(137f, Mathf.Repeat(camGo.transform.eulerAngles.y, 360f), 0.5f);
         }
 
+        static Vector2 Flat(Vector3 v) => new Vector2(v.x, v.z).normalized;
+
+        // Owner, v0.6.7: the cozy view had turned with the island, but the stick still meant the old right. The steering
+        // now reads the picture itself: after the view swung 90 degrees, right is the new right and up the new ahead.
+        [Test]
+        public void AfterTheViewTurned_TheStickStillMeansTheScreen()
+        {
+            var mode = GameModes.Current;
+            try
+            {
+                GameModes.Set(GameMode.Cozy);
+                Island.DirectionSteering = true;
+                var isl = MakeIsland(0f);
+                var camGo = new GameObject("TestChaseCamera");
+                _objects.Add(camGo);
+                var cam = camGo.AddComponent<IslandChaseCamera>();
+                cam.target = isl;
+                cam.courseFollow = 1f;
+                cam.SnapToTarget();
+                Assert.IsTrue(cam.CourseFollowActive, "cozy open sea");
+                Assert.AreEqual(0f, Mathf.DeltaAngle(0f, cam.SteerYawDeg), 0.5f, "looking north");
+
+                // The view has swung onto an eastward course, as the chase shows it after a turn right.
+                camGo.transform.rotation = Quaternion.Euler(51f, 90f, 0f);
+                Assert.AreEqual(90f, cam.SteerYawDeg, 0.01f);
+                Vector2 right = TiltMath.ToWorld(Vector2.right, cam.SteerYawDeg);
+                Vector2 up = TiltMath.ToWorld(Vector2.up, cam.SteerYawDeg);
+                Assert.Less(Vector2.Angle(right, new Vector2(0f, -1f)), 0.5f, "right on the stick is the new right: south");
+                Assert.Less(Vector2.Angle(up, new Vector2(1f, 0f)), 0.5f, "up on the stick is where the view looks: east");
+                Assert.Less(Vector2.Angle(right, Flat(camGo.transform.right)), 0.5f);
+                Assert.Less(Vector2.Angle(up, Flat(camGo.transform.forward)), 0.5f);
+
+                // Halfway through the swing, leaning into the curve: the stick means what the picture shows right then.
+                camGo.transform.rotation = Quaternion.Euler(51f, 37f, 1.2f);
+                Assert.Less(Vector2.Angle(TiltMath.ToWorld(Vector2.right, cam.SteerYawDeg), Flat(camGo.transform.right)), 1.5f);
+                Assert.Less(Vector2.Angle(TiltMath.ToWorld(Vector2.up, cam.SteerYawDeg), Flat(camGo.transform.forward)), 0.5f);
+
+                // The adventure keeps its fixed frame along the track, whatever the transform does.
+                GameModes.Set(GameMode.Adventure);
+                Assert.AreEqual(0f, cam.SteerYawDeg, 1e-3f);
+            }
+            finally
+            {
+                GameModes.Set(mode);
+            }
+        }
+
         // ---------------------------------------------------------------- camera feel
 
         [Test]

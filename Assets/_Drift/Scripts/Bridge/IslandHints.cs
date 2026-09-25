@@ -221,7 +221,8 @@ namespace Drift.Bridge
             Resolve();
             _shown = ShouldShow() && player != null;
             _canvas.enabled = _shown;
-            if (!_shown) return;
+            // Cleared, not just covered: a bubble left behind from Gemütlich would otherwise pop up on the way back.
+            if (!_shown) { HideAll(); return; }
             Scan(Application.isPlaying ? Time.time : 0f);
             Present(10f);
         }

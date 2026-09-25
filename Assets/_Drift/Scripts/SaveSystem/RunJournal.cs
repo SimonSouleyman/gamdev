@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Threading.Tasks;
+using Drift.Core;
 using UnityEngine;
 using UnityEngine.Experimental.Rendering;
 
@@ -55,10 +56,12 @@ namespace Drift.SaveSystem
         }
 
         public static event Action Changed;
-        // Raised by any menu button that wants the run journal opened; the run journal UI listens.
-        public static event Action OpenRequested;
+        // Raised by any menu button that wants the run journal opened, with the page (Gemütlich or Abenteuer) to show;
+        // the run journal UI listens.
+        public static event Action<GameMode> OpenRequested;
 
-        public static void RequestOpen() => OpenRequested?.Invoke();
+        public static void RequestOpen() => RequestOpen(GameMode.Cozy);
+        public static void RequestOpen(GameMode page) => OpenRequested?.Invoke(page);
 
         // Tests point this at a temporary folder so they never touch the owner's journal; null = persistentDataPath.
         // Changing it drops the records in memory; they are read again from the new root on the next access.

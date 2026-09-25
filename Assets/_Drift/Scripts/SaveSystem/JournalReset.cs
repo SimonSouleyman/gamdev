@@ -33,7 +33,8 @@ namespace Drift.SaveSystem
     // Empties the journal: the album (the cross-run JournalBook file drift_journal.json, the LifeBook in PlayerPrefs, the
     // album layer of the live DiscoveryJournal), the photo tasks (drift_phototasks.json + PhotoTasks/), the journal layer
     // of the run in progress (in memory and in the save file) and, for Everything, the photo album (Photos/drift_*) and
-    // the run chronicle (run_journal.json + RunJournal/*.png). The best distances and the settings stay.
+    // the run chronicle (run_journal.json + RunJournal/*.png). The best distances, the adventure runs (AdventureRunLog,
+    // reset on their own from the Abenteuer tab of "Durchgänge") and the settings stay.
     // Also the one-time "everything" reset of v0.6.5 (AutoKey), which runs before the first scene loads, so neither the
     // species pool nor the journal UI ever read the old album.
     public static class JournalReset

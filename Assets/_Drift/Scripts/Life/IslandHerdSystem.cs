@@ -98,6 +98,14 @@ namespace Drift.Life
         public int maxHerds = 40;
         // Hard cap per island (animals are 60-78 verts each, so ~9k verts worst case in one mesh).
         public int maxAnimals = 120;
+        [Tooltip("Höchstens so viele Herden derselben Art auf einer Insel (Besitzer: „nicht mehr als 3 gleiche Tiergruppen“) – beim Entstehen und nach Verschmelzungen.")]
+        [Range(1, 10)] public int maxHerdsPerSpecies = 3;
+        [Tooltip("Tiere je Flächeneinheit, die eine gewachsene Insel tragen darf (0 = fest maxAnimals). Nie unter maxAnimals, nie über maxAnimalsLimit.")]
+        [Range(0f, 2f)] public float animalsPerArea = 0f;
+        [Tooltip("Obergrenze der mit der Fläche wachsenden Tierzahl. Handy: 60–78 Vertices je Tier, dazu höchstens maxDetailVertices für die nahen Detailtiere.")]
+        public int maxAnimalsLimit = 240;
+        [Tooltip("Neue Herden auf neuem Land (Verschmelzen, Vulkan) erscheinen einzeln: höchstens eine je so viele Sekunden.")]
+        [Range(0f, 20f)] public float herdSpawnGap = 4f;
         // Herds spawn and choose wander targets at least this far from other herds, so they read as separate clusters.
         public float herdSpacing = 1.6f;
         // Formation radius in body lengths: member k sits at ~formationSpacing * body * sqrt(k), which keeps the
@@ -344,6 +352,9 @@ namespace Drift.Life
         // Herds are only added while the island grows past its previous peak (merge, volcano rising), so a
         // sinking island never spawns replacements for drowned herds.
         float _peakArea;
+        // New land waits for its herds: the next one appears once _growT has run out (herdSpawnGap apart).
+        bool _growPending;
+        float _growT;
         float _meshTimer, _stepTimer, _stepClock, _night;
         // Motion channel: the interval the next bake is expected after, and one more bake once the last slides ended
         // (a finished slide left in the mesh would replay when the wrapped shader clock comes round again).
@@ -443,6 +454,24 @@ namespace Drift.Life
             int n = 0;
             foreach (var h in _herds) if (h.spec.kind == kind && h.members.Count > 0) n++;
             return n;
+        }
+
+        // The animal cap of this island now: maxAnimals, growing with the land when animalsPerArea is set.
+        public int AnimalCap
+        {
+            get
+            {
+                if (animalsPerArea <= 0f || _surface == null) return maxAnimals;
+                int byArea = Mathf.RoundToInt(_surface.LandArea * animalsPerArea);
+                return Mathf.Clamp(byArea, maxAnimals, Mathf.Max(maxAnimals, maxAnimalsLimit));
+            }
+        }
+
+        bool SpeciesFull(Species s)
+        {
+            int n = 0;
+            foreach (var h in _herds) if (h.spec == s && ++n >= maxHerdsPerSpecies) return true;
+            return false;
         }
 
         // The island's dominant biome (the one most of its land carries), for the HUD and the journal.
@@ -664,7 +693,7 @@ namespace Drift.Life
         {
             if (_surface == null || _rnd == null) return -1;
             var s = SpecFor((int)kind);
-            if (s == null || _herds.Count >= maxHerds || AnimalCount + size > maxAnimals || size < 1) return -1;
+            if (s == null || _herds.Count >= maxHerds || AnimalCount + size > AnimalCap || size < 1 || SpeciesFull(s)) return -1;
             if (!Valid(s, _surface.SampleHeight(center))) return -1;
             var herd = new Herd { spec = s, center = center, target = center, wait = Rand(s.stopMin * 0.3f, s.stopMax), growTimer = Rand(0f, growthInterval), thinkT = Mathf.Repeat(_herds.Count * 0.37f, 1f) * thinkInterval };
             for (int m = 0; m < Mathf.Min(size, s.maxSize); m++) AddMember(herd);
@@ -777,6 +806,8 @@ namespace Drift.Life
             _version = _surface.Version;
             _populated = true;
             _peakArea = _surface.LandArea;
+            _growPending = false;
+            _growT = 0f;
             _merged = false;
             _idleRnd = new System.Random(HerdSeed ^ 0x1D1E5);
             _night = LifeEnvironment.NightAmount;
@@ -861,16 +892,20 @@ namespace Drift.Life
             }
         }
 
-        void Rebalance()
+        // Spawns up to `limit` herds towards DesiredHerds; true when it spawned one and the island still wants more.
+        // A species already at maxHerdsPerSpecies is left out of the draw.
+        bool Rebalance(int limit = int.MaxValue)
         {
             int want = DesiredHerds();
-            if (_herds.Count >= want) return;
+            if (_herds.Count >= want) return false;
             System.Array.Clear(Excluded, 0, Excluded.Length);
             System.Array.Clear(Misses, 0, Misses.Length);
+            for (int i = 0; i < Specs.Length; i++) if (SpeciesFull(Specs[i])) Excluded[i] = true;
             bool one = OneBiome;
+            int before = _herds.Count;
             if (StartIsland && SpeciesPool.Active && _herds.Count == 0) TrySpawnStartHerd();
-            int guard = 0, rounds = one ? 32 : 64;
-            while (_herds.Count < want && AnimalCount + 2 <= maxAnimals && guard++ < rounds)
+            int guard = 0, rounds = one ? 32 : 64, cap = AnimalCap;
+            while (_herds.Count < want && _herds.Count - before < limit && AnimalCount + 2 <= cap && guard++ < rounds)
             {
                 Species s;
                 Vector2 c;
@@ -889,7 +924,9 @@ namespace Drift.Life
                 }
                 else if (!TryFound(out s, out c)) break;
                 SpawnHerd(s, c);
+                if (SpeciesFull(s)) Excluded[System.Array.IndexOf(Specs, s)] = true;
             }
+            return _herds.Count > before && _herds.Count < want;
         }
 
         // A merged island: the ground decides the herd. A spot is drawn first, then the species comes from the
@@ -927,7 +964,7 @@ namespace Drift.Life
             var herd = new Herd { spec = s, center = c, target = c, wait = Rand(s.stopMin * 0.3f, s.stopMax), growTimer = Rand(0f, growthInterval), thinkT = Mathf.Repeat(_herds.Count * 0.37f, 1f) * thinkInterval };
             int maxByArea = Mathf.Max(3, Mathf.FloorToInt(_surface.LandArea / 2f));
             int n = Mathf.Min(Mathf.Max(2, Mathf.RoundToInt(_rnd.Next(s.sizeMin, s.sizeMax + 1) * HerdSizeFactor)), Mathf.Min(maxByArea, s.maxSize));
-            n = Mathf.Min(n, maxAnimals - AnimalCount);
+            n = Mathf.Min(n, AnimalCap - AnimalCount);
             for (int m = 0; m < n; m++) AddMember(herd);
             // Watchers depend on the final herd size, so the poses are seeded once the herd is complete.
             for (int m = 0; m < herd.members.Count; m++) InitState(herd, herd.members[m], m);
@@ -1028,7 +1065,7 @@ namespace Drift.Life
             herd.growTimer = 0f;
             if (!calm || _night >= wakeThreshold || Agitation >= huddleThreshold) return false;
             var s = herd.spec;
-            if (herd.members.Count < 2 || herd.members.Count >= s.maxSize || AnimalCount >= maxAnimals) return false;
+            if (herd.members.Count < 2 || herd.members.Count >= s.maxSize || AnimalCount >= AnimalCap) return false;
             if (_life == null || _life.StageAt(herd.center) <= 0.95f) return false;
             foreach (var a in herd.members) if (a.growth < youngIndependence) return false;
             if (Rand() >= growthChance) return false;
@@ -1048,10 +1085,13 @@ namespace Drift.Life
                 yaw = parent != null ? parent.yaw : Rand(0f, 360f)
             };
             a.offset = parent != null ? YoungOffset(herd) : FormationOffset(herd, herd.members.Count);
-            a.pos = Slot(herd, a, 1f);
+            // A parent out on its own patch (spread, visit) has the young born beside it, and it follows it there.
+            bool away = parent != null && parent.hasGoal && (parent.act == AnimalActivity.Spread || parent.act == AnimalActivity.Visit);
+            a.pos = away ? parent.pos + a.offset : Slot(herd, a, 1f);
             if (!Valid(s, _surface.SampleHeight(a.pos))) a.pos = parent != null ? parent.pos : herd.center;
             InitState(herd, a, herd.members.Count);
             herd.members.Add(a);
+            if (away) YoungFollow(herd, parent.act);
             Births++;
         }
 
@@ -2343,7 +2383,7 @@ namespace Drift.Life
                 herd.dawnDrink = false;
                 if (shoreOk && StartShoreErrand(herd, Errand.Drink)) return true;
             }
-            if (MeetThink(herd)) return true;
+            if (MeetThink(herd, standing)) return true;
             if (herd.errandCool <= 0f)
             {
                 if (s.kind == LifeKind.Sheep && (Raining || Noon) && StartShade(herd)) return true;
@@ -3066,10 +3106,23 @@ namespace Drift.Life
                 if (_surface.LandArea > _peakArea + 0.5f)
                 {
                     _peakArea = _surface.LandArea;
-                    Rebalance();
+                    _growPending = true;
                 }
                 _meshDirty = true;
                 _meshTimer = meshInterval;
+            }
+            // New land fills up one herd at a time (a merge or a jump in area used to drop them all in one frame).
+            _growT = Mathf.Max(0f, _growT - dt);
+            if (_growPending && _growT <= 0f)
+            {
+                int n = _herds.Count;
+                _growPending = Rebalance(1);
+                if (_herds.Count > n)
+                {
+                    _growT = herdSpawnGap;
+                    _meshDirty = true;
+                    _meshTimer = meshInterval;
+                }
             }
 
             _detailTimer += dt;
@@ -4099,6 +4152,20 @@ namespace Drift.Life
             }
             for (int i = 0; i < _burrows.Count; i++) _burrows[i] += delta;
             if (_hasPoi) _poiLocal += delta;
+            RefreshMesh();
+        }
+
+        // Rebuilds the herd mesh right away. After the island jumped to its new centroid (ShiftLocal) or took in a
+        // guest's herds (AbsorbFrom) the last bake showed every animal offset by the jump and the guests missing until
+        // the next regular rebuild (up to 0.3 s; a far or hidden island never rebuilds on its own).
+        public void RefreshMesh()
+        {
+            _meshDirty = true;
+            if (_surface == null || _rnd == null) return;
+            UpdateDetail();
+            RebuildMesh();
+            _meshTimer = 0f;
+            _meshDirty = false;
         }
 
         public void AbsorbFrom(IslandHerdSystem other)
@@ -4123,45 +4190,27 @@ namespace Drift.Life
             other._burrows.Clear();
             _merged = true;
             EnforceCaps();
-            _meshDirty = true;
+            RefreshMesh();
         }
 
-        // maxHerds / maxAnimals hold after merges too. The surplus always comes from the species with the most
-        // animals (its smallest herd), so a merge never wipes out the few oxen or goats: a surplus herd joins
-        // the nearest herd of its species while that one has room, otherwise it goes; then herds are trimmed
-        // or dropped the same way until the animal cap holds, which keeps a 600-area island in one ~7k-vertex mesh.
+        // The caps hold after merges (and loads) too, in this order: maxHerdsPerSpecies (the smallest herds of a species
+        // over it go first, so no other species is touched for it), maxHerds (the surplus always comes from the species
+        // with the most animals, its smallest herd, so a merge never wipes out the few oxen or goats), then the animal
+        // cap. A herd that goes hands its animals to the nearest herds of its species that have room; only the rest
+        // are lost. Herds are then trimmed or dropped the same way until the animal cap holds.
         void EnforceCaps()
         {
             int guard = 0;
-            while (_herds.Count > maxHerds && guard++ < 512)
-            {
-                var surplus = SurplusHerd();
-                var host = NearestSameSpecies(surplus);
-                if (host != null && host.members.Count + surplus.members.Count <= host.spec.maxSize)
-                {
-                    EndPlay(host, false);
-                    int first = host.members.Count;
-                    foreach (var a in surplus.members)
-                    {
-                        if (a.parent == null) a.offset = FormationOffset(host, host.members.Count);
-                        host.members.Add(a);
-                    }
-                    // Young keep their parent (it moved with them); their slot is only known once every adult has one.
-                    for (int i = first; i < host.members.Count; i++)
-                    {
-                        var a = host.members[i];
-                        a.pos = Slot(host, a, 1f);
-                        if (!Valid(host.spec, _surface.SampleHeight(a.pos))) a.pos = host.center;
-                    }
-                    surplus.members.Clear();
-                }
-                _herds.Remove(surplus);
-            }
+            for (int i = 0; i < Specs.Length; i++)
+                while (CountOf(Specs[i]) > maxHerdsPerSpecies && guard++ < 512) FoldAway(SmallestOf(Specs[i]));
             guard = 0;
-            while (AnimalCount > maxAnimals && _herds.Count > 0 && guard++ < 512)
+            while (_herds.Count > maxHerds && guard++ < 512) FoldAway(SurplusHerd());
+            guard = 0;
+            int cap = AnimalCap;
+            while (AnimalCount > cap && _herds.Count > 0 && guard++ < 512)
             {
                 var surplus = SurplusHerd();
-                int over = AnimalCount - maxAnimals;
+                int over = AnimalCount - cap;
                 if (surplus.members.Count > over + 1)
                 {
                     EndPlay(surplus, false);
@@ -4171,6 +4220,54 @@ namespace Drift.Life
                 }
                 _herds.Remove(surplus);
             }
+        }
+
+        int CountOf(Species s)
+        {
+            int n = 0;
+            foreach (var h in _herds) if (h.spec == s) n++;
+            return n;
+        }
+
+        Herd SmallestOf(Species s)
+        {
+            Herd best = null;
+            foreach (var h in _herds)
+                if (h.spec == s && (best == null || h.members.Count < best.members.Count)) best = h;
+            return best;
+        }
+
+        void FoldAway(Herd surplus)
+        {
+            EndPlay(surplus, false);
+            ResetBehaviour(surplus);
+            int guard = 0;
+            while (surplus.members.Count > 0 && guard++ < 64)
+            {
+                var host = NearestWithRoom(surplus);
+                if (host == null) break;
+                EndPlay(host, false);
+                int first = host.members.Count;
+                int take = Mathf.Min(host.spec.maxSize - first, surplus.members.Count);
+                for (int k = 0; k < take; k++)
+                {
+                    var a = surplus.members[k];
+                    if (a.parent == null) a.offset = FormationOffset(host, host.members.Count);
+                    host.members.Add(a);
+                }
+                surplus.members.RemoveRange(0, take);
+                // Young keep their parent when it came along; their slot is only known once every adult has one.
+                Orphans(host);
+                for (int i = first; i < host.members.Count; i++)
+                {
+                    var a = host.members[i];
+                    a.pos = Slot(host, a, 1f);
+                    if (!Valid(host.spec, _surface.SampleHeight(a.pos))) a.pos = host.center;
+                    a.track.valid = false;
+                }
+            }
+            surplus.members.Clear();
+            _herds.Remove(surplus);
         }
 
         static readonly int[] SpeciesAnimals = new int[Specs.Length];
@@ -4202,13 +4299,13 @@ namespace Drift.Life
             return best;
         }
 
-        Herd NearestSameSpecies(Herd of)
+        Herd NearestWithRoom(Herd of)
         {
             Herd best = null;
             float bestD = float.MaxValue;
             foreach (var h in _herds)
             {
-                if (h == of || h.spec != of.spec) continue;
+                if (h == of || h.spec != of.spec || h.members.Count >= h.spec.maxSize) continue;
                 float d = (h.center - of.center).sqrMagnitude;
                 if (d < bestD) { bestD = d; best = h; }
             }
@@ -4338,6 +4435,7 @@ namespace Drift.Life
             _version = _surface.Version;
             _populated = true;
             _peakArea = _surface.LandArea;
+            _growPending = false;
             _merged = _herds.Count > 1;
             Relocate();
             PruneBurrows();

@@ -301,5 +301,60 @@ namespace Drift.Tests
             life.Restore(new LifeSaveData());
             AssertSameSave(before, life.Capture());
         }
+
+        Drift.Islands.Island MakeIsland(Vector2 pos, int shapeSeed, float radius, int lifeSeed)
+        {
+            var go = new GameObject("MergeVeg_" + shapeSeed);
+            go.SetActive(false);
+            go.transform.position = new Vector3(pos.x, 0f, pos.y);
+            var isl = go.AddComponent<Drift.Islands.Island>();
+            isl.useKeyboardInput = false;
+            isl.sinkEnabled = false;
+            isl.landRadius = radius;
+            isl.shapeSeed = shapeSeed;
+            isl.carryResponse = 0f;
+            go.AddComponent<IslandLifeSystem>().seed = lifeSeed;
+            go.SetActive(true);
+            _objects.Add(go);
+            return isl;
+        }
+
+        static Mesh VegetationMesh(Component isl)
+        {
+            var veg = isl.transform.Find("Vegetation");
+            Assert.IsNotNull(veg, "no vegetation object");
+            return veg.GetComponent<MeshFilter>().sharedMesh;
+        }
+
+        // The merge moves the host's transform to the new land centroid and every plant the other way; the old mesh
+        // stood offset inside the terrain and the guest's plants were gone with its GameObject until the next
+        // meshInterval rebuild, so the island looked bare for ~10 frames. The merge frame itself must draw both.
+        [Test]
+        public void Merge_VegetationOfBothIslandsIsDrawnInTheMergeFrame()
+        {
+            var host = MakeIsland(Vector2.zero, 21, 8f, 11);
+            var guest = MakeIsland(new Vector2(11.5f, 0f), 34, 5f, 12);
+            host.GetComponent<IslandLifeSystem>().Simulate(400f, 10f);
+            guest.GetComponent<IslandLifeSystem>().Simulate(400f, 10f);
+            int hostVerts = VegetationMesh(host).vertexCount, guestVerts = VegetationMesh(guest).vertexCount;
+            Assert.Greater(hostVerts, 0);
+            Assert.Greater(guestVerts, 0);
+
+            var worldGo = new GameObject("MergeVeg_World");
+            _objects.Add(worldGo);
+            var world = worldGo.AddComponent<Drift.Islands.IslandWorld>();
+            var list = new List<Drift.Islands.Island> { host, guest };
+            bool merged = false;
+            for (int i = 0; i < 200 && !merged; i++) merged = world.Step(0.05f, list);
+            Assert.IsTrue(merged, "the two islands never merged");
+
+            var mesh = VegetationMesh(host);
+            Assert.GreaterOrEqual(mesh.vertexCount, (int)((hostVerts + guestVerts) * 0.95f), "plants missing in the merge frame");
+            var v = mesh.vertices;
+            int buried = 0, n = 0;
+            for (int i = 0; i < v.Length; i += 7, n++)
+                if (v[i].y < host.SampleHeight(new Vector2(v[i].x, v[i].z)) - 0.1f) buried++;
+            Assert.Less(buried, n / 20 + 1, $"{buried} of {n} vegetation vertices sit inside the merged terrain");
+        }
     }
 }

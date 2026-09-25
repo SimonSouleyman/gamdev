@@ -317,6 +317,142 @@ namespace Drift.Tests
             Assert.AreEqual(first, herds.MeetingsStarted, "met again during the cooldown");
         }
 
+        // Two herds `dist` apart on a wide plateau with only the meetings' own behaviour left on.
+        IslandHerdSystem StageApart(LifeKind ka, LifeKind kb, float dist, float height = 1.6f)
+        {
+            var go = new GameObject("MeetApart" + ka + kb);
+            go.SetActive(false);
+            var s = go.AddComponent<FakeIslandSurface>();
+            s.radius = 16f;
+            s.height = height;
+            go.AddComponent<IslandLifeSystem>().seed = 1700 + (int)ka;
+            var herds = go.AddComponent<IslandHerdSystem>();
+            herds.seed = 1703 + (int)ka * 5 + (int)kb;
+            go.SetActive(true);
+            _objects.Add(go);
+            herds.ClearHerds();
+            Assert.GreaterOrEqual(herds.AddHerd(ka, new Vector2(-dist * 0.5f, 0f), 6), 0, "no ground for " + ka);
+            Assert.GreaterOrEqual(herds.AddHerd(kb, new Vector2(dist * 0.5f, 0f), 5), 0, "no ground for " + kb);
+            herds.strollRate = herds.visitRate = herds.spreadRate = herds.signatureRate = 0f;
+            herds.playRate = 0f;
+            return herds;
+        }
+
+        // Skips the herds' settling time and lets them stand where they are for `hold` seconds.
+        static void Settle(IslandHerdSystem herds, float hold)
+        {
+            var flags = System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance;
+            var list = (System.Collections.IList)typeof(IslandHerdSystem).GetField("_herds", flags).GetValue(herds);
+            foreach (var h in list)
+            {
+                var t = h.GetType();
+                t.GetField("settleT", flags).SetValue(h, 0f);
+                t.GetField("wait", flags).SetValue(h, hold);
+                t.GetField("target", flags).SetValue(h, t.GetField("center", flags).GetValue(h));
+            }
+        }
+
+        [Test]
+        public void Natural_NeighboursWithinMeetRangeMeetAtOnce_AlsoAtDusk()
+        {
+            var herds = StageApart(LifeKind.Sheep, LifeKind.Zebra, 7f);
+            Assert.Less(7f, herds.meetRange + 1e-3f);
+            herds.meetDriftChance = 0f;
+            Run(herds, 0.5f);
+            _night = 0.4f;
+            Settle(herds, 20f);
+            float t = 0f;
+            while (herds.MeetingsStarted == 0 && t < 10f) { herds.Step(0.05f); t += 0.05f; }
+            Assert.AreEqual(1, herds.MeetingsStarted, "two awake herds 7 u apart did not meet");
+            while (herds.HerdMeetingPhase(0) >= 0 && t < 120f) { herds.Step(0.05f); t += 0.05f; }
+            Assert.AreEqual(1, herds.MeetingsCompleted, "the meeting did not run to its end");
+            Assert.AreEqual(0, herds.MeetingsAborted);
+        }
+
+        [Test]
+        public void Natural_HerdsFurtherOffDriftTogetherAndMeet()
+        {
+            var herds = StageApart(LifeKind.Goat, LifeKind.Ox, 12f);
+            Assert.Greater(12f, herds.meetRange);
+            Assert.Less(12f, herds.meetSeekRange);
+            float drift = herds.meetDriftChance;
+            herds.meetDriftChance = 0f;
+            Run(herds, 0.5f);
+            Settle(herds, 30f);
+            Run(herds, 15f);
+            Assert.AreEqual(0, herds.MeetingsStarted, "met from 12 u without walking there");
+            Assert.AreEqual(0, herds.MeetDrifts);
+
+            herds.meetDriftChance = drift;
+            float t = 0f, closest = float.MaxValue;
+            while (herds.MeetingsStarted == 0 && t < 60f)
+            {
+                herds.Step(0.05f);
+                t += 0.05f;
+                closest = Mathf.Min(closest, Vector2.Distance(herds.HerdCenter(0), herds.HerdCenter(1)));
+            }
+            Assert.Greater(herds.MeetDrifts, 0, "neither herd walked towards the other");
+            Assert.AreEqual(1, herds.MeetingsStarted, "the herds never met (closest " + closest.ToString("F1") + " u)");
+            // A gentle approach: at their own wander pace, never faster.
+            Assert.Greater(t, 3f);
+        }
+
+        [Test]
+        public void Natural_AfterTheCooldownTheyMeetAgain()
+        {
+            var herds = StageApart(LifeKind.Sheep, LifeKind.Reindeer, 6f);
+            Run(herds, 0.5f);
+            Settle(herds, 20f);
+            float t = 0f;
+            while (herds.MeetingsStarted == 0 && t < 20f) { herds.Step(0.05f); t += 0.05f; }
+            Assert.AreEqual(1, herds.MeetingsStarted);
+            while (herds.HerdMeetingPhase(0) >= 0 && t < 150f) { herds.Step(0.05f); t += 0.05f; }
+            Assert.AreEqual(-1, herds.HerdMeetingPhase(0));
+            Run(herds, herds.meetCooldown.x - 2f);
+            Assert.AreEqual(1, herds.MeetingsStarted, "met again during the cooldown");
+            t = 0f;
+            while (herds.MeetingsStarted == 1 && t < herds.meetCooldown.y + 60f) { herds.Step(0.05f); t += 0.05f; }
+            Assert.AreEqual(2, herds.MeetingsStarted, "the pair never met again after its cooldown");
+        }
+
+        [Test]
+        public void Birds_KeepToThemselves()
+        {
+            Assert.IsFalse(IslandHerdSystem.MeetsOthers(LifeKind.Flamingo));
+            Assert.IsFalse(IslandHerdSystem.MeetsOthers(LifeKind.Penguin));
+            foreach (var k in SpeciesPool.HerdKinds)
+                if (k != LifeKind.Flamingo && k != LifeKind.Penguin) Assert.IsTrue(IslandHerdSystem.MeetsOthers(k), k.ToString());
+
+            var herds = StageApart(LifeKind.Flamingo, LifeKind.Sheep, 4f, 1f);
+            Run(herds, 0.5f);
+            Settle(herds, 5f);
+            Assert.IsFalse(herds.TryStartMeeting(0, 1), "a flamingo herd started a meeting");
+            Assert.IsFalse(herds.TryStartMeeting(1, 0), "a sheep herd met the flamingos");
+            Assert.IsFalse(herds.TryStartMeeting(1), "the director found the flamingos as partner");
+            Run(herds, 90f);
+            Assert.AreEqual(0, herds.MeetingsStarted);
+            Assert.AreEqual(0, herds.MeetDrifts, "a herd walked over to the birds");
+        }
+
+        [Test]
+        public void Natural_OnANormalIsland_MeetingsRunToTheirEnd()
+        {
+            var go = new GameObject("MeetIsland");
+            go.SetActive(false);
+            var s = go.AddComponent<FakeIslandSurface>();
+            s.radius = 5f;
+            s.height = 1.2f;
+            go.AddComponent<IslandLifeSystem>().seed = 1801;
+            var herds = go.AddComponent<IslandHerdSystem>();
+            herds.seed = 1802;
+            go.SetActive(true);
+            _objects.Add(go);
+            Assert.GreaterOrEqual(herds.HerdCount, 3);
+            Run(herds, 300f, 0.1f);
+            Assert.GreaterOrEqual(herds.MeetingsCompleted, 3, "fewer than three meetings in five minutes");
+            Assert.AreEqual(0, herds.MeetingsAborted, "a meeting was broken off although nothing disturbed it");
+        }
+
         [Test]
         public void Meetings_DoNotAllocateWhileTheyRun()
         {

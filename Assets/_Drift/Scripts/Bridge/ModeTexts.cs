@@ -163,5 +163,38 @@ namespace Drift.Bridge
         public static string LevelLabel(int level) => "Stufe " + Mathf.Max(1, level);
 
         public static string RestartLabel(GameMode mode) => mode == GameMode.Adventure ? "Neuer Versuch" : "Neu beginnen";
+
+        // ---- the "Abenteuer" page of the run journal ("Durchgänge")
+
+        public const string AdventureResetLabel = "Abenteuer-Rekord zurücksetzen";
+        public const string AdventureResetQuestion = "Rekord und Abenteuer-Durchgänge löschen?";
+        public const string AdventureResetNote = "Das lässt sich nicht rückgängig machen.\nDeine gemütlichen Welten bleiben erhalten.";
+        public const string AdventureResetYes = "Ja";
+        public const string AdventureResetCancel = "Abbrechen";
+        public const string AdventureLogEmpty = "Noch kein Abenteuer gefahren";
+        public const string AdventureLogEmptyBody = "Jeder Versuch im Abenteuer bekommt hier eine Zeile: wann, wie weit und bis zu welcher Stufe.";
+
+        public static string AdventureRecordHeader(float best) => best > 0f ? RecordLabel(best) : "Noch kein Rekord";
+
+        public static string AdventureRunCount(int runs) => runs <= 0 ? "Deine Versuche im Abenteuer" : runs == 1 ? "1 Durchgang" : runs + " Durchgänge";
+
+        // "26.09. 23:41 · 4.102 m · Stufe 8"; an unreadable date or an unknown level is left out.
+        public static string AdventureRunLine(AdventureRun r)
+        {
+            if (r == null) return "";
+            string line = BestDistances.Format(r.metres);
+            if (r.level > 0) line += " · " + LevelLabel(r.level);
+            if (!string.IsNullOrEmpty(r.date) && System.DateTime.TryParse(r.date, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out var t))
+                line = t.ToString("dd.MM. HH:mm", System.Globalization.CultureInfo.InvariantCulture) + " · " + line;
+            return line;
+        }
+
+        // The small line under it: "Neuer Rekord · Treibgut 12 · Ausgewichen 5 · Rempler 3".
+        public static string AdventureRunDetails(AdventureRun r)
+        {
+            if (r == null) return "";
+            string details = "Treibgut " + r.flotsam + " · Ausgewichen " + r.dodges + " · Rempler " + r.hits;
+            return r.record ? NewRecordLabel.TrimEnd('!') + " · " + details : details;
+        }
     }
 }

@@ -1571,6 +1571,18 @@ namespace Drift.Life
             for (int i = 0; i < _blobCount; i++) _blobPos[i] += delta;
             _glowVersion = -2;
             _glowDirty = true;
+            _meshDirty = true;
+        }
+
+        // Island.MergeFrom moved the transform by the new centroid and ShiftLocal moved every critter back: until the
+        // next meshInterval rebuild the old mesh stood offset inside the terrain and the guest's critters were gone.
+        // Rebuilt in the merge frame instead (IslandLifeSystem.RefreshAfterMerge), also on hidden or far islands.
+        public void RefreshAfterMerge()
+        {
+            if (!_meshDirty || _surface == null) return;
+            RebuildMesh();
+            _meshDirty = false;
+            _meshTimer = 0f;
         }
 
         public void AbsorbFrom(IslandCrittersSystem other)

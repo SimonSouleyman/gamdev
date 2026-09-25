@@ -652,6 +652,17 @@ namespace Drift.Life
             if (_surface == null) return;
             if (!_hasGrid || _surface.Version != _gridVersion) RebuildGrid();
             ApplyTint();
+            // ShiftLocal moved every plant by the new centroid while the transform moved the other way, so until the
+            // next meshInterval rebuild the old mesh stood offset (mostly inside the terrain) and the guest's plants
+            // were gone with its GameObject: for ~10 frames the island looked bare. Rebuilt in the merge frame instead,
+            // also on hidden or far islands, whose Step would not rebuild it before they come into view again.
+            if (_dirty && _hasGrid)
+            {
+                RebuildVegetationMesh();
+                _dirty = false;
+            }
+            var critters = GetComponent<IslandCrittersSystem>();
+            if (critters != null) critters.RefreshAfterMerge();
         }
 
         float Rand() => (float)_rnd.NextDouble();
@@ -1912,6 +1923,7 @@ namespace Drift.Life
             _strikePos += delta;
             for (int i = 0; i < MaxFirePatches; i++) _patches[i].origin += delta;
             foreach (var p in _plants) p.pos += delta;
+            _dirty = true;
             var critters = GetComponent<IslandCrittersSystem>();
             if (critters != null) critters.ShiftLocal(delta);
             var settlement = GetComponent<IslandSettlementSystem>();

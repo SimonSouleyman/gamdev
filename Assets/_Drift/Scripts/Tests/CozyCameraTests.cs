@@ -9,8 +9,8 @@ using UnityEngine;
 namespace Drift.Tests
 {
     // The cozy camera after the owner's 2026-09-22 session: the view swings onto the course the island is
-    // really travelling (without ever making a held direction curve), and once the Pangäa is finished the
-    // island stops and the same input flies the camera over it.
+    // really travelling (since v0.6.7 a direction held sideways keeps turning with it), and once the Pangäa is
+    // finished the island stops and the same input flies the camera over it.
     public class CozyCameraTests
     {
         readonly List<GameObject> _objects = new();
@@ -90,48 +90,89 @@ namespace Drift.Tests
         }
 
         [Test]
-        public void SteerFrame_FreezesWhileADirectionIsHeld_AndCatchesUpOnceItIsLet()
+        public void ScreenYaw_IsWhatThePictureShows()
         {
-            float steer = 0f;
-            for (int i = 0; i < 100; i++) steer = IslandChaseCamera.SteerYaw(steer, 60f, true, 0.02f);
-            Assert.AreEqual(0f, steer, 1e-4f, "a held direction keeps its frame, so it stays a straight line");
-            for (int i = 0; i < 50; i++) steer = IslandChaseCamera.SteerYaw(steer, 60f, false, 0.02f);
-            Assert.AreEqual(60f, steer, 3f, "released, the frame is back on the view within a second");
+            Assert.AreEqual(90f, IslandChaseCamera.ScreenYaw(Quaternion.Euler(51f, 90f, 0f)), 1e-3f);
+            Assert.AreEqual(90f, IslandChaseCamera.ScreenYaw(Quaternion.Euler(51f, 90f, 1.2f)), 1e-3f, "the lean into a curve does not turn it");
+            Assert.AreEqual(315f, IslandChaseCamera.ScreenYaw(Quaternion.Euler(10f, -45f, 0f)), 1e-3f);
+            Assert.AreEqual(30f, IslandChaseCamera.ScreenYaw(Quaternion.Euler(90f, 30f, 0f)), 1e-2f, "straight down: the top edge is up");
         }
 
-        // The loop the owner warned about: the steering is camera-relative, so a view that chases the input
-        // would feed itself. Here the whole chain runs headlessly - screen direction -> steering frame ->
-        // island -> course -> view - with the hardest case, a direction held sideways to the view.
         [Test]
-        public void HoldingADirection_TurnsTheViewOntoTheCourse_WithoutTheIslandCircling()
+        public void TheViewTurnsNoFasterThanTheIslandMay()
+        {
+            Assert.AreEqual(60f, IslandChaseCamera.CourseTurnLimit(90f, 60f), 1e-5f);
+            Assert.AreEqual(90f, IslandChaseCamera.CourseTurnLimit(90f, 120f), 1e-5f);
+            Assert.AreEqual(90f, IslandChaseCamera.CourseTurnLimit(90f, 0f), 1e-5f, "no turn rate set: the camera's own cap");
+        }
+
+        // The whole cozy chain, headless: stick (a screen direction) -> the yaw the picture shows -> island -> course
+        // -> view -> picture. The picture follows the view with the chase camera's look smoothing (lookLerp 8 in the
+        // scene); the steering reads the picture, so what "right" means never lags what is on the screen.
+        const float LookLerp = 8f;
+
+        static void DriveFrame(Island isl, Vector2 screen, bool holdCourse, ref float viewYaw, ref float shownYaw, float dt)
+        {
+            Vector2 world = TiltMath.ToWorld(TiltMath.ClampStick(screen), shownYaw);
+            isl.Tick(Vector2.zero, world, dt);
+            viewYaw = IslandChaseCamera.StepCourse(viewYaw, isl.SelfVelocity, holdCourse, 1.2f, 3f, 90f, dt);
+            shownYaw = IslandChaseCamera.FollowYaw(shownYaw, viewYaw, LookLerp, 720f, dt);
+        }
+
+        // Owner, v0.6.7: "Man fährt geradeaus und dreht dann nach rechts ab. Die Kamera dreht sich und die Insel fährt
+        // vorwärts, der Steuerstick zeigt aber immer noch nach rechts." Right on the stick now stays right on the
+        // screen: the island keeps curving right for as long as it is held - at a steady pace, never a spiral.
+        [Test]
+        public void HoldingRight_KeepsTurningRight_AtASteadyPace()
         {
             Island.DirectionSteering = true;
             var isl = MakeIsland(0f);
-            float viewYaw = 0f, steerYaw = 0f, yaw0 = isl.Yaw;
-            var screen = new Vector2(1f, 0f); // hard right on the stick, the whole time
-            const float dt = 0.02f;
-
-            Vector2 legA = Vector2.zero, legB = Vector2.zero;
-            Vector2 from = isl.PlanarPosition;
-            for (int i = 0; i < 400; i++)
+            isl.velocityAlign = 1.5f; // the scene's value
+            float viewYaw = 0f, shownYaw = 0f, yaw0 = isl.Yaw;
+            const float dt = 1f / 60f;
+            var perSecond = new float[10];
+            float last = 0f;
+            bool hasLast = false;
+            for (int i = 0; i < 600; i++)
             {
-                Vector2 world = TiltMath.ToWorld(TiltMath.ClampStick(screen), steerYaw);
-                isl.Tick(Vector2.zero, world, dt);
-                if (IslandChaseCamera.CourseYaw(isl.SelfVelocity, 1.2f, out float course))
-                    viewYaw = IslandChaseCamera.FollowYaw(viewYaw, course, 3f, 90f, dt);
-                steerYaw = IslandChaseCamera.SteerYaw(steerYaw, viewYaw, true, dt);
-                if (i == 199) { legA = isl.PlanarPosition - from; from = isl.PlanarPosition; }
-                if (i == 399) legB = isl.PlanarPosition - from;
+                DriveFrame(isl, Vector2.right, false, ref viewYaw, ref shownYaw, dt);
+                if (!IslandChaseCamera.CourseYaw(isl.SelfVelocity, 0.05f, out float c)) continue;
+                if (hasLast) perSecond[i / 60] += Mathf.DeltaAngle(last, c);
+                last = c;
+                hasLast = true;
             }
+            for (int s = 3; s < 10; s++)
+            {
+                Assert.Greater(perSecond[s], 45f, $"second {s}: still turning right, right never became straight ahead");
+                Assert.LessOrEqual(perSecond[s], 95f, $"second {s}: no faster than the view may swing");
+            }
+            Assert.LessOrEqual(perSecond[9], perSecond[4] + 5f, "a steady curve, not a spiral");
+            Assert.Greater(Mathf.DeltaAngle(shownYaw, last), 10f, "the island still runs right of where the picture looks");
+            Assert.Greater(isl.SelfVelocity.magnitude, 2f, "and keeps its way on");
+            Assert.AreEqual(0f, Mathf.DeltaAngle(yaw0, isl.Yaw), 1e-3f, "the island's body never turns, whatever the camera does");
+        }
 
-            Assert.Less(Vector2.Angle(legA, legB), 1f, "the second half of the drive runs exactly as straight as the first");
-            Assert.AreEqual(90f, Mathf.DeltaAngle(0f, viewYaw), 3f, "the view has swung onto the course (due east)");
-            Assert.AreEqual(90f, Mathf.DeltaAngle(0f, IslandChaseCamera.CourseYaw(isl.SelfVelocity, 1.2f, out float c) ? c : 0f), 3f);
-            Assert.AreEqual(0f, Mathf.DeltaAngle(yaw0, isl.Yaw), 1e-3f, "the island never turns, whatever the camera does");
-
-            // And once the stick is let go the frame is the view: "up the screen" is now where the island goes.
-            for (int i = 0; i < 60; i++) steerYaw = IslandChaseCamera.SteerYaw(steerYaw, viewYaw, false, dt);
-            Assert.AreEqual(0f, Mathf.DeltaAngle(steerYaw, viewYaw), 1f);
+        // Up on the stick is where the picture looks, so after the turn it is a straight line and the view settles on it.
+        [Test]
+        public void StickUp_AfterATurn_RunsStraightAlongTheView()
+        {
+            Island.DirectionSteering = true;
+            var isl = MakeIsland(0f);
+            isl.velocityAlign = 1.5f;
+            float viewYaw = 0f, shownYaw = 0f;
+            const float dt = 1f / 60f;
+            for (int i = 0; i < 90; i++) DriveFrame(isl, Vector2.right, false, ref viewYaw, ref shownYaw, dt);
+            Assert.Greater(viewYaw, 20f, "the turn right has swung the view");
+            for (int i = 0; i < 180; i++) DriveFrame(isl, Vector2.up, false, ref viewYaw, ref shownYaw, dt);
+            Vector2 from = isl.PlanarPosition;
+            IslandChaseCamera.CourseYaw(isl.SelfVelocity, 0.05f, out float c0);
+            for (int i = 0; i < 120; i++) DriveFrame(isl, Vector2.up, false, ref viewYaw, ref shownYaw, dt);
+            IslandChaseCamera.CourseYaw(isl.SelfVelocity, 0.05f, out float c1);
+            Assert.Less(Mathf.Abs(Mathf.DeltaAngle(c0, c1)), 2f, "a straight line");
+            Assert.Less(Mathf.Abs(Mathf.DeltaAngle(viewYaw, c1)), 3f, "the view looks along it");
+            Assert.Less(Mathf.Abs(Mathf.DeltaAngle(shownYaw, viewYaw)), 2f, "and the picture shows it");
+            Vector2 leg = isl.PlanarPosition - from;
+            Assert.Less(Vector2.Angle(leg, TiltMath.ToWorld(Vector2.up, shownYaw)), 3f, "up the screen is where the island went");
         }
 
         [Test]
@@ -186,38 +227,35 @@ namespace Drift.Tests
         // ---------------------------------------------------------------- tilt: no front, no turning view
 
         // The owner's phone test of v0.6.2: with the tilt it still felt as if the island had a front it first had
-        // to turn. A phone is never let go like a stick, so the steering frame stayed frozen while the view swung
-        // onto the course; the same tilt then pointed elsewhere on the screen and the view turned like a boat.
-        // Under the tilt the view now holds still, and a new tilt direction is the island's new course at once.
+        // to turn: the view swung onto the course, so the same tilt pointed elsewhere on the screen and the view turned
+        // like a boat. Under the tilt the view holds still, the steering reads the picture, and a new tilt direction is
+        // the island's new course at once.
         [Test]
         public void Tilt_HoldsTheView_AndTheIslandGoesStraightWhereThePhoneTips()
         {
             Island.DirectionSteering = true;
             var isl = MakeIsland(0f);
             isl.velocityAlign = 1.5f; // the scene's value
-            float viewYaw = 0f, steerYaw = 0f;
+            float viewYaw = 0f, shownYaw = 0f;
             const float dt = 1f / 60f;
             Vector2 Screen(float t) => t < 0f ? Vector2.up : Vector2.Lerp(Vector2.up, Vector2.right, Mathf.Clamp01(t / 0.3f));
 
             float worstView = 0f, angleAfter1s = 180f;
             for (float t = -3f; t < 1.5f; t += dt)
             {
-                Vector2 world = TiltMath.ToWorld(TiltMath.ClampStick(Screen(t)), steerYaw);
-                isl.Tick(Vector2.zero, world, dt);
-                IslandChaseCamera.StepYaws(ref viewYaw, ref steerYaw, isl.SelfVelocity, true, true, 1.2f, 3f, 90f, dt);
+                DriveFrame(isl, Screen(t), true, ref viewYaw, ref shownYaw, dt);
                 worstView = Mathf.Max(worstView, Mathf.Abs(Mathf.DeltaAngle(0f, viewYaw)));
                 if (t < 1f) angleAfter1s = Vector2.Angle(isl.SelfVelocity, Vector2.right);
             }
             Assert.Less(worstView, 1e-3f, "the view never turned");
-            Assert.AreEqual(0f, steerYaw, 1e-3f, "so screen right stays east");
+            Assert.AreEqual(0f, shownYaw, 1e-3f, "so screen right stays east");
             Assert.Less(angleAfter1s, 20f, "a second after tipping right the island runs right");
             Assert.Greater(isl.SelfVelocity.magnitude, 1f);
 
             // Without the hold (the stick) the view still swings onto the course as before.
-            float v2 = 0f, s2 = 0f;
-            for (int i = 0; i < 120; i++) IslandChaseCamera.StepYaws(ref v2, ref s2, new Vector2(5f, 0f), true, false, 1.2f, 3f, 90f, dt);
+            float v2 = 0f;
+            for (int i = 0; i < 120; i++) v2 = IslandChaseCamera.StepCourse(v2, new Vector2(5f, 0f), false, 1.2f, 3f, 90f, dt);
             Assert.Greater(v2, 45f);
-            Assert.AreEqual(0f, s2, 1e-3f, "a held stick keeps its frame");
         }
 
         // ---------------------------------------------------------------- a second round after the finale

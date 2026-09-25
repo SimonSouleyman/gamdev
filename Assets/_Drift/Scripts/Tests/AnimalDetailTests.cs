@@ -49,6 +49,8 @@ namespace Drift.Tests
             life.seed = seed;
             var herds = go.AddComponent<IslandHerdSystem>();
             herds.seed = seed;
+            // The detail budget needs the crowded islands these tests were written for (before the 3-herds-per-species cap).
+            herds.maxHerdsPerSpecies = 10;
             go.SetActive(true);
             _objects.Add(go);
             if (mature) life.Simulate(600f, 10f);

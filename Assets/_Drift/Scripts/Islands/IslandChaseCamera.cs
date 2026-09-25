@@ -17,7 +17,7 @@ namespace Drift.Islands
         [Header("Kamera dreht mit (Gemütlich)")]
         [Tooltip("Wie schnell sich die Kamera in die Fahrtrichtung dreht: 1 = in etwa einer Sekunde eingeschwenkt. 0 = feste Nordsicht wie bisher.")]
         [Range(0f, 3f)] public float courseFollow = 1f;
-        [Tooltip("Höchstes Drehtempo der Kamera (Grad pro Sekunde), damit eine Kehrtwende nie ruckt.")]
+        [Tooltip("Höchstes Drehtempo der Kamera (Grad pro Sekunde), damit eine Kehrtwende nie ruckt. Zugleich das Kurventempo, solange der Stick zur Seite gehalten wird (nie schneller als das Drehtempo der Insel).")]
         [Range(5f, 180f)] public float courseTurnMax = 90f;
         [Tooltip("Erst ab diesem Tempo (u/s) dreht die Kamera mit; langsamer und im Stand bleibt sie stehen.")]
         [Range(0f, 4f)] public float courseMinSpeed = 1.2f;
@@ -161,7 +161,7 @@ namespace Drift.Islands
         // it walked away from the island for as long as the menu stayed open.
         Vector3 _pose;
         bool _hasPose;
-        float _viewYaw, _steerYaw;
+        float _viewYaw;
         float _boostFeel, _boostKick, _lastBoostLeft, _lastBoostFactor = 1f, _dodgeKick, _dodgeSide, _momentumFeel, _ghostFeel;
         float _idleSeconds, _lifeZoom = 1f;
         float _lookUp;
@@ -182,22 +182,30 @@ namespace Drift.Islands
         // the turn roll leak into transform.eulerAngles.y.
         public float ViewYawDeg => ViewIsFixed ? _viewYaw : transform.eulerAngles.y;
         public Vector3 ViewForward => Quaternion.Euler(0f, ViewYawDeg, 0f) * Vector3.forward;
-        // The yaw the steering maps screen directions through - NOT the view yaw while a direction is held.
-        // The view swings onto the course, and a frame that swung with it would turn the very direction being
-        // held: the island would circle for ever. So the frame is frozen for as long as the player points
-        // somewhere and only catches up with the view once the stick (or the phone) is let go - by then the
-        // view looks along the course, so "up the screen" is where the island is going.
-        public float SteerYawDeg => ViewIsFixed ? _steerYaw : transform.eulerAngles.y;
+        // The yaw the steering maps screen directions through: in the cozy course follow the yaw the picture SHOWS,
+        // read off the camera itself, so "right" is always the right of what is on the screen. Until v0.6.7 the frame
+        // froze while a direction was held: the view swung onto the course, the island went straight on up the
+        // screen and the stick still pointed right (owner: "Steuerstick und Kamera nicht aufeinander abgestimmt").
+        // Now a held "right" keeps turning the island - a steady curve, never a spiral: the view swings no faster
+        // than CourseTurnCap, so neither can a direction held through it. Adventure and the fixed north view map
+        // through their fixed yaw, the old steering wheel through the heading as before.
+        public float SteerYawDeg => !ViewIsFixed ? transform.eulerAngles.y
+            : CourseFollowActive && !Suspended ? ScreenYaw(transform.rotation) : _viewYaw;
         // Set every frame by whoever feeds the direction (SessionScreens): true while a direction is given.
         public bool SteerHeld { get; set; }
         // Set every frame by SessionScreens: true while the tilt steers. A phone is never "let go" the way a stick
-        // is, so the frozen steering frame and a view swinging onto the course drifted apart: the same tilt then
-        // pointed somewhere else on the screen and the view turned like a boat's (owner, phone test v0.6.2: "als ob
-        // die Insel erst noch drehen muss"). Held, the view keeps its compass direction and every screen direction
-        // stays where it is.
+        // is; with the view swinging onto the course the same tilt pointed somewhere else on the screen and the view
+        // turned like a boat's (owner, phone test v0.6.2: "als ob die Insel erst noch drehen muss"). Held, the view
+        // keeps its compass direction and every screen direction stays where it is.
         public bool HoldCourse { get; set; }
         // courseFollow 1 settles the view in about a second.
         public float CourseResponse => 3f * Mathf.Max(0f, courseFollow);
+        // How fast the view may swing onto the course - and so how fast a direction held sideways turns the island:
+        // courseTurnMax, never above the island's own turn rate.
+        public float CourseTurnCap => CourseTurnLimit(courseTurnMax, target != null ? target.turnRateDegPerSec : 0f);
+
+        public static float CourseTurnLimit(float courseTurnMax, float islandTurnRate) =>
+            islandTurnRate > 0f ? Mathf.Min(courseTurnMax, islandTurnRate) : courseTurnMax;
         // The speed feel this camera is showing, for tests and for anyone who wants to match it.
         public float SpeedDrive => _feel.Drive;
         public float FlowAmount => _feel.Flow;
@@ -339,7 +347,7 @@ namespace Drift.Islands
             ResetKicks();
             _hasHeading = false;
             _hasPose = false;
-            _viewYaw = _steerYaw = viewYawDeg;
+            _viewYaw = viewYawDeg;
             SteerHeld = false;
             HoldCourse = false;
             LifeLod.DistanceProvider = PlanarDistance;
@@ -508,21 +516,18 @@ namespace Drift.Islands
             return Mathf.Repeat(yaw + Mathf.Clamp(step, -cap, cap), 360f);
         }
 
-        const float SteerCatchUp = 8f;
+        // One frame of the course follow: the view swings onto the travel. holdCourse (the tilt) keeps it where it is.
+        public static float StepCourse(float viewYaw, Vector2 velocity, bool holdCourse, float minSpeed, float response,
+            float maxDegPerSecond, float dt) =>
+            !holdCourse && CourseYaw(velocity, minSpeed, out float course) ? FollowYaw(viewYaw, course, response, maxDegPerSecond, dt) : viewYaw;
 
-        // The steering frame: frozen while a direction is held (so a held direction is a straight line),
-        // catching up with the view within a few tenths of a second after it is released.
-        public static float SteerYaw(float steerYaw, float viewYaw, bool held, float dt) =>
-            held ? steerYaw : FollowYaw(steerYaw, viewYaw, SteerCatchUp, 720f, dt);
-
-        // One frame of the course follow: the view swings onto the travel, the steering frame stays frozen while a
-        // direction is held. holdCourse (the tilt) keeps the view where it is; the frame then simply is the view.
-        public static void StepYaws(ref float viewYaw, ref float steerYaw, Vector2 velocity, bool held, bool holdCourse,
-            float minSpeed, float response, float maxDegPerSecond, float dt)
+        // The yaw of what the camera shows: its forward flattened onto the sea (the turn roll does not touch it).
+        // Looking straight down there is no forward left, and the top edge of the picture is "up the screen".
+        public static float ScreenYaw(Quaternion rotation)
         {
-            if (!holdCourse && CourseYaw(velocity, minSpeed, out float course))
-                viewYaw = FollowYaw(viewYaw, course, response, maxDegPerSecond, dt);
-            steerYaw = SteerYaw(steerYaw, viewYaw, held && !holdCourse, dt);
+            Vector3 f = rotation * Vector3.forward;
+            if (f.x * f.x + f.z * f.z < 1e-6f) f = rotation * Vector3.up;
+            return Mathf.Repeat(Mathf.Atan2(f.x, f.z) * Mathf.Rad2Deg, 360f);
         }
 
         void StepViewYaw(float dt)
@@ -530,10 +535,10 @@ namespace Drift.Islands
             // In the Editor the slider IS the view: nothing is driving, so nothing would ever pull the yaw back.
             if (!CourseFollowActive || !Application.isPlaying)
             {
-                _viewYaw = _steerYaw = viewYawDeg;
+                _viewYaw = viewYawDeg;
                 return;
             }
-            StepYaws(ref _viewYaw, ref _steerYaw, target.SelfVelocity, SteerHeld, HoldCourse, courseMinSpeed, CourseResponse, courseTurnMax, dt);
+            _viewYaw = StepCourse(_viewYaw, target.SelfVelocity, HoldCourse, courseMinSpeed, CourseResponse, CourseTurnCap, dt);
         }
 
         void StepFeel(float dt)
@@ -702,9 +707,8 @@ namespace Drift.Islands
             else if (close > 0f)
                 focus.y += Mathf.Max(0f, target.SampleHeight(Vector2.zero)) * close;
 
-            // With the direct-direction steering the view is nailed to a compass direction: the island drifts
-            // any way it likes and never turns, so there is no "behind it" to sit in - and a view that turned
-            // would turn the frame the steering is given in and make a held direction curve for ever.
+            // With the direct-direction steering the view follows a compass direction of its own (north, or the
+            // course): the island drifts any way it likes and never turns, so there is no "behind it" to sit in.
             // Otherwise back = -heading: the body may turn under the camera (merges, drift), the view never does.
             Vector3 back = ViewIsFixed ? -ViewForward : -ground.Forward;
             var ring = _followPos == null ? RingWorld.Active : null;
@@ -852,7 +856,7 @@ namespace Drift.Islands
             // A snap happens when a world is (re)started or loaded: with the island at rest there is no course
             // to keep, so the view goes back to its compass direction. Under way (a hand-back from photo mode)
             // it keeps the course it had.
-            if (!CourseFollowActive || !CourseYaw(target.SelfVelocity, courseMinSpeed, out _)) _viewYaw = _steerYaw = viewYawDeg;
+            if (!CourseFollowActive || !CourseYaw(target.SelfVelocity, courseMinSpeed, out _)) _viewYaw = viewYawDeg;
             ApplyFov();
             DesiredPose(out Vector3 pos, out Quaternion rot, out _, out Vector3 focus);
             transform.position = pos;

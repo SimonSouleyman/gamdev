@@ -308,7 +308,13 @@ namespace Drift.Bridge
         void OnStateChanged(GameSession.State s)
         {
             if (s == GameSession.State.GameOver && session != null && session.Mode == GameMode.Adventure)
-                _lastResult = BestDistances.Submit(GameMode.Adventure, session.Stats.distance);
+            {
+                float distance = session.Stats.distance;
+                _lastResult = BestDistances.Submit(GameMode.Adventure, distance);
+                var ring = RingWorld.Active;
+                AdventureRunLog.Add(AdventureRunLog.Make(distance, ring != null ? ring.LevelAt(distance) : 0,
+                    AdventureRunStats.Hits, AdventureRunStats.Dodges, AdventureRunStats.Flotsam, _lastResult.isRecord, DateTime.Now));
+            }
             // The asked-for adventure tutorial has started (or will with the next race).
             if (s == GameSession.State.Playing && session != null && session.Mode == GameMode.Adventure) _adventureReplayAsked = false;
             _preview?.RequestRender();
@@ -419,6 +425,8 @@ namespace Drift.Bridge
 
             if (s == GameSession.State.Title)
             {
+                // The adventure record can be reset from the run journal over the title.
+                RefreshTitleBest();
                 // The save is loaded behind the title a frame after the title appears; the field follows.
                 if (_seedField != null && !_seedField.isFocused && (session.WorldIsSavedState != _fieldSaved || session.WorldSeed != _fieldSeed))
                     RefreshSeedField(true);
@@ -788,7 +796,10 @@ namespace Drift.Bridge
             }
         }
 
-        void RefreshTitleBest()
+        public string TitleBestCaption => _titleBestText != null ? _titleBestText.text : "";
+
+        // Cheap enough per frame: the text is only rebuilt when the whole metres of the record change.
+        public void RefreshTitleBest()
         {
             if (_titleBestText == null) return;
             float best = BestDistances.Get(GameMode.Adventure);
@@ -1099,7 +1110,7 @@ namespace Drift.Bridge
             UiStyle.LabelOf(Secondary(extras, "Help", "Anleitung", new Vector2(-halfX, 0f), half, () => OpenHelp())).fontSize = 40;
             UiStyle.LabelOf(Secondary(extras, "Controls", "Steuerung", new Vector2(halfX, 0f), half, OpenTiltSettings)).fontSize = 40;
             UiStyle.LabelOf(Secondary(extras, "Album", "Fotoalbum", new Vector2(-halfX, -136f), half, () => Watch?.OpenAlbum())).fontSize = 40;
-            UiStyle.LabelOf(Secondary(extras, "Runs", "Durchgänge", new Vector2(halfX, -136f), half, RunJournal.RequestOpen)).fontSize = 40;
+            UiStyle.LabelOf(Secondary(extras, "Runs", "Durchgänge", new Vector2(halfX, -136f), half, () => RunJournal.RequestOpen(RunJournalPanel.LastPage))).fontSize = 40;
             Line(panel, "Gemütlich wachsen – oder im Abenteuer ausweichen.", UiStyle.Caption, UiStyle.Muted, TitleExtrasY - 300f, 40f);
             // Under the menu panel, so a phone screenshot always tells which build it came from.
             var version = UiStyle.Label(screen, "Version " + Application.version, UiStyle.Caption, UiStyle.Muted, TextAnchor.UpperCenter);
@@ -1179,7 +1190,7 @@ namespace Drift.Bridge
             Extra(panel, "Photo", "Fotomodus", true, () => Watch?.EnterPhotoMode());
             Extra(panel, "Album", "Fotoalbum", true, () => Watch?.OpenAlbum());
             Extra(panel, "Help", "Anleitung", false, () => OpenHelp());
-            Extra(panel, "Runs", "Durchgänge", false, RunJournal.RequestOpen);
+            Extra(panel, "Runs", "Durchgänge", false, () => RunJournal.RequestOpen(session != null ? session.Mode : GameModes.Current));
             Extra(panel, "Controls", "Steuerung", false, OpenTiltSettings);
             LayoutPauseExtras(GameModes.IsAdventure);
             // Mobile apps are left through the home button; Application.Quit is against Apple's guidelines.

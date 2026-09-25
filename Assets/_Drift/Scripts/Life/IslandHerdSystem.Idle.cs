@@ -219,6 +219,10 @@ namespace Drift.Life
             return IdleAction.Look;
         }
 
+        static bool NeighbourDoes(Herd herd, int index, IdleAction pick) =>
+            pick != IdleAction.None && ((index > 0 && herd.members[index - 1].idle == pick)
+                || (index + 1 < herd.members.Count && herd.members[index + 1].idle == pick));
+
         bool StartIdle(Herd herd, Animal a, int index, int mode)
         {
             var s = herd.spec;
@@ -227,8 +231,17 @@ namespace Drift.Life
             bool lying = a.state == AnimalState.Rest || a.state == AnimalState.Sleep;
             bool night = _night > sleepThreshold;
             var pick = PickIdle(s, mode, lying, night);
-            // Neighbours in the herd list stand next to each other: one that is already doing it makes a second draw.
-            if (index > 0 && pick != IdleAction.None && herd.members[index - 1].idle == pick) pick = PickIdle(s, mode, lying, night);
+            // Neighbours in the herd list stand next to each other: one that is already doing it makes a second draw, and
+            // when that is taken by a neighbour too the animal waits a moment instead of joining in step.
+            if (pick != IdleAction.None && NeighbourDoes(herd, index, pick))
+            {
+                pick = PickIdle(s, mode, lying, night);
+                if (NeighbourDoes(herd, index, pick))
+                {
+                    a.idleNext = IdlePause(herd, a) * 0.5f;
+                    return false;
+                }
+            }
             if (pick == IdleAction.None)
             {
                 a.idleNext = IdlePause(herd, a);

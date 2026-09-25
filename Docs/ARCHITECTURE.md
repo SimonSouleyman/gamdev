@@ -2223,3 +2223,26 @@ owner's pick from the proposal list (`Docs/CHANGES_2026-09-25e.md`), seven paral
   `ProjectSettings.asset` from memory when a build starts (bump the version through `PlayerSettings` in eval); a build
   with a dirty scene opens a modal "Scene(s) Have Been Modified" dialog that blocks the CLI (reload the scene from disk
   first); never edit scripts while a build runs (script layout mismatch).
+
+## v0.6.7.3 additions (2026-09-26)
+
+Owner feedback after the v0.6.7.2 phone session (`Docs/CHANGES_2026-09-26.md`), five parallel agents.
+
+- **Steering frame = the picture**: `IslandChaseCamera.SteerYawDeg` is `ScreenYaw(transform.rotation)` in cozy mode
+  (the v0.6.3 frozen steer frame, `StepYaws`, is gone; `StepCourse` turns the view with the course at most
+  `min(courseTurnMax, Island.turnRateDegPerSec)`), so a held stick keeps turning and "up" is the view forward. Tilt keeps
+  `HoldCourse`. The playtest bot maps through the same yaw.
+- **Merge frame**: `IslandLifeSystem.RefreshAfterMerge` rebuilds the vegetation mesh at once and calls
+  `IslandCrittersSystem.RefreshAfterMerge`; `IslandHerdSystem.RefreshMesh` runs at the end of `ShiftLocal`/`AbsorbFrom`.
+  (`ShiftLocal` moved everything by the new centroid while the meshes waited for their `meshInterval`.)
+- **Herds**: `maxHerdsPerSpecies` (3) enforced in `Rebalance`, `AddHerd`, `EnforceCaps` (species cap first, surplus herds
+  hand their animals to the same species), `herdSpawnGap` (4 s, one new herd at a time); `animalsPerArea`/
+  `maxAnimalsLimit` exist but are off. Meetings: `meetRange` 8, `meetCooldown` 20–40 s, any time of day while awake,
+  approach up to `meetSeekRange` 14 u (`meetDriftChance`, `meetDriftLeg`), birds excluded (`MeetsOthers`), director range
+  `max(6, meetRange)`. Scene `/Island` carries meetRate 0.5 / meetRange 8 / meetCooldown (20,40) / meetApproachTime 12.
+- **Sights bar**: `PangaeaSights.Nearest/TapIndex/IdleLabel/BarLabel`; `PangaeaFinale.FlyToShownSight` (the bar is a
+  UiPressFeedback button; tap = shown sight, else nearest to the view centre).
+- **Adventure run journal**: `SaveSystem/AdventureRunLog` (`adventure_runs.json`, ≤ 200 entries, `PathOverride` for
+  tests, `ResetAdventure` clears it and `BestDistances.Clear(Adventure)`), logged in `SessionScreens` right after
+  `BestDistances.Submit`; `RunJournalPanel` has the tabs Gemütlich/Abenteuer, `RunJournal.OpenRequested(GameMode)`.
+- `IslandHints.RefreshNow` clears its widgets when hidden (they were only covered by the disabled canvas).

@@ -1,7 +1,9 @@
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using Drift.Bridge;
 using Drift.Core;
+using Drift.SaveSystem;
 using NUnit.Framework;
 using UnityEngine;
 using UnityEngine.Events;
@@ -336,6 +338,173 @@ namespace Drift.Tests
             }
             Assert.AreNotEqual(TildaPose.Cheer, SessionScreens.GameOverPose, "no cheering over a sunk island");
             Assert.AreNotEqual(TildaPose.Wave, SessionScreens.GameOverPose);
+        }
+
+        // ------------------------------------------------------------ Durchgänge: Gemütlich / Abenteuer (owner 2026-09-26)
+
+        string _journalDir;
+
+        // Every file the run journal reads or writes goes to a temporary folder for the test.
+        void UseTemporaryJournal()
+        {
+            _journalDir = Path.Combine(Path.GetTempPath(), "drift_titlemenu_test_" + System.Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(_journalDir);
+            RunJournal.RootOverride = _journalDir;
+            AdventureRunLog.PathOverride = Path.Combine(_journalDir, AdventureRunLog.FileName);
+            BestDistances.PathOverride = Path.Combine(_journalDir, BestDistances.FileName);
+        }
+
+        void DropTemporaryJournal()
+        {
+            foreach (var panel in Object.FindObjectsByType<RunJournalPanel>(FindObjectsInactive.Include))
+                if (panel.IsOpen) panel.Close();
+            RunJournal.WaitForWrite();
+            RunJournal.RootOverride = null;
+            AdventureRunLog.PathOverride = null;
+            BestDistances.PathOverride = null;
+            try { Directory.Delete(_journalDir, true); } catch (System.Exception) { }
+        }
+
+        RunJournalPanel MakeRunJournal()
+        {
+            var go = new GameObject("RunJournalTabsTest");
+            _objects.Add(go);
+            return go.AddComponent<RunJournalPanel>();
+        }
+
+        static Transform Named(Transform root, string name)
+        {
+            foreach (var t in root.GetComponentsInChildren<Transform>(true))
+                if (t.name == name) return t;
+            Assert.Fail("missing " + name);
+            return null;
+        }
+
+        [Test]
+        public void TheRunJournalHasTwoTabsAndTheResetOnlyOnAbenteuer()
+        {
+            UseTemporaryJournal();
+            try
+            {
+                var panel = MakeRunJournal();
+                panel.Open();
+                var tabs = Named(panel.Root.transform, "ModeTabs");
+                CollectionAssert.IsSubsetOf(new[] { "Gemütlich", "Abenteuer" }, Texts(tabs).ToList());
+                Assert.AreEqual(GameMode.Cozy, panel.Page, "the finale and old callers open the Pangäas");
+                Assert.IsFalse(panel.ResetButtonShown, "no adventure reset on the Gemütlich tab");
+
+                Click(Find(tabs, "TabAdventure"));
+                Assert.AreEqual(GameMode.Adventure, panel.Page);
+                Assert.IsTrue(panel.ResetButtonShown);
+                CollectionAssert.Contains(Texts(Named(panel.Root.transform, "ResetAdventure")).ToList(), ModeTexts.AdventureResetLabel);
+
+                Click(Find(tabs, "TabCozy"));
+                Assert.AreEqual(GameMode.Cozy, panel.Page);
+                Assert.IsFalse(panel.ResetButtonShown);
+
+                panel.Open(GameMode.Adventure);
+                Assert.AreEqual(GameMode.Adventure, panel.Page);
+                Assert.IsTrue(panel.ResetButtonShown);
+            }
+            finally { DropTemporaryJournal(); }
+        }
+
+        [Test]
+        public void TheAbenteuerTabListsTheRunsNewestFirstUnderTheRecord()
+        {
+            UseTemporaryJournal();
+            try
+            {
+                var day = new System.DateTime(2026, 9, 26, 23, 41, 0);
+                BestDistances.Submit(GameMode.Adventure, 12304f);
+                AdventureRunLog.Add(AdventureRunLog.Make(12304f, 12, 1, 2, 3, true, day.AddDays(-1)));
+                AdventureRunLog.Add(AdventureRunLog.Make(4102f, 8, 1, 2, 3, false, day));
+                var panel = MakeRunJournal();
+                panel.Open(GameMode.Adventure);
+                Assert.AreEqual(2, panel.AdventureRowCount);
+                Assert.AreEqual("Rekord 12.304 m", panel.AdventureRecordText);
+                Assert.AreEqual("26.09. 23:41 · 4.102 m · Stufe 8", panel.AdventureLine(0), "newest first");
+                Assert.AreEqual("25.09. 23:41 · 12.304 m · Stufe 12", panel.AdventureLine(1));
+
+                // A run finished while the journal is open shows up on the next refresh.
+                AdventureRunLog.Add(AdventureRunLog.Make(300f, 1, 0, 0, 0, false, day.AddMinutes(5)));
+                panel.Open(GameMode.Adventure);
+                Assert.AreEqual(3, panel.AdventureRowCount);
+            }
+            finally { DropTemporaryJournal(); }
+        }
+
+        [Test]
+        public void TheAdventureResetAsksOnceAndUpdatesTheTitleCaption()
+        {
+            UseTemporaryJournal();
+            try
+            {
+                BestDistances.Submit(GameMode.Adventure, 12304f);
+                BestDistances.Submit(GameMode.Cozy, 55f);
+                AdventureRunLog.Add(AdventureRunLog.Make(12304f, 12, 1, 2, 3, true, System.DateTime.Now));
+                RunJournal.Add(new RunRecord { seed = 7, name = "Tobaira" }, null);
+
+                var s = MakeScreens();
+                s.RefreshTitleBest();
+                Assert.AreEqual("Rekord 12.304 m", s.TitleBestCaption);
+
+                var panel = MakeRunJournal();
+                panel.Open(GameMode.Adventure);
+                Click(Named(panel.Root.transform, "ResetAdventure"));
+                Assert.IsTrue(panel.ResetConfirmOpen);
+                var confirm = Named(panel.Root.transform, "ResetConfirm");
+                CollectionAssert.Contains(Texts(confirm).ToList(), ModeTexts.AdventureResetQuestion);
+                CollectionAssert.IsSubsetOf(new[] { "Ja", "Abbrechen" }, Texts(confirm).ToList());
+
+                // "Abbrechen" and the back key leave everything as it was.
+                Click(Find(confirm, "Card/Cancel"));
+                Assert.IsFalse(panel.ResetConfirmOpen);
+                Assert.AreEqual(12304f, BestDistances.Get(GameMode.Adventure), 1e-3f);
+                panel.OpenResetConfirm();
+                panel.Back();
+                Assert.IsFalse(panel.ResetConfirmOpen);
+                Assert.IsTrue(panel.IsOpen, "back closes the question first");
+                Assert.AreEqual(1, AdventureRunLog.Runs.Count);
+
+                panel.OpenResetConfirm();
+                Click(Find(confirm, "Card/Yes"));
+                Assert.IsFalse(panel.ResetConfirmOpen);
+                Assert.AreEqual(0f, BestDistances.Get(GameMode.Adventure));
+                Assert.AreEqual(0, AdventureRunLog.Runs.Count);
+                Assert.AreEqual(0, panel.AdventureRowCount);
+                Assert.AreEqual("Noch kein Rekord", panel.AdventureRecordText);
+                Assert.AreEqual(55f, BestDistances.Get(GameMode.Cozy), 1e-3f, "Gemütlich keeps its value");
+                Assert.AreEqual(1, RunJournal.Records.Count, "the Pangäas stay");
+
+                s.RefreshTitleBest();
+                Assert.AreEqual(ModeTexts.BestDistanceCaption(0f), s.TitleBestCaption);
+                Assert.AreEqual("Wie weit kommst du?", s.TitleBestCaption);
+            }
+            finally { DropTemporaryJournal(); }
+        }
+
+        [Test]
+        public void DurchgaengeOpensTheRunningModesTab()
+        {
+            var asked = new List<GameMode>();
+            void OnOpen(GameMode m) => asked.Add(m);
+            UseTemporaryJournal();
+            RunJournal.OpenRequested += OnOpen;
+            try
+            {
+                GameModes.Set(GameMode.Adventure);
+                var s = MakeScreens();
+                Click(Find(ScreenPanel(s, "PauseScreen"), "Runs"));
+                Click(Find(TitlePanel(s), "Extras/Runs"));
+                RunJournal.RequestOpen();
+                Assert.AreEqual(new[] { GameMode.Adventure, RunJournalPanel.LastPage, GameMode.Cozy }, asked.ToArray());
+            }
+            finally
+            {
+                RunJournal.OpenRequested -= OnOpen;
+                DropTemporaryJournal();
+            }
         }
     }
 }

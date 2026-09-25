@@ -7,7 +7,8 @@ namespace Drift.Life
     public enum MeetPattern { Greet, Tag, Shove, Trek, RingDance }
 
     // Herd meetings (2026-09-24, owner: "Gruppen von Tieren sollen miteinander interagieren, wenn sie sich treffen.
-    // Mache dafür 5 verschiedene Bewegungsmuster."): two calm, awake herds of any species within meetRange walk
+    // Mache dafür 5 verschiedene Bewegungsmuster."): two calm, awake herds within meetRange (any species but the birds,
+    // MeetsOthers; standing herds drift towards a free neighbour within meetSeekRange first) walk
     // towards each other (Errand.Meet, stage 0: each herd walks its own share of the gap at its own pace), then the
     // lead herd runs the pattern for both (all members owned by the meeting, stepped from the lead's MoveHerd):
     //   Greet      the front animals walk out and meet nose to nose, sniff, nod, rub cheeks; the others lean in
@@ -23,14 +24,20 @@ namespace Drift.Life
     public partial class IslandHerdSystem
     {
         [Header("Begegnungen zweier Herden")]
-        [Tooltip("Chance pro Denk-Takt (1 s), dass eine ruhige Herde tagsüber eine Nachbarherde in Reichweite trifft: Begrüßen, Fangenspiel, Kräftemessen, gemeinsamer Zug oder Kreistanz.")]
-        [Range(0f, 0.1f)] public float meetRate = 0.006f;
+        [Tooltip("Chance pro Denk-Takt (1 s), dass eine ruhige, wache Herde eine Nachbarherde in meetRange trifft: Begrüßen, Fangenspiel, Kräftemessen, gemeinsamer Zug oder Kreistanz. Vögel (Flamingo, Pinguin) machen nicht mit.")]
+        [Range(0f, 1f)] public float meetRate = 0.5f;
         [Tooltip("So nah (Einheiten, Mitte zu Mitte) muss eine andere Herde sein, damit sich die beiden von selbst treffen.")]
-        [Range(1f, 12f)] public float meetRange = 4f;
-        [Tooltip("Reichweite, in der der Regisseur eine Begegnung anstößt.")]
+        [Range(1f, 12f)] public float meetRange = 8f;
+        [Tooltip("Steht eine freie Nachbarherde näher als das (Einheiten), gehen stehende Herden gemächlich auf sie zu, bis sie sich treffen können.")]
+        [Range(0f, 30f)] public float meetSeekRange = 14f;
+        [Tooltip("Chance pro Denk-Takt, dass eine stehende Herde ein Stück auf eine Nachbarherde in meetSeekRange zugeht (0 = nie).")]
+        [Range(0f, 1f)] public float meetDriftChance = 0.25f;
+        [Tooltip("Längste Etappe (Einheiten) eines solchen Annäherns; danach wird neu geschaut.")]
+        [Range(1f, 10f)] public float meetDriftLeg = 5f;
+        [Tooltip("Reichweite, in der der Regisseur eine Begegnung anstößt (mindestens meetRange).")]
         [Range(1f, 15f)] public float meetDirectorRange = 6f;
         [Tooltip("Abklingzeit einer Herde nach einer Begegnung (s, von–bis).")]
-        public Vector2 meetCooldown = new Vector2(70f, 130f);
+        public Vector2 meetCooldown = new Vector2(20f, 40f);
         [Tooltip("Pause (s, von–bis) zwischen zwei Begegnungen auf derselben Insel, die von selbst beginnen.")]
         public Vector2 meetGap = new Vector2(10f, 20f);
         [Tooltip("Höchstens so viele Begegnungen gleichzeitig beginnen auf einer Insel von selbst.")]
@@ -38,7 +45,7 @@ namespace Drift.Life
         [Tooltip("Tempo, mit dem zwei Herden aufeinander zugehen (× Wandertempo).")]
         [Range(1f, 3f)] public float meetApproachPace = 1.5f;
         [Tooltip("So lange (s) dürfen zwei Herden höchstens brauchen, um zueinander zu finden (vom Regisseur angestoßen: 1,5-mal so lange).")]
-        [Range(2f, 20f)] public float meetApproachTime = 8f;
+        [Range(2f, 20f)] public float meetApproachTime = 12f;
 
         const int MeetApproach = 0, MeetGather = 1, MeetPerform = 2;
 
@@ -69,6 +76,8 @@ namespace Drift.Life
         public int MeetingsStarted { get; private set; }
         public int MeetingsCompleted { get; private set; }
         public int MeetingsAborted { get; private set; }
+        // Legs a standing herd walked towards a neighbour it wants to meet.
+        public int MeetDrifts { get; private set; }
         public int MeetingsStartedOf(MeetPattern p) => _meetStarted[(int)p];
         public int MeetingsCompletedOf(MeetPattern p) => _meetDone[(int)p];
 
@@ -109,6 +118,10 @@ namespace Drift.Life
         float BodyOf(Herd h) => h.spec.body * animalScale;
         static bool Calm(Herd h) => h.fleeTimer <= 0f && !h.fleeing && !h.refuging;
 
+        // Owner 2026-09-26: "Alle Tiere außer Kleintiere und Vögel sollen, wenn zwei Gruppen aufeinandertreffen, interagieren."
+        // Critters are not herds; the two bird herds keep to themselves.
+        public static bool MeetsOthers(LifeKind k) => k != LifeKind.Flamingo && k != LifeKind.Penguin;
+
         static bool Strong(LifeKind k) =>
             k == LifeKind.Goat || k == LifeKind.Ox || k == LifeKind.Reindeer || k == LifeKind.Giraffe || k == LifeKind.Zebra;
 
@@ -131,18 +144,45 @@ namespace Drift.Life
             return StartMeeting(a, b, pattern, false);
         }
 
-        // Think's roll: a calm herd by day, off cooldown, settled on its island.
-        bool MeetThink(Herd herd)
+        // Think's roll (a calm, awake herd off cooldown, settled on its island): a free neighbour within meetRange is met;
+        // one further off but within meetSeekRange draws a standing herd a leg closer at its normal pace.
+        bool MeetThink(Herd herd, bool standing)
         {
-            if (meetRate <= 0f || behaviourRate <= 0f || _night > 0.3f || herd.settleT > 0f) return false;
-            if (_stepClock < herd.meetAt || _stepClock < _meetNextAt) return false;
-            if (MRand() >= meetRate * behaviourRate) return false;
-            return StartMeeting(herd, null, -1, true);
+            if (meetRate <= 0f || behaviourRate <= 0f || herd.settleT > 0f || !MeetsOthers(herd.spec.kind)) return false;
+            if (_stepClock < herd.meetAt) return false;
+            var b = FindPartner(herd, Mathf.Max(meetRange, meetSeekRange), true);
+            if (b == null)
+            {
+                herd.meetAt = _stepClock + MRand(2f, 4f);
+                return false;
+            }
+            float d = (b.center - herd.center).magnitude;
+            if (d <= meetRange && _stepClock >= _meetNextAt && MRand() < meetRate * behaviourRate && StartMeeting(herd, b, -1, true)) return true;
+            return standing && MRand() < meetDriftChance * behaviourRate && DriftTowards(herd, b, d);
+        }
+
+        // A plain wander leg towards the neighbour, stopping short of it (the meeting's own approach closes the rest).
+        bool DriftTowards(Herd h, Herd b, float d)
+        {
+            float stop = Mathf.Max(meetRange * 0.5f, RadiusOf(h) + RadiusOf(b) + herdSpacing);
+            if (d - stop < 0.8f) return false;
+            Vector2 u = (b.center - h.center) / d;
+            float leg = Mathf.Min(d - stop, meetDriftLeg);
+            for (int k = 0; k < 3; k++)
+            {
+                Vector2 t = h.center + Rotate(u, k == 0 ? 0f : k == 1 ? 0.4f : -0.4f) * leg;
+                if (!OkSpot(h.spec, t) || !WalkableLine(h.spec, h.center, t)) continue;
+                h.target = t;
+                h.wait = 0f;
+                MeetDrifts++;
+                return true;
+            }
+            return false;
         }
 
         bool MeetFree(Herd h, bool natural)
         {
-            if (h.members.Count == 0 || h.meeting != null || h.errand != Errand.None) return false;
+            if (h.members.Count == 0 || h.meeting != null || h.errand != Errand.None || !MeetsOthers(h.spec.kind)) return false;
             if (h.fleeing || h.fleeTimer > 0f || h.refuging || h.diving || h.playT > 0f || h.stampT > 0f || h.tuckT > 0f) return false;
             if (natural && (h.settleT > 0f || _stepClock < h.meetAt)) return false;
             foreach (var a in h.members) if (a.hidden || a.shore || a.state == AnimalState.Sleep) return false;
@@ -221,10 +261,10 @@ namespace Drift.Life
         bool StartMeeting(Herd a, Herd b, int pattern, bool natural)
         {
             if (natural && ActiveMeetings >= maxMeetings) return false;
-            if (b == null) b = FindPartner(a, natural ? meetRange : meetDirectorRange, natural);
+            if (b == null) b = FindPartner(a, natural ? meetRange : Mathf.Max(meetDirectorRange, meetRange), natural);
             if (b == null)
             {
-                if (natural) a.meetAt = _stepClock + MRand(8f, 16f);
+                if (natural) a.meetAt = _stepClock + MRand(3f, 6f);
                 return false;
             }
             var p = pattern >= 0 && pattern <= 4 ? (MeetPattern)pattern : PickPattern(a, b);
@@ -243,7 +283,7 @@ namespace Drift.Life
                 && (sb == cb || (OkSpot(b.spec, sb) && WalkableLine(b.spec, cb, sb)));
             if (!ok)
             {
-                if (natural) a.meetAt = _stepClock + MRand(10f, 20f);
+                if (natural) a.meetAt = _stepClock + MRand(3f, 6f);
                 return false;
             }
             var m = new Meeting { a = a, b = b, pattern = p, natural = natural, phase = MeetApproach, axis = u, mid = (sa + sb) * 0.5f, want = want, lastStep = _stepClock };
