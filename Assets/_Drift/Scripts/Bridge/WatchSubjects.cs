@@ -40,6 +40,9 @@ namespace Drift.Bridge
         public float fill;
         // The notice when it is gone; null = "<label> ist weitergezogen".
         public string gone;
+        // Something in the air (a flock): the camera's pivot rides at the subject's own height instead of on the ground
+        // under it, and the framing distance and pitch follow `radius` (kept up to date by the focus) and the height.
+        public bool air;
     }
 
     // Finds the nearest live example of a journal entry around a point: herds, plants and critters on the loaded
@@ -264,20 +267,46 @@ namespace Drift.Bridge
             if (flocks == null || index < 0 || index >= flocks.FlockCount) return null;
             var system = flocks;
             int slot = index;
-            return new WatchSubject
+            var subject = new WatchSubject { label = e.name, radius = 4f, air = true };
+            // The birds are drawn round the flock's steering point (a pulk, the seabird chain on its circle, a landed
+            // group on the ground, a diver under water): the camera aims at their middle. The steering point moves
+            // smoothly, the middle can jump (a bird dives, the chain forms), so only the offset between them is eased.
+            Vector3 offset = default;
+            float spread = 2f;
+            int frame = -1;
+            subject.focus = (out Vector3 f) =>
             {
-                label = e.name,
-                radius = 4f,
-                focus = (out Vector3 f) =>
+                f = default;
+                if (system == null || !system.isActiveAndEnabled || slot >= system.FlockCount || system.BirdCountOf(slot) == 0) return false;
+                Vector3 anchor = system.AnchorOf(slot);
+                int now = Time.frameCount;
+                if (now != frame)
                 {
-                    f = default;
-                    if (system == null || slot >= system.FlockCount) return false;
-                    Vector2 p = system.PositionOf(slot);
-                    f = new Vector3(p.x, system.HeightOf(slot), p.y);
-                    return true;
-                },
+                    bool first = frame < 0;
+                    frame = now;
+                    Vector3 want = offset;
+                    float wantSpread = spread;
+                    if (system.TryGetView(slot, out Vector3 middle, out float s))
+                    {
+                        want = middle - anchor;
+                        wantSpread = s;
+                    }
+                    float k = first ? 1f : 1f - Mathf.Exp(-FlockFocusEase * Mathf.Min(Time.unscaledDeltaTime, 0.1f));
+                    offset = Vector3.Lerp(offset, want, k);
+                    spread = Mathf.Lerp(spread, wantSpread, k);
+                    subject.radius = Mathf.Max(FlockMinRadius, spread + FlockRadiusMargin);
+                }
+                f = anchor + offset;
+                return true;
             };
+            return subject;
         }
+
+        // How fast (per second) the watched point follows a jump of the birds' middle relative to the flock; the framing
+        // radius is the farthest bird plus a margin (WatchTools eases it once more).
+        const float FlockFocusEase = 2.5f;
+        const float FlockRadiusMargin = 0.8f;
+        const float FlockMinRadius = 1.5f;
 
         static WatchSubject FindFish(CollectEntry e, FishSystem fish, Vector2 near, bool baitBall)
         {

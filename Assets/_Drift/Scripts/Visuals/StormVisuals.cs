@@ -34,8 +34,9 @@ namespace Drift.Visuals
     // clouds and the rain keep an eye open, so a storm never hides the island itself.
     //
     // Lightning: storms strike the sea on their own (lightningRate); IslandLifeSystem still strikes islands at its
-    // old rate (and may start a fire). Every strike goes through LifeEnvironment.ReportLightning, which this
-    // component draws (bolt + scene flash via Flash / DayNightCycle) and AudioDirector turns into thunder.
+    // old rate (and may start a local fire patch, see its firePatchShare). Every strike goes through
+    // LifeEnvironment.ReportLightning, which this component draws (bolt + scene flash via Flash / DayNightCycle) and
+    // AudioDirector turns into thunder.
     [ExecuteAlways]
     [DefaultExecutionOrder(140)]
     public class StormVisuals : MonoBehaviour

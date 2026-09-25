@@ -23,19 +23,44 @@ namespace Drift.Visuals
 
         public Color noonColor = new Color(1f, 0.97f, 0.9f);
         public Color horizonColor = new Color(1f, 0.6f, 0.35f);
-        public Color nightColor = new Color(0.5f, 0.62f, 0.95f);
+        // Moonlight: a silver blue, not the saturated blue of before (blue light on green and brown ground went almost
+        // black on a phone screen). Every Drift shader lights with the main light only (_Ambient is a share of it), so
+        // this colour and intensity ARE the night's brightness.
+        public Color nightColor = new Color(0.62f, 0.74f, 1f);
         public float dayIntensity = 1.2f;
-        public float nightIntensity = 0.5f;
+        public float nightIntensity = 0.55f;
 
-        // The moon runs opposite the sun on a flatter orbit (it stays low, where the chase camera can see it) and
-        // is up a little before sunset (moonLead). At night the directional light swings over to the moon's side
-        // while it is dimmest, so moonlit glints on the sea sit under the moon.
-        public float moonTilt = 66f;
+        // The moon runs opposite the sun on a flatter orbit and is up a little before sunset (moonLead). moonTilt 52:
+        // it culminates at 38 degrees - the chase camera looks down past the limb and sees the moon as its mirror
+        // image in the sea, which needs it 15-40 degrees up to land in the portrait view. At night the directional
+        // light swings over to the moon's side while it is dimmest (the moonlight key, see "Mondnacht").
+        public float moonTilt = 52f;
         public float moonAzimuthOffset = 25f;
         public float moonLead = 0.3f;
         public bool moonLight = true;
         [Range(0f, 1f)] public float moonPhase = 0.62f;
         public float moonCycleDays = 8f;
+
+        [Header("Mondnacht")]
+        [Tooltip("Der Mond steht nachts vor der Kamera (so viele Grad seitlich der Blickrichtung) statt auf einer festen Himmelsrichtung, hinter der er meist verschwand. Auf- und Untergang behält er (Bahn oben).")]
+        public bool moonInView = true;
+        [Range(-90f, 90f)] public float moonViewOffset = 8f;
+        [Tooltip("So schnell (Grad pro Sekunde) wandert der Mond der Blickrichtung nach.")]
+        public float moonViewFollow = 30f;
+        [Tooltip("Mondlicht als Hauptlicht: nie flacher als so viele Grad über dem Horizont (ein tiefer Mond streift flachen Boden nur).")]
+        [Range(0f, 90f)] public float moonKeyElevation = 50f;
+        [Tooltip("Richtung des Mondlichts gegenüber dem Mond gedreht (Grad, 0 = vom Mond her).")]
+        [Range(-180f, 180f)] public float moonKeyYaw = 0f;
+        [Tooltip("Mondphase nur in diesem Bereich (0.5 = Vollmond): eine dünne Sichel gibt kein Mondlicht. Neu begonnen wird nur, während der Mond untergegangen ist.")]
+        [Range(0f, 1f)] public float moonPhaseMin = 0.3f;
+        [Range(0f, 1f)] public float moonPhaseMax = 0.7f;
+        [Tooltip("Flaches Umgebungslicht nachts mindestens so hell (sRGB; nur für URP-Lit-Materialien, die Drift-Shader hellen über das Mondlicht auf).")]
+        public Color nightAmbientFloor = new Color(0.40f, 0.45f, 0.60f);
+        [Tooltip("Sieht die Kamera Himmel (Abenteuer-Ring, flache Blicke: der obere Bildrand mindestens so viele Grad über dem Horizont), steht der Mond höchstens moonFitMargin Grad unter dem oberen Bildrand.")]
+        public float moonFitTop = 15f;
+        public float moonFitMargin = 9f;
+        [Tooltip("Kamera, vor der der Mond steht (leer = Camera.main).")]
+        public Camera viewCamera;
 
         // One palette for sky, horizon haze, water tints and flat ambient (see Drift.Core.SkyPalette): evaluated
         // once per Apply() into Sky; CurvedWorld pushes it to the sky / haze shaders, WaterFeedback gets
@@ -77,6 +102,8 @@ namespace Drift.Visuals
         public Vector3 SunDirection { get; private set; }
         public Vector3 TrueSunDirection { get; private set; } = Vector3.up;
         public Vector3 MoonDirection { get; private set; } = Vector3.down;
+        // Where the orbit alone would put the moon (the bearing before moonInView turned it in front of the camera).
+        public Vector3 OrbitMoonDirection { get; private set; } = Vector3.down;
         public float MoonLightAmount { get; private set; }
         public float StarVisibility { get; private set; }
         public float SunDiscVisibility { get; private set; }
@@ -93,6 +120,8 @@ namespace Drift.Visuals
         public Color WaterLight { get; private set; } = Color.white;
 
         Func<float> _nightProvider;
+        [NonSerialized] float _dt, _moonYaw;
+        [NonSerialized] bool _moonYawSet;
 
         Func<float> _timeProvider;
 
@@ -181,12 +210,15 @@ namespace Drift.Visuals
 
         public void Step(float dt)
         {
+            _dt = dt;
             if (dayLength > 0f)
             {
                 timeOfDay = Mathf.Repeat(timeOfDay + dt / dayLength, 1f);
-                if (moonCycleDays > 0f) moonPhase = Mathf.Repeat(moonPhase + dt / (dayLength * moonCycleDays), 1f);
+                if (moonCycleDays > 0f)
+                    moonPhase = SkyMath.AdvanceMoonPhase(moonPhase, dt / (dayLength * moonCycleDays), moonPhaseMin, moonPhaseMax, OrbitMoonDirection.y < -0.05f);
             }
             Apply();
+            _dt = 0f;
         }
 
         Vector3 ClampElevation(Vector3 dir)
@@ -199,6 +231,24 @@ namespace Drift.Visuals
             return new Vector3(flat.x, minH, flat.y);
         }
 
+        // Play Mode: the moon's bearing trails the camera's (it "follows you", like the moon from a moving car); while it is
+        // down it snaps, so it always rises in view. Edit Mode keeps the orbit's own bearing.
+        Vector3 MoonInView(Vector3 orbit)
+        {
+            if (!moonInView || !Application.isPlaying) { _moonYawSet = false; return orbit; }
+            var cam = viewCamera != null ? viewCamera : Camera.main;
+            if (cam == null) return orbit;
+            float target = SkyMath.YawOf(cam.transform.forward) + moonViewOffset;
+            if (!_moonYawSet || orbit.y < -0.1f) { _moonYaw = target; _moonYawSet = true; }
+            else _moonYaw = Mathf.MoveTowardsAngle(_moonYaw, target, Mathf.Max(0f, moonViewFollow) * _dt);
+            Vector3 moon = SkyMath.MoonAt(orbit, _moonYaw);
+            // Looking down past the limb (cozy chase, watch) the moon shows as its mirror image in the sea and keeps
+            // its orbit's height; where the sky is in view, a high moon would stand just above the top edge.
+            float top = Mathf.Asin(Mathf.Clamp(cam.transform.forward.y, -1f, 1f)) * Mathf.Rad2Deg + cam.fieldOfView * 0.5f;
+            if (top >= moonFitTop && moon.y > 0f) moon = SkyMath.CapElevation(moon, Mathf.Max(5f, top - moonFitMargin));
+            return moon;
+        }
+
         public void Apply()
         {
             if (sun == null || water == null) Resolve();
@@ -206,6 +256,8 @@ namespace Drift.Visuals
 
             Vector3 toSun = SkyMath.SunDirection(timeOfDay, axisTilt, azimuth);
             Vector3 toMoon = SkyMath.MoonDirection(timeOfDay, moonTilt, azimuth + moonAzimuthOffset, moonLead);
+            OrbitMoonDirection = toMoon;
+            toMoon = MoonInView(toMoon);
             SunHeight = toSun.y;
             TrueSunDirection = toSun;
             MoonDirection = toMoon;
@@ -214,7 +266,8 @@ namespace Drift.Visuals
             Vector3 lightDir = ClampElevation(toSun);
             // Both ends are at least minSunElevation up, so the arc passes overhead (never through the ground) and
             // turns at an even rate: about 8 degrees a second at most with the default day length.
-            if (MoonLightAmount > 0f) lightDir = Vector3.Slerp(lightDir.normalized, ClampElevation(toMoon).normalized, MoonLightAmount);
+            if (MoonLightAmount > 0f)
+                lightDir = Vector3.Slerp(lightDir.normalized, ClampElevation(SkyMath.MoonKeyLight(toMoon, moonKeyElevation, moonKeyYaw)).normalized, MoonLightAmount);
             SunDirection = lightDir.normalized;
 
             HorizonAmount = 1f - Mathf.Clamp01(Mathf.Abs(SunHeight - 0.12f) / 0.32f);
@@ -229,6 +282,7 @@ namespace Drift.Visuals
 
             palette ??= new SkyPalette();
             SkyKey sky = palette.Evaluate(timeOfDay);
+            sky.ambient = SkyMath.LiftAmbient(sky.ambient, nightAmbientFloor, NightAmount);
 
             float storm = water != null ? water.Storm : 0f;
             StormAmount = storm;

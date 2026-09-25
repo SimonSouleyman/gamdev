@@ -106,6 +106,12 @@ namespace Drift.Bridge
         public const string NewWorldBody = "Deine jetzige Welt geht verloren.";
         public const string NewWorldCancel = "Abbrechen";
         public const string NewWorldConfirm = "Neu beginnen";
+        // "Gemütlich" on the title with a saved world: continue it or start a new one - the second replaces the save,
+        // which the one line above the buttons says, so there is no further question.
+        public const string CozyContinue = "Weiter";
+        public const string CozyNewWorld = "Neu beginnen";
+        public const string CozyChoiceNote = "„Neu beginnen“ ersetzt deine gespeicherte Welt.";
+        public static string SeedCaption(int seed, bool legacy) => legacy ? "Welt: Standard" : "Welt #" + seed;
 
         // The driving hint of the HUD. Abenteuer drives itself ("man fährt immer"): the input only steers sideways,
         // pulling back brakes and can never bring the island to a stop, so both steering schemes read the same.

@@ -202,6 +202,7 @@ MonoBehaviour:
   autosaveInterval: 20
   titleAfterGameOver: 0
   randomSeedOnFirstTitle: 1
+  adventureIntroSeconds: 2.8
 --- !u!1 &431397831
 GameObject:
   m_ObjectHideFlags: 0
@@ -385,6 +386,11 @@ MonoBehaviour:
   ringMomentumFov: 3
   ringLagSpeed: 24
   ringGhostLift: 5
+  ringRaiseDeg: 4
+  ringLookUpDeg: 4
+  ringFastLookUpDeg: 6
+  ringIntroDistance: 1.7
+  ringIntroRaiseDeg: 12
   boostFovGain: 4
   boostReference: 1.65
   boostFovKick: 3.5
@@ -570,15 +576,26 @@ MonoBehaviour:
   minSunElevation: 14
   noonColor: {r: 1, g: 0.97, b: 0.9, a: 1}
   horizonColor: {r: 1, g: 0.6, b: 0.35, a: 1}
-  nightColor: {r: 0.5, g: 0.62, b: 0.95, a: 1}
+  nightColor: {r: 0.62, g: 0.74, b: 1, a: 1}
   dayIntensity: 1.2
-  nightIntensity: 0.5
-  moonTilt: 66
+  nightIntensity: 0.55
+  moonTilt: 52
   moonAzimuthOffset: 25
   moonLead: 0.3
   moonLight: 1
   moonPhase: 0.62
   moonCycleDays: 8
+  moonInView: 1
+  moonViewOffset: 8
+  moonViewFollow: 30
+  moonKeyElevation: 50
+  moonKeyYaw: 0
+  moonPhaseMin: 0.3
+  moonPhaseMax: 0.7
+  nightAmbientFloor: {r: 0.4, g: 0.45, b: 0.6, a: 1}
+  moonFitTop: 15
+  moonFitMargin: 9
+  viewCamera: {fileID: 0}
   palette:
     keys:
     - time: 0
@@ -771,6 +788,7 @@ MonoBehaviour:
   jumpDuration: 0.75
   jumpHeight: 0.45
   rebuildRate: 15
+  closeUpSpeed: 1.5
   seed: 7
   silverColor: {r: 0.78, g: 0.86, b: 0.94, a: 1}
   goldColor: {r: 1, g: 0.68, b: 0.32, a: 1}
@@ -846,6 +864,13 @@ MonoBehaviour:
   beaconMinAngle: 0.014
   beaconRing: 1.7
   beaconBeam: 4.5
+  flotsamRingStrength: 1
+  flotsamRingInCozy: 0
+  flotsamRingColor: {r: 1, g: 0.87, b: 0.64, a: 0.9}
+  flotsamRingRadius: 1.2
+  flotsamRingMinAngle: 0.017
+  flotsamRingAspect: 0.62
+  flotsamRingShadow: 0.35
   flotsamSeed: 59
   flotsamCell: 21.86
   flotsamSpawnRadius: 70
@@ -967,6 +992,7 @@ MonoBehaviour:
   respawnSeconds: 90
   respawnMinRange: 0.5
   rebuildRate: 15
+  closeUpSpeed: 2
   detailDistance: 70
   splashDistance: 75
   maxUnderVerts: 2000
@@ -1736,6 +1762,8 @@ MonoBehaviour:
   surfVolume: 0.45
   speedWaterBoost: 0.35
   mergeSplash: 0.7
+  adventureBedGain: 0.7
+  adventureEventGain: 0.85
   adventureMusicEnabled: 1
   musicCrossfadeSeconds: 2.5
   adventureMusicGain: 1
@@ -1955,6 +1983,12 @@ MonoBehaviour:
   lightningRate: 0.035
   strikeDuration: 0.25
   fireDuration: 20
+  firePatchShare: 0.1
+  firePatchCells: {x: 2, y: 40}
+  fireSpreadRate: 0.05
+  fireRainDamping: 0.45
+  fireWindStretch: 0.6
+  grassFire: {x: 0.45, y: 1.6}
   simDistance: 110
   hideDistance: 260
   detailDistance: 45
@@ -2024,6 +2058,8 @@ MonoBehaviour:
   detailDistance: 45
   meshInterval: 0.06666667
   hiddenMeshInterval: 1
+  smoothMotion: 1
+  slideStretch: 1.25
   midStepInterval: 0.1
   farStepInterval: 0.5
   animalMaterial: {fileID: 0}
@@ -2106,6 +2142,7 @@ MonoBehaviour:
   hideDistance: 260
   detailDistance: 45
   meshInterval: 0.083333336
+  closeUpSpeed: 0.6
   midStepInterval: 0.2
   shoreMin: 0.02
   shoreMax: 0.25
@@ -2131,9 +2168,9 @@ MonoBehaviour:
   butterflyHeight: 0.12
   butterflyScale: 0.07
   dayThreshold: 0.5
-  maxFireflies: 48
-  minFireflies: 12
-  areaPerFirefly: 2.5
+  maxFireflies: 110
+  minFireflies: 24
+  areaPerFirefly: 1
   fireflySpeed: 0.25
   fireflyRange: 1.5
   fireflyHeight: 0.35
@@ -2141,9 +2178,9 @@ MonoBehaviour:
   nightThreshold: 0.6
   fireflyDusk: 0.35
   fireflyStormCut: 0.7
-  farFireflies: 8
-  fireflyHalo: 0.11
-  fireflyMinAngle: 0.0042
+  farFireflies: 20
+  fireflyHalo: 0.14
+  fireflyMinAngle: 0.011
   fireflyDrift: 0.45
   fireflyClusterRadius: 1.7
   fireflyColor: {r: 0.85, g: 1.3, b: 0.4, a: 1}
@@ -2192,6 +2229,7 @@ MonoBehaviour:
   hideDistance: 260
   detailDistance: 45
   folkMeshInterval: 0.1
+  folkCloseUpSpeed: 0.3
   staticMeshInterval: 0.25
   midStepInterval: 0.25
   growthInterval: 0.5
@@ -2571,6 +2609,7 @@ MonoBehaviour:
   flapPerSecond: 2.5
   flapAmplitude: 0.13
   viewer: {fileID: 0}
+  smoothFarFlocks: 1
   homeSeabirdFlocks: 0
   homeOrbitRadius: 0.5
 --- !u!1 &1602446008
@@ -2969,6 +3008,7 @@ MonoBehaviour:
   baseColor: {r: 0.99, g: 0.96, b: 0.88, a: 0.16}
   knobColor: {r: 0.99, g: 0.96, b: 0.88, a: 0.62}
   lookEnabled: 0
+  gesturesEnabled: 0
 --- !u!114 &2011694579
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -3021,6 +3061,13 @@ MonoBehaviour:
   watchFocusFollow: 3
   watchTurnWithIsland: 1
   watchSubjectEase: 8
+  airPitchLow: 50
+  airPitchHigh: 30
+  airFullHeight: 4
+  airFill: 0.6
+  airMinDistance: 4
+  airHeightFollow: 2.5
+  airFramingFollow: 1.2
   stillPitch: 28
   stillFill: 0.4
   stillOrbitDegPerSecond: 5
@@ -3155,19 +3202,34 @@ MonoBehaviour:
   bannerTop: 520
   editorBanner: 0
   flyOverEnabled: 1
-  freeFlight:
-    moveSpeed: 12
-    speedHeight: 15
-    moveResponse: 3
-    lookDegPerPixel: 0.12
-    lookResponse: 12
-    minPitch: 8
-    maxPitch: 85
-    minHeight: 3
-    maxHeight: 60
+  mapView:
+    minPitch: 25
+    maxPitch: 80
+    minDistance: 5
+    maxDistance: 90
     reach: 1.25
     reachMargin: 30
     clearance: 2
+    flingDecay: 3.5
+    flingMax: 3
+    tiltPerScreen: 120
+    zoomResponse: 12
+    keySpeed: 0.9
+    keyResponse: 6
+    idleDelay: 4
+    orbitDegPerSecond: 4
+    orbitRamp: 1.2
+    flySecondsMin: 1
+    flySecondsMax: 1.5
+    flyFill: 0.5
+    flyMinDistance: 6
+    flyBodyPixels: 40
+    flyPitch: 50
+    trackResponse: 2.5
+    groundFollow: 2.5
+  sightsBar: 1
+  sightsLift: 404
+  sightsRefresh: 2.5
   flyReturnSeconds: 0.7
   liftSeconds: 6
   orbitSeconds: 4

@@ -125,8 +125,11 @@ Shader "Drift/Vegetation"
                 float flutterPhase = pushed ? _LifeWindSway.z : t * (3.2 + 3.0 * storm);
                 float swayAmp = pushed ? _LifeWindSway.x : 1.0;
                 float flutterAmp = pushed ? _LifeWindSway.w : 1.0;
-                float gust = 0.55 + 0.45 * sin(gustPhase + posWS.x * 0.12 + posWS.z * 0.09 + phase * 0.5);
-                float flutter = sin(flutterPhase + phase + posWS.x * 1.7 + posWS.z * 1.1) * (_WindFlutter + 0.5 * storm) * flutterAmp;
+                // Island-local phases: with world positions the flutter ran up to several times faster while the island
+                // drifted (the phase swept past at 1.7 rad per unit travelled) and shifted while its body turned.
+                float3 ph = IN.positionOS.xyz;
+                float gust = 0.55 + 0.45 * sin(gustPhase + ph.x * 0.12 + ph.z * 0.09 + phase * 0.5);
+                float flutter = sin(flutterPhase + phase + ph.x * 1.7 + ph.z * 1.1) * (_WindFlutter + 0.5 * storm) * flutterAmp;
                 float bend = w * w * IN.sway.z * _WindBend * swayAmp;
                 float2 lean = wind * (gust + flutter) + float2(-wind.y, wind.x) * flutter * 0.35;
                 posWS.xz += lean * bend;

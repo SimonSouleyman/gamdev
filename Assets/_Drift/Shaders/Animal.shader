@@ -6,6 +6,7 @@ Shader "Drift/Animal"
     //   UV2 = (pitchFrom, pitchTo in degrees, restFrom, restTo 0..1)
     //   colour alpha = signed step lift of a leg vertex in world units (detail templates only, 0 otherwise)
     //   UV3 = procedural markings (Markings / DriftMarkings.hlsl: pattern coordinates in template units + code)
+    //   UV4 = where the vertex was drawn at the previous bake + slide code (DriftMotion.hlsl), 0 = stands still
     // Pitch and rest blend from/to over _TransitionTime after t0 (_LifeClock is set by IslandHerdSystem;
     // when it is never set every animal shows its target pose), so a state change costs one mesh rebuild.
     // Moving animals hop (or bob when the amplitude is tiny); grazing ones swing the head; alert ones twitch
@@ -45,6 +46,7 @@ Shader "Drift/Animal"
             #include "DriftClouds.hlsl"
             #include "DriftCurve.hlsl"
             #include "DriftMarkings.hlsl"
+            #include "DriftMotion.hlsl"
 
             struct Attributes
             {
@@ -55,6 +57,7 @@ Shader "Drift/Animal"
                 float4 anim1      : TEXCOORD1;
                 float4 anim2      : TEXCOORD2;
                 float4 mark       : TEXCOORD3;
+                float4 prev       : TEXCOORD4;
             };
 
             struct Varyings
@@ -87,7 +90,7 @@ Shader "Drift/Animal"
             Varyings vert(Attributes IN)
             {
                 Varyings OUT;
-                float3 posWS = TransformObjectToWorld(IN.positionOS.xyz);
+                float3 posWS = TransformObjectToWorld(DriftMotion(IN.positionOS.xyz, IN.prev));
                 float lever = IN.anim0.x;
                 float up = IN.anim0.y;
                 float phase = IN.anim0.z;

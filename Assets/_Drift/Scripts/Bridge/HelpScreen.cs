@@ -1,23 +1,38 @@
 using System;
 using Drift.Audio;
+using Drift.Core;
 using Drift.UI;
 using UnityEngine;
 using UnityEngine.UI;
 
 namespace Drift.Bridge
 {
-    // "Anleitung": six paged cards with Tilda in the corner. A plain builder/controller that SessionScreens
+    // Which pages the Anleitung shows: inside a run only that mode's pages, on the title both (with two tabs).
+    public enum HelpScope { Both, Cozy, Adventure }
+
+    // "Anleitung": paged cards with Tilda in the corner. A plain builder/controller that SessionScreens
     // places into its own canvas, so it needs no scene wiring and shares the title / pause raycaster. On wide
     // screens SessionScreens hands over the big presenter Tilda beside the panel (UsePresenter); the small one in
     // the corner then hides and her speech bubble takes the full width. Her tip for the page is typed into the
     // bubble (TildaBubble) while she grumbles along.
     public sealed class HelpScreen
     {
-        public const int PageCount = 6;
+        public enum PageId { Goal, Controls, Buoyancy, World, Life, AdventureRing, AdventureControls, AdventureRoute }
+
+        public const int PageCount = 8;
         const float PanelWidth = 960f, PanelHeight = 1680f, ContentWidth = 880f, ContentTop = -150f;
         public static readonly Vector2 PanelSize = new Vector2(PanelWidth, PanelHeight);
 
-        static readonly string[] Titles = { "Dein Ziel", "Steuerung", "Auftrieb & Form", "Platten, Stürme, Vulkane", "Leben beobachten", "Abenteuer" };
+        static readonly PageId[] CozyPages = { PageId.Goal, PageId.Controls, PageId.Buoyancy, PageId.World, PageId.Life };
+        static readonly PageId[] AdventurePages = { PageId.AdventureRing, PageId.AdventureControls, PageId.AdventureRoute };
+        static readonly PageId[] AllPages = { PageId.Goal, PageId.Controls, PageId.Buoyancy, PageId.World, PageId.Life, PageId.AdventureRing, PageId.AdventureControls, PageId.AdventureRoute };
+
+        public static PageId[] PagesFor(HelpScope scope) => scope == HelpScope.Cozy ? CozyPages : scope == HelpScope.Adventure ? AdventurePages : AllPages;
+        public static GameMode ModeOf(PageId id) => id >= PageId.AdventureRing ? GameMode.Adventure : GameMode.Cozy;
+        // The title explains both games; a paused run only its own.
+        public static HelpScope ScopeFor(bool onTitle, GameMode mode) => onTitle ? HelpScope.Both : mode == GameMode.Adventure ? HelpScope.Adventure : HelpScope.Cozy;
+
+        static readonly string[] Titles = { "Dein Ziel", "Steuerung", "Auftrieb & Form", "Platten, Stürme, Vulkane", "Leben beobachten", "Abenteuer", "Steuerung", "Ausweichen & Treibgut" };
         // Two lines in the narrow bubble beside the small Tilda: above it the page's cards end, below it the dots begin.
         static readonly string[] Tips =
         {
@@ -27,37 +42,59 @@ namespace Drift.Bridge
             "Vulkaninseln sind meine " + TildaBubble.Key("Verwandten") + " – alle freundlich!",
             "Schau genau hin – auf meinen Hängen wächst es " + TildaBubble.Key("grün") + ".",
             "Im " + TildaBubble.Key("Abenteuer") + " zählt jeder Meter – ich feuere dich an!",
+            "Deine Insel " + TildaBubble.Key("fährt von allein") + " – du lenkst nur zur Seite.",
+            "Weich den Inseln aus und " + TildaBubble.Key("schnapp dir Treibgut") + "!",
         };
         // Tilda grumbles while the tip is typed; page 1 waves, the volcano page gets a little lava cheer.
-        static readonly TildaPose[] Poses = { TildaPose.Wave, TildaPose.Talk, TildaPose.Talk, TildaPose.Cheer, TildaPose.Talk, TildaPose.Cheer };
+        static readonly TildaPose[] Poses = { TildaPose.Wave, TildaPose.Talk, TildaPose.Talk, TildaPose.Cheer, TildaPose.Talk, TildaPose.Cheer, TildaPose.Talk, TildaPose.Cheer };
         const float GestureSeconds = 1.8f, TipWidth = 640f, TipBottom = -1358f, CornerSize = 270f;
         static readonly Vector2 CornerPos = new Vector2(10f, -1096f);
+        static readonly Vector2 TabSize = new Vector2(300f, 88f);
 
         GameObject _screen;
         readonly GameObject[] _pages = new GameObject[PageCount];
         readonly Image[] _dots = new Image[PageCount];
-        Text _title, _nextLabel, _replayLabel, _voiceLabel;
+        RectTransform _dotRow, _tabs;
+        // Per tab: the mint "selected" button and the lagoon one, swapped instead of recoloured.
+        readonly GameObject[] _tabOn = new GameObject[2], _tabOff = new GameObject[2];
+        Text _title, _nextLabel, _replayLabel, _voiceLabel, _cozyStickLabel;
         TildaBubble _tip;
         RectTransform _panel;
         string _remarkKey;
         static HelpScreen s_listening;
         TildaView _tilda, _presenter;
         Button _back, _replay;
-        RectTransform _desktopCard, _touchCard;
-        Action _onClose, _onReplay, _onToggleVoice;
+        RectTransform[] _desktopCards = new RectTransform[2], _touchCards = new RectTransform[2];
+        Action _onClose, _onToggleVoice;
+        Action<GameMode> _onReplay;
+        Func<GameMode, bool> _replayPending;
+        HelpScope _scope = HelpScope.Both;
+        PageId[] _sequence = AllPages;
         int _page;
         float _talkUntil;
 
         TildaView ActiveView => _presenter != null ? _presenter : _tilda;
 
         public bool IsOpen => _screen != null && _screen.activeSelf;
+        // Index into the pages of the current scope.
         public int Page => _page;
+        public HelpScope Scope => _scope;
+        public int VisiblePageCount => _sequence.Length;
+        public PageId CurrentPage => _sequence[Mathf.Clamp(_page, 0, _sequence.Length - 1)];
+        public GameMode CurrentMode => ModeOf(CurrentPage);
+        public string CurrentTitle => Titles[(int)CurrentPage];
+        public bool TabsShown => _tabs != null && _tabs.gameObject.activeSelf;
         public GameObject Root => _screen;
 
-        public void Build(RectTransform root, Action onClose, Action onReplay, Action onToggleVoice = null)
+        public static string TitleOf(PageId id) => Titles[(int)id];
+
+        // onReplay gets the mode whose tutorial should run again (the page's mode); replayPending tells, per mode,
+        // whether that tutorial is already queued.
+        public void Build(RectTransform root, Action onClose, Action<GameMode> onReplay, Action onToggleVoice = null, Func<GameMode, bool> replayPending = null)
         {
             _onClose = onClose;
             _onReplay = onReplay;
+            _replayPending = replayPending;
             _onToggleVoice = onToggleVoice;
             _presenter = null;
             _remarkKey = null;
@@ -82,12 +119,19 @@ namespace Drift.Bridge
             Cross(close.transform, 40f);
             UiStyle.Divider(panel, ContentWidth).TopCenter(new Vector2(0f, -128f), new Vector2(ContentWidth, 3f));
 
-            _pages[0] = BuildGoal(panel);
-            _pages[1] = BuildControls(panel);
-            _pages[2] = BuildBuoyancy(panel);
-            _pages[3] = BuildWorld(panel);
-            _pages[4] = BuildLife(panel);
-            _pages[5] = BuildAdventure(panel);
+            _pages[(int)PageId.Goal] = BuildGoal(panel);
+            _pages[(int)PageId.Controls] = BuildControls(panel);
+            _pages[(int)PageId.Buoyancy] = BuildBuoyancy(panel);
+            _pages[(int)PageId.World] = BuildWorld(panel);
+            _pages[(int)PageId.Life] = BuildLife(panel);
+            _pages[(int)PageId.AdventureRing] = BuildAdventureRing(panel);
+            _pages[(int)PageId.AdventureControls] = BuildAdventureControls(panel);
+            _pages[(int)PageId.AdventureRoute] = BuildAdventureRoute(panel);
+
+            // The title's Anleitung explains both games: two tabs stand on the panel's top edge, like folder tabs.
+            _tabs = UiStyle.Rect(panel, "ModeTabs").Place(new Vector2(0.5f, 1f), new Vector2(0.5f, 0f), new Vector2(0f, 18f), new Vector2(2f * TabSize.x + 16f, TabSize.y));
+            BuildTab(0, GameMode.Cozy, -(TabSize.x + 16f) * 0.5f);
+            BuildTab(1, GameMode.Adventure, (TabSize.x + 16f) * 0.5f);
 
             _panel = panel;
             var portrait = TildaPortrait.CreateImage(panel, new Vector2(CornerSize, CornerSize));
@@ -97,7 +141,7 @@ namespace Drift.Bridge
             _tip = TildaBubble.Create(panel, "Tip", TipWidth, false);
             PlaceTip();
 
-            var dots = UiStyle.Rect(panel, "Dots").TopCenter(new Vector2(0f, -1370f), new Vector2(PageCount * 48f, 32f));
+            var dots = _dotRow = UiStyle.Rect(panel, "Dots").TopCenter(new Vector2(0f, -1370f), new Vector2(PageCount * 48f, 32f));
             for (int i = 0; i < PageCount; i++)
             {
                 _dots[i] = UiStyle.Dot(dots, "Dot" + i, 22f, UiStyle.Faint);
@@ -125,15 +169,29 @@ namespace Drift.Bridge
             _screen.SetActive(false);
         }
 
-        public void Open(int page, bool touchFirst, bool replayPending)
+        // page indexes the scope's own pages.
+        public void Open(HelpScope scope, int page, bool touchFirst)
         {
             if (_screen == null) return;
+            _scope = scope;
+            _sequence = PagesFor(scope);
+            if (_tabs != null && _tabs.gameObject.activeSelf != (scope == HelpScope.Both)) _tabs.gameObject.SetActive(scope == HelpScope.Both);
             ArrangeControls(touchFirst);
-            SetReplayPending(replayPending);
+            // The cozy steering scheme can change in the pause menu between two openings.
+            if (_cozyStickLabel != null) _cozyStickLabel.text = ModeTexts.SteerHint(GameMode.Cozy, true, Drift.Islands.Island.DirectionSteering);
             RefreshVoiceLabel();
+            for (int i = 0; i < PageCount; i++)
+                if (_pages[i] != null && _pages[i].activeSelf) _pages[i].SetActive(false);
             _screen.SetActive(true);
             _screen.transform.SetAsLastSibling();
             Show(page);
+        }
+
+        // A tab jumps to the first page of its mode.
+        public void ShowMode(GameMode mode)
+        {
+            for (int i = 0; i < _sequence.Length; i++)
+                if (ModeOf(_sequence[i]) == mode) { Show(i); return; }
         }
 
         public void Hide()
@@ -149,14 +207,14 @@ namespace Drift.Bridge
             PlaceTip();
             if (!Application.isPlaying)
             {
-                _tip.ShowStill(Tips[_page]);
+                _tip.ShowStill(Tips[(int)CurrentPage]);
                 PlaceTip();
                 return;
             }
-            var mood = Poses[_page] == TildaPose.Wave ? GrumbleMood.Cheerful : Poses[_page] == TildaPose.Cheer ? GrumbleMood.Giggly : GrumbleMood.Warm;
-            _tip.Show(Tips[_page], mood, TildaBubble.RemarkCharsPerSecond, true);
+            var mood = Poses[(int)CurrentPage] == TildaPose.Wave ? GrumbleMood.Cheerful : Poses[(int)CurrentPage] == TildaPose.Cheer ? GrumbleMood.Giggly : GrumbleMood.Warm;
+            _tip.Show(Tips[(int)CurrentPage], mood, TildaBubble.RemarkCharsPerSecond, true);
             PlaceTip();
-            _talkUntil = Time.unscaledTime + GrumbleTiming.Duration(TildaBubble.Plain(Tips[_page]), TildaBubble.RemarkCharsPerSecond);
+            _talkUntil = Time.unscaledTime + GrumbleTiming.Duration(TildaBubble.Plain(Tips[(int)CurrentPage]), TildaBubble.RemarkCharsPerSecond);
         }
 
         // Small Tilda in the corner: bubble to her right, tail at her mouth. Big Tilda beside the panel: the bubble
@@ -210,20 +268,44 @@ namespace Drift.Bridge
 
         public void Show(int page)
         {
-            _page = Mathf.Clamp(page, 0, PageCount - 1);
+            _page = Mathf.Clamp(page, 0, _sequence.Length - 1);
+            var current = CurrentPage;
             for (int i = 0; i < PageCount; i++)
             {
-                if (_pages[i].activeSelf != (i == _page)) _pages[i].SetActive(i == _page);
-                bool on = i == _page;
+                bool shown = i == (int)current;
+                if (_pages[i] != null && _pages[i].activeSelf != shown) _pages[i].SetActive(shown);
+            }
+            // The dots count the pages of the current mode only; with both modes the tabs tell which one that is.
+            var mode = ModeOf(current);
+            int first = 0, count = 0;
+            for (int i = 0; i < _sequence.Length; i++)
+            {
+                if (ModeOf(_sequence[i]) != mode) continue;
+                if (count == 0) first = i;
+                count++;
+            }
+            _dotRow.sizeDelta = new Vector2(count * 48f, 32f);
+            for (int i = 0; i < PageCount; i++)
+            {
+                bool used = i < count;
+                if (_dots[i].gameObject.activeSelf != used) _dots[i].gameObject.SetActive(used);
+                bool on = used && first + i == _page;
                 _dots[i].color = on ? UiStyle.Mint : UiStyle.Faint;
                 _dots[i].rectTransform.sizeDelta = on ? new Vector2(30f, 30f) : new Vector2(22f, 22f);
             }
-            _title.text = Titles[_page];
+            for (int t = 0; t < 2; t++)
+            {
+                bool selected = (t == 0 ? GameMode.Cozy : GameMode.Adventure) == mode;
+                if (_tabOn[t] != null && _tabOn[t].activeSelf != selected) _tabOn[t].SetActive(selected);
+                if (_tabOff[t] != null && _tabOff[t].activeSelf == selected) _tabOff[t].SetActive(!selected);
+            }
+            _title.text = Titles[(int)current];
             _remarkKey = null;
+            RefreshReplay();
             ShowTip();
             Pose();
             _back.gameObject.SetActive(_page > 0);
-            _nextLabel.text = _page == PageCount - 1 ? "Fertig" : "Weiter";
+            _nextLabel.text = _page == _sequence.Length - 1 ? "Fertig" : "Weiter";
         }
 
         // The big Tilda beside the panel takes over (null: back to the small one in the corner).
@@ -233,7 +315,7 @@ namespace Drift.Bridge
             _presenter = presenter;
             bool big = presenter != null;
             if (_tilda.gameObject.activeSelf == big) _tilda.gameObject.SetActive(!big);
-            if (!Application.isPlaying && IsOpen) _tip.ShowStill(Tips[_page]);
+            if (!Application.isPlaying && IsOpen) _tip.ShowStill(Tips[(int)CurrentPage]);
             PlaceTip();
             if (IsOpen) Pose();
         }
@@ -243,7 +325,7 @@ namespace Drift.Bridge
         {
             var view = ActiveView;
             if (view == null) return;
-            var gesture = Poses[_page];
+            var gesture = Poses[(int)CurrentPage];
             bool big = _presenter != null;
             if (!Application.isPlaying)
             {
@@ -268,6 +350,9 @@ namespace Drift.Bridge
             RefreshVoiceLabel();
         }
 
+        // "Tutorial erneut spielen" restarts the tutorial of the page's mode.
+        void RefreshReplay() => SetReplayPending(_replayPending != null && _replayPending(CurrentMode));
+
         public void SetReplayPending(bool pending)
         {
             if (_replayLabel == null) return;
@@ -278,7 +363,7 @@ namespace Drift.Bridge
 
         void Next()
         {
-            if (_page >= PageCount - 1) Close();
+            if (_page >= _sequence.Length - 1) Close();
             else Show(_page + 1);
         }
 
@@ -290,17 +375,34 @@ namespace Drift.Bridge
 
         void Replay()
         {
-            _onReplay?.Invoke();
+            _onReplay?.Invoke(CurrentMode);
             SetReplayPending(true);
         }
 
         void ArrangeControls(bool touchFirst)
         {
-            if (_desktopCard == null || _touchCard == null) return;
-            var first = touchFirst ? _touchCard : _desktopCard;
-            var second = touchFirst ? _desktopCard : _touchCard;
-            first.anchoredPosition = Vector2.zero;
-            second.anchoredPosition = new Vector2(0f, -first.sizeDelta.y - 20f);
+            for (int i = 0; i < 2; i++)
+            {
+                if (_desktopCards[i] == null || _touchCards[i] == null) continue;
+                var first = touchFirst ? _touchCards[i] : _desktopCards[i];
+                var second = touchFirst ? _desktopCards[i] : _touchCards[i];
+                float x = first.anchoredPosition.x;
+                first.anchoredPosition = new Vector2(x, 0f);
+                second.anchoredPosition = new Vector2(x, -first.sizeDelta.y - 20f);
+            }
+        }
+
+        void BuildTab(int index, GameMode mode, float x)
+        {
+            string label = GameModes.Label(mode);
+            var on = UiStyle.PrimaryButton(_tabs, "Tab" + mode + "On", label, TabSize, () => ShowMode(mode));
+            ((RectTransform)on.transform).Center(new Vector2(x, 0f), TabSize);
+            var off = UiStyle.SecondaryButton(_tabs, "Tab" + mode, label, TabSize, () => ShowMode(mode), false, true);
+            ((RectTransform)off.transform).Center(new Vector2(x, 0f), TabSize);
+            UiStyle.FitWidth(UiStyle.LabelOf(on));
+            UiStyle.FitWidth(UiStyle.LabelOf(off));
+            _tabOn[index] = on.gameObject;
+            _tabOff[index] = off.gameObject;
         }
 
         // ---------------------------------------------------------------- pages
@@ -345,27 +447,31 @@ namespace Drift.Bridge
         {
             var page = NewPage(panel, "PageControls");
 
-            _desktopCard = UiStyle.Card(page, "Desktop", new Vector2(ContentWidth, 470f)).TopCenter(Vector2.zero, new Vector2(ContentWidth, 470f));
-            CardHeading(_desktopCard, "Am Computer");
-            KeyRow(_desktopCard, -92f, "Richtung: vor und zurück", "W", "S");
-            KeyRow(_desktopCard, -166f, "Richtung: nach links und rechts", "A", "D");
-            KeyRow(_desktopCard, -240f, "oder Mausrad: Zoom", "Q", "E");
-            KeyRow(_desktopCard, -314f, "Pause", "Esc");
-            KeyRow(_desktopCard, -388f, "auf ein Tier: ansehen", "Klick");
+            var desktop = _desktopCards[0] = UiStyle.Card(page, "Desktop", new Vector2(ContentWidth, 470f)).TopCenter(Vector2.zero, new Vector2(ContentWidth, 470f));
+            CardHeading(desktop, "Am Computer");
+            KeyRow(desktop, -92f, "Richtung: vor und zurück", "W", "S");
+            KeyRow(desktop, -166f, "Richtung: nach links und rechts", "A", "D");
+            KeyRow(desktop, -240f, "oder Mausrad: Zoom", "Q", "E");
+            KeyRow(desktop, -314f, "Pause", "Esc");
+            KeyRow(desktop, -388f, "auf ein Tier: ansehen", "Klick");
 
-            _touchCard = UiStyle.Card(page, "Touch", new Vector2(ContentWidth, 430f)).TopCenter(new Vector2(0f, -490f), new Vector2(ContentWidth, 430f));
-            CardHeading(_touchCard, "Am Handy");
-            // Adventure drives by itself and only steers, so the help has to follow the mode and the scheme.
-            var stick = GlyphRow(_touchCard, -96f, ModeTexts.SteerHint(Drift.Core.GameModes.Current, true, Drift.Islands.Island.DirectionSteering));
-            UiStyle.Dot(stick, "Base", 84f, UiStyle.Ghost).rectTransform.Center(Vector2.zero, new Vector2(84f, 84f));
-            UiStyle.Dot(stick, "Knob", 40f, UiStyle.WithAlpha(UiStyle.Cream, 0.85f)).rectTransform.Center(new Vector2(12f, 10f), new Vector2(40f, 40f));
-            var pinch = GlyphRow(_touchCard, -204f, "Zwei Finger: Zoom");
+            var touch = _touchCards[0] = UiStyle.Card(page, "Touch", new Vector2(ContentWidth, 430f)).TopCenter(new Vector2(0f, -490f), new Vector2(ContentWidth, 430f));
+            CardHeading(touch, "Am Handy");
+            var stick = GlyphRow(touch, -96f, ModeTexts.SteerHint(GameMode.Cozy, true, Drift.Islands.Island.DirectionSteering), out _cozyStickLabel);
+            StickGlyph(stick);
+            var pinch = GlyphRow(touch, -204f, "Zwei Finger: Zoom");
             Finger(pinch, new Vector2(-22f, -14f));
             Finger(pinch, new Vector2(22f, 14f));
-            var tap = GlyphRow(_touchCard, -312f, "Tippen: Tier ansehen");
+            var tap = GlyphRow(touch, -312f, "Tippen: Tier ansehen");
             UiStyle.Dot(tap, "Ripple", 84f, UiStyle.WithAlpha(UiStyle.Mint, 0.25f)).rectTransform.Center(Vector2.zero, new Vector2(84f, 84f));
             Finger(tap, Vector2.zero);
             return page.gameObject;
+        }
+
+        static void StickGlyph(RectTransform glyph)
+        {
+            UiStyle.Dot(glyph, "Base", 84f, UiStyle.Ghost).rectTransform.Center(Vector2.zero, new Vector2(84f, 84f));
+            UiStyle.Dot(glyph, "Knob", 40f, UiStyle.WithAlpha(UiStyle.Cream, 0.85f)).rectTransform.Center(new Vector2(12f, 10f), new Vector2(40f, 40f));
         }
 
         static void CardHeading(RectTransform card, string text)
@@ -388,9 +494,11 @@ namespace Drift.Bridge
             t.horizontalOverflow = HorizontalWrapMode.Overflow;
         }
 
-        static RectTransform GlyphRow(RectTransform card, float y, string text)
+        static RectTransform GlyphRow(RectTransform card, float y, string text) => GlyphRow(card, y, text, out _);
+
+        static RectTransform GlyphRow(RectTransform card, float y, string text, out Text label)
         {
-            var t = UiStyle.Label(card, text, 32, UiStyle.CreamSoft, TextAnchor.MiddleLeft);
+            var t = label = UiStyle.Label(card, text, 32, UiStyle.CreamSoft, TextAnchor.MiddleLeft);
             t.rectTransform.TopLeft(new Vector2(196f, y), new Vector2(640f, 92f));
             t.horizontalOverflow = HorizontalWrapMode.Overflow;
             return UiStyle.Rect(card, "Glyph").TopLeft(new Vector2(56f, y), new Vector2(92f, 92f));
@@ -458,16 +566,46 @@ namespace Drift.Bridge
             return page.gameObject;
         }
 
-        GameObject BuildAdventure(RectTransform panel)
+        // Abenteuer has its own three pages; inside an adventure run they are the whole Anleitung.
+        GameObject BuildAdventureRing(RectTransform panel)
         {
-            var page = NewPage(panel, "PageAdventure");
-            InfoCard(page, 0f, 206f, UiStyle.Sky, "Die Ringwelt", "Ein schmales Meeresband, das sich vor und hinter dir in den Himmel wölbt. Deine Insel hält von allein Fahrt.");
-            InfoCard(page, -216f, 226f, UiStyle.Cream, "Der Rand", "Am Rand des Bands endet die Welt. Hinausfahren kannst du nicht: Dort schäumt das Wasser und schiebt dich sanft wieder auf die Bahn.");
-            var time = InfoCard(page, -452f, 240f, UiStyle.Coral, "Wie weit kommst du?", "Deine Insel sinkt. Versinkt sie, ist der Lauf vorbei – deine weiteste Strecke bleibt als Rekord.");
+            var page = NewPage(panel, "PageAdventureRing");
+            InfoCard(page, 0f, 250f, UiStyle.Sky, "Die Ringwelt", "Ein schmales Meeresband, das sich vor und hinter dir in den Himmel wölbt. Deine Insel hält von allein Fahrt.");
+            InfoCard(page, -270f, 226f, UiStyle.Cream, "Der Rand", "Am Rand des Bands endet die Welt. Hinausfahren kannst du nicht: Dort schäumt das Wasser und schiebt dich sanft wieder auf die Bahn.");
+            var time = InfoCard(page, -516f, 240f, UiStyle.Coral, "Wie weit kommst du?", "Deine Insel sinkt. Versinkt sie, ist der Lauf vorbei – deine weiteste Strecke bleibt als Rekord.");
             SampleBar(time, -176f, 0.24f, UiStyle.Coral, "sinkt – Treibgut holen!");
-            InfoCard(page, -702f, 206f, UiStyle.Sand, "Inseln sind Hindernisse", "Hier wird nicht gerammt: Jede Insel wirft dich zurück und kostet Auftrieb. Fahr außen herum!");
-            InfoCard(page, -918f, 206f, UiStyle.Mint, "Treibgut hebt dich", "Kisten, Fässer und Flaschen auf der Bahn geben Auftrieb – das Einzige, was dich wieder hochbringt.");
-            InfoCard(page, -1134f, 206f, UiStyle.Sky, "Surfspuren", "Die Plattengrenzen laufen längs der Bahn und wandern. Fahr an ihnen entlang – dort bist du am schnellsten.");
+            return page.gameObject;
+        }
+
+        GameObject BuildAdventureControls(RectTransform panel)
+        {
+            var page = NewPage(panel, "PageAdventureControls");
+
+            var desktop = _desktopCards[1] = UiStyle.Card(page, "Desktop", new Vector2(ContentWidth, 396f)).TopCenter(Vector2.zero, new Vector2(ContentWidth, 396f));
+            CardHeading(desktop, "Am Computer");
+            KeyRow(desktop, -92f, "seitlich lenken", "A", "D");
+            KeyRow(desktop, -166f, "bremsen", "S");
+            KeyRow(desktop, -240f, "oder Mausrad: Zoom", "Q", "E");
+            KeyRow(desktop, -314f, "Pause", "Esc");
+
+            var touch = _touchCards[1] = UiStyle.Card(page, "Touch", new Vector2(ContentWidth, 322f)).TopCenter(new Vector2(0f, -416f), new Vector2(ContentWidth, 322f));
+            CardHeading(touch, "Am Handy");
+            StickGlyph(GlyphRow(touch, -96f, ModeTexts.SteerHint(GameMode.Adventure, true, true)));
+            var ahead = GlyphRow(touch, -200f, "Deine Insel fährt von allein");
+            var arrow = UiStyle.Shape(ahead, "Arrow", UiSprites.Arrow, UiStyle.Cream);
+            arrow.rectTransform.Center(Vector2.zero, new Vector2(56f, 56f));
+
+            InfoCard(page, -758f, 190f, UiStyle.Mint, "Schwung", "Treibgut und Surfen geben Schwung – du wirst schneller. Ein Rempler halbiert ihn.", 30);
+            return page.gameObject;
+        }
+
+        GameObject BuildAdventureRoute(RectTransform panel)
+        {
+            var page = NewPage(panel, "PageAdventureRoute");
+            InfoCard(page, 0f, 206f, UiStyle.Sand, "Inseln sind Hindernisse", "Hier wird nicht gerammt: Jede Insel wirft dich zurück und kostet Auftrieb. Fahr außen herum!");
+            InfoCard(page, -226f, 206f, UiStyle.Mint, "Treibgut hebt dich", "Kisten, Fässer und Flaschen auf der Bahn geben Auftrieb – das Einzige, was dich wieder hochbringt.");
+            InfoCard(page, -452f, 250f, UiStyle.Sky, "Surfspuren", "Die Plattengrenzen laufen längs der Bahn und wandern. Fahr an ihnen entlang – dort bist du am schnellsten.");
+            InfoCard(page, -722f, 206f, UiStyle.Coral, "Wale", "Fährst du über einen Wal, schiebt er dich an – und du gleitest kurz durch alle Hindernisse.");
             return page.gameObject;
         }
 

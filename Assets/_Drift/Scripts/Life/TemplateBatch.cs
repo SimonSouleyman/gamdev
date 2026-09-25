@@ -13,6 +13,69 @@ namespace Drift.Life
         public bool gaitSteady;
     }
 
+    // What one mover was baked with: TemplateBatch's transform arguments.
+    public struct BakeTransform
+    {
+        public Vector3 pos;
+        public float yaw, scale, roll, pitch;
+
+        public BakeTransform(Vector3 pos, float yaw, float scale, float roll = 0f, float pitch = 0f)
+        {
+            this.pos = pos;
+            this.yaw = yaw;
+            this.scale = scale;
+            this.roll = roll;
+            this.pitch = pitch;
+        }
+
+        public static BakeTransform Lerp(in BakeTransform a, in BakeTransform b, float t) => new BakeTransform(
+            Vector3.LerpUnclamped(a.pos, b.pos, t), Mathf.LerpAngle(a.yaw, b.yaw, t), Mathf.LerpUnclamped(a.scale, b.scale, t),
+            Mathf.LerpAngle(a.roll, b.roll, t), Mathf.LerpAngle(a.pitch, b.pitch, t));
+
+        public bool Same(in BakeTransform o) =>
+            (pos - o.pos).sqrMagnitude < 1e-10f && Mathf.Abs(Mathf.DeltaAngle(yaw, o.yaw)) < 0.01f && Mathf.Abs(scale - o.scale) < 1e-5f
+            && Mathf.Abs(Mathf.DeltaAngle(roll, o.roll)) < 0.01f && Mathf.Abs(Mathf.DeltaAngle(pitch, o.pitch)) < 0.01f;
+    }
+
+    // The motion channel of one mover (CloseUpMotion / DriftMotion.hlsl): the slide the mesh currently shows, from
+    // `from` at bake time `at` to `to` over `duration`. Next() starts the next slide where the mover is drawn right
+    // now, so the picture never jumps, whether the next bake comes early, on time or late.
+    public struct MotionTrack
+    {
+        public BakeTransform from, to;
+        public double at;
+        public float duration;
+        public bool valid;
+
+        // Where the mover is drawn at `now`.
+        public BakeTransform Shown(double now)
+        {
+            if (!valid) return to;
+            float f = duration > 0f ? Mathf.Clamp01((float)((now - at) / duration)) : 1f;
+            return BakeTransform.Lerp(from, to, f);
+        }
+
+        // Records a bake at `now` of `target` sliding over `seconds`; false (and start = target) when there is
+        // nothing to slide: first bake, a jump beyond snapDistance, or the mover is where it is drawn.
+        public bool Next(in BakeTransform target, double now, float seconds, float snapDistance, out BakeTransform start)
+        {
+            start = valid ? Shown(now) : target;
+            if ((target.pos - start.pos).sqrMagnitude > snapDistance * snapDistance) start = target;
+            from = start;
+            to = target;
+            at = now;
+            duration = seconds;
+            valid = true;
+            return !start.Same(target);
+        }
+
+        public void Shift(Vector3 delta)
+        {
+            from.pos += delta;
+            to.pos += delta;
+        }
+    }
+
     public class TemplateBatch
     {
         Vector3[] _v = new Vector3[1024];
@@ -23,6 +86,10 @@ namespace Drift.Life
         Vector4[] _uv2 = new Vector4[1024];
         // Marking channel (UV3, see Markings), only grown by batches that hold animals: plant batches stay small.
         Vector4[] _uv3 = System.Array.Empty<Vector4>();
+        // Motion channel (UV4, Shaders/DriftMotion.hlsl): the previous bake's position + CloseUpMotion.Encode, only
+        // in batches that called UseMotion; everything added without SetMotion stands still (w = 0).
+        Vector4[] _uv4 = System.Array.Empty<Vector4>();
+        bool _motion;
         int[] _t = new int[2048];
         int _vc, _tc;
         // Number of UV channels this batch writes (0 none, 1 plants, 3 critters, 4 animals); Apply uploads only those.
@@ -31,12 +98,70 @@ namespace Drift.Life
 
         public int VertexCount => _vc;
         public int UvChannels => _uvChannels;
+        public bool HasMotion => _motion;
+        // First vertex of the last template added (for SetMotion / SetPhase).
+        public int LastBase { get; private set; }
 
         public void Begin()
         {
             _vc = 0;
             _tc = 0;
             _uvChannels = 0;
+            _motion = false;
+        }
+
+        // Call right after Begin: this batch carries the motion channel.
+        public void UseMotion()
+        {
+            _motion = true;
+            if (_uv4.Length < _v.Length) _uv4 = new Vector4[_v.Length];
+            System.Array.Clear(_uv4, 0, _vc);
+        }
+
+        // The last added template slides in from where it was drawn at the previous bake (pos/yaw/scale/roll/pitch
+        // as they were passed then) over `encoded` (CloseUpMotion.Encode). Same maths as AddTransformed.
+        public void SetMotion(PlantTemplate tpl, Vector3 pos, float yaw, float scale, float roll, float pitch, float encoded)
+        {
+            if (!_motion) return;
+            Basis(yaw, roll, pitch, out Vector3 ax, out Vector3 ay, out Vector3 az);
+            Vector3 sx = ax * scale, sy = ay * scale, sz = az * scale;
+            var verts = tpl.vertices;
+            var uv4 = _uv4;
+            int b = LastBase;
+            for (int i = 0; i < verts.Length; i++)
+            {
+                Vector3 p = verts[i];
+                uv4[b + i] = new Vector4(
+                    pos.x + sx.x * p.x + sy.x * p.y + sz.x * p.z,
+                    pos.y + sx.y * p.x + sy.y * p.y + sz.y * p.z,
+                    pos.z + sx.z * p.x + sy.z * p.y + sz.z * p.z, encoded);
+            }
+        }
+
+        // Per-template phase in UV0.y (UV0.x = 0: no wind bend): the far flock's wing beat for Drift/VertexColor.
+        public void SetPhase(PlantTemplate tpl, float phase)
+        {
+            int b = LastBase;
+            UseUv(1, b);
+            var uv0 = _uv0;
+            for (int i = 0; i < tpl.vertices.Length; i++) uv0[b + i] = new Vector4(0f, phase, 0f, 0f);
+        }
+
+        static void Basis(float yaw, float roll, float pitch, out Vector3 ax, out Vector3 ay, out Vector3 az)
+        {
+            if (roll == 0f && pitch == 0f)
+            {
+                float rad = yaw * Mathf.Deg2Rad;
+                float cs = Mathf.Cos(rad), sn = Mathf.Sin(rad);
+                ax = new Vector3(cs, 0f, -sn);
+                ay = Vector3.up;
+                az = new Vector3(sn, 0f, cs);
+                return;
+            }
+            Quaternion q = Quaternion.Euler(pitch, yaw, roll);
+            ax = q * Vector3.right;
+            ay = q * Vector3.up;
+            az = q * Vector3.forward;
         }
 
         void UseUv(int channels, int baseIndex)
@@ -66,6 +191,7 @@ namespace Drift.Life
                 System.Array.Resize(ref _uv1, cap);
                 System.Array.Resize(ref _uv2, cap);
                 if (_uv3.Length > 0) System.Array.Resize(ref _uv3, cap);
+                if (_uv4.Length > 0) System.Array.Resize(ref _uv4, cap);
             }
             int nt = _tc + tris;
             if (nt > _t.Length) System.Array.Resize(ref _t, Mathf.Max(nt, _t.Length * 2));
@@ -220,25 +346,16 @@ namespace Drift.Life
             bool doScale = colorScale.r != 1f || colorScale.g != 1f || colorScale.b != 1f;
             var uv0 = _uv0;
 
-            Vector3 ax, ay, az;
-            if (roll == 0f && pitch == 0f)
-            {
-                float rad = yaw * Mathf.Deg2Rad;
-                float cs = Mathf.Cos(rad), sn = Mathf.Sin(rad);
-                ax = new Vector3(cs, 0f, -sn);
-                ay = Vector3.up;
-                az = new Vector3(sn, 0f, cs);
-            }
-            else
-            {
-                Quaternion q = Quaternion.Euler(pitch, yaw, roll);
-                ax = q * Vector3.right;
-                ay = q * Vector3.up;
-                az = q * Vector3.forward;
-            }
+            Basis(yaw, roll, pitch, out Vector3 ax, out Vector3 ay, out Vector3 az);
             Vector3 sx = ax * scale, sy = ay * scale, sz = az * scale;
 
             int baseIndex = _vc;
+            LastBase = baseIndex;
+            if (_motion)
+            {
+                if (_uv4.Length < _v.Length) System.Array.Resize(ref _uv4, _v.Length);
+                System.Array.Clear(_uv4, baseIndex, verts.Length);
+            }
             var v = _v; var n = _n; var c = _c;
             bool doTint = tintAmount > 0f;
             for (int i = 0; i < verts.Length; i++)
@@ -279,7 +396,12 @@ namespace Drift.Life
 
         public void Apply(Mesh m)
         {
-            m.Clear();
+            // Clear() keeps the vertex layout, and with it any channel an earlier bake wrote and this one does not: a
+            // leftover motion channel would replay old slides, a leftover UV0 would bend a far bird in the wind.
+            bool keep = _motion || !m.HasVertexAttribute(UnityEngine.Rendering.VertexAttribute.TexCoord4);
+            for (int c = _uvChannels; c < 4 && keep; c++)
+                if (m.HasVertexAttribute(UnityEngine.Rendering.VertexAttribute.TexCoord0 + c)) keep = false;
+            m.Clear(keep);
             if (_vc > 65000) m.indexFormat = UnityEngine.Rendering.IndexFormat.UInt32;
             m.SetVertices(_v, 0, _vc);
             m.SetNormals(_n, 0, _vc);
@@ -288,6 +410,7 @@ namespace Drift.Life
             if (_uvChannels >= 2) m.SetUVs(1, _uv1, 0, _vc);
             if (_uvChannels >= 3) m.SetUVs(2, _uv2, 0, _vc);
             if (_uvChannels >= 4) m.SetUVs(3, _uv3, 0, _vc);
+            if (_motion) m.SetUVs(4, _uv4, 0, _vc);
             m.SetTriangles(_t, 0, _tc, 0, false);
             m.RecalculateBounds();
         }

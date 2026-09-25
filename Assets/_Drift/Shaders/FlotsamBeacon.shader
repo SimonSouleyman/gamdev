@@ -1,9 +1,11 @@
 Shader "Drift/FlotsamBeacon"
 {
     // Beacons over the pickups on the player's course (Drift.Visuals.ShipSystem.Beacons builds one static mesh of
-    // slots; every vertex sits at the origin and is placed here from _Beacons). Additive, unlit, no textures.
+    // slots; every vertex sits at the origin and is placed here from _Beacons). Unlit, no textures, premultiplied
+    // alpha: the glows return alpha 0 (= additive), the outline ring covers the water behind it.
     // uv0 = (slot, part, corner x, corner y); part 0 = halo billboard over the piece, 1 = ring rippling out on the
-    // water, 2 = pillar of light (night only).
+    // water, 2 = pillar of light (night only), 3 = the outline ring of the cozy watch marker around the piece
+    // (a screen-facing ellipse flattened to _RingParams.y, so it keeps its shape from the low race camera).
     Properties
     {
     }
@@ -16,7 +18,7 @@ Shader "Drift/FlotsamBeacon"
         {
             Name "Beacon"
             Tags { "LightMode"="UniversalForward" }
-            Blend One One
+            Blend One OneMinusSrcAlpha
             ZWrite Off
             Cull Off
 
@@ -26,9 +28,15 @@ Shader "Drift/FlotsamBeacon"
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
             #include "DriftCurve.hlsl"
 
+            // The outline quad reaches this far past the line (in ring radii) for the soft dark edge.
+            #define RING_QUAD 1.3
+
             float4 _Beacons[32];     // xyz = unbent world position of the piece (y = its hop while collected), w = strength
             float4 _BeaconParams;    // x = halo radius, y = min size as tan(angle), z = ring radius, w = pillar height
             float4 _BeaconColor;     // rgb = linear colour, a = night 0..1
+            float4 _BeaconRings[32]; // x = outline ring radius (u), y = its strength (0 = none)
+            float4 _RingParams;      // x = min radius as tan(angle), y = height squash, z = dark edge by day
+            float4 _RingColor;       // rgb = linear line colour, a = line opacity
 
             struct Attributes
             {
@@ -53,7 +61,8 @@ Shader "Drift/FlotsamBeacon"
                 float night = saturate(_BeaconColor.a);
                 float ph = slot * 1.618;
                 float strength = b.w;
-                if (part > 1.5) strength *= night;
+                if (part > 2.5) strength = _BeaconRings[slot].y;
+                else if (part > 1.5) strength *= night;
                 OUT.uv = float4(c, part, strength);
                 OUT.data = float4(1.0, 1.0 - DriftFogAmount(b.xyz) * _CurveFogColor.a, ph, 0.0);
                 if (strength <= 0.002)
@@ -81,6 +90,18 @@ Shader "Drift/FlotsamBeacon"
                     float r = max(_BeaconParams.z, _BeaconParams.y * 2.0 * d);
                     OUT.positionHCS = DriftCurveHClip(float3(b.x + c.x * r, 0.05, b.z + c.y * r));
                 }
+                else if (part > 2.5)
+                {
+                    // Around the piece where it floats (and hops while collected), facing the camera, a little larger
+                    // than the line so the soft dark edge fits; slow breathing like the watch marker.
+                    float3 centre = DriftCurveWS(b.xyz + float3(0.0, 0.06, 0.0));
+                    float d = length(centre - cam);
+                    float r = max(_BeaconRings[slot].x, _RingParams.x * d) * (1.0 + 0.05 * sin(t * 2.5 + ph)) * RING_QUAD;
+                    // A piece drifting past right beside the camera would sweep a huge arc across the screen.
+                    OUT.uv.w *= saturate((d - 5.0) * 0.25);
+                    float3 w = centre + (UNITY_MATRIX_V[0].xyz * c.x + UNITY_MATRIX_V[1].xyz * (c.y * _RingParams.y)) * r;
+                    OUT.positionHCS = TransformWorldToHClip(w);
+                }
                 else
                 {
                     float3 lo = DriftCurveWS(float3(b.x, 0.0, b.z));
@@ -103,7 +124,7 @@ Shader "Drift/FlotsamBeacon"
                 float ph = IN.data.z;
                 float night = saturate(_BeaconColor.a);
                 float3 col = _BeaconColor.rgb;
-                float g;
+                float g = 0.0;
                 if (part < 0.5)
                 {
                     float r2 = dot(c, c);
@@ -122,13 +143,28 @@ Shader "Drift/FlotsamBeacon"
                     float disc = exp(-r * r * 7.0) * (0.25 + 0.2 * night);
                     g = (ripple * 0.9 + disc) * step(r, 1.0);
                 }
-                else
+                else if (part < 2.5)
                 {
                     float across = 1.0 - abs(c.x);
                     float v = c.y * 0.5 + 0.5;
                     g = across * across * pow(saturate(1.0 - v), 1.6) * 0.5;
                 }
-                return float4(col * (g * k), 1.0);
+                else
+                {
+                    // The watch marker's line (sprite CircleRing: 8 % of the radius), never thinner than ~1.5 px and
+                    // anti-aliased; around it a faint dark edge that lifts it off the bright day sea.
+                    float rr = length(c) * RING_QUAD;
+                    float px = max(fwidth(rr), 1e-4);
+                    float hw = max(0.045, 0.75 * px);
+                    float off = abs(rr - 0.96);
+                    float ln = 1.0 - smoothstep(hw - px, hw + px, off);
+                    float edge = (1.0 - smoothstep(hw, hw + 0.16 + 1.5 * px, off)) * _RingParams.z * (1.0 - 0.6 * night);
+                    float pulse = 0.8 + 0.2 * (0.5 + 0.5 * sin(t * 2.5 + ph));
+                    float a = ln * _RingColor.a;
+                    float cover = (a + edge * (1.0 - a)) * k * pulse;
+                    return float4(_RingColor.rgb * (a * k * pulse), cover);
+                }
+                return float4(col * (g * k), 0.0);
             }
             ENDHLSL
         }

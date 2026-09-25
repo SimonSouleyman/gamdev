@@ -98,6 +98,8 @@ namespace Drift.Bridge
             Island.Bumped += OnBumped;
             RingWorld.Dodged -= OnDodged;
             RingWorld.Dodged += OnDodged;
+            RingWorld.RaceStarted -= OnRaceStarted;
+            RingWorld.RaceStarted += OnRaceStarted;
         }
 
         // Adventure calls: a hit costs buoyancy (coral), a close pass is worth a cheer (mint).
@@ -126,10 +128,14 @@ namespace Drift.Bridge
             Call(ModeTexts.DodgeLabel, UiStyle.Mint);
         }
 
+        // The start line lets go (after the briefing and the breath before the race).
+        void OnRaceStarted() => Call("Los!", UiStyle.Mint);
+
         void OnDisable()
         {
             Island.Bumped -= OnBumped;
             RingWorld.Dodged -= OnDodged;
+            RingWorld.RaceStarted -= OnRaceStarted;
             if (_mapTex != null)
             {
                 if (Application.isPlaying) Destroy(_mapTex);
@@ -206,14 +212,16 @@ namespace Drift.Bridge
             }
             if (_watch == null && _lookupTimer <= 0f) _watch = FindAnyObjectByType<WatchTools>();
             bool following = _watch != null && _watch.Following;
+            bool flyOver = PangaeaFinale.AnyFlyingOver;
             int hintState = (InputMode.TouchPreferred ? 1 : 0) + (following ? 2 : 0)
-                + (adventure ? 4 : 0) + (Island.DirectionSteering ? 8 : 0);
+                + (adventure ? 4 : 0) + (Island.DirectionSteering ? 8 : 0) + (flyOver ? 16 : 0);
             if (hintState != _lastHintState)
             {
                 _lastHintState = hintState;
                 FillHint();
-                // Following: the watch tools show the orbit controls under the herd chip already.
-                if (_hintRect != null) _hintRect.gameObject.SetActive(!following);
+                // Following: the watch tools show the orbit controls under the herd chip already; over the finished
+                // Pangäa the finale's banner explains the map gestures and there is no stick to hint at.
+                if (_hintRect != null) _hintRect.gameObject.SetActive(!following && !flyOver);
             }
             if (!adventure) DrawMap();
             else

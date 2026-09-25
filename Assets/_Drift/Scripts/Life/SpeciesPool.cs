@@ -13,6 +13,8 @@ namespace Drift.Life
     // temperate one (the temperate biome has four species and the first slot is fixed to the common two), now and
     // then one extra herd species from anywhere, and one or two critter kinds. Every draw is weighted by rarity; species the album lacks
     // weigh more, and the more of the album is filled, the more they do (the last rare ones do not take 20 runs).
+    // Fireflies are not drawn: they are an ambient night feature of every run (owner 2026-09-25: "die sollten zahlreich
+    // auf der Insel sein"); they keep their album entry and are found on the first night.
     public static class SpeciesPool
     {
         public static readonly LifeKind[] HerdKinds =
@@ -20,7 +22,8 @@ namespace Drift.Life
             LifeKind.Hare, LifeKind.Sheep, LifeKind.Goat, LifeKind.Ox, LifeKind.Capybara, LifeKind.Flamingo, LifeKind.Tortoise,
             LifeKind.Penguin, LifeKind.Reindeer, LifeKind.ArcticFox, LifeKind.Meerkat, LifeKind.Zebra, LifeKind.Giraffe
         };
-        public static readonly LifeKind[] CritterKinds = { LifeKind.Crab, LifeKind.Butterfly, LifeKind.Turtle, LifeKind.Firefly };
+        public static readonly LifeKind[] CritterKinds = { LifeKind.Crab, LifeKind.Butterfly, LifeKind.Turtle };
+        static readonly ulong PooledMask = ComputeAllMask();
         // The most common temperate species: the start island's first herd is one of them.
         public static readonly LifeKind[] StartKinds = { LifeKind.Hare, LifeKind.Sheep };
 
@@ -39,17 +42,17 @@ namespace Drift.Life
         public static int Version { get; private set; }
 
         public static ulong Bit(LifeKind k) => 1UL << (int)k;
-        public static bool Allows(LifeKind k) => Mask == 0 || (Mask & Bit(k)) != 0;
+        // Kinds the pool does not draw (fireflies) are always allowed.
+        public static bool Allows(LifeKind k) => Mask == 0 || (Mask & Bit(k)) != 0 || (PooledMask & Bit(k)) == 0;
 
-        public static ulong AllMask
+        public static ulong AllMask => PooledMask;
+
+        static ulong ComputeAllMask()
         {
-            get
-            {
-                ulong m = 0;
-                foreach (var k in HerdKinds) m |= Bit(k);
-                foreach (var k in CritterKinds) m |= Bit(k);
-                return m;
-            }
+            ulong m = 0;
+            foreach (var k in HerdKinds) m |= Bit(k);
+            foreach (var k in CritterKinds) m |= Bit(k);
+            return m;
         }
 
         public static void Set(ulong mask, LifeKind start)
@@ -78,14 +81,13 @@ namespace Drift.Life
                 case LifeKind.Crab:
                     return Rarity.Common;
                 case LifeKind.Ox: case LifeKind.Tortoise: case LifeKind.ArcticFox: case LifeKind.Giraffe:
-                case LifeKind.Firefly:
                     return Rarity.Rare;
                 default:
                     return Rarity.Occasional;
             }
         }
 
-        public static bool IsPooled(LifeKind k) => Array.IndexOf(HerdKinds, k) >= 0 || Array.IndexOf(CritterKinds, k) >= 0;
+        public static bool IsPooled(LifeKind k) => (PooledMask & Bit(k)) != 0;
 
         public static string LabelOf(Rarity r) => r == Rarity.Common ? "häufig" : r == Rarity.Occasional ? "gelegentlich" : "selten";
 

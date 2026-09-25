@@ -7,6 +7,10 @@ Shader "Drift/VertexColor"
     //     (xy = wind direction * speed with storms folded in, z = storm 0..1, pushed by IslandLifeSystem once per
     //     frame) by weight^2 * height * _WindBend with a slow gust and a fast flutter that grows in storms.
     //     A mesh without the channel (herds, flocks, plate borders) reads zero and stays rigid.
+    //   The far flock mesh writes UV0 = (0, wing-beat phase) per bird for the _Flap beat, and UV4 = the motion
+    //   channel (DriftMotion.hlsl): a bird slides from where it was drawn at the previous bake instead of jumping.
+    //   Every phase is taken in object space: on a drifting island (settlement flags) a world-space phase made the
+    //   flutter run faster the faster the island moved, and a 15 Hz flock rebuild made the wing beat jump.
     Properties
     {
         _Tint ("Tint", Color) = (1,1,1,1)
@@ -36,6 +40,7 @@ Shader "Drift/VertexColor"
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Lighting.hlsl"
             #include "DriftClouds.hlsl"
             #include "DriftCurve.hlsl"
+            #include "DriftMotion.hlsl"
 
             struct Attributes
             {
@@ -43,6 +48,7 @@ Shader "Drift/VertexColor"
                 float3 normalOS   : NORMAL;
                 float4 color      : COLOR;
                 float4 sway       : TEXCOORD0;
+                float4 prev       : TEXCOORD4;
             };
 
             struct Varyings
@@ -70,19 +76,20 @@ Shader "Drift/VertexColor"
             Varyings vert(Attributes IN)
             {
                 Varyings OUT;
-                float3 posWS = TransformObjectToWorld(IN.positionOS.xyz);
+                float3 posOS = DriftMotion(IN.positionOS.xyz, IN.prev);
+                float3 posWS = TransformObjectToWorld(posOS);
                 float t = _Time.y;
                 float sway = IN.color.a * _Sway;
-                posWS.x += sin(t * _SwaySpeed + posWS.x * 0.8 + posWS.z * 0.6) * sway;
-                posWS.z += cos(t * _SwaySpeed * 0.9 + posWS.z * 0.7 - posWS.x * 0.5) * sway;
-                posWS.y += sin(t * _FlapSpeed + posWS.x * 1.3 + posWS.z * 1.9) * IN.color.a * _Flap;
+                posWS.x += sin(t * _SwaySpeed + posOS.x * 0.8 + posOS.z * 0.6) * sway;
+                posWS.z += cos(t * _SwaySpeed * 0.9 + posOS.z * 0.7 - posOS.x * 0.5) * sway;
+                posWS.y += sin(t * _FlapSpeed + IN.sway.y) * IN.color.a * _Flap;
 
                 float w = saturate(IN.sway.x);
                 float phase = IN.sway.y;
                 float storm = saturate(_LifeWind.z);
                 float2 wind = _LifeWind.xy;
-                float gust = 0.55 + 0.45 * sin(t * 0.6 + posWS.x * 0.12 + posWS.z * 0.09 + phase * 0.5);
-                float flutter = sin(t * (3.2 + 3.0 * storm) + phase + posWS.x * 1.7 + posWS.z * 1.1) * (_WindFlutter + 0.5 * storm);
+                float gust = 0.55 + 0.45 * sin(t * 0.6 + posOS.x * 0.12 + posOS.z * 0.09 + phase * 0.5);
+                float flutter = sin(t * (3.2 + 3.0 * storm) + phase + posOS.x * 1.7 + posOS.z * 1.1) * (_WindFlutter + 0.5 * storm);
                 float bend = w * w * IN.sway.z * _WindBend;
                 float2 lean = wind * (gust + flutter) + float2(-wind.y, wind.x) * flutter * 0.35;
                 posWS.xz += lean * bend;

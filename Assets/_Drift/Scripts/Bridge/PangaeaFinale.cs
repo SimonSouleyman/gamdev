@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using Drift.Core;
 using Drift.Islands;
+using Drift.Life;
 using Drift.SaveSystem;
 using Drift.UI;
 using Drift.Visuals;
@@ -45,7 +46,7 @@ namespace Drift.Bridge
         [Header("Hinweis „Pangäa vollendet“")]
         [Tooltip("Überschrift des kleinen Hinweises, der nach der letzten Insel erscheint.")]
         public string bannerTitle = "Pangäa vollendet!";
-        [Tooltip("Zweite Zeile des Hinweises: sie sagt, wie der Rundflug über die fertige Insel gesteuert wird. Leer = passend zur Steuerung (Stick, Kippen oder Tastatur).")]
+        [Tooltip("Zweite Zeile des Hinweises: sie sagt, wie der Rundflug über die fertige Insel gesteuert wird. Leer = passend zur Steuerung (Finger oder Maus).")]
         public string bannerBody = "";
         [Tooltip("Beschriftung des kleinen Knopfes, der den Flug ins All startet.")]
         public string bannerButton = "Weiter";
@@ -57,9 +58,16 @@ namespace Drift.Bridge
         [Header("Über die Insel fliegen")]
         [Tooltip("Nach der letzten Insel steht die Pangäa still und du fliegst mit der Kamera frei über sie. Aus = die Kamera bleibt wie bisher an der Insel.")]
         public bool flyOverEnabled = true;
-        // Renamed from flyOver when the fly-over became a free flight: the old values described an orbit around a
-        // focus point and must not carry over.
-        public FlyOverCamera.Settings freeFlight = new FlyOverCamera.Settings();
+        // Renamed from freeFlight when the fly-over became a map view (v0.6.6): the old values (a pitch down to 8 deg,
+        // heights instead of distances) belong to the stick flight and must not carry over.
+        public FlyOverCamera.Settings mapView = new FlyOverCamera.Settings();
+        [Tooltip("Die Leiste „Sehenswürdigkeiten“ unten: ‹ › fliegen zur vorigen / nächsten Herde, zum Leuchtturm, Hafen, Dorf oder Gipfel.")]
+        public bool sightsBar = true;
+        // Not "sightsBottom": that first default (64) put the bar over the map and the controls hint in the corners.
+        [Tooltip("Abstand der Leiste vom unteren Bildrand: über der Karte und dem Steuerungshinweis in den unteren Ecken.")]
+        public float sightsLift = 404f;
+        [Tooltip("Wie oft (Sekunden) die Liste der Sehenswürdigkeiten aufgefrischt wird (Herden ziehen umher).")]
+        [Range(0.5f, 10f)] public float sightsRefresh = 2.5f;
         [Tooltip("Wie sanft die Kamera zur Insel zurückblendet, wenn der Rundflug endet (Sekunden).")]
         [Range(0f, 2f)] public float flyReturnSeconds = 0.7f;
 
@@ -131,6 +139,19 @@ namespace Drift.Bridge
         readonly FlyOverCamera _fly = new FlyOverCamera();
         bool _flying, _hasPinned;
         Vector2 _pinned;
+        readonly PangaeaSights _sights = new PangaeaSights();
+        readonly List<TapTarget> _tapCandidates = new List<TapTarget>(48);
+        WatchTools _watch;
+        FlockSystem _flocks;
+        SeaLifeSystem _sea;
+        WatchSubject _subject;
+        string _subjectName;
+        float _sightsTimer, _sightsAlpha;
+        RectTransform _sightsRoot;
+        CanvasGroup _sightsGroup;
+        Text _sightsLabel;
+        string _shownLabel;
+        int _shownIndex = -2, _shownCount = -1;
 
         Canvas _canvas;
         GameObject _blocker, _screen;
@@ -144,7 +165,18 @@ namespace Drift.Bridge
         public bool Active => _phase != Phase.Idle;
         // True while the player is flying the camera over their finished island.
         public bool FlyingOver => _flying;
+        // Any finale currently flying over the Pangäa (the HUD hides its steering hint then: the banner explains the map).
+        public static bool AnyFlyingOver { get; private set; }
+
+        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+        static void ResetStatics() => AnyFlyingOver = false;
         public FlyOverCamera FlyCamera => _fly;
+        public PangaeaSights Sights => _sights;
+        // What the fly-over is flying to or circling (null = the free map view).
+        public WatchSubject FlySubject => _subject;
+        public string SightsLabel => _sightsLabel != null ? _sightsLabel.text : "";
+        public bool SightsBarVisible => _sightsRoot != null && _sightsRoot.gameObject.activeSelf && _sightsAlpha > 0.5f;
+        public RectTransform SightsRoot => _sightsRoot;
         // True while the free-look banner is on screen (and readable): the run is finished but still running.
         public bool BannerVisible => _banner != null && _banner.gameObject.activeSelf && _bannerAlpha > 0.5f;
         public Texture2D Picture => _picture;
@@ -251,6 +283,9 @@ namespace Drift.Bridge
             if (curvedWorld == null) curvedWorld = CurvedWorld.Active != null ? CurvedWorld.Active : FindAnyObjectByType<CurvedWorld>();
             if (dayNight == null && curvedWorld != null) dayNight = curvedWorld.dayNight;
             if (saveManager == null) saveManager = FindAnyObjectByType<SaveManager>();
+            if (_watch == null) _watch = screens != null && screens.watch != null ? screens.watch : FindAnyObjectByType<WatchTools>();
+            if (_flocks == null) _flocks = _watch != null && _watch.flocks != null ? _watch.flocks : FindAnyObjectByType<FlockSystem>();
+            if (_sea == null) _sea = _watch != null && _watch.seaLife != null ? _watch.seaLife : FindAnyObjectByType<SeaLifeSystem>();
             Subscribe();
         }
 
@@ -305,6 +340,7 @@ namespace Drift.Bridge
 
             StepBanner(Time.unscaledDeltaTime);
             StepFreeLook();
+            StepSightsBar(Time.unscaledDeltaTime);
             if (!Active)
             {
                 if (session.IsRunComplete) { Begin(); return; }
@@ -348,18 +384,26 @@ namespace Drift.Bridge
         void BeginFly()
         {
             var cam = Camera.main;
-            _flying = true;
+            _flying = AnyFlyingOver = true;
             _hasPinned = false;
-            _fly.settings = freeFlight;
+            _fly.settings = mapView;
+            _fly.SetLens(cam.fieldOfView, cam.pixelWidth, cam.pixelHeight);
             _fly.Reset(cam.transform.position, cam.transform.rotation, player.transform.position.y);
             chaseCamera.Suspended = true;
+            // Whatever was collected while the camera was away (a tap that started a watch) is stale now.
+            if (screens != null) screens.ReadFlyInput();
+            _subject = null;
+            _subjectName = null;
+            _sightsTimer = 0f;
+            _sights.Rebuild(player, _flocks);
         }
 
         void EndFly(bool handBack)
         {
             if (!_flying) return;
-            _flying = false;
+            _flying = AnyFlyingOver = false;
             _hasPinned = false;
+            _subject = null;
             if (!handBack || chaseCamera == null) return;
             if (Application.isPlaying) chaseCamera.ResumeEased(flyReturnSeconds);
             else
@@ -375,10 +419,284 @@ namespace Drift.Bridge
             if (cam == null || player == null) { EndFly(true); return; }
             bool running = session != null && session.Current == GameSession.State.Playing;
             var input = running && screens != null ? screens.ReadFlyInput() : default;
+            _fly.SetLens(cam.fieldOfView, cam.pixelWidth, cam.pixelHeight);
+            // The player took the view: whatever it was flying to is let go.
+            if (input.Manipulates || input.touching) _subject = null;
+            FollowSubject();
             _fly.Step(input, running ? Time.unscaledDeltaTime : 0f, player);
+            if (running && input.tap) OnFlyTap(cam, input.tapPos);
             cam.transform.SetPositionAndRotation(_fly.Position, _fly.Rotation);
             // The chase camera is suspended, so the vegetation would have to guess how close the view is.
             Drift.Life.IslandLifeSystem.ReportViewDistance(Vector3.Distance(_fly.Position, _fly.LookPoint));
+        }
+
+        // ---------------------------------------------------------------- flying to things
+
+        void FollowSubject()
+        {
+            if (_subject == null)
+            {
+                _fly.StopFollowing();
+                return;
+            }
+            if (!SubjectFocus(_subject, out Vector3 f))
+            {
+                _subject = null;
+                _fly.StopFollowing();
+                return;
+            }
+            _fly.SetTarget(f);
+        }
+
+        // Where the camera centres a subject: a herd's middle on the ground, anything else its own focus (a tower
+        // half way up, a flock in the air).
+        static bool SubjectFocus(WatchSubject s, out Vector3 focus)
+        {
+            focus = default;
+            if (s == null) return false;
+            if (s.herds != null)
+            {
+                var herds = s.herds;
+                var island = s.ground;
+                if (island == null || !herds.isActiveAndEnabled || island.IsSunk) return false;
+                if (s.herd < 0 || s.herd >= herds.HerdCount || herds.HerdSize(s.herd) == 0) return false;
+                Vector2 c = herds.HerdCenter(s.herd);
+                focus = island.transform.TransformPoint(c.x, Mathf.Max(0f, island.SampleHeight(c)), c.y);
+                return true;
+            }
+            if (s.focus == null || !s.focus(out focus)) return false;
+            focus.y += s.lift;
+            return true;
+        }
+
+        static float SubjectRadius(WatchSubject s)
+        {
+            if (s.herds != null && s.herd >= 0 && s.herd < s.herds.HerdCount)
+                return Mathf.Max(2f, s.herds.HerdRadius(s.herd) + s.herds.BodyLength(s.herd));
+            return Mathf.Max(0.5f, s.radius);
+        }
+
+        // Glides the camera to a subject and keeps it there, circling slowly, until the player touches the view.
+        public bool FlyToSubject(WatchSubject s)
+        {
+            if (s == null || player == null || !SubjectFocus(s, out Vector3 f)) return false;
+            _subject = s;
+            _subjectName = s.label;
+            float pitch = s.pitch > 0f ? s.pitch : s.still ? 40f : s.air ? 38f : mapView.flyPitch;
+            float fill = s.fill > 0f ? Mathf.Min(s.fill, 0.7f) : mapView.flyFill;
+            float dist = _fly.FrameDistance(SubjectRadius(s), fill);
+            // Hares are a few centimetres long: a herd is framed so its animals can be made out, even if the herd
+            // then spills over the edges.
+            if (s.herds != null && s.herd >= 0 && s.herd < s.herds.HerdCount && mapView.flyBodyPixels > 0f)
+                dist = Mathf.Max(mapView.minDistance, Mathf.Min(dist, _fly.BodyDistance(s.herds.BodyLength(s.herd), mapView.flyBodyPixels)));
+            _fly.FlyTo(f, dist, pitch, FlyOverCamera.MaxDistance(player.BoundingRadius, mapView.maxDistance));
+            return true;
+        }
+
+        // ‹ / ›: the previous or next stop round the island.
+        public bool FlyToSight(int dir)
+        {
+            if (player == null || !_flying) return false;
+            _sights.Rebuild(player, _flocks);
+            _sightsTimer = 0f;
+            for (int tries = 0; tries < Mathf.Max(1, _sights.Count); tries++)
+            {
+                int i = _sights.Step(dir, player.PlanarPosition, _fly.Focus);
+                if (i < 0) return false;
+                if (!FlyToSubject(_sights.SubjectOf(i, player, _flocks))) continue;
+                _subjectName = null;
+                // A card left over from a tapped animal would hang in the air while the camera flies off.
+                if (_watch != null) _watch.HidePopup();
+                return true;
+            }
+            return false;
+        }
+
+        // Tapping the label flies back to the stop shown.
+        void OnSightAgain()
+        {
+            if (player == null || !_flying) return;
+            int i = _sights.Index;
+            if (i < 0) { FlyToSight(1); return; }
+            if (FlyToSubject(_sights.SubjectOf(i, player, _flocks))) _subjectName = null;
+        }
+
+        // A tap flies to what is under the finger, picked by the same rule as WatchTools.Tap (which answers the tap
+        // too: an animal gets its card, a flock, a landmark or a campfire starts watching it). Herd animals win a
+        // near tie.
+        void OnFlyTap(Camera cam, Vector2 tap)
+        {
+            if (!WatchRules.Allowed(WatchFeature.Watch) || !PickTap(cam, tap, out TapTarget t)) return;
+            var s = TapTargets.SubjectOf(t);
+            if (!FlyToSubject(s)) return;
+            int i = MatchSight(t);
+            _sights.Select(i);
+            if (i >= 0) _subjectName = null;
+        }
+
+        int MatchSight(in TapTarget t)
+        {
+            var key = new Sight { index = t.a, village = -1 };
+            switch (t.kind)
+            {
+                case TapTargetKind.Animal:
+                    if (!(t.system is IslandHerdSystem herds) || t.a >= herds.HerdCount) return -1;
+                    key.kind = SightKind.Herd;
+                    key.species = herds.HerdKind(t.a);
+                    break;
+                case TapTargetKind.Flock:
+                    if (!(t.system is FlockSystem flocks) || t.a >= flocks.FlockCount) return -1;
+                    key.kind = SightKind.Flock;
+                    key.seabird = flocks.IsSeabird(t.a);
+                    break;
+                case TapTargetKind.Landmark:
+                    key.kind = (BuildingKind)t.b == BuildingKind.Lighthouse ? SightKind.Lighthouse : SightKind.Harbour;
+                    break;
+                case TapTargetKind.Campfire:
+                    key.kind = SightKind.Village;
+                    key.village = t.b;
+                    key.world = t.world;
+                    break;
+                default: return -1;
+            }
+            return _sights.Find(key);
+        }
+
+        public bool PickTap(Camera cam, Vector2 tap, out TapTarget pick)
+        {
+            pick = default;
+            if (cam == null) return false;
+            float ppu = TapPicker.PixelsPerUnit(_canvas != null ? _canvas.scaleFactor : 1f, cam.pixelWidth, cam.pixelHeight);
+            float radius = (_watch != null ? _watch.pickRadius : 64f) * ppu;
+            float range = _watch != null ? _watch.tapRange : 60f;
+            Vector3 c = cam.transform.position;
+            Vector2 camXZ = new Vector2(c.x, c.z), focusXZ = new Vector2(_fly.Focus.x, _fly.Focus.z);
+
+            float bestAnimal = float.MaxValue;
+            bool animal = false;
+            var all = Island.All;
+            for (int k = 0; k < all.Count; k++)
+            {
+                var island = all[k];
+                if (island == null || !island.isActiveAndEnabled || island.IsSunk || !TapTargets.InReach(island, camXZ, focusXZ, range)) continue;
+                if (!island.TryGetComponent(out IslandHerdSystem herds) || !herds.isActiveAndEnabled || herds.Tier == LifeTier.Far) continue;
+                for (int h = 0; h < herds.HerdCount; h++)
+                {
+                    int n = herds.HerdSize(h);
+                    for (int m = 0; m < n; m++)
+                    {
+                        if (!TapPicker.Consider(tap, cam.WorldToScreenPoint(TapTargets.AnimalWorld(island, herds, h, m)), radius, ref bestAnimal)) continue;
+                        animal = true;
+                        pick = new TapTarget { kind = TapTargetKind.Animal, island = island, system = herds, a = h, b = m };
+                    }
+                }
+            }
+            _tapCandidates.Clear();
+            TapTargets.Gather(_tapCandidates, camXZ, focusXZ, range, _flocks, _sea, TapGather.Critters | TapGather.Seals | TapGather.Extras);
+            float bestOther = float.MaxValue;
+            int other = -1;
+            for (int i = 0; i < _tapCandidates.Count; i++)
+                if (TapPicker.Consider(tap, cam.WorldToScreenPoint(_tapCandidates[i].world), radius, ref bestOther)) other = i;
+            if (other >= 0 && (!animal || bestOther * 1.3f < bestAnimal))
+            {
+                pick = _tapCandidates[other];
+                return true;
+            }
+            return animal;
+        }
+
+        // ---------------------------------------------------------------- the "Sehenswürdigkeiten" bar
+
+        void StepSightsBar(float dt)
+        {
+            bool show = sightsBar && _flying && !Active && session.Current == GameSession.State.Playing;
+            if (show)
+            {
+                _sightsTimer += dt;
+                if (_sightsTimer >= sightsRefresh)
+                {
+                    _sightsTimer = 0f;
+                    _sights.Rebuild(player, _flocks);
+                }
+                if (_subject == null)
+                {
+                    _subjectName = null;
+                    // Dragged away from the stop: the label names none, and the buttons go on from where the view is.
+                    int at = _sights.Index;
+                    if (at >= 0)
+                    {
+                        Vector3 d = _sights[at].world - _fly.Focus;
+                        float away = Mathf.Max(10f, _fly.Distance * 0.6f);
+                        if (d.x * d.x + d.z * d.z > away * away) _sights.Select(-1);
+                    }
+                }
+                UpdateSightsLabel();
+                var lift = new Vector2(0f, Mathf.Max(0f, sightsLift));
+                if (_sightsRoot != null && _sightsRoot.anchoredPosition != lift) _sightsRoot.anchoredPosition = lift;
+            }
+            if (!show && _sightsAlpha <= 0f) return;
+            _sightsAlpha = Mathf.MoveTowards(_sightsAlpha, show ? 1f : 0f, Mathf.Max(0f, dt) / 0.3f);
+            SetSightsBar(_sightsAlpha > 0.001f, _sightsAlpha);
+        }
+
+        public const string SightsTitle = "Sehenswürdigkeiten";
+
+        void UpdateSightsLabel()
+        {
+            if (_sightsLabel == null) return;
+            int i = _sights.Index, n = _sights.Count;
+            string name = i >= 0 ? _sights[i].name : _subjectName;
+            if (i == _shownIndex && n == _shownCount && ReferenceEquals(name, _shownLabel)) return;
+            _shownIndex = i;
+            _shownCount = n;
+            _shownLabel = name;
+            _sightsLabel.text = i >= 0 ? _sights.Label(i) : !string.IsNullOrEmpty(name) ? name : n > 0 ? $"{n} Ziele · ‹ › fliegt hin" : "Nichts in Sicht";
+        }
+
+        void SetSightsBar(bool on, float alpha)
+        {
+            if (_sightsRoot == null) return;
+            _sightsAlpha = Mathf.Clamp01(alpha);
+            if (_sightsRoot.gameObject.activeSelf != on) _sightsRoot.gameObject.SetActive(on);
+            if (_sightsGroup == null) return;
+            _sightsGroup.alpha = _sightsAlpha;
+            bool taps = on && _sightsAlpha > 0.6f;
+            if (_sightsGroup.blocksRaycasts != taps) _sightsGroup.blocksRaycasts = taps;
+        }
+
+        static readonly Vector2 SightsSize = new Vector2(980f, 150f);
+        const float SightsButton = 138f;
+
+        // ‹ [Zebras (3/12)] ›: two round candy buttons for thumbs and a glass label between them that flies back to
+        // the stop shown when it is tapped.
+        void BuildSightsBar(RectTransform root)
+        {
+            _sightsRoot = UiStyle.Rect(root, "SightsBar");
+            _sightsRoot.BottomCenter(new Vector2(0f, Mathf.Max(0f, sightsLift)), SightsSize);
+
+            float labelWidth = SightsSize.x - 2f * (SightsButton + 20f);
+            var pill = UiStyle.Pill(_sightsRoot, "Label", new Vector2(labelWidth, 124f), UiStyle.GlassDense, true);
+            pill.rectTransform.Center(Vector2.zero, new Vector2(labelWidth, 124f));
+            var again = pill.gameObject.AddComponent<Button>();
+            again.targetGraphic = pill;
+            again.onClick.AddListener(OnSightAgain);
+            var caption = UiStyle.Label(pill.rectTransform, SightsTitle, UiStyle.Caption - 5, UiStyle.Muted, TextAnchor.MiddleCenter);
+            caption.rectTransform.Place(new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(0f, -10f), new Vector2(labelWidth - 60f, 34f));
+            _sightsLabel = UiStyle.FitWidth(UiStyle.Label(pill.rectTransform, "", UiStyle.Body + 4, UiStyle.Cream, TextAnchor.MiddleCenter, true), 0.55f);
+            _sightsLabel.rectTransform.Place(new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(0f, 14f), new Vector2(labelWidth - 60f, 60f));
+
+            var prev = UiStyle.IconButton(_sightsRoot, "SightPrev", SightsButton, UiIcon.Back, () => FlyToSight(-1));
+            ((RectTransform)prev.transform).Place(new Vector2(0f, 0.5f), new Vector2(0f, 0.5f), Vector2.zero, new Vector2(SightsButton, SightsButton));
+            var next = UiStyle.IconButton(_sightsRoot, "SightNext", SightsButton, UiIcon.Back, () => FlyToSight(1));
+            ((RectTransform)next.transform).Place(new Vector2(1f, 0.5f), new Vector2(1f, 0.5f), Vector2.zero, new Vector2(SightsButton, SightsButton));
+            // The back arrow mirrored is the forward arrow (mirrored, so its shade still falls downwards).
+            foreach (Transform icon in next.transform)
+                if (icon.name == "Icon" || icon.name == "IconShade") icon.localScale = new Vector3(-1f, 1f, 1f);
+
+            _sightsGroup = _sightsRoot.gameObject.AddComponent<CanvasGroup>();
+            _sightsGroup.alpha = 0f;
+            _sightsRoot.gameObject.SetActive(false);
+            _shownIndex = -2;
         }
 
         void StepBanner(float dt)
@@ -424,7 +742,7 @@ namespace Drift.Bridge
             if (_cam == null || player == null) return;
             // The flight lifts off from wherever the fly-over left the camera, so it hands nothing back - but the
             // chase camera must not stay suspended, or it would never follow again after the finale.
-            _flying = false;
+            _flying = AnyFlyingOver = false;
             _hasPinned = false;
             if (chaseCamera != null) chaseCamera.Suspended = false;
             _record = MakeRecord();
@@ -432,6 +750,7 @@ namespace Drift.Bridge
             DestroyPicture();
             _bannerAlpha = 0f;
             SetBanner(false, 0f);
+            SetSightsBar(false, 0f);
 
             // Disable first: the chase camera widens the field of view with speed, and the saved state must be the
             // resting one, not a speed-widened frame.
@@ -824,7 +1143,7 @@ namespace Drift.Bridge
         // The button back to the title screen, with the house icon (was "Zum Titel").
         public const string HomeLabel = "Home";
         static readonly Vector2 PanelSize = new Vector2(880f, 1540f);
-        static readonly Vector2 BannerSize = new Vector2(880f, 188f);
+        static readonly Vector2 BannerSize = new Vector2(880f, 216f);
         static readonly Vector2 BannerButton = new Vector2(248f, 96f);
 
         public RectTransform ScreenRoot => _screen != null ? (RectTransform)_screen.transform : null;
@@ -838,6 +1157,7 @@ namespace Drift.Bridge
             _blocker = UiStyle.Scrim(root, "InputBlocker", new Color(0f, 0f, 0f, 0f)).gameObject;
 
             BuildBanner(root);
+            BuildSightsBar(root);
 
             var screen = UiStyle.Scrim(root, "FinaleScreen", UiStyle.DimLight);
             var panel = UiStyle.Panel(screen, "Panel", PanelSize, true).Center(Vector2.zero, PanelSize);
@@ -880,9 +1200,11 @@ namespace Drift.Bridge
 
             float right = BannerSize.x - 28f - BannerButton.x;
             _bannerTitle = UiStyle.FitWidth(UiStyle.Label(_banner, bannerTitle, UiStyle.Subheading, UiStyle.Sand, TextAnchor.MiddleLeft, true));
-            _bannerTitle.rectTransform.Place(new Vector2(0f, 1f), new Vector2(0f, 0.5f), new Vector2(36f, -62f), new Vector2(right - 60f, 56f));
-            _bannerBody = UiStyle.FitWidth(UiStyle.Label(_banner, BannerBody, UiStyle.Caption, UiStyle.CreamSoft, TextAnchor.MiddleLeft));
-            _bannerBody.rectTransform.Place(new Vector2(0f, 1f), new Vector2(0f, 0.5f), new Vector2(36f, -124f), new Vector2(right - 60f, 44f));
+            _bannerTitle.rectTransform.Place(new Vector2(0f, 1f), new Vector2(0f, 0.5f), new Vector2(36f, -58f), new Vector2(right - 60f, 56f));
+            // The gestures take two short lines; squeezed onto one they were too small to read on the phone.
+            _bannerBody = UiStyle.Label(_banner, BannerBody, UiStyle.Caption, UiStyle.CreamSoft, TextAnchor.MiddleLeft);
+            _bannerBody.lineSpacing = UiStyle.Lines(1.05f);
+            _bannerBody.rectTransform.Place(new Vector2(0f, 1f), new Vector2(0f, 0.5f), new Vector2(36f, -140f), new Vector2(right - 60f, 88f));
 
             var go = UiStyle.PrimaryButton(_banner, "BannerContinue", bannerButton, BannerButton, OnBannerContinue);
             ((RectTransform)go.transform).Place(new Vector2(1f, 0.5f), new Vector2(1f, 0.5f), new Vector2(-28f, 0f), BannerButton);
@@ -899,19 +1221,21 @@ namespace Drift.Bridge
             session.CompleteRun();
         }
 
-        // The scene still carries the old "look around in peace" line, which says nothing about flying the
-        // camera; like SessionScreens' tagline it is replaced (by the line for the input in use) until someone
-        // writes their own.
-        public const string DefaultBannerBody = "Stick fliegt, Ziehen schaut umher, Tiere antippen.";
-        // The tilt never flies the camera here (owner: the phone is held differently over the finished island),
-        // so a tilt player is told the stick has taken over.
-        public const string TiltBannerBody = "Stick fliegt, Ziehen schaut umher – Kippen ruht.";
-        public const string KeyboardBannerBody = "WASD fliegt, Maus ziehen schaut umher, Q/E Höhe.";
+        // The scene may still carry an older line, which described the stick flight; like SessionScreens' tagline
+        // it is replaced (by the line for the input in use) until someone writes their own.
+        public const string DefaultBannerBody = "Ziehen verschiebt · zwei Finger drehen & zoomen · Tippen fliegt hin";
+        // The tilt never moves the camera here (owner: the phone is held differently over the finished island), and
+        // the map gestures are the same for everyone.
+        public const string TiltBannerBody = DefaultBannerBody;
+        public const string KeyboardBannerBody = "Ziehen verschiebt · rechts ziehen dreht · Rad zoomt · Klick fliegt hin";
         static readonly string[] LegacyBannerBodies =
         {
             "Schau dich in Ruhe um.",
             "Flieg über deine Insel: Stick bewegt, Ziehen schaut um, Tiere antippen.",
             "Kippen fliegt, Ziehen schaut umher, Tiere antippen.",
+            "Stick fliegt, Ziehen schaut umher, Tiere antippen.",
+            "Stick fliegt, Ziehen schaut umher – Kippen ruht.",
+            "WASD fliegt, Maus ziehen schaut umher, Q/E Höhe.",
         };
 
         public string BannerBody

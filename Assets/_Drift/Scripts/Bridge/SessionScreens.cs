@@ -15,7 +15,7 @@ namespace Drift.Bridge
     [RequireComponent(typeof(TouchControls))]
     public class SessionScreens : MonoBehaviour
     {
-        public enum EditorPreview { None, Title, Pause, GameOver, Help, AdventureGameOver, ConfirmNewWorld }
+        public enum EditorPreview { None, Title, Pause, GameOver, Help, AdventureGameOver, ConfirmNewWorld, CozyChoice }
 
         const string CanvasName = "SessionScreensCanvas";
         const int EditorSampleSeed = 482913;
@@ -62,15 +62,15 @@ namespace Drift.Bridge
         float _idleTimer;
         int _idleIndex;
         bool _overCheered;
-        GameObject _title, _pause, _over, _pauseButton, _confirm;
+        GameObject _title, _pause, _over, _pauseButton, _confirm, _choice;
         Action _confirmAction;
         GameObject _overNewIsland, _overAdventureRow;
-        Button _continueButton;
+        Text _choiceSavedText, _choiceNewText;
+        bool _adventureReplayAsked;
         Text _titleBestText, _recordText, _pauseRestartLabel;
         BestDistances.Result _lastResult;
         int _overStamp, _titleBestShown = -1;
         GameMode _overMode = (GameMode)(-1);
-        RectTransform _titleExtras;
         readonly HelpScreen _help = new HelpScreen();
         readonly TiltSettingsScreen _tiltScreen = new TiltSettingsScreen();
         int _shownHelpPage = -1;
@@ -79,9 +79,7 @@ namespace Drift.Bridge
         InputField _seedField;
         RawImage _titlePreview, _overPreview;
         IslandPreview _preview;
-        float _saveCheckTimer;
         float _lookupTimer;
-        bool _hasSave;
         // "Jede Runde neue Welt": the number the title's seed field offers while a saved run sits behind the title.
         int _proposedSeed;
         bool _fieldSaved;
@@ -90,11 +88,20 @@ namespace Drift.Bridge
         Func<Vector2> _provider, _directionProvider;
         int _steerFrame = -10;
         bool _wasFlyOver;
-        Vector2 _flyLook;
-        float _flyZoom = 1f;
+        FlyOverCamera.Input _flyIn;
+        readonly TouchGestures _mouseGestures = new TouchGestures();
+        bool _mouseOnUi;
 
         public IslandPreview Preview => _preview;
         public bool ConfirmOpen => _confirm != null && _confirm.activeSelf;
+        // "Gemütlich" with a saved world: the small Weiter / Neu beginnen window over the title.
+        public bool CozyChoiceOpen => _choice != null && _choice.activeSelf;
+        public GameObject CozyChoice => _choice;
+        // The title's cozy flow asks these instead of the session when set (tests): whether a saved world exists,
+        // "Neu beginnen" with the seed field's number (null = the world behind the title) and "Weiter".
+        public Func<bool> SaveProbe { get; set; }
+        public Action<int?> NewCozyWorldOverride { get; set; }
+        public Action ContinueCozyOverride { get; set; }
         public InputField SeedField => _seedField;
         public bool HelpOpen => _help.IsOpen;
         public HelpScreen Help => _help;
@@ -102,10 +109,12 @@ namespace Drift.Bridge
         WatchTools Watch => watch != null ? watch : (watch = GetComponent<WatchTools>());
         TutorialGuide Tutorial => tutorial != null ? tutorial : (tutorial = GetComponent<TutorialGuide>());
 
+        // The title's Anleitung explains both games; opened from a paused run it shows only that run's mode.
         public void OpenHelp(int page = 0)
         {
-            var t = Tutorial;
-            _help.Open(page, InputMode.TouchPreferred || (touch != null && touch.forceShowTouch), t != null && t.ReplayPending);
+            bool onTitle = session == null || session.Current == GameSession.State.Title;
+            var mode = session != null ? session.Mode : GameModes.Current;
+            _help.Open(HelpScreen.ScopeFor(onTitle, mode), page, InputMode.TouchPreferred || (touch != null && touch.forceShowTouch));
         }
 
         public void CloseHelp() => _help.Hide();
@@ -116,11 +125,23 @@ namespace Drift.Bridge
 
         public void CloseTiltSettings() => _tiltScreen.Hide();
 
-        void OnReplayTutorial()
+        void OnReplayTutorial(GameMode mode)
         {
-            if (Drift.Core.GameModes.IsAdventure) { AdventureTutorialGuide.RequestReplay(); return; }
+            if (mode == GameMode.Adventure)
+            {
+                _adventureReplayAsked = true;
+                AdventureTutorialGuide.RequestReplay();
+                return;
+            }
             var t = Tutorial;
             if (t != null) t.RequestReplay();
+        }
+
+        bool ReplayPendingFor(GameMode mode)
+        {
+            if (mode == GameMode.Adventure) return _adventureReplayAsked || AdventureTutorialGuide.Running;
+            var t = Tutorial;
+            return t != null && t.ReplayPending;
         }
 
         void OnEnable()
@@ -171,7 +192,6 @@ namespace Drift.Bridge
             if (s == null) return;
             s.StateChanged += OnStateChanged;
             s.WorldSeedChanged += OnSeedChanged;
-            _hasSave = s.HasSave;
             RefreshSeedTexts();
         }
 
@@ -236,8 +256,9 @@ namespace Drift.Bridge
 
         // Whether the tilt steers: only while the island itself is steered, never in the Pangäa fly-over.
         public static bool TiltSteers(bool steering, bool flyOver) => steering && !flyOver;
-        // Whether the thumbstick is there: always in the fly-over, otherwise only while the tilt is not steering.
-        public static bool StickShown(bool tiltActive, bool flyOver) => flyOver || !tiltActive;
+        // Whether the thumbstick is there: only while the island is steered by it - never while the tilt steers and
+        // never in the fly-over, which is driven like a map (drag, pinch, twist, tap).
+        public static bool StickShown(bool tiltActive, bool flyOver) => !flyOver && !tiltActive;
 
         // The fly-over's move: stick or keys, whatever steering scheme and tilt setting the run uses.
         public Vector2 ReadFlyScreen()
@@ -284,8 +305,8 @@ namespace Drift.Bridge
         {
             if (s == GameSession.State.GameOver && session != null && session.Mode == GameMode.Adventure)
                 _lastResult = BestDistances.Submit(GameMode.Adventure, session.Stats.distance);
-            _saveCheckTimer = 0f;
-            _hasSave = session != null && session.HasSave;
+            // The asked-for adventure tutorial has started (or will with the next race).
+            if (s == GameSession.State.Playing && session != null && session.Mode == GameMode.Adventure) _adventureReplayAsked = false;
             _preview?.RequestRender();
             RefreshSeedTexts();
         }
@@ -310,12 +331,13 @@ namespace Drift.Bridge
                     Island.DirectionProvider = null;
                 }
                 bool confirmPreview = editorPreview == EditorPreview.ConfirmNewWorld;
-                bool t = editorPreview == EditorPreview.Title || confirmPreview, p = editorPreview == EditorPreview.Pause;
+                bool choicePreview = editorPreview == EditorPreview.CozyChoice;
+                bool t = editorPreview == EditorPreview.Title || confirmPreview || choicePreview, p = editorPreview == EditorPreview.Pause;
                 bool adventureOver = editorPreview == EditorPreview.AdventureGameOver;
                 bool o = editorPreview == EditorPreview.GameOver || adventureOver;
                 ShowPanels(t, p, o, false);
-                SetContinueVisible(true);
                 if (confirmPreview != ConfirmOpen) { if (confirmPreview) OpenConfirm(null); else CloseConfirm(); }
+                if (choicePreview != CozyChoiceOpen) { if (choicePreview) OpenCozyChoice(); else CloseCozyChoice(); }
                 if (editorPreview != EditorPreview.Help)
                 {
                     _help.Hide();
@@ -325,7 +347,7 @@ namespace Drift.Bridge
                 {
                     _shownHelpPage = editorHelpPage;
                     _shownHelpTouch = editorHelpTouchFirst;
-                    _help.Open(editorHelpPage, editorHelpTouchFirst, false);
+                    _help.Open(HelpScope.Both, editorHelpPage, editorHelpTouchFirst);
                 }
                 if (o)
                 {
@@ -372,13 +394,12 @@ namespace Drift.Bridge
                 ShowPanels(s == GameSession.State.Title, s == GameSession.State.Paused, s == GameSession.State.GameOver, s == GameSession.State.Playing);
                 if (s != GameSession.State.Title && s != GameSession.State.Paused) _help.Hide();
                 CloseConfirm();
+                CloseCozyChoice();
                 if (s != GameSession.State.Paused && s != GameSession.State.Title) _tiltScreen.Hide();
                 if (s == GameSession.State.Title)
                 {
                     // The title works with the cozy game: "Weiter" and the seed field belong to its save.
                     session.SelectMode(GameMode.Cozy);
-                    _hasSave = session.HasSave;
-                    _saveCheckTimer = 0.5f;
                     RefreshTitleBest();
                     // Back from a run: the next start never repeats its world. A saved run stays behind the title for
                     // "Weiter" and the field offers a new number; otherwise the new world is built behind the title.
@@ -392,13 +413,6 @@ namespace Drift.Bridge
 
             if (s == GameSession.State.Title)
             {
-                _saveCheckTimer -= Time.unscaledDeltaTime;
-                if (_saveCheckTimer <= 0f)
-                {
-                    _saveCheckTimer = 0.5f;
-                    _hasSave = session.HasSave;
-                }
-                SetContinueVisible(_hasSave);
                 // The save is loaded behind the title a frame after the title appears; the field follows.
                 if (_seedField != null && !_seedField.isFocused && (session.WorldIsSavedState != _fieldSaved || session.WorldSeed != _fieldSeed))
                     RefreshSeedField(true);
@@ -423,7 +437,11 @@ namespace Drift.Bridge
             bool covered = photo || journal || album;
             // Hidden, not just dimmed: through the translucent journal card the pause buttons read as a
             // blurred second menu and make the small journal text look out of focus.
-            if (covered) CloseConfirm();
+            if (covered)
+            {
+                CloseConfirm();
+                CloseCozyChoice();
+            }
             SetPanelActive(_title, !covered && s == GameSession.State.Title);
             SetPanelActive(_pause, !covered && s == GameSession.State.Paused);
             SetPanelActive(_over, !covered && s == GameSession.State.GameOver);
@@ -435,7 +453,8 @@ namespace Drift.Bridge
             // The run journal handles back itself while open and in the frame it closed.
             if (kb != null && kb.escapeKey.wasPressedThisFrame && !RunJournalPanel.OwnsBack && !(_seedField != null && _seedField.isFocused))
             {
-                if (ConfirmOpen) CloseConfirm();
+                if (CozyChoiceOpen) CloseCozyChoice();
+                else if (ConfirmOpen) CloseConfirm();
                 else if (_tiltScreen.IsOpen) _tiltScreen.Hide();
                 else if (_help.IsOpen) _help.Hide();
                 else if (album) watch.AlbumBack();
@@ -446,8 +465,8 @@ namespace Drift.Bridge
             }
 
             bool steering = s == GameSession.State.Playing && !photo && !journal && !album && !(watch != null && watch.Following);
-            // The fly-over over the finished Pangäa: the island is locked, so the stick and keys fly the camera
-            // instead, a drag looks around and the pinch changes the height.
+            // The fly-over over the finished Pangäa: the island is locked and the camera is driven like a map
+            // (drag, pinch, twist, two-finger tilt, tap; mouse and keys in the Editor).
             bool flyOver = session.PangaeaFreeLook && !photo && !journal && !album && !(watch != null && watch.Following);
             if (tilt != null)
             {
@@ -477,56 +496,107 @@ namespace Drift.Bridge
                 // While the tilt drives, the thumbstick is gone (every tap is a tap again) but pinch zoom stays; the
                 // fly-over always has its stick.
                 touch.stickEnabled = StickShown(tilt != null && tilt.Active, flyOver);
-                touch.lookEnabled = flyOver;
+                touch.lookEnabled = false;
+                touch.gesturesEnabled = flyOver;
                 float pinch = touch.ConsumePinchFactor();
-                if (flyOver) _flyZoom *= pinch;
-                else if (chaseCamera != null && !photo && !following && Mathf.Abs(pinch - 1f) > 1e-4f) chaseCamera.ZoomBy(pinch);
-                if (flyOver) _flyLook += touch.ConsumeLookDelta();
-                else touch.ConsumeLookDelta();
+                if (!flyOver && chaseCamera != null && !photo && !following && Mathf.Abs(pinch - 1f) > 1e-4f) chaseCamera.ZoomBy(pinch);
+                touch.ConsumeLookDelta();
+                if (flyOver) AddFlyGesture(touch.ConsumeGesture());
             }
             if (flyOver) StepFlyInput(Time.unscaledDeltaTime);
+            else
+            {
+                if (_mouseGestures.Active) _mouseGestures.Reset();
+                _flyIn = default;
+            }
         }
 
-        // Look and zoom arrive between the frames the fly-over asks for them, so they are collected here and
-        // drained by ReadFlyInput. Mouse and Q/E keep the Editor able to fly without a touchscreen.
+        // Gestures arrive between the frames the fly-over asks for them, so they are collected here and drained by
+        // ReadFlyInput. The mouse flies like a finger for the Editor and PC: left drag grabs the ground, a click is a
+        // tap, right drag turns and tilts, the wheel zooms about the pointer, Q/E zoom about the middle.
+        void AddFlyGesture(in TouchGesture g)
+        {
+            if (g.pan)
+            {
+                if (!_flyIn.pan)
+                {
+                    _flyIn.pan = true;
+                    _flyIn.panFrom = g.panFrom;
+                }
+                _flyIn.panTo = g.panTo;
+            }
+            if (g.twoFinger)
+            {
+                if (!_flyIn.pinch)
+                {
+                    _flyIn.pinch = true;
+                    _flyIn.pinchFrom = g.midFrom;
+                    _flyIn.pinchScale = 1f;
+                }
+                _flyIn.pinchTo = g.midTo;
+                _flyIn.pinchScale *= g.scale > 0f ? g.scale : 1f;
+                _flyIn.twistDeg += g.twistDeg;
+            }
+            _flyIn.tiltPixels += g.tiltPixels;
+            if (g.fingers > 0 || g.touched) _flyIn.touching = true;
+            if (g.released) _flyIn.released = true;
+            if (g.tap)
+            {
+                _flyIn.tap = true;
+                _flyIn.tapPos = g.tapPos;
+            }
+        }
+
         void StepFlyInput(float dt)
         {
-            _flyLook += MouseLookDelta();
             var mouse = Mouse.current;
-            if (mouse != null)
+            if (mouse != null && !(touch != null && touch.Gestures.Active))
             {
+                Vector2 p = mouse.position.ReadValue();
+                if (mouse.leftButton.wasPressedThisFrame || mouse.rightButton.wasPressedThisFrame)
+                {
+                    var es = EventSystem.current;
+                    _mouseOnUi = es != null && es.IsPointerOverGameObject();
+                }
+                bool left = mouse.leftButton.isPressed && !_mouseOnUi;
+                _mouseGestures.Feed(left ? 1 : 0, -1, p, 0, default, Time.unscaledTime, TouchGestures.PixelScale(UnityEngine.Screen.width, UnityEngine.Screen.height));
+                AddFlyGesture(_mouseGestures.Consume());
+                if (mouse.rightButton.isPressed && !_mouseOnUi)
+                {
+                    Vector2 d = mouse.delta.ReadValue();
+                    _flyIn.yawDeg -= d.x * 0.25f;
+                    _flyIn.pitchDeg -= d.y * 0.15f;
+                    _flyIn.touching = true;
+                }
                 float sc = mouse.scroll.ReadValue().y;
-                if (Mathf.Abs(sc) > 0.01f) _flyZoom *= Mathf.Exp(-sc * 0.0012f);
+                if (Mathf.Abs(sc) > 0.01f)
+                {
+                    var es = EventSystem.current;
+                    if (es == null || !es.IsPointerOverGameObject())
+                    {
+                        _flyIn.zoomFactor = (_flyIn.zoomFactor > 0f ? _flyIn.zoomFactor : 1f) * Mathf.Exp(-sc * 0.0012f);
+                        _flyIn.zoomAtPoint = true;
+                        _flyIn.zoomPoint = p;
+                    }
+                }
             }
             var kb = Keyboard.current;
             if (kb != null)
             {
-                if (kb.qKey.isPressed || kb.numpadPlusKey.isPressed) _flyZoom *= Mathf.Exp(-1.2f * dt);
-                if (kb.eKey.isPressed || kb.numpadMinusKey.isPressed) _flyZoom *= Mathf.Exp(1.2f * dt);
+                float z = 0f;
+                if (kb.qKey.isPressed || kb.numpadPlusKey.isPressed) z -= 1.2f * dt;
+                if (kb.eKey.isPressed || kb.numpadMinusKey.isPressed) z += 1.2f * dt;
+                if (z != 0f) _flyIn.zoomFactor = (_flyIn.zoomFactor > 0f ? _flyIn.zoomFactor : 1f) * Mathf.Exp(z);
             }
         }
 
-        static Vector2 MouseLookDelta()
-        {
-            var m = Mouse.current;
-            if (m == null || !m.leftButton.isPressed) return Vector2.zero;
-            var es = EventSystem.current;
-            if (es != null && es.IsPointerOverGameObject()) return Vector2.zero;
-            return m.delta.ReadValue();
-        }
-
-        // What PangaeaFinale flies the camera with: the steering input as a move, the collected drag as a look
-        // and the collected pinch / scroll / Q-E as a height factor.
+        // What PangaeaFinale flies the camera with: the keys as a move, plus everything the fingers and the mouse did
+        // since the last read.
         public FlyOverCamera.Input ReadFlyInput()
         {
-            var input = new FlyOverCamera.Input
-            {
-                move = session != null && session.PangaeaFreeLook ? ReadFlyScreen() : Vector2.zero,
-                look = _flyLook,
-                zoomFactor = _flyZoom,
-            };
-            _flyLook = Vector2.zero;
-            _flyZoom = 1f;
+            var input = _flyIn;
+            input.move = session != null && session.PangaeaFreeLook ? ReadFlyScreen() : Vector2.zero;
+            _flyIn = default;
             return input;
         }
 
@@ -657,14 +727,6 @@ namespace Drift.Bridge
             if (_overPreview != null && _overPreview.texture != tex) _overPreview.texture = tex;
         }
 
-        // Without a save the Anleitung / Fotoalbum row moves up into the slot of the hidden "Weiter".
-        void SetContinueVisible(bool on)
-        {
-            if (_continueButton == null) return;
-            if (_continueButton.gameObject.activeSelf != on) _continueButton.gameObject.SetActive(on);
-            if (_titleExtras != null) _titleExtras.anchoredPosition = new Vector2(0f, on ? TitleHelpY : TitleContinueY);
-        }
-
         static void SetPanelActive(GameObject panel, bool on)
         {
             if (panel != null && panel.activeSelf != on) panel.SetActive(on);
@@ -785,14 +847,58 @@ namespace Drift.Bridge
             else OpenConfirm(() => session?.StartNewGame(WorldSeeds.RandomOther(session.WorldSeed)));
         }
 
-        void OnCozyPressed()
+        // "Gemütlich": with a saved world a small window offers "Weiter" and "Neu beginnen" (choosing the latter is the
+        // explicit decision to replace the save, so there is no second question); without one the new world starts.
+        public void PressCozy()
         {
+            if (session != null) session.SelectMode(GameMode.Cozy);
+            bool saved = SaveProbe != null ? SaveProbe() : session != null && session.HasSave;
+            if (saved) OpenCozyChoice();
+            else StartCozyWorld();
+        }
+
+        void StartCozyWorld()
+        {
+            CloseCozyChoice();
+            var seed = FieldSeed();
+            if (NewCozyWorldOverride != null) { NewCozyWorldOverride(seed); return; }
+            if (session == null) return;
+            if (seed.HasValue) session.StartNewGame(seed.Value);
+            else session.StartNewGame();
+        }
+
+        void ContinueCozyWorld()
+        {
+            CloseCozyChoice();
+            if (ContinueCozyOverride != null) { ContinueCozyOverride(); return; }
             if (session == null) return;
             session.SelectMode(GameMode.Cozy);
-            _hasSave = session.HasSave;
-            // "Gemütlich" starts a new world and deletes the saved one, which "Weiter" would continue.
-            if (_hasSave) OpenConfirm(OnStartPressed);
-            else OnStartPressed();
+            session.ContinueGame();
+        }
+
+        public void OpenCozyChoice()
+        {
+            if (_choice == null) return;
+            if (_choiceSavedText != null) _choiceSavedText.text = SavedWorldCaption();
+            if (_choiceNewText != null)
+            {
+                var seed = FieldSeed();
+                _choiceNewText.text = seed.HasValue ? ModeTexts.SeedCaption(seed.Value, false) : session != null ? session.SeedLabel : "";
+            }
+            _choice.transform.SetAsLastSibling();
+            if (!_choice.activeSelf) _choice.SetActive(true);
+        }
+
+        public void CloseCozyChoice()
+        {
+            if (_choice != null && _choice.activeSelf) _choice.SetActive(false);
+        }
+
+        string SavedWorldCaption()
+        {
+            var sm = session != null ? session.saveManager : null;
+            if (sm == null || !SaveManager.Peek(sm.SavePath, out int seed, out bool legacy)) return "";
+            return ModeTexts.SeedCaption(seed, legacy);
         }
 
         // ---------------------------------------------------------------- "Neue Welt beginnen?"
@@ -816,13 +922,6 @@ namespace Drift.Bridge
             var action = _confirmAction;
             CloseConfirm();
             action?.Invoke();
-        }
-
-        void OnContinuePressed()
-        {
-            if (session == null) return;
-            session.SelectMode(GameMode.Cozy);
-            session.ContinueGame();
         }
 
         void FillEditorSample()
@@ -873,14 +972,6 @@ namespace Drift.Bridge
             return WorldSeeds.TryParse(_seedField.text, out int s) ? s : (int?)null;
         }
 
-        void OnStartPressed()
-        {
-            if (session == null) return;
-            var s = FieldSeed();
-            if (s.HasValue) session.StartNewGame(s.Value);
-            else session.StartNewGame();
-        }
-
         void OnSeedEdited(string text)
         {
             if (session == null) return;
@@ -909,9 +1000,12 @@ namespace Drift.Bridge
         // ---------------------------------------------------------------- layout
 
         const float ButtonWidth = 680f;
-        static readonly Vector2 TitlePanel = new Vector2(920f, 1676f), OverPanel = new Vector2(880f, 1270f);
+        static readonly Vector2 TitlePanel = new Vector2(920f, 1516f), OverPanel = new Vector2(880f, 1270f);
         static Vector2 PausePanel => new Vector2(880f, Application.isMobilePlatform ? 1300f : 1464f);
-        const float TitleContinueY = -1132f, TitleHelpY = -1292f;
+        const float TitleExtrasY = -1132f;
+        // The cozy choice window hangs just below the seed field, over the mode row it was opened from.
+        const float ChoiceTop = 876f;
+        static readonly Vector2 ChoicePanel = new Vector2(840f, 420f);
         const float ModeButtonWidth = 404f, ModeButtonX = 214f;
         // The legacy scene value promised sinking; the cozy game no longer ends that way.
         const string LegacyTagline = "Sammle Inseln, bevor deine versinkt.";
@@ -930,7 +1024,7 @@ namespace Drift.Bridge
             _pause = BuildPause(root);
             _over = BuildGameOver(root);
             _pauseButton = BuildPauseButton(root);
-            _help.Build(root, null, OnReplayTutorial, OnToggleVoice);
+            _help.Build(root, null, OnReplayTutorial, OnToggleVoice, ReplayPendingFor);
             _tiltScreen.Build(root, tilt, null);
             _presenter = TildaPresenter.Create(root);
             _confirm = BuildConfirm(root);
@@ -985,7 +1079,7 @@ namespace Drift.Bridge
 
             // Two modes side by side: the cozy world (seed above) and the adventure run with its record below.
             var modeSize = new Vector2(ModeButtonWidth, UiStyle.ButtonHeight);
-            var cozy = UiStyle.PrimaryButton(panel, "Start", GameModes.Label(GameMode.Cozy), modeSize, OnCozyPressed);
+            var cozy = UiStyle.PrimaryButton(panel, "Start", GameModes.Label(GameMode.Cozy), modeSize, PressCozy);
             ((RectTransform)cozy.transform).TopCenter(new Vector2(-ModeButtonX, -892f), modeSize);
             var adventure = UiStyle.PrimaryButton(panel, "Adventure", GameModes.Label(GameMode.Adventure), modeSize, () => session?.StartNewGame(GameMode.Adventure));
             ((RectTransform)adventure.transform).TopCenter(new Vector2(ModeButtonX, -892f), modeSize);
@@ -997,24 +1091,70 @@ namespace Drift.Bridge
             _titleBestShown = -1;
 
             const float rowWidth = ModeButtonWidth + 2f * ModeButtonX;
-            _continueButton = Secondary(panel, "Continue", "Weiter", new Vector2(0f, TitleContinueY), new Vector2(rowWidth, UiStyle.ButtonHeight), OnContinuePressed);
             // Two rows of two: "Steuerung" (tilt, steering scheme) must be reachable before the first game, not only
             // from the pause menu - on the phone the tilt option was otherwise never offered.
-            _titleExtras = UiStyle.Rect(panel, "Extras").TopCenter(new Vector2(0f, TitleHelpY), new Vector2(rowWidth, 256f));
+            var extras = UiStyle.Rect(panel, "Extras").TopCenter(new Vector2(0f, TitleExtrasY), new Vector2(rowWidth, 256f));
             var half = new Vector2((rowWidth - 16f) / 2f, 120f);
             float halfX = (half.x + 16f) * 0.5f;
-            UiStyle.LabelOf(Secondary(_titleExtras, "Help", "Anleitung", new Vector2(-halfX, 0f), half, () => OpenHelp())).fontSize = 40;
-            UiStyle.LabelOf(Secondary(_titleExtras, "Controls", "Steuerung", new Vector2(halfX, 0f), half, OpenTiltSettings)).fontSize = 40;
-            UiStyle.LabelOf(Secondary(_titleExtras, "Album", "Fotoalbum", new Vector2(-halfX, -136f), half, () => Watch?.OpenAlbum())).fontSize = 40;
-            UiStyle.LabelOf(Secondary(_titleExtras, "Runs", "Durchgänge", new Vector2(halfX, -136f), half, RunJournal.RequestOpen)).fontSize = 40;
-            Line(panel, "Gemütlich wachsen – oder im Abenteuer ausweichen.", UiStyle.Caption, UiStyle.Muted, -1592f, 40f);
+            UiStyle.LabelOf(Secondary(extras, "Help", "Anleitung", new Vector2(-halfX, 0f), half, () => OpenHelp())).fontSize = 40;
+            UiStyle.LabelOf(Secondary(extras, "Controls", "Steuerung", new Vector2(halfX, 0f), half, OpenTiltSettings)).fontSize = 40;
+            UiStyle.LabelOf(Secondary(extras, "Album", "Fotoalbum", new Vector2(-halfX, -136f), half, () => Watch?.OpenAlbum())).fontSize = 40;
+            UiStyle.LabelOf(Secondary(extras, "Runs", "Durchgänge", new Vector2(halfX, -136f), half, RunJournal.RequestOpen)).fontSize = 40;
+            Line(panel, "Gemütlich wachsen – oder im Abenteuer ausweichen.", UiStyle.Caption, UiStyle.Muted, TitleExtrasY - 300f, 40f);
             // Under the menu panel, so a phone screenshot always tells which build it came from.
             var version = UiStyle.Label(screen, "Version " + Application.version, UiStyle.Caption, UiStyle.Muted, TextAnchor.UpperCenter);
             version.rectTransform.anchorMin = version.rectTransform.anchorMax = new Vector2(0.5f, 0.5f);
             version.rectTransform.pivot = new Vector2(0.5f, 1f);
             version.rectTransform.sizeDelta = new Vector2(600f, 40f);
             version.rectTransform.anchoredPosition = new Vector2(0f, -TitlePanel.y * 0.5f - 16f);
+            _choice = BuildCozyChoice(screen);
             return screen.gameObject;
+        }
+
+        // No "Abbrechen": a tap anywhere outside the window (a clear full-screen button behind it) or back closes it.
+        GameObject BuildCozyChoice(RectTransform screen)
+        {
+            var root = UiStyle.Rect(screen, "CozyChoice").Stretch();
+            var outside = UiStyle.Shape(root, "Outside", null, new Color(0f, 0f, 0f, 0f), true);
+            outside.rectTransform.Stretch();
+            var close = outside.gameObject.AddComponent<Button>();
+            close.transition = Selectable.Transition.None;
+            close.navigation = new Navigation { mode = Navigation.Mode.None };
+            close.onClick.AddListener(CloseCozyChoice);
+
+            float top = TitlePanel.y * 0.5f - ChoiceTop;
+            var window = UiStyle.Panel(root, "Window", ChoicePanel, true).Center(new Vector2(0f, top - ChoicePanel.y * 0.5f), ChoicePanel);
+            // Opaque under the glass: it lies over the title's own buttons, which must not show through.
+            var backing = UiStyle.Shape(window, "Backing", UiSprites.RoundedLarge, UiStyle.WithAlpha(UiStyle.GlassDense, 1f));
+            backing.rectTransform.Stretch();
+            backing.transform.SetSiblingIndex(1);
+            var title = UiStyle.Label(window, GameModes.Label(GameMode.Cozy), UiStyle.Heading, UiStyle.Sand, TextAnchor.UpperCenter, true);
+            title.rectTransform.TopCenter(new Vector2(0f, -30f), new Vector2(760f, 76f));
+            var note = UiStyle.Label(window, ModeTexts.CozyChoiceNote, UiStyle.Caption, UiStyle.Muted, TextAnchor.UpperCenter);
+            note.rectTransform.TopCenter(new Vector2(0f, -112f), new Vector2(760f, 40f));
+            UiStyle.FitWidth(note);
+
+            var size = new Vector2(372f, UiStyle.ButtonHeight);
+            const float x = 196f, buttonY = -176f, captionY = -330f;
+            var go = UiStyle.PrimaryButton(window, "Continue", ModeTexts.CozyContinue, size, ContinueCozyWorld);
+            ((RectTransform)go.transform).TopCenter(new Vector2(-x, buttonY), size);
+            var fresh = Secondary(window, "NewWorld", ModeTexts.CozyNewWorld, new Vector2(x, buttonY), size, StartCozyWorld);
+            foreach (var b in new[] { go, fresh })
+            {
+                var label = UiStyle.LabelOf(b);
+                label.fontSize = 46;
+                UiStyle.FitWidth(label);
+            }
+            _choiceSavedText = UiStyle.Label(window, "", UiStyle.Caption, UiStyle.Muted, TextAnchor.UpperCenter);
+            _choiceSavedText.rectTransform.TopCenter(new Vector2(-x, captionY), new Vector2(size.x, 40f));
+            _choiceNewText = UiStyle.Label(window, "", UiStyle.Caption, UiStyle.Muted, TextAnchor.UpperCenter);
+            _choiceNewText.rectTransform.TopCenter(new Vector2(x, captionY), new Vector2(size.x, 40f));
+            UiStyle.FitWidth(_choiceSavedText);
+            UiStyle.FitWidth(_choiceNewText);
+
+            UiStyle.FadeIn(root.gameObject, window);
+            root.gameObject.SetActive(false);
+            return root.gameObject;
         }
 
         GameObject BuildPause(RectTransform root)

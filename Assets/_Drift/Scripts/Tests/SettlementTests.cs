@@ -366,7 +366,10 @@ namespace Drift.Tests
             Assert.Greater(s.SettlerSteps, steps);
             Assert.LessOrEqual(s.SettlerSteps - steps, (Mathf.CeilToInt(10f / s.midStepInterval) + 1) * s.maxSettlers, "mid steps at the low rate");
 
+            // Close to the camera the pixel budget may ask for every frame (CloseUpMotion, 2026-09-25); without movers
+            // fast enough to step visibly the base rate holds.
             LifeLod.DistanceProvider = _ => 0f;
+            s.folkCloseUpSpeed = 0f;
             int folk = s.FolkMeshBuilds;
             Run(s, 10f, 0.02f);
             Assert.LessOrEqual(s.FolkMeshBuilds - folk, Mathf.CeilToInt(10f / s.folkMeshInterval) + 1, "the folk mesh rebuilds at 10 Hz at most");

@@ -96,6 +96,22 @@ namespace Drift.Bridge
         [Tooltip("Wie schnell (pro Sekunde) die Kamera einem Sprung des Beobachteten auf seiner Insel nachgleitet. Der Bewegung der Insel selbst folgt sie immer sofort.")]
         [Range(1f, 30f)] public float watchSubjectEase = 8f;
 
+        [Header("Beobachten: Vögel")]
+        [Tooltip("Neigung der Kamera bei einem gelandeten Schwarm (Grad, von oben).")]
+        [Range(10f, 80f)] public float airPitchLow = 50f;
+        [Tooltip("Neigung der Kamera bei einem hoch fliegenden Schwarm (Grad) - flacher, damit man die Vögel vor dem Himmel sieht.")]
+        [Range(5f, 80f)] public float airPitchHigh = 30f;
+        [Tooltip("Ab dieser Flughöhe über dem Boden (Einheiten) gilt ein Schwarm als hoch fliegend.")]
+        [Range(0.5f, 10f)] public float airFullHeight = 4f;
+        [Tooltip("So viel der halben kurzen Bildseite nimmt der Schwarm ein; zieht er sich auseinander, geht die Kamera mit zurück.")]
+        [Range(0.2f, 1f)] public float airFill = 0.6f;
+        [Tooltip("Näher als so viele Einheiten kommt die Kamera einem Schwarm nicht von selbst.")]
+        [Range(1f, 20f)] public float airMinDistance = 4f;
+        [Tooltip("Wie schnell (pro Sekunde) die Kamerahöhe der Flughöhe des Schwarms folgt. Kleiner = ruhiger.")]
+        [Range(0.5f, 10f)] public float airHeightFollow = 2.5f;
+        [Tooltip("Wie schnell (pro Sekunde) Neigung und Abstand der Flughöhe und der Größe des Schwarms folgen.")]
+        [Range(0.2f, 5f)] public float airFramingFollow = 1.2f;
+
         [Header("Beobachten: Bauwerke")]
         [Tooltip("Neigung der Kamera, wenn ein Bauwerk (Leuchtturm, Hafen, Festplatz) beobachtet wird - flacher als bei Tieren, damit man den Turm von der Seite sieht.")]
         [Range(10f, 70f)] public float stillPitch = 28f;
@@ -1382,6 +1398,12 @@ namespace Drift.Bridge
                 dist = WatchFraming.Distance(frameRadius, _followHerds.BodyLength(_followHerd),
                     cam != null ? cam.fieldOfView : 60f, cam != null ? cam.aspect : 9f / 16f, watchFill, watchMinBodyPixels);
             }
+            else if (_watch != null && _watch.air)
+            {
+                var cam = Camera.main;
+                _airPitch = pitch = AirPitchNow();
+                _airDistance = dist = AirDistanceNow(cam);
+            }
             else if (_watch != null && _watch.still)
             {
                 // A building: from the side at a lower angle, far enough to show the ground (or water) round it.
@@ -2462,9 +2484,15 @@ namespace Drift.Bridge
             ConfigureRig();
             Vector3 raw = SubjectPosition();
             Vector3 subject = TrackGround(raw, dt);
+            bool air = Following && _watch != null && _watch.air;
+            if (air && !_photoActive) FollowAirFraming(cam, dt);
             _rig.Step(input, dt);
             _lastSubject = raw;
-            _rig.EaseHeight(GroundHeight(_rig.PivotPlanar(subject)), dt);
+            float groundY = GroundHeight(_rig.PivotPlanar(subject));
+            // A flock is watched at its own height (it used to be the ground under it: birds 5 u up flew out of the
+            // top of the picture); it never drops below the ground it flies over.
+            if (air) _rig.EaseHeight(Mathf.Max(groundY + 0.2f, subject.y), dt, airHeightFollow);
+            else _rig.EaseHeight(groundY, dt);
             _rig.Pose(subject, out Vector3 pos, out Quaternion rot);
             Vector3 pivot = _rig.Pivot(subject);
 
@@ -2504,6 +2532,33 @@ namespace Drift.Bridge
             // The orbit camera knows exactly how close it stands to what it watches; the vegetation calms its wind
             // by that distance instead of guessing from the view ray.
             IslandLifeSystem.ReportViewDistance((pos - pivot).magnitude);
+        }
+
+        // ---------------------------------------------------------------- a flock in the air
+
+        float _airPitch, _airDistance;
+
+        float AirPitchNow()
+        {
+            Vector3 s = SubjectPosition();
+            float above = s.y - GroundHeight(new Vector2(s.x, s.z));
+            return WatchFraming.AirPitch(above, airPitchLow, airPitchHigh, airFullHeight);
+        }
+
+        float AirDistanceNow(Camera cam) => WatchFraming.AirDistance(_followRadius, cam != null ? cam.fieldOfView : 60f,
+            cam != null ? cam.aspect : 9f / 16f, airFill, airMinDistance);
+
+        // Climbing, gliding low, landing, spreading out or bunching up: the automatic pitch and distance ease after the
+        // flock and move the orbit by the same amount, so the player's own zoom and tilt on top of it are kept.
+        void FollowAirFraming(Camera cam, float dt)
+        {
+            if (_airDistance <= 0f) { _airDistance = AirDistanceNow(cam); _airPitch = AirPitchNow(); return; }
+            float k = 1f - Mathf.Exp(-airFramingFollow * Mathf.Max(0f, dt));
+            float pitch = Mathf.Lerp(_airPitch, AirPitchNow(), k);
+            float dist = Mathf.Lerp(_airDistance, AirDistanceNow(cam), k);
+            _rig.ShiftFraming(dist / _airDistance, pitch - _airPitch);
+            _airPitch = pitch;
+            _airDistance = dist;
         }
 
         // ---------------------------------------------------------------- the ground under the subject

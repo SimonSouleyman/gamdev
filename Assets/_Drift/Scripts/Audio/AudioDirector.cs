@@ -51,6 +51,10 @@ namespace Drift.Audio
         [Range(0f, 1f)] public float speedWaterBoost = 0.35f;
         [Tooltip("Zusätzlicher Platscher beim Verschmelzen (die Gischt). 0 = aus.")]
         [Range(0f, 1f)] public float mergeSplash = 0.7f;
+        [Tooltip("Wind, Wasser, Strömung und Surfen im Abenteuer (die Insel fährt dort fast immer volles Tempo) relativ zum Gemütlich-Modus.")]
+        [Range(0f, 1f)] public float adventureBedGain = 0.7f;
+        [Tooltip("Donner, Aufpralle und Platscher im Abenteuer relativ zum Gemütlich-Modus.")]
+        [Range(0f, 1f)] public float adventureEventGain = 0.85f;
 
         [Header("Abenteuer-Musik")]
         [Tooltip("Eigene, schnellere Musik im Abenteuer (tropisch; alle 1000 m etwas schneller und bunter). Aus = die gemütliche Musik läuft weiter.")]
@@ -184,10 +188,16 @@ namespace Drift.Audio
                     warn = Mathf.Clamp01(0.3f + 0.7f * (sinkWarningBuoyancy - b) / sinkWarningBuoyancy);
             }
             PlayerSpeedNormalized = speedN;
-            UpdateSpeedFeel(player, dt);
-            Sfx.WaterAmount = Mathf.Clamp01(speedN * (1f + (speedFeelEnabled ? speedWaterBoost * _feel.Drive : 0f)));
-            Sfx.WindAmount = Mathf.Clamp01(windBase + windFromSpeed * speedN
-                + windLfoDepth * Mathf.Sin(_lfoT * (2f * Mathf.PI / Mathf.Max(1f, windLfoPeriod))));
+            _feel.Step(Island.InputLocked ? null : player, dt);
+            bool feel = speedFeelEnabled && !Island.InputLocked;
+            ApplyBeds(Sfx, new BedInputs
+            {
+                speedN = speedN, drive = _feel.Drive, flow = feel ? _feel.Flow : 0f, surf = feel ? _feel.Surf : 0f, lfoT = _lfoT,
+                adventure = GameModes.IsAdventure, speedFeel = speedFeelEnabled,
+                windBase = windBase, windFromSpeed = windFromSpeed, windLfoPeriod = windLfoPeriod, windLfoDepth = windLfoDepth,
+                speedWaterBoost = speedWaterBoost, flowVolume = flowVolume, surfVolume = surfVolume,
+                adventureBedGain = adventureBedGain, adventureEventGain = adventureEventGain,
+            });
             Sfx.SinkWarning = warn;
 
             UpdateGrind(player, dt);
@@ -216,18 +226,41 @@ namespace Drift.Audio
             }
         }
 
-        // Riding the current swells a band of rushing water, surfing a plate boundary sings a rising tone that
-        // stops the moment the boundary is lost - the two things you cannot see from the chase camera.
-        void UpdateSpeedFeel(Island player, float dt)
+        // What the wind / water / flow / surf beds get from the director's fields and the island's motion. Static and
+        // pure so the offline loudness measurements (Tests/AudioMixTests) drive the synth exactly like the game does.
+        public struct BedInputs
         {
-            _feel.Step(Island.InputLocked ? null : player, dt);
-            if (Sfx == null) return;
-            bool on = speedFeelEnabled && !Island.InputLocked;
-            // The amount drives the pitch/brightness, the gain only the loudness: the sliders must not move the tone.
-            Sfx.FlowAmount = on ? _feel.Flow : 0f;
-            Sfx.SurfAmount = on ? _feel.Surf : 0f;
-            Sfx.FlowGain = SfxSynth.FlowGainFull * flowVolume;
-            Sfx.SurfGain = SfxSynth.SurfGainFull * surfVolume;
+            public float speedN, drive, flow, surf, lfoT;
+            public bool adventure, speedFeel;
+            public float windBase, windFromSpeed, windLfoPeriod, windLfoDepth, speedWaterBoost, flowVolume, surfVolume;
+            public float adventureBedGain, adventureEventGain;
+
+            // The field values Planet.unity holds (= the code defaults).
+            public static BedInputs SceneDefaults(float speedN, float drive, float flow, float surf, float lfoT, bool adventure) => new BedInputs
+            {
+                speedN = speedN, drive = drive, flow = flow, surf = surf, lfoT = lfoT, adventure = adventure, speedFeel = true,
+                windBase = 0.25f, windFromSpeed = 0.5f, windLfoPeriod = 23f, windLfoDepth = 0.15f,
+                speedWaterBoost = 0.35f, flowVolume = 0.5f, surfVolume = 0.45f,
+                adventureBedGain = 0.7f, adventureEventGain = 0.85f,
+            };
+        }
+
+        // Riding the current swells a band of rushing water, surfing a plate boundary a hiss of spray that stops the
+        // moment the boundary is lost - the two things you cannot see from the chase camera. The amount drives the
+        // pitch/brightness, the gain only the loudness: the sliders must not move the tone.
+        public static void ApplyBeds(SfxSynth sfx, in BedInputs b)
+        {
+            if (sfx == null) return;
+            float speedN = Mathf.Clamp01(b.speedN);
+            sfx.WaterAmount = Mathf.Clamp01(speedN * (1f + (b.speedFeel ? b.speedWaterBoost * b.drive : 0f)));
+            sfx.WindAmount = Mathf.Clamp01(b.windBase + b.windFromSpeed * speedN
+                + b.windLfoDepth * Mathf.Sin(b.lfoT * (2f * Mathf.PI / Mathf.Max(1f, b.windLfoPeriod))));
+            sfx.FlowAmount = b.speedFeel ? b.flow : 0f;
+            sfx.SurfAmount = b.speedFeel ? b.surf : 0f;
+            sfx.FlowGain = SfxSynth.FlowGainFull * b.flowVolume;
+            sfx.SurfGain = SfxSynth.SurfGainFull * b.surfVolume;
+            sfx.BedGain = b.adventure ? b.adventureBedGain : 1f;
+            sfx.EventGain = b.adventure ? b.adventureEventGain : 1f;
         }
 
         // The adventure music runs from the start briefing to the game over, following the run's distance; a fresh

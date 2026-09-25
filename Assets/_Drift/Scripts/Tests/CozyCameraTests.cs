@@ -181,72 +181,7 @@ namespace Drift.Tests
             Assert.IsTrue(PangaeaFinale.FlyOverActive(true, true, false, false, true));
         }
 
-        [Test]
-        public void FlyOver_MovesWithTheView_AndKeepsItsBounds()
-        {
-            Assert.AreEqual(new Vector2(0f, 1f), FlyOverCamera.Screen2World(Vector2.up, 0f), "up the screen is north");
-            var east = FlyOverCamera.Screen2World(Vector2.up, 90f);
-            Assert.AreEqual(1f, east.x, 1e-4f);
-            Assert.AreEqual(0f, east.y, 1e-4f);
-
-            var centre = new Vector2(10f, -4f);
-            Assert.AreEqual(centre + new Vector2(3f, 0f), FlyOverCamera.ClampToReach(centre + new Vector2(3f, 0f), centre, 20f));
-            var far = FlyOverCamera.ClampToReach(centre + new Vector2(100f, 0f), centre, 20f);
-            Assert.AreEqual(20f, (far - centre).magnitude, 1e-3f, "never further out than the reach");
-            Assert.AreEqual(44f, FlyOverCamera.Reach(20f, 1.3f, 18f), 1e-3f);
-            Assert.AreEqual(70f, FlyOverCamera.MaxHeight(10f, 70f), 1e-3f, "a small island still allows a high look");
-            Assert.AreEqual(125f, FlyOverCamera.MaxHeight(50f, 70f), 1e-3f, "a continent needs more height");
-            // How far along the view the sea is: straight down = the height, flatter = further.
-            Assert.AreEqual(20f, FlyOverCamera.Distance(20f, 90f), 1e-3f);
-            Assert.Greater(FlyOverCamera.Distance(20f, 25f), FlyOverCamera.Distance(20f, 70f));
-            Assert.AreEqual(2f * FlyOverCamera.SpeedAt(15f, 15f, 12f), FlyOverCamera.SpeedAt(30f, 15f, 12f), 1e-3f,
-                "twice as high flies twice as fast, so the picture slides by at the same pace");
-        }
-
-        // The owner's phone test of v0.6.2: the fly-over felt nailed to the island centre, because a drag orbited
-        // the point the view started on (the middle of the island). Now the camera itself flies.
-        [Test]
-        public void FlyOver_IsAFreeFlight_ThatReachesEveryCoast()
-        {
-            var isl = MakeIsland(0f);
-            var fly = new FlyOverCamera();
-            fly.Reset(new Vector3(0f, 12f, -9f), Quaternion.Euler(35f, 0f, 0f), isl.transform.position.y);
-            Assert.AreEqual(12f, fly.Height, 1e-3f);
-            Assert.AreEqual(0f, fly.Yaw, 1e-3f);
-            Assert.AreEqual(35f, fly.Pitch, 1e-3f);
-            Assert.AreEqual(new Vector2(0f, -9f), fly.PlanarPosition, "it takes over where the chase camera stands");
-
-            // Looking around turns the view on the spot: the camera does not move, nothing orbits the island.
-            for (int i = 0; i < 100; i++) fly.Step(new FlyOverCamera.Input { look = new Vector2(-6f, 0f) }, 0.02f, isl);
-            Assert.Greater(Mathf.DeltaAngle(0f, fly.Yaw), 30f, "dragging left has turned the view right");
-            Assert.Less(Vector2.Distance(fly.PlanarPosition, new Vector2(0f, -9f)), 1e-3f, "and the camera stayed where it was");
-            for (int i = 0; i < 200; i++) fly.Step(new FlyOverCamera.Input { look = new Vector2(0f, -8f) }, 0.02f, isl);
-            Assert.AreEqual(fly.settings.maxPitch, fly.Pitch, 0.5f, "the pitch stops short of straight down");
-            for (int i = 0; i < 200; i++) fly.Step(new FlyOverCamera.Input { look = new Vector2(0f, 8f) }, 0.02f, isl);
-            Assert.AreEqual(fly.settings.minPitch, fly.Pitch, 0.5f, "and short of the horizon");
-
-            // The stick flies where the view looks: far enough to be past every coast, never out to sea for good.
-            float reach = FlyOverCamera.Reach(isl.BoundingRadius, fly.settings.reach, fly.settings.reachMargin);
-            Assert.Greater(reach, isl.BoundingRadius + 10f, "every coast can be flown over and looked back at");
-            var ahead = FlyOverCamera.Forward(fly.Yaw);
-            Vector2 start = fly.PlanarPosition;
-            for (int i = 0; i < 1500; i++)
-            {
-                fly.Step(new FlyOverCamera.Input { move = Vector2.up }, 0.02f, isl);
-                Assert.LessOrEqual((fly.PlanarPosition - isl.PlanarPosition).magnitude, reach + 1e-3f);
-                Assert.GreaterOrEqual(fly.Position.y, isl.transform.position.y + fly.settings.minHeight - 1e-3f, "stays above the water");
-                float ground = Mathf.Max(0f, isl.SampleHeight(isl.ToLocal(fly.PlanarPosition)));
-                Assert.GreaterOrEqual(fly.Position.y, isl.transform.position.y + ground + fly.settings.clearance - 1e-3f, "and above the land");
-            }
-            Assert.Greater(Vector2.Dot(fly.PlanarPosition - start, ahead), 5f, "it really flew ahead");
-            Assert.AreEqual(reach, (fly.PlanarPosition - isl.PlanarPosition).magnitude, 0.5f, "out to the edge of its reach");
-
-            // Height: up to the ceiling, then down to the floor.
-            for (int i = 0; i < 200; i++) fly.Step(new FlyOverCamera.Input { zoomFactor = 1.05f }, 0.02f, isl);
-            Assert.AreEqual(FlyOverCamera.MaxHeight(isl.BoundingRadius, fly.settings.maxHeight), fly.Height, 0.01f);
-            for (int i = 0; i < 400; i++) fly.Step(new FlyOverCamera.Input { zoomFactor = 0.95f }, 0.02f, isl);
-            Assert.AreEqual(fly.settings.minHeight, fly.Height, 0.01f);
-        }
+        // The fly-over's own camera (map gestures, bounds, fly-to, idle orbit) is tested in FlyOverGestureTests.
 
         // ---------------------------------------------------------------- tilt: no front, no turning view
 

@@ -91,10 +91,11 @@ namespace Drift.EditorTools.Playtest
             }
         }
 
-        public static string Report(int top = 25)
+        public static string Report(int top = 25, bool byGc = false)
         {
             var list = new List<KeyValuePair<string, Acc>>(_acc);
-            list.Sort((a, b) => b.Value.ms.CompareTo(a.Value.ms));
+            if (byGc) list.Sort((a, b) => b.Value.gc.CompareTo(a.Value.gc));
+            else list.Sort((a, b) => b.Value.ms.CompareTo(a.Value.ms));
             var sb = new StringBuilder();
             int n = Math.Max(1, _frames);
             sb.AppendLine($"{_frames} frames, PlayerLoop {_loopMs / n:0.00} ms/frame");

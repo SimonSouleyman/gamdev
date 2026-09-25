@@ -63,6 +63,25 @@ namespace Drift.Life
         public float lightningRate = 0.035f;
         public float strikeDuration = 0.3f;
         public float fireDuration = 20f;
+        // Owner 2026-09-25: one strike burns a patch, not the whole island. The old rule (every burning cell lights
+        // each neighbour at 0.1/life-s for its whole ~20 s) set ~90 % of the neighbours alight, far above the
+        // percolation threshold, so one fire ate every connected stand. Now each strike opens a fire patch with a
+        // cell budget (firePatchShare of the land, firePatchCells min..max, ±30 %) and a radius from that budget;
+        // spread fades towards the rim (1 - (d/R)^2, reaching further downwind), is damped by the storm's rain and
+        // stops once the budget is used up. Grass burns fast and short, woods slow and long.
+        [Header("Blitzfeuer")]
+        [Tooltip("Anteil der Landzellen, den ein Blitzeinschlag höchstens abbrennt.")]
+        [Range(0.02f, 0.4f)] public float firePatchShare = 0.1f;
+        [Tooltip("Mindest- und Höchstzahl Zellen pro Blitzfeuer (1 Zelle ≈ 1,4 Fläche).")]
+        public Vector2Int firePatchCells = new Vector2Int(2, 40);
+        [Tooltip("Ausbreitung zur Nachbarzelle pro Lebenssekunde am Einschlag (fällt zum Rand auf 0).")]
+        [Range(0.01f, 0.5f)] public float fireSpreadRate = 0.05f;
+        [Tooltip("Wie stark der Sturmregen die Ausbreitung dämpft (bei voller Sturmstärke).")]
+        [Range(0f, 1f)] public float fireRainDamping = 0.45f;
+        [Tooltip("Wie viel weiter das Feuer mit dem Wind läuft (0 = rund).")]
+        [Range(0f, 1.5f)] public float fireWindStretch = 0.6f;
+        [Tooltip("Gras: Brenndauer (Anteil) und Ausbreitung (Faktor) gegenüber Wald.")]
+        public Vector2 grassFire = new Vector2(0.45f, 1.6f);
         // Tiers by planar camera distance (LifeLod): near < detailDistance ticks at tickInterval and refreshes
         // mesh/tint at meshInterval/tintInterval; mid < simDistance doubles both intervals; far only ticks the
         // succession at farTickFactor times the interval and never touches mesh or tint.
@@ -242,6 +261,21 @@ namespace Drift.Life
 
         Vector2 _strikePos;
         float _strikeT;
+
+        // A strike's fire: origin (grid-local, shifts with ShiftLocal), radius, downwind direction * stretch, cell
+        // budget and cells lit so far. Cells point at their patch through _firePatch (-1 = none: fires that came
+        // from a save or a merge just burn out in place).
+        struct FirePatch
+        {
+            public Vector2 origin, wind;
+            public float radius;
+            public int budget, burned;
+        }
+        const int MaxFirePatches = 16;
+        readonly FirePatch[] _patches = new FirePatch[MaxFirePatches];
+        int _nextPatch;
+        sbyte[] _firePatch;
+        readonly List<int> _spreadTo = new();
 
         GameObject _vegGo;
         MeshFilter _vegFilter;
@@ -448,11 +482,27 @@ namespace Drift.Life
             if (!_hasGrid) return false;
             int idx = CellIndex(localPos);
             if (idx < 0 || !_land[idx] || _fireT[idx] > 0f) return false;
-            Ignite(idx);
+            Ignite(idx, OpenPatch(idx));
             IgnitionCount++;
             _dirty = true;
             return true;
         }
+
+        // A lightning strike on the cell under localPos (tests, debugging): bolt, thunder report and - on
+        // vegetation - a fire patch, exactly like a storm's strike. False off the land.
+        public bool StrikeAt(Vector2 localPos)
+        {
+            if (!_hasGrid) return false;
+            int idx = CellIndex(localPos);
+            if (idx < 0 || !_land[idx]) return false;
+            Strike(idx);
+            return true;
+        }
+
+        // Cells the most recent fire patch may burn at most / has lit so far (0 before the first fire).
+        public int LastFireBudget => _patches[(_nextPatch + MaxFirePatches - 1) % MaxFirePatches].budget;
+        public int LastFireBurned => _patches[(_nextPatch + MaxFirePatches - 1) % MaxFirePatches].burned;
+        public float LastFireRadius => _patches[(_nextPatch + MaxFirePatches - 1) % MaxFirePatches].radius;
 
         // One living plant of the kind picked uniformly (reservoir sampling, no allocation), optionally only
         // within range of `near` (range <= 0 = anywhere). Butterflies choose their flowers with this.
@@ -788,6 +838,8 @@ namespace Drift.Life
         void AllocCells(int n)
         {
             _stage = new float[n]; _burn = new float[n]; _fireT = new float[n];
+            _firePatch = new sbyte[n];
+            for (int i = 0; i < n; i++) _firePatch[i] = -1;
             _fert = new float[n]; _maxStage = new float[n]; _land = new bool[n]; _shore = new bool[n];
             _height = new float[n]; _bloomPhase = new float[n]; _bloomBaked = new float[n]; _burnBaked = new float[n];
             _counts = new int[n * K]; _quota = new int[n * K];
@@ -896,7 +948,7 @@ namespace Drift.Life
                 return;
             }
 
-            var oStage = _stage; var oBurn = _burn; var oFire = _fireT; var oLand = _land;
+            var oStage = _stage; var oBurn = _burn; var oFire = _fireT; var oLand = _land; var oPatch = _firePatch;
             var oBloom = _bloomBaked; var oBurnBaked = _burnBaked; var oBiome = _cellBiome;
             int onx = _nx, onz = _nz; Vector2 oOrigin = _origin;
             bool hadGrid = _hasGrid;
@@ -926,6 +978,7 @@ namespace Drift.Life
                     if (oi >= 0)
                     {
                         _stage[idx] = oStage[oi]; _burn[idx] = oBurn[oi]; _fireT[idx] = oFire[oi];
+                        if (oPatch != null) _firePatch[idx] = oPatch[oi];
                         _bloomBaked[idx] = oBloom[oi]; _burnBaked[idx] = oBurnBaked[oi];
                         _cellBiome[idx] = oBiome != null ? oBiome[oi] : BiomeUnset;
                     }
@@ -1122,6 +1175,8 @@ namespace Drift.Life
                 float realDt = ldt / Mathf.Max(0.01f, timeScale);
                 if (Rand() < lightningRate * storm * (_surface.LandArea / 50f) * realDt) Strike();
             }
+            float spreadDt = ldt * (1f - fireRainDamping * Mathf.Clamp01(storm));
+            _spreadTo.Clear();
 
             for (int j = 0; j < _nz; j++)
                 for (int i = 0; i < _nx; i++)
@@ -1133,9 +1188,9 @@ namespace Drift.Life
                     {
                         _fireT[idx] -= ldt;
                         _burn[idx] = 1f;
-                        TrySpread(i - 1, j, ldt); TrySpread(i + 1, j, ldt);
-                        TrySpread(i, j - 1, ldt); TrySpread(i, j + 1, ldt);
-                        if (_fireT[idx] <= 0f) { _stage[idx] = 0.02f; _burn[idx] = 0.9f; }
+                        int pi = _firePatch[idx];
+                        if (pi >= 0 && _patches[pi].burned < _patches[pi].budget) SpreadFrom(i, j, pi, spreadDt);
+                        if (_fireT[idx] <= 0f) { _stage[idx] = 0.02f; _burn[idx] = 0.9f; _firePatch[idx] = -1; }
                         continue;
                     }
 
@@ -1143,6 +1198,14 @@ namespace Drift.Life
                     _stage[idx] = Mathf.Min(_stage[idx] + grow, _maxStage[idx]);
                     _burn[idx] = Mathf.Max(0f, _burn[idx] - burnFadeRate * ldt);
                 }
+            // Lit after the sweep, so a fresh cell never spreads in the tick that lit it (the old in-sweep ignition
+            // let a fire run several cells towards +x/+z within one tick).
+            for (int s = 0; s < _spreadTo.Count; s++)
+            {
+                int n = _spreadTo[s] / MaxFirePatches, pi = _spreadTo[s] % MaxFirePatches;
+                if (_fireT[n] > 0f || _patches[pi].burned >= _patches[pi].budget) continue;
+                Ignite(n, pi);
+            }
 
             SyncPlants(false, ldt);
             if (_foreignCount > 0 && foreignSpreadInterval > 0f)
@@ -1166,6 +1229,11 @@ namespace Drift.Life
                 if (_land[c]) idx = c;
             }
             if (idx < 0) return;
+            Strike(idx);
+        }
+
+        void Strike(int idx)
+        {
             StrikeCount++;
             _strikePos = CellCenter(idx % _nx, idx / _nx) + new Vector2(Rand(-0.4f, 0.4f), Rand(-0.4f, 0.4f)) * cellSize;
             _strikeT = strikeDuration;
@@ -1174,23 +1242,76 @@ namespace Drift.Life
                 Vector3 w = transform.TransformPoint(_strikePos.x, Mathf.Max(0f, _surface.SampleHeight(_strikePos)), _strikePos.y);
                 LifeEnvironment.ReportLightning(w, 1f);
             }
-            if (_fireT[idx] <= 0f && _stage[idx] > 0.3f) { Ignite(idx); IgnitionCount++; }
+            if (_fireT[idx] <= 0f && _stage[idx] > 0.3f) { Ignite(idx, OpenPatch(idx)); IgnitionCount++; }
             _dirty = true;
             _meshTimer = meshInterval;
         }
 
-        void Ignite(int idx)
+        int OpenPatch(int idx)
         {
-            _fireT[idx] = fireDuration * Rand(0.7f, 1.3f);
-            _burn[idx] = 1f;
+            int pi = _nextPatch;
+            _nextPatch = (_nextPatch + 1) % MaxFirePatches;
+            // A slot is only reused 16 strikes later; whatever of its old fire still burns just burns out in place.
+            for (int c = 0; c < _firePatch.Length; c++) if (_firePatch[c] == pi) _firePatch[c] = -1;
+            int lo = Mathf.Max(1, firePatchCells.x), hi = Mathf.Max(lo, firePatchCells.y);
+            int budget = Mathf.Clamp(Mathf.RoundToInt(firePatchShare * _landCells * Rand(0.7f, 1.3f)), lo, hi);
+            Vector2 w = LifeEnvironment.Wind;
+            Vector3 wl = transform.InverseTransformDirection(new Vector3(w.x, 0f, w.y));
+            Vector2 dir = new Vector2(wl.x, wl.z);
+            float k = fireWindStretch * Mathf.Clamp01(w.magnitude / 1.5f);
+            _patches[pi] = new FirePatch
+            {
+                origin = CellCenter(idx % _nx, idx / _nx),
+                wind = dir.sqrMagnitude > 1e-8f ? dir.normalized * k : Vector2.zero,
+                radius = cellSize * (0.6f + Mathf.Sqrt(1.4f * budget / Mathf.PI)),
+                budget = budget,
+                burned = 0,
+            };
+            return pi;
         }
 
-        void TrySpread(int i, int j, float ldt)
+        // Grass (stage 0.3) burns grassFire.x as long as woods (0.9+) and catches grassFire.y times as fast.
+        float WoodShare(int idx) => Smooth(0.3f, 0.9f, _stage[idx]);
+
+        void Ignite(int idx, int pi)
         {
-            if (i < 0 || j < 0 || i >= _nx || j >= _nz) return;
-            int n = j * _nx + i;
-            if (!_land[n] || _fireT[n] > 0f || _stage[n] <= 0.3f || _burn[n] >= 0.5f) return;
-            if (Rand() < Mathf.Min(0.9f, 0.10f * ldt)) Ignite(n);
+            _fireT[idx] = fireDuration * Mathf.Lerp(grassFire.x, 1.1f, WoodShare(idx)) * Rand(0.8f, 1.2f);
+            _burn[idx] = 1f;
+            _firePatch[idx] = (sbyte)pi;
+            if (pi >= 0) _patches[pi].burned++;
+        }
+
+        // 1 at the strike, falling to 0 at the patch rim; downwind the rim lies (1 + stretch) times further out.
+        float PatchReach(in FirePatch p, Vector2 pos)
+        {
+            Vector2 o = pos - p.origin;
+            float k = p.wind.magnitude;
+            if (k > 1e-4f)
+            {
+                Vector2 dir = p.wind / k;
+                float a = Vector2.Dot(o, dir);
+                o += dir * ((a > 0f ? a / (1f + k) : a * (1f + k)) - a);
+            }
+            float q = o.sqrMagnitude / Mathf.Max(1e-4f, p.radius * p.radius);
+            return q >= 1f ? 0f : 1f - q;
+        }
+
+        void SpreadFrom(int i, int j, int pi, float dt)
+        {
+            if (!(dt > 0f)) return;
+            for (int dj = -1; dj <= 1; dj++)
+                for (int di = -1; di <= 1; di++)
+                {
+                    if (di == 0 && dj == 0) continue;
+                    int ni = i + di, nj = j + dj;
+                    if (ni < 0 || nj < 0 || ni >= _nx || nj >= _nz) continue;
+                    int n = nj * _nx + ni;
+                    if (!_land[n] || _fireT[n] > 0f || _stage[n] <= 0.3f || _burn[n] >= 0.5f) continue;
+                    float reach = PatchReach(_patches[pi], CellCenter(ni, nj));
+                    if (reach <= 0f) continue;
+                    float rate = fireSpreadRate * reach * Mathf.Lerp(grassFire.y, 1f, WoodShare(n)) * (di != 0 && dj != 0 ? 0.5f : 1f);
+                    if (Rand() < 1f - Mathf.Exp(-rate * dt)) _spreadTo.Add(n * MaxFirePatches + pi);
+                }
         }
 
         static readonly int[] Desired = new int[K];
@@ -1279,7 +1400,7 @@ namespace Drift.Life
                 {
                     pl.dying = true;
                     pl.burnT = 1f;
-                    pl.fadeRate = 1.6f;
+                    pl.fadeRate = 0.7f;
                     _counts[q]--;
                     changed = true;
                 }
@@ -1789,6 +1910,7 @@ namespace Drift.Life
         {
             _origin += delta;
             _strikePos += delta;
+            for (int i = 0; i < MaxFirePatches; i++) _patches[i].origin += delta;
             foreach (var p in _plants) p.pos += delta;
             var critters = GetComponent<IslandCrittersSystem>();
             if (critters != null) critters.ShiftLocal(delta);

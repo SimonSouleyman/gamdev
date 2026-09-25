@@ -70,6 +70,8 @@ namespace Drift.Islands
         [Range(0f, 0.3f)] public float flapAmplitude = 0.13f;
         [Tooltip("Von hier aus wird der Abstand für die nahen Vögel gemessen; leer = die Hauptkamera.")]
         public Transform viewer;
+        [Tooltip("Weiter entfernte Schwärme gleiten zwischen zwei Neuberechnungen weich weiter (Grafikkarte), statt 15-mal pro Sekunde zu springen, und schlagen im eigenen Takt mit den Flügeln. Aus = alter Stufengang.")]
+        public bool smoothFarFlocks = true;
 
         [Header("Meilenstein: Seevögel über deinen Bergen")]
         [Tooltip("So viele Seevogelschwärme bleiben bei der Heimatinsel und kreisen über ihrem höchsten Punkt. Setzt der Meilenstein bei 10 Inseln; 0 = aus.")]
@@ -87,6 +89,8 @@ namespace Drift.Islands
             // Plunge-dive: seconds since it started (0 = not diving) and the spot in the target island's frame.
             public float dive;
             public Vector2 diveLocal;
+            // Far mesh: the slide the motion channel shows between two 15 Hz bakes (CloseUpMotion).
+            public MotionTrack track;
         }
 
         class Flock
@@ -96,6 +100,8 @@ namespace Drift.Islands
             public FlockState state;
             public Island target;
             public Vector2 perchLocal;
+            // Perched: heading relative to the island's body, so the sitting flock turns with an island that turns.
+            public float perchYaw;
             public bool seabird;
             // orbitR: last orbit radius; form: 0..1 blend from the loose pulk into the seabird chain or the murmur
             // figure; murmurT: time in the murmur; diveWait: "per-minute" units to the next dive; murmured: this
@@ -271,6 +277,18 @@ namespace Drift.Islands
             return pos;
         }
         public float HeightOf(int index) => _flocks[index].height;
+
+        // The flock's steering point, y = its height; a landed flock's spot on its island as the island is now.
+        public Vector3 AnchorOf(int index)
+        {
+            var f = _flocks[index];
+            if (f.state == FlockState.Perched && f.target != null)
+            {
+                Vector2 w = f.target.ToWorld(f.perchLocal);
+                return new Vector3(w.x, GroundY(f.target, f.perchLocal), w.y);
+            }
+            return new Vector3(f.pos.x, f.height, f.pos.y);
+        }
         public Vector2 PositionOf(int index) => _flocks[index].pos;
         public Island TargetOf(int index) => _flocks[index].target;
 
@@ -545,6 +563,7 @@ namespace Drift.Islands
             if (player == null) return;
             if (!_init) Init();
             _clock += dt;
+            CloseUpMotion.Tick();
             var storms = StormSystem.Instance;
 
             foreach (var f in _flocks)
@@ -628,6 +647,7 @@ namespace Drift.Islands
                                 f.perchTime = Rand(perchMin, perchMax);
                                 f.pos = spot;
                                 f.vel = Vector2.zero;
+                                f.perchYaw = Mathf.DeltaAngle(BodyYawOf(f.target), f.yaw);
                             }
                             break;
                         }
@@ -637,6 +657,7 @@ namespace Drift.Islands
                             desired = spot;
                             targetHeight = GroundY(f.target, f.perchLocal);
                             grounded = true;
+                            f.yaw = BodyYawOf(f.target) + f.perchYaw;
                             f.perchTime -= dt;
                             if (f.perchTime <= 0f || f.target.SampleHeight(f.perchLocal) < 0.1f) f.state = FlockState.TakeOff;
                             break;
@@ -689,9 +710,11 @@ namespace Drift.Islands
             float nearest = float.MaxValue;
             foreach (var f in _flocks) if (!f.near) nearest = Mathf.Min(nearest, LifeLod.Distance(new Vector3(f.pos.x, 0f, f.pos.y)));
             _meshTimer += dt;
-            if (moved || _meshTimer >= (nearest < nearDistance ? meshInterval : farMeshInterval))
+            float interval = nearest < nearDistance ? meshInterval : farMeshInterval;
+            if (moved || _meshTimer >= interval)
             {
                 _meshTimer = 0f;
+                _farInterval = interval;
                 RebuildMesh(false);
             }
             _nearDirty = _nearCount > 0 || moved;
@@ -764,20 +787,23 @@ namespace Drift.Islands
             float cs = Mathf.Cos(yawRad), sn = Mathf.Sin(yawRad);
             bool perched = f.state == FlockState.Perched && f.target != null;
             Vector2 o = b.offset * (perched ? 0.6f : 1f);
-            Vector2 world = f.pos + new Vector2(o.x * cs + o.y * sn, -o.x * sn + o.y * cs);
-            float y = f.height;
             yaw = f.yaw;
             roll = f.roll;
             pitch = 0f;
             hidden = false;
             if (perched)
             {
-                y = GroundY(f.target, f.target.ToLocal(world));
-                yaw += b.phase * 20f;
+                // Sitting on the island's ground in its own frame: the flock rides a drifting, turning or leaning
+                // island exactly (world-space offsets slid across the ground while the island's body turned).
+                float pr = f.perchYaw * Mathf.Deg2Rad, pc = Mathf.Cos(pr), ps = Mathf.Sin(pr);
+                Vector2 local = f.perchLocal + new Vector2(o.x * pc + o.y * ps, -o.x * ps + o.y * pc);
+                pos = f.target.transform.TransformPoint(new Vector3(local.x, f.target.SampleHeight(local) + 0.02f, local.y));
+                yaw = BodyYawOf(f.target) + f.perchYaw + b.phase * 20f;
                 roll = 0f;
-                pos = new Vector3(world.x, y + 0.02f, world.y);
                 return;
             }
+            Vector2 world = f.pos + new Vector2(o.x * cs + o.y * sn, -o.x * sn + o.y * cs);
+            float y = f.height;
             if (f.seabird)
             {
                 world += new Vector2(Mathf.Sin(_clock * 0.5f + b.phase), Mathf.Cos(_clock * 0.4f + b.phase)) * 0.3f;
@@ -942,6 +968,45 @@ namespace Drift.Islands
             return go;
         }
 
+        static float BodyYawOf(Island island)
+        {
+            Vector3 f = island.BodyForward;
+            return Mathf.Atan2(f.x, f.z) * Mathf.Rad2Deg;
+        }
+
+        // Where a flock is drawn: the middle of its visible birds (formation, dive and perch included) and how far the
+        // farthest of them is from it. False when no bird is visible (all under water).
+        public bool TryGetView(int index, out Vector3 center, out float spread)
+        {
+            center = default;
+            spread = 0f;
+            if (index < 0 || index >= _flocks.Count) return false;
+            var f = _flocks[index];
+            int n = 0;
+            Vector3 sum = Vector3.zero;
+            for (int i = 0; i < f.birds.Count; i++)
+            {
+                BirdPose(f, f.birds[i], i, out var p, out _, out _, out _, out bool hidden);
+                if (hidden) continue;
+                sum += p;
+                n++;
+            }
+            if (n == 0) return false;
+            center = sum / n;
+            for (int i = 0; i < f.birds.Count; i++)
+            {
+                BirdPose(f, f.birds[i], i, out var p, out _, out _, out _, out bool hidden);
+                if (!hidden) spread = Mathf.Max(spread, (p - center).magnitude);
+            }
+            return true;
+        }
+
+        // Interval of the far mesh's last timed bake; the slide lasts a little longer so a bird never waits for the next.
+        float _farInterval = 1f / 15f;
+        const float SlideStretch = 1.25f;
+        // A bird that moved farther than this between two bakes (a re-spawn, a flock leaving the near mesh) jumps.
+        const float SlideSnap = 3f;
+
         // nearSet: the flocks close to the camera (every frame, flap baked in), else all the others.
         void RebuildMesh(bool nearSet)
         {
@@ -950,6 +1015,15 @@ namespace Drift.Islands
             if (nearSet) NearMeshBuilds++;
             else MeshBuilds++;
             batch.Begin();
+            bool slide = !nearSet && smoothFarFlocks && Application.isPlaying;
+            float slideSeconds = Mathf.Max(1f / 60f, _farInterval * SlideStretch);
+            double now = Time.timeAsDouble;
+            float code = 0f;
+            if (slide)
+            {
+                batch.UseMotion();
+                code = CloseUpMotion.Encode(slideSeconds);
+            }
             foreach (var f in _flocks)
             {
                 if (f.near != nearSet) continue;
@@ -969,7 +1043,13 @@ namespace Drift.Islands
                             batch.Add(Splash, new Vector3(spot.x, f.target.transform.position.y + 0.03f, spot.y), b.phase * 40f, r);
                         }
                     }
-                    if (hidden) continue;
+                    if (hidden || nearSet)
+                    {
+                        // The far mesh's slide must not start from where this bird was before it left that mesh.
+                        b.track.valid = false;
+                        f.birds[i] = b;
+                        if (hidden) continue;
+                    }
                     // Sitting birds and gliders get no wing alpha, so the shader does not flap them.
                     bool flaps = !perched && !f.seabird;
                     if (flaps && nearSet)
@@ -979,7 +1059,16 @@ namespace Drift.Islands
                         continue;
                     }
                     var kind = f.seabird ? LifeKind.Seabird : LifeKind.Bird;
-                    batch.Add(Markings.BirdTemplate(kind, b.variant), pos, yaw, b.scale, roll, pitch, flaps);
+                    var tpl = Markings.BirdTemplate(kind, b.variant);
+                    batch.Add(tpl, pos, yaw, b.scale, roll, pitch, flaps);
+                    if (nearSet) continue;
+                    // The shader beat's phase is the bird's own, not its world position (that made the beat jump with
+                    // every rebuild and run faster or slower with the heading).
+                    if (flaps) batch.SetPhase(tpl, b.phase);
+                    if (!slide) b.track.valid = false;
+                    else if (b.track.Next(new BakeTransform(pos, yaw, b.scale, roll, pitch), now, slideSeconds, SlideSnap, out var start))
+                        batch.SetMotion(tpl, start.pos, start.yaw, start.scale, start.roll, start.pitch, code);
+                    f.birds[i] = b;
                 }
             }
             batch.Apply(nearSet ? _nearMesh : _mesh);

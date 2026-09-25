@@ -217,6 +217,59 @@ namespace Drift.Core
 
         public static float Luminance(Color c) => c.r * 0.3f + c.g * 0.59f + c.b * 0.11f;
 
+        // Compass yaw in degrees (0 = +z, 90 = +x) of a direction, and back from yaw + elevation (radians).
+        public static float YawOf(Vector3 dir) => Mathf.Atan2(dir.x, dir.z) * Mathf.Rad2Deg;
+
+        public static Vector3 FromYawElevation(float yawDeg, float elevationRad)
+        {
+            float y = yawDeg * Mathf.Deg2Rad, c = Mathf.Cos(elevationRad);
+            return new Vector3(Mathf.Sin(y) * c, Mathf.Sin(elevationRad), Mathf.Cos(y) * c);
+        }
+
+        // The moon keeps the elevation of its orbit (it rises and sets on its own arc) but stands at `yawDeg`: the
+        // chase camera turns with the island's course, and a moon on a fixed compass bearing was behind it most nights.
+        public static Vector3 MoonAt(Vector3 orbitDir, float yawDeg)
+        {
+            return FromYawElevation(yawDeg, Mathf.Asin(Mathf.Clamp(orbitDir.y, -1f, 1f)));
+        }
+
+        // The same bearing, at most maxElevationDeg up (a moon above the top of the view is lowered into it).
+        public static Vector3 CapElevation(Vector3 dir, float maxElevationDeg)
+        {
+            float el = Mathf.Asin(Mathf.Clamp(dir.y, -1f, 1f));
+            float max = maxElevationDeg * Mathf.Deg2Rad;
+            return el <= max ? dir : FromYawElevation(YawOf(dir), max);
+        }
+
+        // The moonlight as a key light: the moon's bearing turned by yawOffsetDeg, never lower than minElevationDeg (a
+        // low moon grazes flat ground: sin 14 degrees lit it at a quarter) - the island reads best lit from above.
+        public static Vector3 MoonKeyLight(Vector3 moonDir, float minElevationDeg, float yawOffsetDeg)
+        {
+            float el = Mathf.Max(Mathf.Asin(Mathf.Clamp(moonDir.y, -1f, 1f)), minElevationDeg * Mathf.Deg2Rad);
+            return FromYawElevation(YawOf(moonDir) + yawOffsetDeg, el);
+        }
+
+        // The flat ambient at night: per channel raised to at least `floor`, as far as it is night. Alpha stays.
+        public static Color LiftAmbient(Color ambient, Color floor, float night)
+        {
+            night = Mathf.Clamp01(night);
+            return new Color(
+                Mathf.Lerp(ambient.r, Mathf.Max(ambient.r, floor.r), night),
+                Mathf.Lerp(ambient.g, Mathf.Max(ambient.g, floor.g), night),
+                Mathf.Lerp(ambient.b, Mathf.Max(ambient.b, floor.b), night), ambient.a);
+        }
+
+        // The moon's phase moves on by `step` inside [min, max] only (a thin crescent gives no moonlight): past max it
+        // waits until the moon is down and then starts over at min, so nobody sees the terminator jump.
+        public static float AdvanceMoonPhase(float phase, float step, float min, float max, bool moonDown)
+        {
+            if (max <= min) return Mathf.Repeat(phase + step, 1f);
+            if (phase < min || phase > max + 1e-4f) return moonDown ? min : Mathf.Clamp(phase, min, max);
+            float next = phase + step;
+            if (next <= max) return next;
+            return moonDown ? min : max;
+        }
+
         // Greys a colour and darkens it by the tint; what is dark already (the night sky) is darkened less, so a
         // night storm stays a readable indigo instead of going black.
         static Color Storm(Color c, float storm, float desaturate, Color tint)

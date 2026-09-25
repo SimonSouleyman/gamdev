@@ -18,6 +18,8 @@ Shader "Drift/Water"
         _StormWaveBoost ("Storm Wave Boost", Range(0,3)) = 1.1
         _Specular ("Specular", Range(0,2)) = 0.9
         _SpecPower ("Specular Power", Range(2,200)) = 32
+        _MoonReflectSize ("Moon Reflection Size", Range(0.5,4)) = 1.8
+        _MoonGlitter ("Moon Glitter", Range(0,4)) = 0.9
         _Fresnel ("Fresnel Sky Tint", Range(0,1)) = 0.35
         _Sparkle ("Shallow Sparkle", Range(0,1)) = 0.22
         _Caustic ("Shallow Caustics", Range(0,1)) = 0.22
@@ -56,6 +58,7 @@ Shader "Drift/Water"
                 float _DepthRange, _ShallowWidth, _FoamWidth, _WaveScale, _WaveSpeed, _WaveNormalScale;
                 float _DetailScale, _DetailStrength, _StormWaveBoost;
                 float _Specular, _SpecPower, _Fresnel, _Sparkle, _Caustic, _MinAlpha;
+                float _MoonReflectSize, _MoonGlitter;
             CBUFFER_END
 
             // Per-frame feedback uniforms, pushed by Drift.Visuals.WaterFeedback through a
@@ -98,6 +101,13 @@ Shader "Drift/Water"
             float  _DriftStormCount;
             float4 _WindDir;        // xy = normalized wind (current + global wind), z = wind speed
             float4 _SplashPos;      // xy = fish splash centre, z = age, w = strength
+            // The sky's moon (Drift.Visuals.CurvedWorld, per camera; see DriftSky.hlsl): xyz = where it is drawn,
+            // w = 1 / disc radius (chord); colour a = visibility; stars x = how dark the sky is (0 by day); star
+            // params y = halo strength x lit share of the disc.
+            float4 _SkyMoonDir;
+            float4 _SkyMoonColor;
+            float4 _SkyStars;
+            float4 _SkyStarParams;
             // The player island's real coastline (Drift.Visuals.CoastField): a small signed-distance field in
             // the island's BODY space. r = distance to the waterline in world units (negative on land),
             // gb = outward normal there. Everything the water draws around the player reads this - a bounding
@@ -509,12 +519,54 @@ Shader "Drift/Water"
                 float nh = saturate(dot(nSpec, H));
                 float spec = pow(nh, _SpecPower) * _Specular * 0.55 + pow(nh, 12.0) * 0.03 * _Specular;
                 spec *= saturate(l.direction.y * 4.0) * (1.0 - 0.5 * storm) * farLod * farLod;
+                // At night the main light is the moonlight key, lit from high up for the island: its glints would
+                // cover the sea in daylight-white blotches. The moon's own glitter path below takes over.
+                spec *= 1.0 - 0.9 * saturate(_SkyStars.x * 1.5);
                 // Sky reflection from a calmed normal: with the full wave normal every crest facing away from the camera
                 // turned into a long white streak across the sea, which read as stripy clouds.
                 float3 nSky = normalize(float3(-g.x * 0.25, 1.0, -g.y * 0.25));
                 float fres = pow(1.0 - saturate(dot(nSky, V)), 4.0);
                 col = lerp(col, (half3)_SkyColor.rgb, (half)(fres * _Fresnel));
                 col += (half3)(l.color * spec);
+
+                // The moon in the water, night only (the chase camera looks down past the limb, so this is where the
+                // player sees it): its mirror image on a half-calmed normal (the waves break it into a wobbling disc),
+                // a faint sheen round it, and a glitter path from it towards the camera - a narrow band on the moon's
+                // bearing, pushed sideways by the waves' slope and broken into sparkles by two noise lookups. (A pow()
+                // glint on the wave normal instead drew the waves' sine lattice over half the sea.) Nothing while the
+                // sky is light or the moon is down, and not on the adventure ring: this is a flat-sea mirror (positionWS is
+                // unbent), which the ring's band, curving up ahead, turned into a grey cross.
+                float moonVis = _SkyStars.x * _SkyMoonColor.a * saturate(_SkyMoonDir.y * 10.0) * (1.0 - 0.8 * storm)
+                              * (_CurveRing.x > 0.0 ? 0.0 : 1.0);
+                [branch] if (moonVis > 0.01)
+                {
+                    float3 nMoon = normalize(float3(-g.x * 0.2, 1.0, -g.y * 0.2));
+                    float3 R = reflect(-V, nMoon);
+                    float3 dm = R - _SkyMoonDir.xyz;
+                    float mr2 = 1.0 / (_SkyMoonDir.w * _SkyMoonDir.w);
+                    float md2 = dot(dm, dm) / (mr2 * _MoonReflectSize * _MoonReflectSize);
+                    float mdisc = saturate(1.6 - md2 * 1.6);
+                    float mglow = 1.0 / (1.0 + md2 * 0.35);
+
+                    float2 rh = normalize(-V.xz + 1e-5);
+                    float2 mh = normalize(_SkyMoonDir.xz + 1e-5);
+                    float2 side = float2(mh.y, -mh.x);
+                    float across = dot(rh, side) + dot(g, side) * 0.12;
+                    float nearer = V.y - _SkyMoonDir.y;
+                    float width = 0.035 + 0.05 * saturate(nearer * 3.0);
+                    float band = saturate(1.0 - (across * across) / (width * width)) * step(0.0, dot(rh, mh));
+                    band *= saturate(nearer * 12.0 + 0.6) * saturate(1.0 - nearer * 2.2);
+                    float glit = 0.0;
+                    [branch] if (band > 0.001)
+                    {
+                        float sp = DriftNoise(wp * 6.2 + float2(0.0, t * 1.7)) * 0.55 + DriftNoise(wp * 13.1 - t * 1.3) * 0.45;
+                        glit = band * (0.08 + smoothstep(0.58, 0.8, sp) * 1.2) * _MoonGlitter;
+                    }
+                    float lit = 0.35 + 0.65 * saturate(_SkyStarParams.y);
+                    // The mirror disc only near the path: with the waves it would scatter as white blobs over the sea.
+                    float nearPath = saturate(1.0 - (across * across) / (width * width * 4.0));
+                    col += (half3)(_SkyMoonColor.rgb * (moonVis * lit * ((mdisc * mdisc * 0.85 + mglow * 0.05) * nearPath + glit)));
+                }
 
                 // Shore foam that surges and breaks up over time instead of a fixed rim (depth only: the analytic circle
                 // drew a white disc around every elongated island). Both terms are 0 past 3.2 foam widths of water.

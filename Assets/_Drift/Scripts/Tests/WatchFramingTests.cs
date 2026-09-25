@@ -243,5 +243,41 @@ namespace Drift.Tests
             for (int i = 0; i < 240; i++) frames.Add(FlockSystem.FlapFrameAt(0.7f, i / 600f, 2.5f));
             Assert.AreEqual(24, frames.Count);
         }
+
+        // ------------------------------------------------------------ a flock in the air (2026-09-25)
+
+        [Test]
+        public void AirFraming_PitchFollowsTheHeightAndDistanceTheSpread()
+        {
+            Assert.AreEqual(50f, WatchFraming.AirPitch(0f, 50f, 30f, 4f), 1e-4f, "landed: from above");
+            Assert.AreEqual(30f, WatchFraming.AirPitch(9f, 50f, 30f, 4f), 1e-4f, "high up: from the side");
+            float prev = 90f;
+            for (float h = 0f; h <= 5f; h += 0.25f)
+            {
+                float p = WatchFraming.AirPitch(h, 50f, 30f, 4f);
+                Assert.LessOrEqual(p, prev + 1e-4f, "flatter the higher the birds fly");
+                prev = p;
+            }
+            float tight = WatchFraming.AirDistance(0.5f, 60f, 9f / 16f, 0.6f, 4f);
+            float wide = WatchFraming.AirDistance(4f, 60f, 9f / 16f, 0.6f, 4f);
+            Assert.AreEqual(4f, tight, 1e-4f, "never closer than the minimum");
+            Assert.Greater(wide, 10f, "a spread-out flock is framed from farther away");
+            Assert.AreEqual(4f / (0.6f * WatchFraming.ShortHalfTan(60f, 9f / 16f)), wide, 1e-3f);
+        }
+
+        [Test]
+        public void ShiftFraming_KeepsThePlayersOwnZoomAndTilt()
+        {
+            var rig = new PhotoRig { minDistance = 1f, maxDistance = 100f };
+            rig.SetHome(0f, 40f, 10f);
+            rig.GoHome();
+            rig.Zoom(0.5f);            // the player zoomed in to half
+            rig.Orbit(0f, 50f);        // and tilted 10 degrees steeper
+            rig.ShiftFraming(2f, -5f); // the flock spread to twice its size and climbed
+            Assert.AreEqual(10f, rig.distanceTarget, 1e-4f, "half of the new automatic distance");
+            Assert.AreEqual(45f, rig.pitchTarget, 1e-4f, "10 degrees above the new automatic pitch");
+            Assert.AreEqual(20f, rig.homeDistance, 1e-4f, "R returns to the new automatic framing");
+            Assert.AreEqual(35f, rig.homePitch, 1e-4f);
+        }
     }
 }

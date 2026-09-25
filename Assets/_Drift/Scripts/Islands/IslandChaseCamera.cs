@@ -78,6 +78,20 @@ namespace Drift.Islands
         [Tooltip("Abenteuer, Wal-Schub (die Insel fährt durch Inseln): so viele Einheiten steigt die Kamera, damit man von oben sieht, wie die Insel hindurchgleitet, statt dass ein Berg das Bild füllt.")]
         [Range(0f, 12f)] public float ringGhostLift = 5f;
 
+        [Header("Blick nach vorn (Abenteuer)")]
+        [Tooltip("Abenteuer: die Kamera steht um so viele Grad höher über der Insel (gleicher Abstand) - die Strecke vorne liegt flacher ausgebreitet im Bild. Beim Wal-Ritt (die Kamera steigt dort ohnehin) fällt es weg. 0 = wie bis v0.6.5.")]
+        [Range(0f, 10f)] public float ringRaiseDeg = 4f;
+        [Tooltip("Abenteuer: um so viele Grad schaut die Kamera weiter nach vorn hoch - die Insel rutscht im Bild nach unten, vorne ist mehr Strecke zu sehen. 0 = wie bis v0.6.5.")]
+        [Range(0f, 10f)] public float ringLookUpDeg = 4f;
+        [Tooltip("Abenteuer: beim Wal-Ritt und bei vollem Schwung schaut sie um so viele Grad zusätzlich nach vorn (zusammen nie mehr als 10°) - dort kommt die Strecke am schnellsten.")]
+        [Range(0f, 10f)] public float ringFastLookUpDeg = 6f;
+
+        [Header("Start im Abenteuer")]
+        [Tooltip("Vor dem Start (Durchatmen, Tildas Einweisung) steht die Kamera so viel weiter weg (Faktor auf den Abstand) und gleitet dann auf den Rennabstand heran.")]
+        [Range(1f, 3f)] public float ringIntroDistance = 1.7f;
+        [Tooltip("Vor dem Start steht die Kamera um so viele Grad höher über der Insel.")]
+        [Range(0f, 40f)] public float ringIntroRaiseDeg = 12f;
+
         [Header("Schub")]
         [Tooltip("So viele Grad weiter wird der Blickwinkel, solange ein voller Schub läuft (klingt mit dem Schub aus).")]
         [Range(0f, 10f)] public float boostFovGain = 4f;
@@ -150,6 +164,7 @@ namespace Drift.Islands
         float _viewYaw, _steerYaw;
         float _boostFeel, _boostKick, _lastBoostLeft, _lastBoostFactor = 1f, _dodgeKick, _dodgeSide, _momentumFeel, _ghostFeel;
         float _idleSeconds, _lifeZoom = 1f;
+        float _lookUp;
 
         public float Zoom => _zoom;
         // True while the view does not turn with the island's body: the island never turns under the direct
@@ -592,6 +607,19 @@ namespace Drift.Islands
                 return;
             }
 
+            // The start intro glides on its own ease-in-out curve (the island is held still): followed exactly, so the
+            // smoothing lag neither flattens the glide nor leaves a tail when the race starts.
+            if (RingWorld.Active != null && _followPos == null && RingWorld.IntroPull > 0f)
+            {
+                _pose = desiredPos;
+                transform.SetPositionAndRotation(desiredPos, desiredRot);
+                _lastFocus = focus;
+                _hasLastFocus = true;
+                ApplyNearClip(CloseBlend(_zoom));
+                ReportView();
+                return;
+            }
+
             // Close up the follow lag (speed / followLerp, over a unit at full speed) is larger than the
             // camera distance, so the camera is carried along with the focus and only the offset is smoothed.
             float close = CloseBlend(_zoom);
@@ -701,6 +729,15 @@ namespace Drift.Islands
                 float lift = Mathf.SmoothStep(0f, 1f, _ghostFeel);
                 high += ringGhostLift * lift;
                 dist *= 1f + 0.12f * lift;
+                // Looking ahead (owner, 2026-09-25: "ein bisschen zu weit unten ... insbesondere wenn man den Wal
+                // eingesammelt hat ... nicht mehr als 10°"): the camera orbits a little higher over the island (not in
+                // the ghost ride, which already lifts it) and the view tilts up further ahead - most in the whale's ride
+                // and at full momentum, where the lag and the lift had it looking down with the island mid-screen.
+                float raise = ringRaiseDeg * (1f - lift);
+                _lookUp = RingLookUpDeg(Mathf.Max(lift, _momentumFeel));
+                // The start intro: further back and higher, gliding in (RingWorld.IntroPull eases to 0 as the race starts).
+                float intro = Mathf.Clamp01(RingWorld.IntroPull);
+                RaiseOrbit(ref dist, ref high, raise + ringIntroRaiseDeg * intro, Mathf.Lerp(1f, ringIntroDistance, intro));
             }
             else
             {
@@ -729,7 +766,10 @@ namespace Drift.Islands
             }
             // On the adventure ring the view tilts up so the band climbing into the sky ahead is in the picture
             // (portrait phones otherwise see only sea). Part of the pose, so tap picking and labels stay right.
-            if (_followPos == null && RingWorld.Active != null) rot *= Quaternion.Euler(-ringPitchUp * (1f - close), 0f, 0f);
+            // In the start intro's wide framing the view looks straight at the island (it would sit under Tilda's
+            // briefing bubble otherwise) and tilts up into the race view as it glides in.
+            if (_followPos == null && RingWorld.Active != null)
+                rot *= Quaternion.Euler(-(ringPitchUp + _lookUp) * (1f - close) * (1f - Mathf.Clamp01(RingWorld.IntroPull)), 0f, 0f);
 
             // Lean into the turn. Last, because the clamps above rebuild the rotation from scratch.
             if (speedFeelEnabled && turnRoll > 0f && _followPos == null)
@@ -737,6 +777,23 @@ namespace Drift.Islands
                 float roll = SpeedFeel.Bank(_turnRateDeg, Mathf.Max(1f, target.turnRateDegPerSec), _framing, turnRoll) * (1f - close);
                 if (Mathf.Abs(roll) > 0.01f) rot *= Quaternion.Euler(0f, 0f, roll);
             }
+        }
+
+        public const float MaxRingLookUpDeg = 10f;
+
+        // How many degrees further up the ring view looks than its v0.6.5 framing: ringLookUpDeg, plus ringFastLookUpDeg
+        // in the whale's ride / at full momentum (fast 0..1), never more than MaxRingLookUpDeg.
+        public float RingLookUpDeg(float fast) =>
+            Mathf.Clamp(ringLookUpDeg + ringFastLookUpDeg * Mathf.Clamp01(fast), 0f, MaxRingLookUpDeg);
+
+        // Orbits a behind/above offset up about the focus by raiseDeg and scales its length: the island keeps its
+        // size on screen while the view looks down on the track more steeply.
+        public static void RaiseOrbit(ref float back, ref float up, float raiseDeg, float distanceScale)
+        {
+            float reach = Mathf.Sqrt(back * back + up * up) * Mathf.Max(0.01f, distanceScale);
+            float ang = Mathf.Min(Mathf.Atan2(up, back) + raiseDeg * Mathf.Deg2Rad, 80f * Mathf.Deg2Rad);
+            back = reach * Mathf.Cos(ang);
+            up = reach * Mathf.Sin(ang);
         }
 
         // The lowest camera height at pos that clears ground's terrain (float.MinValue over open water).

@@ -44,6 +44,8 @@ namespace Drift.Life
         public float hideDistance = 260f;
         public float detailDistance = 45f;
         public float meshInterval = 1f / 12f;
+        [Tooltip("Aus der Nähe wird das Krabbeltier-Netz öfter neu gebaut (bis jedes Bild), damit eine laufende Krabbe oder ein Schmetterling nie mehr als ein halbes Pixel springt. So schnell (u/s) bewegen sich die flinksten.")]
+        public float closeUpSpeed = 0.6f;
         public float midStepInterval = 0.2f;
 
         // Crabs live on the shore band and scuttle sideways along it; one per crabShoreSpacing units of the
@@ -82,9 +84,11 @@ namespace Drift.Life
         public float butterflyHeight = 0.12f;
         public float butterflyScale = 0.07f;
         public float dayThreshold = 0.5f;
-        public int maxFireflies = 48;
-        public int minFireflies = 12;
-        public float areaPerFirefly = 2.5f;
+        // Owner 2026-09-25: "die sollten zahlreich auf der Insel sein" - fireflies are an ambient night feature of every
+        // run (not part of SpeciesPool). The cap keeps a near island's wanderers and a baked swarm cheap on a phone.
+        public int maxFireflies = 110;
+        public int minFireflies = 24;
+        public float areaPerFirefly = 1f;
         public float fireflySpeed = 0.25f;
         public float fireflyRange = 1.5f;
         public float fireflyHeight = 0.35f;
@@ -96,11 +100,11 @@ namespace Drift.Life
         public float fireflyDusk = 0.35f;
         // Share of the swarm a full storm over the island sends into hiding.
         public float fireflyStormCut = 0.7f;
-        public int farFireflies = 8;
+        public int farFireflies = 20;
         // Halo radius up close (world units) and the smallest radius on screen (tan of the half angle): from the
         // chase camera a firefly would be far below a pixel, the minimum keeps it a small soft dot.
-        public float fireflyHalo = 0.11f;
-        public float fireflyMinAngle = 0.0065f;
+        public float fireflyHalo = 0.14f;
+        public float fireflyMinAngle = 0.011f;
         public float fireflyDrift = 0.45f;
         public float fireflyClusterRadius = 1.7f;
         public Color fireflyColor = new Color(0.85f, 1.3f, 0.4f, 1f);
@@ -660,6 +664,8 @@ namespace Drift.Life
 
         // ---------------------------------------------------------------- stepping
 
+        float _closeInterval = 1f / 12f;
+
         public void Step(float dt)
         {
             if (_surface == null) _surface = GetComponent<IIslandSurface>();
@@ -685,7 +691,12 @@ namespace Drift.Life
             }
 
             _meshTimer += dt;
+            // Close to the camera a 12 Hz mesh stepped a walking crab by many pixels: the near tier rebuilds as often
+            // as the pixel budget asks for (CloseUpMotion), up to every frame.
             float interval = meshInterval;
+            _closeInterval = Tier == LifeTier.Near && _surface != null
+                ? CloseUpMotion.Interval(Mathf.Max(0.3f, LifeEnvironment.ViewDistance(transform.position) - _surface.BoundingRadius), closeUpSpeed, meshInterval)
+                : meshInterval;
             if (Tier == LifeTier.Far)
             {
                 for (int i = _critters.Count - 1; i >= 0; i--)
@@ -708,6 +719,7 @@ namespace Drift.Life
             }
             else
             {
+                interval = _closeInterval;
                 _stepTimer = 0f;
                 StepResidents(dt);
                 StepTransients(dt);
@@ -763,7 +775,7 @@ namespace Drift.Life
                 SyncFireflies();
                 _fromStatic = false;
                 bool stale = _glowTier != (int)LifeTier.Near || _glowVersion != _homeVersion;
-                if (stale || (_glowDirty && _glowTimer >= meshInterval)) RebuildGlow();
+                if (stale || (_glowDirty && _glowTimer >= _closeInterval)) RebuildGlow();
             }
             else
             {

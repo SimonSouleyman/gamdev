@@ -129,7 +129,8 @@ namespace Drift.Tests
             Assert.Greater(common, 0.6f, "a common species is in most runs");
             Assert.That(occasional, Is.InRange(0.15f, 0.4f), "an occasional one in some");
             Assert.Less(rare, 0.1f, "a rare one only now and then");
-            Assert.Greater(fresh[(int)LifeKind.Crab], fresh[(int)LifeKind.Firefly] * 4, "crabs are common, fireflies rare");
+            Assert.Greater(fresh[(int)LifeKind.Crab], fresh[(int)LifeKind.Turtle], "crabs are common, turtles occasional");
+            Assert.AreEqual(0, fresh[(int)LifeKind.Firefly] + nearlyDone[(int)LifeKind.Firefly], "fireflies are never drawn: they come every run");
             Assert.Greater(nearlyDone[(int)LifeKind.Giraffe], fresh[(int)LifeKind.Giraffe] * 4, "the last missing species of an almost full album is strongly favoured");
         }
 
@@ -142,7 +143,8 @@ namespace Drift.Tests
             public float[] firstRunShare;
         }
 
-        // Plays `players` simulated players through runs until each album (13 herd species + 4 critters) is complete.
+        // Plays `players` simulated players through runs until each album (13 herd species + 3 pooled critters; the
+        // fireflies come every run and are found on the first night) is complete.
         // A run: the pool drawn from a fresh seed and the album so far; a world of 20 islands (the start island
         // temperate, 19 with Island.BiomeForSeed); every pool species whose biome exists in the world is met by the
         // time everything is merged into the Pangaea.
@@ -310,13 +312,28 @@ namespace Drift.Tests
             var c = MakeObject(8f, 5, LifeBiome.Temperate, 2.5f, false, true).GetComponent<IslandCrittersSystem>();
             Assert.AreEqual(0, c.DesiredCrabs());
             Assert.AreEqual(0, c.CrabCount, "no crabs in a run without them");
-            Assert.AreEqual(0, c.DesiredFireflies());
+            Assert.Greater(c.DesiredFireflies(), 0, "fireflies are an ambient night feature of every run, not part of the pool");
             Assert.Greater(c.DesiredTurtles(), 0);
 
             SpeciesPool.Set(Bit(LifeKind.Hare) | Bit(LifeKind.Crab), LifeKind.Hare);
             var d = MakeObject(8f, 6, LifeBiome.Temperate, 2.5f, false, true).GetComponent<IslandCrittersSystem>();
             Assert.Greater(d.CrabCount, 0);
             Assert.AreEqual(0, d.DesiredTurtles());
+        }
+
+        [Test]
+        public void Fireflies_AreNotPooled_ButAlwaysAllowed_AndKeepTheirAlbumEntry()
+        {
+            Assert.IsFalse(SpeciesPool.IsPooled(LifeKind.Firefly));
+            Assert.AreEqual(0UL, SpeciesPool.AllMask & Bit(LifeKind.Firefly));
+            SpeciesPool.Set(Bit(LifeKind.Hare) | Bit(LifeKind.Crab), LifeKind.Hare);
+            Assert.IsTrue(SpeciesPool.Allows(LifeKind.Firefly));
+            Assert.IsFalse(SpeciesPool.Allows(LifeKind.Turtle));
+            // A save written before (with the firefly bit) restores to the same pool without it.
+            SpeciesPool.Restore(Bit(LifeKind.Sheep) | Bit(LifeKind.Firefly));
+            Assert.IsTrue(SpeciesPool.Allows(LifeKind.Firefly));
+            Assert.AreEqual(Bit(LifeKind.Sheep), SpeciesPool.Mask);
+            Assert.GreaterOrEqual(Drift.SaveSystem.CollectionCatalog.IndexOf(LifeKind.Firefly), 0, "still an album entry");
         }
 
         // ------------------------------------------------------------ crabs

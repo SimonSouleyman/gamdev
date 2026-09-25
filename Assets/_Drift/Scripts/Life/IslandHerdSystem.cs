@@ -80,6 +80,10 @@ namespace Drift.Life
         public float detailDistance = 45f;
         public float meshInterval = 1f / 15f;
         public float hiddenMeshInterval = 1f;
+        [Tooltip("Tiere gleiten zwischen zwei Neuberechnungen des Herdennetzes weich weiter (Grafikkarte), statt 15-mal pro Sekunde zu springen – aus der Nähe (Beobachten, ganz herangezoomt) sah das wie Zittern aus. Aus = alter Stufengang.")]
+        public bool smoothMotion = true;
+        [Tooltip("Wie lange ein Gleitschritt dauert, als Vielfaches des Abstands zwischen zwei Neuberechnungen. Etwas über 1, damit ein Tier nie auf die nächste wartet.")]
+        [Range(1f, 2f)] public float slideStretch = 1.25f;
         public float midStepInterval = 0.1f;
         public float farStepInterval = 0.5f;
         [SerializeField] Material animalMaterial;
@@ -281,6 +285,10 @@ namespace Drift.Life
             public int idlePose;
             public float idleT, idleDur, idleNext, idleA, idleB, idleHeadPitch, idleBasePitch;
             public float iYaw, iPitch, iRoll, iPivot, yawLag;
+            // What the mesh shows between two bakes (motion channel): the slide from the last drawn pose to the bake,
+            // and where the animal's vertices sit in the herd mesh (-1 = not drawn) - for play-test jitter probes.
+            public MotionTrack track;
+            public int meshStart = -1, meshCount;
         }
 
         class Herd
@@ -337,6 +345,23 @@ namespace Drift.Life
         // sinking island never spawns replacements for drowned herds.
         float _peakArea;
         float _meshTimer, _stepTimer, _stepClock, _night;
+        // Motion channel: the interval the next bake is expected after, and one more bake once the last slides ended
+        // (a finished slide left in the mesh would replay when the wrapped shader clock comes round again).
+        float _bakeInterval = 1f / 15f;
+        bool _settle;
+        double _settleAt;
+        public int SlidingAnimals { get; private set; }
+
+        // First vertex and vertex count of one animal in the herd mesh as last baked; false when it is not drawn.
+        public bool AnimalMeshRange(int herd, int member, out int start, out int count)
+        {
+            start = count = 0;
+            if (herd < 0 || herd >= _herds.Count || member < 0 || member >= _herds[herd].members.Count) return false;
+            var a = _herds[herd].members[member];
+            start = a.meshStart;
+            count = a.meshCount;
+            return start >= 0;
+        }
         bool _meshDirty;
         readonly List<Vector2> _burrows = new();
         float _detailTimer, _poiTimer;
@@ -2982,6 +3007,7 @@ namespace Drift.Life
 
             _stepClock += dt;
             _refAge += dt;
+            CloseUpMotion.Tick();
             float sinkDepth = _surface.SinkDepth;
             if (sinkDepth > _lastSink + 1e-4f)
             {
@@ -3096,10 +3122,12 @@ namespace Drift.Life
                 interval = !visible ? hiddenMeshInterval : Tier == LifeTier.Near ? meshInterval : meshInterval * 2f;
             }
 
+            if (_settle && Time.timeAsDouble >= _settleAt) _meshDirty = true;
             if (_meshDirty && _meshTimer >= interval)
             {
                 _meshTimer = 0f;
                 _meshDirty = false;
+                _bakeInterval = interval;
                 RebuildMesh();
             }
         }
@@ -3926,6 +3954,18 @@ namespace Drift.Life
             EnsureObject();
             MeshBuilds++;
             _batch.Begin();
+            // Far herds are re-seated in jumps (DriftHerds): no slide there, nor outside Play Mode.
+            bool slide = smoothMotion && Application.isPlaying && Tier != LifeTier.Far;
+            float slideSeconds = Mathf.Max(1f / 60f, _bakeInterval * slideStretch);
+            float code = 0f;
+            double now = Time.timeAsDouble;
+            int sliding = 0;
+            _bakeInterval = meshInterval;
+            if (slide)
+            {
+                _batch.UseMotion();
+                code = CloseUpMotion.Encode(slideSeconds);
+            }
             var burrowTpl = LifeMeshes.Burrow;
             foreach (var b in _burrows)
                 _batch.Add(burrowTpl, new Vector3(b.x, _surface.SampleHeight(b), b.y), Mathf.Repeat(b.x * 37f + b.y * 91f, 360f), burrowScale);
@@ -3936,7 +3976,8 @@ namespace Drift.Life
                 foreach (var a in herd.members)
                 {
                     a.bakedGrowth = a.growth;
-                    if (a.hidden || a.dived) continue;
+                    a.meshStart = -1;
+                    if (a.hidden || a.dived) { a.track.valid = false; continue; }
                     float h = _surface.SampleHeight(a.pos);
                     int special = a.idlePose != 0 ? a.idlePose : PoseOf(herd, a);
                     var tpl = a.detailed ? LifeMeshes.GetDetailTemplate(s.kind, a.variant, a.growth < youngModelGrowth, special) : LifeMeshes.GetTemplate(s.kind, a.variant);
@@ -4010,6 +4051,14 @@ namespace Drift.Life
                     a.shownMoving = pose.moving;
                     _batch.AddAnimal(tpl, pos, yaw, scale, pose, youngTint, youngTintAmount * (1f - a.growth), roll, pitch,
                         Markings.For(s.kind, a.variant, tpl), Markings.Seed(a.scale * 97.3f));
+                    a.meshStart = _batch.LastBase;
+                    a.meshCount = tpl.vertices.Length;
+                    if (!slide) a.track.valid = false;
+                    else if (a.track.Next(new BakeTransform(pos, yaw, scale, roll, pitch), now, slideSeconds, SlideSnap, out var start))
+                    {
+                        _batch.SetMotion(tpl, start.pos, start.yaw, start.scale, start.roll, start.pitch, code);
+                        sliding++;
+                    }
                     if (a == herd.sigA && a.act == AnimalActivity.Snuggle && a.step == MovePerform && a.sigT >= 1f)
                     {
                         // The capybara's passenger: a little egret on the back of the one in the middle of the star.
@@ -4021,7 +4070,13 @@ namespace Drift.Life
                 }
             }
             _batch.Apply(_mesh);
+            SlidingAnimals = sliding;
+            _settle = sliding > 0;
+            _settleAt = now + slideSeconds;
         }
+
+        // A jump longer than this between two bakes (scrambling ashore, a merge re-seat) is shown as a jump, not a slide.
+        const float SlideSnap = 0.75f;
 
         public void ShiftLocal(Vector2 delta)
         {
@@ -4039,6 +4094,7 @@ namespace Drift.Life
                     a.pos += delta;
                     a.goal += delta;
                     a.from += delta;
+                    a.track.Shift(new Vector3(delta.x, 0f, delta.y));
                 }
             }
             for (int i = 0; i < _burrows.Count; i++) _burrows[i] += delta;
@@ -4055,7 +4111,11 @@ namespace Drift.Life
                 h.center = Convert(other.transform, h.center);
                 h.target = h.center;
                 h.fleeTimer = 0f;
-                foreach (var a in h.members) a.pos = Convert(other.transform, a.pos);
+                foreach (var a in h.members)
+                {
+                    a.pos = Convert(other.transform, a.pos);
+                    a.track.valid = false;
+                }
                 _herds.Add(h);
             }
             other._herds.Clear();

@@ -163,6 +163,8 @@ namespace Drift.SaveSystem
         public float autosaveInterval = 20f;
         public bool titleAfterGameOver;
         public bool randomSeedOnFirstTitle = true;
+        [Tooltip("Abenteuer: so viele Sekunden Durchatmen vor jeder Runde (nach Tildas Einweisung, bei \"Nochmal\"). Die Insel wartet, die Kamera gleitet aus der Weite heran, dann geht es los. 0 = sofort.")]
+        [Range(0f, 6f)] public float adventureIntroSeconds = 2.8f;
 
         readonly SessionModel _model = new SessionModel();
         bool _subscribed;
@@ -176,6 +178,7 @@ namespace Drift.SaveSystem
         bool _photoInputHold;
         bool _followInputHold;
         bool _startHold;
+        readonly AdventureIntro _intro = new AdventureIntro();
 
         public SessionModel Model => _model;
         public State Current => _model.Current;
@@ -294,13 +297,19 @@ namespace Drift.SaveSystem
             get => _startHold;
             set
             {
-                RingWorld.StartHeld = value;
+                RingWorld.StartHeld = value || _intro.Holding;
                 if (_startHold == value) return;
                 _startHold = value;
                 ApplySinking();
                 ApplyInputLock();
             }
         }
+
+        // The breath before an adventure race (AdventureIntro): the start stays held like the briefing's, which it follows.
+        public bool IntroRunning => _intro.Holding;
+        public AdventureIntro Intro => _intro;
+        // Everything that keeps the adventure race on the start line: Tilda's briefing and the intro after it.
+        bool RaceHold => _startHold || _intro.Holding;
 
         public static bool SinkAllowed(bool playing, bool tutorialHold, bool photoHold) => SinkAllowed(playing, tutorialHold, photoHold, false);
 
@@ -318,12 +327,12 @@ namespace Drift.SaveSystem
 
         void ApplySinking()
         {
-            if (Application.isPlaying && player != null) player.sinkEnabled = SinkAllowed(_model.IsPlaying, _sinkingSuspended || _startHold, _photoSinkHold, _followSinkHold, _model.PangaeaReached);
+            if (Application.isPlaying && player != null) player.sinkEnabled = SinkAllowed(_model.IsPlaying, _sinkingSuspended || RaceHold, _photoSinkHold, _followSinkHold, _model.PangaeaReached);
         }
 
         void ApplyInputLock()
         {
-            if (Application.isPlaying) SetIslandInputLocked(IslandInputLocked(_model.IsPlaying, _photoInputHold, _followInputHold, _model.PangaeaFreeLook) || _startHold);
+            if (Application.isPlaying) SetIslandInputLocked(IslandInputLocked(_model.IsPlaying, _photoInputHold, _followInputHold, _model.PangaeaFreeLook) || RaceHold);
         }
 
         static void SetIslandInputLocked(bool locked) => Island.InputLocked = locked;
@@ -339,7 +348,9 @@ namespace Drift.SaveSystem
             _photoInputHold = false;
             _followInputHold = false;
             _startHold = false;
+            _intro.Cancel();
             RingWorld.StartHeld = false;
+            RingWorld.IntroPull = 0f;
             _model.PangaeaReached = false;
             if (saveManager == null) saveManager = FindAnyObjectByType<SaveManager>();
             if (saveManager != null) saveManager.fileName = GameModes.SaveFile(GameModes.Current);
@@ -357,11 +368,13 @@ namespace Drift.SaveSystem
             _model.PangaeaReachedChanged -= OnPangaeaReachedChanged;
             Island.Merged -= OnMerged;
             Unsubscribe();
-            if (_startHold)
+            if (_startHold || _intro.Holding)
             {
                 _startHold = false;
+                _intro.Cancel();
                 RingWorld.StartHeld = false;
             }
+            RingWorld.IntroPull = 0f;
             if (Application.isPlaying)
             {
                 Time.timeScale = 1f;
@@ -411,6 +424,7 @@ namespace Drift.SaveSystem
                 return;
             }
             if (!_seedInitialized) InitializeTitleWorld();
+            StepIntro();
             _model.restartDelay = restartDelay;
             float dt = _model.IsPlaying ? Time.deltaTime : Time.unscaledDeltaTime;
             if (_model.IsPlaying && Mode == GameMode.Adventure && player != null && !player.sinkEnabled) dt = 0f;
@@ -477,8 +491,49 @@ namespace Drift.SaveSystem
             PangaeaReachedChanged?.Invoke(on);
         }
 
+        // The intro counts down only while the game runs and the briefing does not hold the start; the frame it ends the
+        // race is released (the ring sees it in its next update and the HUD calls "Los!").
+        void StepIntro()
+        {
+            bool ended;
+            if (_intro.Holding && (Mode != GameMode.Adventure || !_model.InGame))
+            {
+                _intro.Cancel();
+                ended = true;
+            }
+            else ended = _intro.Step(_model.IsPlaying ? Time.deltaTime : 0f, _startHold);
+            RingWorld.IntroPull = Mode == GameMode.Adventure ? _intro.Pull : 0f;
+            if (!ended) return;
+            RingWorld.StartHeld = _startHold;
+            ApplySinking();
+            ApplyInputLock();
+        }
+
+        // A fresh adventure run starts playing (title or "Nochmal", not a resume): arm the intro before the state is
+        // applied, so the run is held from its first frame, and put the camera straight into the wide start framing.
+        void ArmIntro(State prev, State next)
+        {
+            bool fresh = Application.isPlaying && next == State.Playing && prev != State.Paused && Mode == GameMode.Adventure
+                         && adventureIntroSeconds > 0f;
+            if (!fresh)
+            {
+                if (next != State.Playing && next != State.Paused && _intro.Holding)
+                {
+                    _intro.Cancel();
+                    RingWorld.StartHeld = _startHold;
+                    RingWorld.IntroPull = 0f;
+                }
+                return;
+            }
+            _intro.Arm(adventureIntroSeconds);
+            RingWorld.StartHeld = true;
+            RingWorld.IntroPull = _intro.Pull;
+            SnapCamera();
+        }
+
         void OnModelStateChanged(State prev, State next)
         {
+            ArmIntro(prev, next);
             ApplyState(next);
             StateChanged?.Invoke(next);
         }
@@ -488,8 +543,8 @@ namespace Drift.SaveSystem
             if (!Application.isPlaying) return;
             bool playing = s == State.Playing;
             bool inGame = playing || s == State.Paused;
-            if (player != null) player.sinkEnabled = SinkAllowed(playing, _sinkingSuspended || _startHold, _photoSinkHold, _followSinkHold, _model.PangaeaReached);
-            SetIslandInputLocked(IslandInputLocked(playing, _photoInputHold, _followInputHold, _model.PangaeaFreeLook) || _startHold);
+            if (player != null) player.sinkEnabled = SinkAllowed(playing, _sinkingSuspended || RaceHold, _photoSinkHold, _followSinkHold, _model.PangaeaReached);
+            SetIslandInputLocked(IslandInputLocked(playing, _photoInputHold, _followInputHold, _model.PangaeaFreeLook) || RaceHold);
             Time.timeScale = s == State.Paused ? 0f : 1f;
             if (saveManager != null) saveManager.autosaveInterval = inGame && Mode == GameMode.Cozy ? autosaveInterval : 0f;
         }

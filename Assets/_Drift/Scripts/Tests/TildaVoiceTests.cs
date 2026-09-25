@@ -81,21 +81,21 @@ namespace Drift.Tests
         {
             var plan = new GrumblePlan();
             plan.Build("Ja.", GrumbleMood.Warm, 45f);
-            int tiny = plan.Count - plan.Hums;
+            int tiny = plan.Count - plan.Extras;
             Assert.AreEqual(1, tiny);
-            Assert.GreaterOrEqual(plan.Hums, 1, "a sentence ends in a little mh-hm");
+            Assert.GreaterOrEqual(plan.Extras, 1, "a sentence ends in a little mh-hm");
 
             plan.Build(Sample, GrumbleMood.Warm, 45f);
-            int grunts = plan.Count - plan.Hums, syllables = GrumblePlan.SyllablesIn(Sample);
+            int grunts = plan.Count - plan.Extras, syllables = GrumblePlan.SyllablesIn(Sample);
             Assert.AreEqual(23, syllables);
             Assert.LessOrEqual(grunts, syllables);
             Assert.GreaterOrEqual(grunts, syllables / 2, "about every syllable, thinned to what she can mumble");
 
             plan.Build(Sample + " " + Sample, GrumbleMood.Warm, 45f);
-            Assert.Greater(plan.Count - plan.Hums, grunts * 3 / 2, "twice the text, about twice the grunts");
+            Assert.Greater(plan.Count - plan.Extras, grunts * 3 / 2, "twice the text, about twice the grunts");
 
             plan.Build(Sample, GrumbleMood.Warm, 12f);
-            Assert.AreEqual(syllables, plan.Count - plan.Hums, "typed slowly, every syllable gets its grunt");
+            Assert.AreEqual(syllables, plan.Count - plan.Extras, "typed slowly, every syllable gets its grunt");
 
             plan.Build("", GrumbleMood.Warm, 45f);
             Assert.AreEqual(0, plan.Count);
@@ -118,7 +118,7 @@ namespace Drift.Tests
                     Assert.IsTrue(s.pitch >= GrumblePlan.MinPitch && s.pitch <= GrumblePlan.MaxPitch, mood + " pitch " + s.pitch);
                     Assert.IsTrue(s.length >= 0.04f && s.length < 0.75f, mood + " length " + s.length);
                     if (i > 0) Assert.GreaterOrEqual(s.start, plan.Items[i - 1].start + plan.Items[i - 1].length - 1e-3f, "one voice: grunts do not overlap");
-                    if (!s.hum) Assert.LessOrEqual(s.start, typed + 0.01f);
+                    if (!s.hum && !s.extra) Assert.LessOrEqual(s.start, typed + 0.01f);
                     Assert.IsTrue(s.f1 > 200f && s.f1 < 900f && s.f2 > 700f && s.f2 < 2400f);
                 }
                 Assert.LessOrEqual(plan.Duration, typed + 1.2f, mood + ": the grumble ends with the text");

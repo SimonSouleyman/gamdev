@@ -57,6 +57,8 @@ namespace Drift.Life
         public float hideDistance = 260f;
         public float detailDistance = 45f;
         public float folkMeshInterval = 0.1f;
+        [Tooltip("Aus der Nähe wird das Netz der Leute, Mühlenflügel, Boote und Flammen öfter neu gebaut (bis jedes Bild), damit nichts mehr als ein halbes Pixel springt. So schnell (u/s) bewegt sich das Flinkste daran (Flügelspitzen).")]
+        public float folkCloseUpSpeed = 0.3f;
         public float staticMeshInterval = 0.25f;
         public float midStepInterval = 0.25f;
         public float growthInterval = 0.5f;
@@ -1507,7 +1509,12 @@ namespace Drift.Life
             if (Mathf.Abs(_night - _bakedNight) > 0.08f) _staticDirty = true;
             if (_staticDirty && _staticTimer >= staticMeshInterval) RebuildStatic();
             _folkTimer += dt;
-            if (_folkTimer >= (Tier == LifeTier.Near ? folkMeshInterval : folkMeshInterval * 3f))
+            // Walkers, turning sails and a bobbing boat stepped at 10 Hz close up: near the camera the pixel budget
+            // decides (CloseUpMotion), up to every frame.
+            float folkInterval = Tier == LifeTier.Near
+                ? CloseUpMotion.Interval(Mathf.Max(0.3f, LifeEnvironment.ViewDistance(transform.position) - _surface.BoundingRadius), folkCloseUpSpeed, folkMeshInterval)
+                : folkMeshInterval * 3f;
+            if (_folkTimer >= folkInterval)
             {
                 _folkTimer = 0f;
                 RebuildFolk();

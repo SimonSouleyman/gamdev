@@ -21,15 +21,25 @@ namespace Drift.Audio
         public float FlowAmount;
         public float SurfAmount;
         public float Volume = 1f;
-        // Wind and its whistle 30 % quieter than first tuned (owner, 2026-09-23: 0.55 / 0.05).
-        public float WindGain = 0.385f;
-        public float WhistleGain = 0.035f;
-        public float WaterGain = 0.5f;
-        public float ImpactGain = 0.9f;
-        public float WarningGain = 0.3f;
+        // Levels re-set against the music on 2026-09-25 (owner: "Soundeffekte ... nicht lauter als die Musik"; measured
+        // in Tests/AudioMixTests): every bed at least 6 LU under calm music, one-shots peak at or below the music.
+        // Before: wind 0.385 / whistle 0.035 / water 0.5 / impact bus 0.9 / warning 0.3 / thunder 1 / flow 0.24 /
+        // surf 0.2 / crunch 0.85 uncapped - the water wash alone was 5 LU louder than the music at full speed.
+        public float WindGain = 0.28f;
+        public float WhistleGain = 0.025f;
+        public float WaterGain = 0.075f;
+        public float ImpactGain = 0.36f;
+        public float WarningGain = 0.2f;
+        // Multiplies wind, whistle, water, flow and surf (AudioDirector: quieter in the adventure, where the island
+        // always runs at full speed); EventGain likewise for everything on the impact/one-shot bus.
+        public float BedGain = 1f;
+        public float EventGain = 1f;
+        // Upper bound of a crunch grain's Pareto amplitude: a rare grain at full level used to hit the bus limiter.
+        // CrunchLevel went up 0.85 -> 1.15 with the cap so the grind keeps its energy against the rumble.
+        public float CrunchCap = 0.4f;
         public float WarningPeriod = 1.5f;
         public float BodyLevel = 0.15f;
-        public float CrunchLevel = 0.85f;
+        public float CrunchLevel = 1.15f;
         public float BedLevel = 0.09f;
         public float CrackLevel = 0.5f;
         public float RumbleLevel = 0.11f;
@@ -37,8 +47,8 @@ namespace Drift.Audio
         public float DebrisLevel = 0.2f;
         public float OneShotLevel = 0.24f;
         // Gains at a fully open "Strömung"/"Surfen" slider; the defaults sit at the middle of those sliders.
-        public const float FlowGainFull = 0.24f;
-        public const float SurfGainFull = 0.2f;
+        public const float FlowGainFull = 0.023f;
+        public const float SurfGainFull = 0.036f;
         // The surf's noise band against the old tone's amplitude: hiss at 1-3 kHz reads louder than a 300 Hz sine.
         public float SurfNoiseLevel = 0.4f;
         public float FlowGain = FlowGainFull * 0.5f;
@@ -55,7 +65,7 @@ namespace Drift.Audio
         public int SplashesPlayed { get; private set; }
         public int BlowsPlayed { get; private set; }
         public int ThundersPlayed { get; private set; }
-        public float ThunderGain = 1f;
+        public float ThunderGain = 0.56f;
         public int ActiveGrains => _liveGrains;
         public bool BusActive => _busActive;
         public float LastImpactSeconds { get; private set; }
@@ -285,20 +295,21 @@ namespace Drift.Audio
             gust = SynthMath.Clamp01(gust);
             Gust = gust;
             _wCoef = SynthMath.OnePoleCoef(220f + 700f * gust + 500f * wind, _sr);
-            _wAmpTarget = WindGain * (0.15f + 0.85f * wind) * (0.35f + 0.65f * gust);
+            float bed = BedGain;
+            _wAmpTarget = bed * WindGain * (0.15f + 0.85f * wind) * (0.35f + 0.65f * gust);
             _wAmp += (_wAmpTarget - _wAmp) * smooth;
             _whF = SynthMath.SvfCoef(500f + 900f * gust, _sr);
-            _whAmp = WhistleGain * gust * wind;
+            _whAmp = bed * WhistleGain * gust * wind;
 
             float lfo = 0.5f + 0.5f * (0.6f * (float)Math.Sin(_t * (2.0 * Math.PI * 0.31)) + 0.4f * (float)Math.Sin(_t * (2.0 * Math.PI * 0.53) + 2.1));
-            _waAmpTarget = WaterGain * (0.05f + 0.95f * water) * (0.5f + 0.5f * lfo);
+            _waAmpTarget = bed * WaterGain * (0.05f + 0.95f * water) * (0.5f + 0.5f * lfo);
             _waAmp += (_waAmpTarget - _waAmp) * smooth;
 
             // Flow: a band of rushing water that opens from 280 Hz to ~1.2 kHz as the current builds.
             float flow = SynthMath.Clamp01(FlowAmount);
             float flowHz = 280f + 900f * flow;
             _flF = SynthMath.SvfCoef(flowHz, _sr);
-            _flowAmpTarget = FlowGain * flow * flow * BandNorm(flowHz, FlowDamp) * (0.75f + 0.25f * lfo);
+            _flowAmpTarget = bed * FlowGain * flow * flow * BandNorm(flowHz, FlowDamp) * (0.75f + 0.25f * lfo);
             _flowAmp += (_flowAmpTarget - _flowAmp) * smooth;
 
             // Surf: a band of hissing spray that opens and brightens with the strength of the boundary. It was a
@@ -307,7 +318,7 @@ namespace Drift.Audio
             float surf = SynthMath.Clamp01(SurfAmount);
             _surfHz = 1100f + 2300f * surf * surf;
             _sfF = SynthMath.SvfCoef(_surfHz, _sr);
-            _surfAmpTarget = SurfGain * SurfNoiseLevel * surf * BandNorm(_surfHz, SurfDamp) * (0.8f + 0.2f * lfo);
+            _surfAmpTarget = bed * SurfGain * SurfNoiseLevel * surf * BandNorm(_surfHz, SurfDamp) * (0.8f + 0.2f * lfo);
             _surfAmp += (_surfAmpTarget - _surfAmp) * smooth;
 
             float warn = SynthMath.Clamp01(SinkWarning);
@@ -431,7 +442,7 @@ namespace Drift.Audio
                 evBright = g * (0.55f + 0.45f * I);
             }
             float gr = _grindSm;
-            float grAmt = gr * (0.45f + 0.3f * gr), grDens = gr * (80f + 170f * gr), grBright = 0.5f * gr;
+            float grAmt = gr * (0.63f + 0.42f * gr), grDens = gr * (80f + 170f * gr), grBright = 0.5f * gr;
             float amt = evAmt > grAmt ? evAmt : grAmt;
             float dens = evDens > grDens ? evDens : grDens;
             float bright = evBright > grBright ? evBright : grBright;
@@ -450,7 +461,7 @@ namespace Drift.Audio
                 float e = dens * _slip * dt;
                 while (e > 0f)
                 {
-                    if (_rng.Next01() < e) SpawnCrunch(amt, bright, _rng.Range(Block), _evOn ? 1f : 0.5f);
+                    if (_rng.Next01() < e) SpawnCrunch(amt, bright, _rng.Range(Block), _evOn ? CrunchCap : 0.75f * CrunchCap);
                     e -= 1f;
                 }
             }
@@ -585,7 +596,7 @@ namespace Drift.Audio
             {
                 int n = 5 + (int)(14f * I);
                 for (int k = 0; k < n; k++)
-                    SpawnCrunch(0.6f + 0.4f * I, 0.8f, (int)(0.03f * _sr * _rng.Next01()), 1f);
+                    SpawnCrunch(0.6f + 0.4f * I, 0.8f, (int)(0.03f * _sr * _rng.Next01()), CrunchCap);
             }
             if ((Layers & LayerCracks) != 0)
             {
@@ -686,7 +697,8 @@ namespace Drift.Audio
 
         void SpawnCrunch(float amt, float bright, int delay, float cap)
         {
-            // Pareto amplitudes: ~5 % of the grains reach full level and read as cracks, the median is 1/5 of that.
+            // Pareto amplitudes (median 0.19), capped: at the 0.4 cap about a fifth of the grains sit at full level
+            // (2x the median); an uncapped 1.0 grain saturated the bus limiter and set the peak of the whole impact.
             float a = 0.11f * (float)Math.Pow(_rng.Next01() + 1e-4f, -0.75);
             if (a > cap) a = cap;
             float top = 1300f + 2200f * bright;
@@ -911,14 +923,14 @@ namespace Drift.Audio
             if (_crOn) RenderCreak(n, bL, bR);
 
             // The bus is limited on its own (< 0.85) so that wind and water on top still end below 0.9.
-            float ig = ImpactGain;
+            float ig = ImpactGain, eg = 0.85f * EventGain;
             for (int i = 0; i < n; i++)
             {
                 float l = bL[i] * ig, r = bR[i] * ig;
                 if (l > 0.6f || l < -0.6f) l = SynthMath.SoftClip(l);
                 if (r > 0.6f || r < -0.6f) r = SynthMath.SoftClip(r);
-                l = (L[i] + 0.85f * l) * vol;
-                r = (R[i] + 0.85f * r) * vol;
+                l = (L[i] + eg * l) * vol;
+                r = (R[i] + eg * r) * vol;
                 L[i] = l > 0.6f || l < -0.6f ? SynthMath.SoftClip(l) : l;
                 R[i] = r > 0.6f || r < -0.6f ? SynthMath.SoftClip(r) : r;
             }

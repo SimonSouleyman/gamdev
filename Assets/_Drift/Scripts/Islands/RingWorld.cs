@@ -19,6 +19,52 @@ namespace Drift.Islands
         }
     }
 
+    // The breath before every adventure race (owner, 2026-09-25: "einen kurzen Moment, bevor die Runde anfängt ...
+    // zum Durchatmen"): GameSession arms it when a run starts playing, and while it runs the race is held exactly like
+    // Tilda's start hold (RingWorld.StartHeld: island and obstacles pinned, no sinking, no distance, no clock). It
+    // only counts down while nothing else holds the start, so after the briefing it simply follows it - one hold,
+    // handed over, never two. Pull is the chase camera's share of the wide start framing: 1 for the first holdShare
+    // of the intro, then an ease-in-out glide to 0 = the race framing exactly when the race starts.
+    public class AdventureIntro
+    {
+        float _total, _left;
+
+        public bool Holding => _left > 0f;
+        public float Seconds => _total;
+        public float Elapsed => Holding ? _total - _left : _total;
+        public float Pull => Holding ? PullAt(Elapsed, _total, HoldShare) : 0f;
+
+        // Share of the intro the camera rests in the wide framing before it glides in.
+        public const float HoldShare = 0.18f;
+
+        public void Arm(float seconds)
+        {
+            _total = Mathf.Max(0f, seconds);
+            _left = _total;
+        }
+
+        public void Cancel() => _left = 0f;
+
+        // One frame; waiting = something else holds the start (the briefing, a pause). True in the frame it ends.
+        public bool Step(float dt, bool waiting)
+        {
+            if (_left <= 0f || waiting || dt <= 0f) return false;
+            _left -= dt;
+            if (_left > 0f) return false;
+            _left = 0f;
+            return true;
+        }
+
+        public static float PullAt(float elapsed, float total, float holdShare)
+        {
+            if (total <= 0f) return 0f;
+            float t = Mathf.Clamp01(elapsed / total), h = Mathf.Clamp(holdShare, 0f, 0.95f);
+            if (t <= h) return 1f;
+            float s = (t - h) / (1f - h);
+            return 1f - s * s * (3f - 2f * s);
+        }
+    }
+
     // The score of an adventure run: how far the island got along the track (+z). Only new ground counts - a bounce
     // back off an island and the metres driven again afterwards are not counted twice - and only while counting is
     // on (the race runs); a jump of more than TeleportDistance (a reset, a load) starts from the new spot.
@@ -245,9 +291,18 @@ namespace Drift.Islands
         // is out of this assembly's reach): the island waits where it is, the obstacles stand still, and neither the
         // distance nor the clock count. The race starts the moment the flag drops.
         public static bool StartHeld;
+        // The start intro's camera pull (AdventureIntro.Pull, written by GameSession): 1 = the wide start framing,
+        // 0 = the race framing. IslandChaseCamera reads it.
+        public static float IntroPull;
+        // The hold on the start line ended and the race runs (after the briefing and the intro): the HUD's "Los!".
+        public static event System.Action RaceStarted;
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
-        static void ResetStatics() => StartHeld = false;
+        static void ResetStatics()
+        {
+            StartHeld = false;
+            IntroPull = 0f;
+        }
 
         // True while the hold is in force on the running ring.
         public bool Holding => _holding;
@@ -588,9 +643,11 @@ namespace Drift.Islands
             bool held = StartHeld;
             if (held != _holding)
             {
+                bool released = _holding;
                 _holding = held;
                 _holdPos = pp;
                 _pinned.Clear();
+                if (released && !player.IsSunk && !Island.InputLocked) RaceStarted?.Invoke();
             }
             if (held)
             {

@@ -33,18 +33,19 @@ namespace Drift.Tests
         // ------------------------------------------------------------ fly-over input
 
         [Test]
-        public void TheFlyOverIgnoresTheTiltAndAlwaysHasTheStick()
+        public void TheFlyOverIgnoresTheTiltAndHasNoStick()
         {
             Assert.IsTrue(SessionScreens.TiltSteers(true, false), "the tilt steers the island as before");
             Assert.IsFalse(SessionScreens.TiltSteers(true, true), "never over the finished Pangäa");
             Assert.IsFalse(SessionScreens.TiltSteers(false, false));
 
             Assert.IsFalse(SessionScreens.StickShown(true, false), "tilt steering hides the stick during a run");
-            Assert.IsTrue(SessionScreens.StickShown(true, true), "the fly-over shows it even with the tilt chosen");
+            Assert.IsFalse(SessionScreens.StickShown(true, true), "the fly-over is driven like a map: no stick");
+            Assert.IsFalse(SessionScreens.StickShown(false, true));
             Assert.IsTrue(SessionScreens.StickShown(false, false));
 
-            StringAssert.DoesNotContain("Kippen fliegt", PangaeaFinale.TiltBannerBody);
-            StringAssert.StartsWith("Stick fliegt", PangaeaFinale.BannerBodyFor(true, true), "a tilt player is told the stick flies");
+            StringAssert.DoesNotContain("Kippen", PangaeaFinale.TiltBannerBody);
+            StringAssert.StartsWith("Ziehen verschiebt", PangaeaFinale.BannerBodyFor(true, true), "a tilt player gets the map gestures too");
         }
 
         [Test]

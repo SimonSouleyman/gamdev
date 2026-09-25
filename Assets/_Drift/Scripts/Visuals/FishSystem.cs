@@ -45,6 +45,8 @@ namespace Drift.Visuals
         public float jumpDuration = 0.75f;
         public float jumpHeight = 0.45f;
         public float rebuildRate = 15f;
+        [Tooltip("Aus der Nähe wird das Fischnetz öfter neu gebaut (bis jedes Bild), damit ein Fisch nie mehr als ein halbes Pixel springt – 15-mal pro Sekunde zitterten nahe Fische beim Beobachten. So schnell (u/s) schwimmen die flinksten.")]
+        public float closeUpSpeed = 1.5f;
         public int seed = 7;
         public Color silverColor = new Color(0.78f, 0.86f, 0.94f);
         public Color goldColor = new Color(1f, 0.68f, 0.32f);
@@ -764,12 +766,26 @@ namespace Drift.Visuals
 
             _rebuildTimer += dt;
             float interval = rebuildRate > 0f ? 1f / rebuildRate : 0f;
+            if (interval > 0f && Application.isPlaying) interval = CloseUpMotion.Interval(NearestSchoolView(), closeUpSpeed, interval);
             if (_dirty || _rebuildTimer >= interval)
             {
                 _rebuildTimer = 0f;
                 _dirty = false;
                 Rebuild();
             }
+        }
+
+        // Camera distance of the nearest school (its middle, less a school's reach).
+        float NearestSchoolView()
+        {
+            float best = float.MaxValue;
+            for (int i = 0; i < _schools.Length; i++)
+            {
+                if (!_schools[i].active) continue;
+                Vector2 p = _schools[i].pos;
+                best = Mathf.Min(best, LifeEnvironment.ViewDistance(new Vector3(p.x, 0f, p.y)));
+            }
+            return best == float.MaxValue ? best : Mathf.Max(0.3f, best - 3f);
         }
 
         void StepSchool(int idx, float dt)

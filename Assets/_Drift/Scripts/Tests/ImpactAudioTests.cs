@@ -14,9 +14,13 @@ namespace Drift.Tests
 
         // ------------------------------------------------------------ helpers (public: also driven from eval)
 
+        // Character tests run at the bus gain their absolute floors were tuned at (0.9, before 2026-09-25); the level
+        // the game plays is pinned against the music in AudioMixTests.
+        public const float CharacterBusGain = 0.9f;
+
         public static SfxSynth Make(uint seed, bool ambient = false)
         {
-            var s = new SfxSynth(Sr, seed);
+            var s = new SfxSynth(Sr, seed) { ImpactGain = CharacterBusGain };
             if (ambient) { s.WindAmount = 1f; s.WaterAmount = 1f; }
             else { s.WindGain = 0f; s.WaterGain = 0f; s.WhistleGain = 0f; }
             return s;
@@ -460,8 +464,8 @@ namespace Drift.Tests
             Assert.Less(Math.Abs(Correlation(a, b)), 0.6f, "waveform");
             Assert.Less(Correlation(Texture(a, 0.1f, 3.5f), Texture(b, 0.1f, 3.5f)), 0.6f, "event pattern");
 
-            var u1 = new SfxSynth(Sr);
-            var u2 = new SfxSynth(Sr);
+            var u1 = new SfxSynth(Sr) { ImpactGain = CharacterBusGain };
+            var u2 = new SfxSynth(Sr) { ImpactGain = CharacterBusGain };
             u1.WindGain = u1.WaterGain = u2.WindGain = u2.WaterGain = 0f;
             u1.Impact(0.7f); u2.Impact(0.7f);
             var c = Mono(Render(u1, 3f));

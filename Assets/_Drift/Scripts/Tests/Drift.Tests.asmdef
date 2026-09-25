@@ -12,6 +12,7 @@
         "Drift.Audio",
         "Drift.SaveSystem",
         "Drift.Bridge",
+        "Drift.UI",
         "Drift.Tests.Fakes"
     ],
     "includePlatforms": [

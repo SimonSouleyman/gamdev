@@ -83,5 +83,46 @@ namespace Drift.Tests
             StringAssert.Contains("1:00:00", PangaeaFinale.FormatStats(new RunRecord { playSeconds = 3600f }));
             Assert.AreEqual("", PangaeaFinale.FormatStats(null));
         }
+
+        [Test]
+        public void Banner_NamesTheMapGestures_AndReplacesTheStickLines()
+        {
+            Assert.AreEqual("Ziehen verschiebt · zwei Finger drehen & zoomen · Tippen fliegt hin", PangaeaFinale.DefaultBannerBody);
+            Assert.AreEqual(PangaeaFinale.DefaultBannerBody, PangaeaFinale.BannerBodyFor(true, true), "the tilt plays no part over the finished island");
+            StringAssert.DoesNotContain("Stick", PangaeaFinale.BannerBodyFor(false, false));
+            var go = new GameObject("finale-banner-test");
+            try
+            {
+                var finale = go.AddComponent<PangaeaFinale>();
+                finale.bannerBody = "Stick fliegt, Ziehen schaut umher, Tiere antippen.";
+                Assert.AreNotEqual(finale.bannerBody, finale.BannerBody, "an old scene value is replaced");
+                finale.bannerBody = "Eigener Text";
+                Assert.AreEqual("Eigener Text", finale.BannerBody);
+            }
+            finally { Object.DestroyImmediate(go); }
+        }
+
+        [Test]
+        public void SightsBar_HasThumbSizedButtons_AndStaysHiddenOutsideTheFlyOver()
+        {
+            var go = new GameObject("finale-sights-test");
+            try
+            {
+                var finale = go.AddComponent<PangaeaFinale>();
+                var bar = finale.SightsRoot;
+                Assert.IsNotNull(bar);
+                Assert.IsFalse(bar.gameObject.activeSelf);
+                Assert.IsFalse(finale.SightsBarVisible);
+                var prev = bar.Find("SightPrev") as RectTransform;
+                var next = bar.Find("SightNext") as RectTransform;
+                Assert.IsNotNull(prev);
+                Assert.IsNotNull(next);
+                Assert.GreaterOrEqual(prev.sizeDelta.x, 120f, "big enough for a thumb");
+                Assert.GreaterOrEqual(next.sizeDelta.y, 120f);
+                Assert.IsNotNull(prev.GetComponent<UnityEngine.UI.Button>());
+                Assert.Less(bar.anchorMin.y, 0.01f, "at the bottom");
+            }
+            finally { Object.DestroyImmediate(go); }
+        }
     }
 }

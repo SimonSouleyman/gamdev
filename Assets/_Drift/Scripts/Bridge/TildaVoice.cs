@@ -278,9 +278,10 @@ namespace Drift.Bridge
         // SynthAudioOutput pulls the synth, as a filter or, where filters do not run, as a streamed clip.
         void EnsureOutput()
         {
-            if (_output != null) return;
             int rate = AudioSettings.outputSampleRate > 0 ? AudioSettings.outputSampleRate : 48000;
+            // A script reload keeps the output component but drops the (unserialized) synth: make it before the early out.
             if (_synth == null) _synth = new TildaGrumbleSynth(rate) { Enabled = Enabled };
+            if (_output != null) return;
             var t = transform.Find(OutputName);
             GameObject go;
             if (t != null) go = t.gameObject;

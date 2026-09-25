@@ -43,6 +43,8 @@ namespace Drift.Visuals
         public float respawnSeconds = 90f;
         [Range(0f, 1f)] public float respawnMinRange = 0.5f;
         public float rebuildRate = 15f;
+        [Tooltip("Aus der Nähe wird das Meerestier-Netz öfter neu gebaut (bis jedes Bild), damit nichts mehr als ein halbes Pixel springt. So schnell (u/s) schwimmen die flinksten; dazu kommt das Tempo der Insel für Besucher an ihrer Küste.")]
+        public float closeUpSpeed = 2f;
         public float detailDistance = 70f;
         public float splashDistance = 75f;
         public int maxUnderVerts = 2000;
@@ -819,10 +821,16 @@ namespace Drift.Visuals
             bool any = false;
             bool circles = false;
             bool escorting = false;
+            float nearest = float.MaxValue;
             for (int i = 0; i < _groups.Length; i++)
             {
                 if (!_groups[i].active) continue;
                 any = true;
+                if (Application.isPlaying)
+                {
+                    Vector2 gp = _groups[i].pos;
+                    nearest = Mathf.Min(nearest, LifeEnvironment.ViewDistance(new Vector3(gp.x, 0f, gp.y)));
+                }
                 if ((_groups[i].flags & (CompanionFlag | BoostFlag)) != 0) escorting = true;
                 if (dt > 0f && !circles && IsWhale(_groups[i].kind)) { BuildWhaleCircles(); circles = true; }
                 StepGroup(ref _groups[i], dt);
@@ -848,6 +856,14 @@ namespace Drift.Visuals
             // laggt"). The same goes for the spray the ghost ride and the whale carry along.
             if ((escorting && _playerSpeed > 4f) || (_player != null && _player.Ghosting)) interval = 0f;
             EscortEveryFrame = interval == 0f;
+            // Close to the camera the pixel budget decides (CloseUpMotion): at 15 Hz a ray or a seal hauled out on the
+            // drifting island stepped by many pixels while watching. Coast visitors move with the island as well.
+            if (interval > 0f && Application.isPlaying)
+            {
+                if (_player != null && (SealCount > 0 || _ffActive || _gullFade > 0f))
+                    nearest = Mathf.Min(nearest, Mathf.Max(0.3f, LifeEnvironment.ViewDistance(_player.transform.position) - _playerRadius - 3f));
+                if (nearest < float.MaxValue) interval = CloseUpMotion.Interval(Mathf.Max(0.3f, nearest - 2f), closeUpSpeed + _playerSpeed, interval);
+            }
             if (_dirty || (_rebuildTimer >= interval && (any || _ffActive || _gullFade > 0f || SealCount > 0 || _under.vc + _above.vc > 0)))
             {
                 _rebuildTimer = 0f;

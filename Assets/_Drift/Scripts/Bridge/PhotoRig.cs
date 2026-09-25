@@ -185,7 +185,26 @@ namespace Drift.Bridge
         }
 
         // The ground height under the pivot is eased so panning across a cliff does not kick the camera.
-        public void EaseHeight(float groundY, float dt) => height = Mathf.Lerp(height, groundY, 1f - Mathf.Exp(-heightSmoothing * Mathf.Max(0f, dt)));
+        public void EaseHeight(float groundY, float dt) => EaseHeight(groundY, dt, heightSmoothing);
+
+        public void EaseHeight(float y, float dt, float rate) => height = Mathf.Lerp(height, y, 1f - Mathf.Exp(-Mathf.Max(0f, rate) * Mathf.Max(0f, dt)));
+
+        // The automatic part of the framing changed (a flock spreading out, climbing): the distance and the pitch move
+        // with it by the same amount, target and home alike, so whatever the player zoomed or tilted on top stays.
+        public void ShiftFraming(float distanceFactor, float pitchDelta)
+        {
+            if (distanceFactor > 0f && Mathf.Abs(distanceFactor - 1f) > 1e-5f)
+            {
+                distanceTarget *= distanceFactor;
+                homeDistance = Mathf.Clamp(homeDistance * distanceFactor, minDistance, maxDistance);
+            }
+            if (Mathf.Abs(pitchDelta) > 1e-5f)
+            {
+                pitchTarget += pitchDelta;
+                homePitch = Mathf.Clamp(homePitch + pitchDelta, minPitch, maxPitch);
+            }
+            ClampTargets();
+        }
 
         public Vector2 PivotPlanar(Vector3 subject) => new Vector2(subject.x + offset.x, subject.z + offset.y);
 
@@ -219,6 +238,18 @@ namespace Drift.Bridge
             if (body <= 0f || minBodyPixels <= 0f) return fit;
             return Mathf.Min(fit, body * 540f / (t * minBodyPixels));
         }
+
+        // A flock in the air (owner, 2026-09-25: "Wenn man Vögel beobachtet, ist die Kamera nicht immer auf der
+        // richtigen Höhe"): the pitch goes from groundPitch for birds on the ground to highPitch for birds `fullHeight`
+        // or more above the ground under them, so high flyers are seen against the sky from the side and a landed
+        // flock from above.
+        public static float AirPitch(float heightAboveGround, float groundPitch, float highPitch, float fullHeight) =>
+            Mathf.Lerp(groundPitch, highPitch, Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(heightAboveGround / Mathf.Max(0.01f, fullHeight))));
+
+        // Distance at which a flock of `spread` (farthest bird from its middle) fills `fill` of half the short side;
+        // never closer than minDistance.
+        public static float AirDistance(float spread, float verticalFovDeg, float aspect, float fill, float minDistance) =>
+            Mathf.Max(minDistance, Distance(Mathf.Max(0.5f, spread), 0f, verticalFovDeg, aspect, fill, 0f));
 
         // Degrees per second a still subject (a lighthouse, the harbour) is circled: nothing while the player moved
         // the camera less than `delay` seconds ago, then easing up to `degPerSecond` over `rampSeconds`.
