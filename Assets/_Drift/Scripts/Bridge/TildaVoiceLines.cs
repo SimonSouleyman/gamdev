@@ -17,6 +17,7 @@ namespace Drift.Bridge
         // Abenteuer: she wears her "schnelle Brille" there and talks like a race coach. ForMode picks the variant.
         public const string AdventurePrefix = "adv_";
         public const string AdventureRecord = "adv_record";
+        public const string AdventureGameOver = AdventurePrefix + GameOver;
 
         // What she mumbles when she dozes off; never shown.
         public const string SleepyMumble = "Oooh, muuh. Hach jaa. Mmoh, nuuh, hmm.";
@@ -32,7 +33,7 @@ namespace Drift.Bridge
             Line("idle_2", "Ich dampfe hier gemütlich vor mich hin. Sag Bescheid, wenn es losgeht."),
             Line("idle_3", "Im " + K("Fotoalbum") + " findest du deine schönsten Inseln wieder."),
             Line("idle_4", "Ach, ist das Meer heute wieder schön."),
-            Line("adv_gameover", "Uff, abgesoffen! Aber das war eine " + K("starke Strecke") + ". Gleich nochmal?"),
+            Line(AdventureGameOver, "Uff, abgesoffen! Aber das war eine " + K("starke Strecke") + ". Gleich nochmal?"),
             Line("adv_new_island", "Brille sitzt, Lava kocht. Auf die Plätze, fertig – " + K("los") + "!"),
             Line("adv_pause", "Kurz verschnaufen? Gut so. Meine Brille läuft eh gerade an."),
             Line(AdventureRecord, K("Neuer Rekord") + "! Da beschlägt mir glatt die Brille."),
@@ -72,7 +73,8 @@ namespace Drift.Bridge
             {
                 case Greeting: case NewIsland: case "adv_new_island": return GrumbleMood.Cheerful;
                 case VoiceOn: case AdventureRecord: return GrumbleMood.Giggly;
-                case GameOver: return GrumbleMood.Soft;
+                // Sunk: sympathetic in both modes, even where the race coach adds a "Gleich nochmal?".
+                case GameOver: case AdventureGameOver: return GrumbleMood.Soft;
                 default: return GrumbleMood.Warm;
             }
         }

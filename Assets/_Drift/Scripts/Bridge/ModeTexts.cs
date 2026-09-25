@@ -87,6 +87,17 @@ namespace Drift.Bridge
             return merged + " von " + total + " Inseln";
         }
 
+        // "5 von 20 Inseln · 3 Vulkane": consumed counts the planned world slots that are merged away; the volcanoes
+        // rise out of the sea on their own, are no world slots and are listed apart (only once there are any).
+        public static string WorldProgressLabel(int consumed, int total, int volcanoes)
+        {
+            string islands = CozyIslands(consumed, total);
+            if (volcanoes <= 0 || total <= 0 || consumed >= total) return islands;
+            return islands + " · " + VolcanoCount(volcanoes);
+        }
+
+        public static string VolcanoCount(int volcanoes) => volcanoes == 1 ? "1 Vulkan" : volcanoes + " Vulkane";
+
         // Beside "Landmasse": in Gemütlich the island sinks slowly towards a floor, which is why the number shrinks
         // while nothing happens; at the floor it simply floats.
         public static string CozySinkStatus(bool sinking) => sinking ? "sinkt langsam" : "schwimmt ruhig";
@@ -139,6 +150,10 @@ namespace Drift.Bridge
             : "Rums!";
 
         public const string DodgeLabel = "Knapp vorbei!";
+        // Under the adventure strip while the race waits on the start line; it fades out with the "Los!".
+        public const string AdventureStartLine = "Weiche Inseln aus, sammle Treibgut – wie weit kommst du?";
+        public const string GoLabel = "Los!";
+        public const string MomentumLabel = "Schwung";
         // At the rim of the band: there is nothing to fall over, the world simply ends there.
         public const string EdgeLabel = "Hier endet die Welt!";
 

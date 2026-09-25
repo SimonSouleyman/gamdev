@@ -84,6 +84,10 @@ Shader "Drift/IslandTerrain"
                 float _DetailStrength, _DetailHue, _NormalStrength, _Macro;
             CBUFFER_END
 
+            // Pushed by Drift.Visuals.DayNightCycle: rgb = rim colour (linear, already scaled), w = strength. Zero by
+            // day and in cozy mode; at night in adventure a cool rim along the waterline (NightReadability).
+            float4 _DriftShoreRim;
+
             Varyings vert(Attributes IN)
             {
                 Varyings OUT;
@@ -207,7 +211,26 @@ Shader "Drift/IslandTerrain"
                 float nd = saturate(dot(nl, mainLight.direction));
                 float lit = _Ambient + (1.0 - _Ambient) * nd;
                 lit *= IN.normalOS.w;
-                return float4(DriftFog(col * lit * mainLight.color, IN.positionWS), 1);
+                col *= lit * mainLight.color;
+                UNITY_BRANCH
+                if (_DriftShoreRim.w > 0.001)
+                {
+                    // Night in adventure: the shore glows faintly, most where it turns away from the view, so an
+                    // island's outline stands out against the dark sea (NightReadability.ShoreRimShape).
+                    float shore = smoothstep(-0.45, -0.2, y) * (1.0 - smoothstep(0.1, 0.5, y));
+                    float3 v = normalize(_WorldSpaceCameraPos - DriftCurveWS(IN.positionWS));
+                    float3 rn = n;
+                    if (_CurveRing.x > 0.0)
+                    {
+                        // The ring bend tilts everything ahead up towards the camera: the normal turns with it.
+                        float s, c;
+                        sincos(clamp(IN.positionWS.z - _CurveFocus.y, -_CurveRing.w, _CurveRing.w) * _CurveRing.x, s, c);
+                        rn = float3(n.x, n.y * c + n.z * s, n.z * c - n.y * s);
+                    }
+                    float f = 1.0 - saturate(dot(rn, v));
+                    col += _DriftShoreRim.rgb * (shore * (0.25 + 0.75 * f * f));
+                }
+                return float4(DriftFog(col, IN.positionWS), 1);
             }
             ENDHLSL
         }

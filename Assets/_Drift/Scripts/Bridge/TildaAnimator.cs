@@ -15,6 +15,8 @@ namespace Drift.Bridge
         public float mouthWidth, smile;
         // Glasses slipping down her nose, in model units.
         public float glassesSlip;
+        // The sport shades pushed up to the rim of her crater, 0 (on her eyes) .. 1 (up, eyes and brows show).
+        public float shadesUp;
 
         public static TildaFace For(TildaPose pose, float side)
         {
@@ -42,9 +44,11 @@ namespace Drift.Bridge
                     f.browTiltL = side < 0f ? 8f : -3f; f.browTiltR = side < 0f ? -3f : 8f;
                     f.mouthWidth = 1.05f;
                     break;
+                // Game over: sorry for the player, never cheerful. A small round mouth instead of the smile, and in
+                // Abenteuer the mirror shades go up so the soft eyes are seen.
                 case TildaPose.Comfort:
-                    f.lidL = f.lidR = 0.62f; f.lowerLid = 0.3f; f.browLiftL = f.browLiftR = 0.035f; f.browTiltL = f.browTiltR = 19f;
-                    f.mouthWidth = 0.78f; f.smile = 0.7f; f.look = new Vector2(0f, -0.15f);
+                    f.lidL = f.lidR = 0.8f; f.lowerLid = 0.3f; f.browLiftL = f.browLiftR = 0.035f; f.browTiltL = f.browTiltR = 19f;
+                    f.mouthWidth = 0.5f; f.smile = 0.3f; f.look = new Vector2(0f, -0.15f); f.shadesUp = 1f;
                     break;
             }
             return f;
@@ -59,7 +63,7 @@ namespace Drift.Bridge
                 lidL = Mathf.Lerp(a.lidL, b.lidL, k), lidR = Mathf.Lerp(a.lidR, b.lidR, k), lowerLid = Mathf.Lerp(a.lowerLid, b.lowerLid, k),
                 look = Vector2.Lerp(a.look, b.look, k),
                 mouthWidth = Mathf.Lerp(a.mouthWidth, b.mouthWidth, k), smile = Mathf.Lerp(a.smile, b.smile, k),
-                glassesSlip = Mathf.Lerp(a.glassesSlip, b.glassesSlip, k),
+                glassesSlip = Mathf.Lerp(a.glassesSlip, b.glassesSlip, k), shadesUp = Mathf.Lerp(a.shadesUp, b.shadesUp, k),
             };
         }
     }
@@ -73,6 +77,7 @@ namespace Drift.Bridge
         const float LookYaw = 22f, LookPitch = 15f, Converge = 17f, RestPitch = 10f;
         const float GlancePeriod = 5.3f, GlintPeriod = 7.4f, GlintSeconds = 0.55f;
         const float SweepPeriod = 3.3f, SweepSeconds = 0.6f;
+        const float ShadesUpLift = 0.58f, ShadesUpScale = 0.67f, ShadesUpTilt = 14f;
 
         readonly TildaParts _p;
         float _armL = RestArm, _armR = RestArm, _open;
@@ -147,7 +152,7 @@ namespace Drift.Bridge
             float targetOpen = sleepy ? (talking ? Mathf.Max(snore, 0.5f * spoken) : snore)
                 : cheer ? (voiced ? Mathf.Max(0.55f, spoken) : 1f)
                 : talking ? (voiced ? 0.04f + 0.96f * spoken : cycle)
-                : wave ? 0.42f : 0f;
+                : wave ? 0.42f : comfort ? 0.3f : 0f;
 
             float ease = snap ? 1f : 1f - Mathf.Exp(-14f * Mathf.Max(0f, dt));
             float easeMouth = snap ? 1f : 1f - Mathf.Exp(-30f * Mathf.Max(0f, dt));
@@ -257,13 +262,22 @@ namespace Drift.Bridge
         }
 
         // The sport shades bounce on a hop, sag a little when she dozes and shimmer: the hues drift with time and
-        // with the turn of her head like a mirror, and a streak flashes across.
+        // with the turn of her head like a mirror, and a streak flashes across. Pushed up (shadesUp) they sit
+        // higher on her narrowing cone, so they shrink towards its axis; her eyes, hidden behind the lens by
+        // TildaModel.SetAccessory, come back once the lens has cleared them.
         void Shades(float t, float jump, bool snap)
         {
             if (_p.shades == null || !_p.shades.gameObject.activeSelf) return;
-            float slip = _face.glassesSlip * 0.3f;
-            _p.shades.localPosition = _p.shadesRest + Vector3.down * (slip - 0.03f * jump);
-            _p.shades.localRotation = Quaternion.Euler(slip * 60f, 0f, slip > 0.01f ? 3f : 0f);
+            float up = Mathf.Clamp01(_face.shadesUp);
+            float slip = _face.glassesSlip * 0.3f * (1f - up);
+            float narrow = 1f - (1f - ShadesUpScale) * up;
+            var rest = _p.shadesRest;
+            _p.shades.localPosition = new Vector3(rest.x * narrow, rest.y + ShadesUpLift * up - slip + 0.03f * jump, rest.z * narrow);
+            _p.shades.localRotation = Quaternion.Euler(slip * 60f + ShadesUpTilt * up, 0f, slip > 0.01f ? 3f : 0f);
+            _p.shades.localScale = new Vector3(narrow, 1f, narrow);
+            bool eyes = up > 0.5f;
+            if (_p.ballL != null) SetActive(_p.ballL.parent, eyes);
+            if (_p.ballR != null) SetActive(_p.ballR.parent, eyes);
 
             float into = Mathf.Repeat(t + 0.4f, SweepPeriod);
             float sweep = snap || into > SweepSeconds ? 3f : Mathf.Lerp(-1.7f, 1.7f, Smooth(0f, SweepSeconds, into));

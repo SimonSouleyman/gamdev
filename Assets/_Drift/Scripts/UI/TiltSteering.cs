@@ -39,6 +39,8 @@ namespace Drift.UI
         bool _calibrated;
         bool _sensorsOn;
         bool _prefsRead;
+        bool _resumeRecenter;
+        bool _wasActive;
 
         // The steering direction on screen (x right, y up the screen), length 0..1. Live while Sampling.
         public Vector2 Direction { get; private set; }
@@ -102,10 +104,35 @@ namespace Drift.UI
             settings.deadZone = PlayerPrefs.GetFloat(DeadKey, settings.deadZone);
         }
 
+        // Back from the background the phone is usually held differently. The game comes back paused, so the pose that
+        // counts is the one when the tilt steers again (the pause menu's "Weiter"), not the first frame after the return.
+        public static bool ResumeRecenterDue(bool pending, bool active, bool wasActive) => pending && active && !wasActive;
+
+        void OnApplicationPause(bool paused)
+        {
+            if (!paused) OnReturnedFromBackground();
+        }
+
+        // As in GameSession: devices report the return through OnApplicationPause, the Editor and desktop players only
+        // through the focus callback.
+        void OnApplicationFocus(bool focused)
+        {
+            if (focused && (Application.isEditor || !Application.isMobilePlatform)) OnReturnedFromBackground();
+        }
+
+        void OnReturnedFromBackground()
+        {
+            if (!Application.isPlaying || !On) return;
+            _resumeRecenter = true;
+            if (Active) Recalibrate();
+        }
+
         void OnEnable()
         {
             ReadPrefs();
             _calibrated = false;
+            _resumeRecenter = false;
+            _wasActive = false;
             Direction = Vector2.zero;
             TiltDegrees = Vector2.zero;
         }
@@ -121,6 +148,13 @@ namespace Drift.UI
         {
             if (!Application.isPlaying) return;
             bool sampling = Sampling;
+            bool active = Active;
+            if (ResumeRecenterDue(_resumeRecenter, active, _wasActive))
+            {
+                _resumeRecenter = false;
+                _calibrated = false;
+            }
+            _wasActive = active;
             EnableSensors(sampling && !Faking);
             if (!sampling)
             {

@@ -57,6 +57,33 @@ namespace Drift.Visuals
             return 1f - SmoothStep(edge * 0.35f, edge * 1.05f, len);
         }
 
+        // The linear ramp under ClumpDensity: 1 inside 0.35 of the clump's edge, 0 past 1.05 of it, linear in the
+        // distance between, so ClumpDensity == SmoothStep01(ClumpRamp). CloudShadowTexture stores it (unclamped) rather
+        // than the density because bilinear filtering reproduces a ramp that is linear in the distance almost exactly.
+        public static float ClumpRamp(Vector2 q, in Clump c) => Mathf.Clamp01(ClumpRampLinear(q, c));
+
+        // ClumpRamp before its clamp: (1.05 edge - distance) / (0.7 edge), 1.5 at the centre, below 0 outside the clump
+        // (-1e4 without a clump). Linear in the distance all the way, so bilinear filtering of it has no kink to round.
+        public static float ClumpRampLinear(Vector2 q, in Clump c)
+        {
+            if (c.radius < 1e-4f) return -1e4f;
+            Vector2 d = q - c.centre;
+            float lx = Vector2.Dot(d, c.axis) / c.aspect;
+            float ly = Vector2.Dot(d, new Vector2(-c.axis.y, c.axis.x));
+            float len2 = lx * lx + ly * ly;
+            float len = Mathf.Sqrt(len2);
+            float c2 = lx * lx / Mathf.Max(len2, 1e-8f);
+            float t6 = ((32f * c2 - 48f) * c2 + 18f) * c2 - 1f;
+            float edge = c.radius * (0.95f + 0.05f * t6);
+            return (1.05f * edge - len) / (0.7f * edge);
+        }
+
+        public static float SmoothStep01(float t)
+        {
+            t = Mathf.Clamp01(t);
+            return t * t * (3f - 2f * t);
+        }
+
         // Cloud-space density at q (1 = under a cloud), from the 2x2 nearest cells like the shader.
         public static float Density(Vector2 q, float cover)
         {

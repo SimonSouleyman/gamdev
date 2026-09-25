@@ -1,3 +1,4 @@
+using System;
 using Drift.Core;
 using NUnit.Framework;
 using UnityEngine;
@@ -97,6 +98,66 @@ namespace Drift.Tests
             Assert.AreEqual(min, SkyMath.AdvanceMoonPhase(0.05f, 0.001f, min, max, true));
             Assert.AreEqual(min, SkyMath.AdvanceMoonPhase(0.05f, 0.001f, min, max, false));
             Assert.AreEqual(0.1f, SkyMath.AdvanceMoonPhase(0.95f, 0.15f, 0f, 0f, false), 1e-5f, "no range: the old full cycle");
+        }
+
+        // Reviewer 2026-09-25: "Gefahren nachts kaum lesbar". Drift.Visuals.NightReadability lives next to DayNightCycle;
+        // this assembly does not reference Drift.Visuals, so it is reached by reflection.
+        static readonly Type Readability = Type.GetType("Drift.Visuals.NightReadability, Drift.Visuals");
+
+        static T Call<T>(string name, params object[] args)
+        {
+            Assert.IsNotNull(Readability, "Drift.Visuals.NightReadability");
+            return (T)Readability.GetMethod(name).Invoke(null, args);
+        }
+
+        [Test]
+        public void ShoreRim_IsInvisibleByDay_OffInCozy_FullAtAnAdventureNight()
+        {
+            Assert.AreEqual(0f, Call<float>("ShoreRimStrength", 0f, true, 1f, 0f), "day");
+            Assert.AreEqual(0f, Call<float>("ShoreRimStrength", 1f, false, 1f, 0f), "cozy");
+            Assert.AreEqual(1f, Call<float>("ShoreRimStrength", 1f, true, 1f, 0f), 1e-6f);
+            Assert.AreEqual(0.3f, Call<float>("ShoreRimStrength", 0.5f, false, 1f, 0.6f), 1e-6f, "a cozy share scales too");
+            Assert.AreEqual(1f, Call<float>("ShoreRimStrength", 2f, true, 3f, 0f), 1e-6f, "clamped");
+        }
+
+        [Test]
+        public void ShoreRimShape_OnlyAlongTheWaterline_BrightestEdgeOn()
+        {
+            Assert.AreEqual(0f, Call<float>("ShoreRimShape", -0.5f, 0f), "cut-away sea floor");
+            Assert.AreEqual(0f, Call<float>("ShoreRimShape", 0.8f, 0f), "grass and hills stay unlit");
+            float atSea = Call<float>("ShoreRimShape", 0f, 1f);
+            Assert.Greater(atSea, 0.2f, "a faint band where the shore faces the camera");
+            Assert.Greater(Call<float>("ShoreRimShape", 0f, 0f), atSea, "stronger where the shore turns edge-on");
+            Assert.AreEqual(1f, Call<float>("ShoreRimShape", 0f, 0f), 1e-5f);
+            Assert.Greater(atSea, Call<float>("ShoreRimShape", 0.5f, 1f), "fades up the beach");
+        }
+
+        [Test]
+        public void StormPuffLift_RaisesOnlyAtNight_NeverDarkens()
+        {
+            var col = new Color(0.04f, 0.05f, 0.3f, 0.7f);
+            var floor = new Color(0.12f, 0.14f, 0.21f, 1f);
+            Assert.AreEqual(col, Call<Color>("StormPuffLift", col, floor, 0f), "the day look is unchanged");
+            Color n = Call<Color>("StormPuffLift", col, floor, 1f);
+            Assert.AreEqual(floor.r, n.r, 1e-6f);
+            Assert.AreEqual(floor.g, n.g, 1e-6f);
+            Assert.AreEqual(col.b, n.b, 1e-6f, "a brighter channel is kept");
+            Assert.AreEqual(col.a, n.a, "coverage untouched");
+        }
+
+        [Test]
+        public void RainSideFade_IsSoftAtTheShaftsOutline()
+        {
+            Assert.AreEqual(0f, Call<float>("RainSideFade", 0f, 0.15f, 0.7f), "edge-on wall: no hard box outline");
+            Assert.AreEqual(1f, Call<float>("RainSideFade", 1f, 0.15f, 0.7f));
+            Assert.AreEqual(1f, Call<float>("RainSideFade", -0.9f, 0.15f, 0.7f), "the back wall counts like the front");
+            float prev = 0f;
+            for (int i = 0; i <= 20; i++)
+            {
+                float f = Call<float>("RainSideFade", i / 20f, 0.15f, 0.7f);
+                Assert.GreaterOrEqual(f, prev);
+                prev = f;
+            }
         }
     }
 }

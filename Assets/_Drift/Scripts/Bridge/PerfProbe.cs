@@ -50,7 +50,29 @@ namespace Drift.Bridge
             {
                 object was = scaleProp.GetValue(rp);
                 yield return Measure("renderScale0.6", () => scaleProp.SetValue(rp, 0.6f), () => scaleProp.SetValue(rp, was));
+                yield return Measure("renderScale1.0", () => scaleProp.SetValue(rp, 1.0f), () => scaleProp.SetValue(rp, was));
             }
+            var msaaProp = rp != null ? rp.GetType().GetProperty("msaaSampleCount") : null;
+            if (msaaProp != null)
+            {
+                object was = msaaProp.GetValue(rp);
+                yield return Measure("noMSAA", () => msaaProp.SetValue(rp, 1), () => msaaProp.SetValue(rp, was));
+            }
+            // Depth from a prepass instead of a copy of the attachment (Adreno showed square tiles in the depth-based
+            // shore foam); the renderer data lives in the asset's private list, the pipeline is rebuilt by reassigning.
+            var listField = rp != null ? rp.GetType().GetField("m_RendererDataList", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance) : null;
+            var renderers = listField != null ? listField.GetValue(rp) as System.Array : null;
+            object rd = renderers != null && renderers.Length > 0 ? renderers.GetValue(0) : null;
+            var depthModeProp = rd != null ? rd.GetType().GetProperty("copyDepthMode") : null;
+            if (depthModeProp != null)
+            {
+                object was = depthModeProp.GetValue(rd);
+                object prepass = System.Enum.ToObject(depthModeProp.PropertyType, 2);
+                yield return Measure("depthPrepass",
+                    () => { depthModeProp.SetValue(rd, prepass); QualitySettings.renderPipeline = null; QualitySettings.renderPipeline = rp; },
+                    () => { depthModeProp.SetValue(rd, was); QualitySettings.renderPipeline = null; QualitySettings.renderPipeline = rp; });
+            }
+            else Debug.Log("Drift-PROBE depthPrepass unavailable rd=" + (rd != null ? rd.GetType().Name : "null"));
             var depthProp = rp != null ? rp.GetType().GetProperty("supportsCameraDepthTexture") : null;
             if (depthProp != null)
             {
@@ -95,6 +117,8 @@ namespace Drift.Bridge
         IEnumerator Measure(string step, System.Action apply, System.Action undo)
         {
             apply?.Invoke();
+            // A logcat watcher takes a screenshot inside each step (visual checks such as the shore foam).
+            Debug.Log("Drift-PROBE begin " + step);
             float t = 0f;
             while (t < Settle) { t += Time.unscaledDeltaTime; yield return null; }
             int frames = 0, gpuN = 0;

@@ -253,7 +253,7 @@ namespace Drift.Tests
         [Test]
         public void HomeButton_HasItsNewLabel_AndTheBannerNamesTheInputInUse()
         {
-            Assert.AreEqual("Home", PangaeaFinale.HomeLabel);
+            Assert.AreEqual("Hauptmenü", PangaeaFinale.HomeLabel);
             Assert.AreEqual(PangaeaFinale.TiltBannerBody, PangaeaFinale.BannerBodyFor(true, true));
             Assert.AreEqual(PangaeaFinale.DefaultBannerBody, PangaeaFinale.BannerBodyFor(false, true));
             Assert.AreEqual(PangaeaFinale.KeyboardBannerBody, PangaeaFinale.BannerBodyFor(false, false));

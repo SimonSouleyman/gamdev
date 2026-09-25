@@ -49,6 +49,16 @@ namespace Drift.Visuals
         [Range(2f, 30f)] public float coastEmphasisRange = 12f;
         [Tooltip("Mindestabstand in Sekunden zwischen zwei Neuberechnungen der Küstenlinie, solange die Insel nur sinkt oder Berge wachsen. Nach einer Verschmelzung oder einem Inselwechsel wird sofort neu berechnet.")]
         [Range(0f, 5f)] public float coastRebuildInterval = 2f;
+        [Tooltip("Ab dieser Kielwasser-Reichweite (Einheiten, 0,9 x Inselbreite + 2) wächst das aufgewühlte Wasser hinter der Insel nur noch langsam mit: große Inseln ziehen ein Band hinter sich her, kein weißes Feld.")]
+        [Range(4f, 40f)] public float wakeSoftReach = 16f;
+        [Tooltip("So viel schwächer wird der Kielwasser-Schaum hinter sehr breiten Inseln (0 = wie bei kleinen Inseln).")]
+        [Range(0f, 0.9f)] public float wakeBigIslandDamping = 0.45f;
+
+        [Header("Wolkenschatten auf dem Meer")]
+        [Tooltip("Auflösung der Wolkenschatten-Textur für Meer und Schaumflocken (20 Texel pro Wolkenzelle, 256 = 12,8 Zellen = 230 Einheiten um den Blickpunkt; weiter draußen rechnet das Meer die Wolken wie bisher selbst). 0 = aus.")]
+        [Range(0, 512)] public int cloudShadowResolution = 256;
+        [Tooltip("So viele Wolkenzellen-Reihen füllt ein Bild, während die Textur neu berechnet wird.")]
+        [Range(1, 32)] public int cloudShadowRowsPerFrame = 2;
 
         [Header("Tempogefühl im Wasser")]
         [Tooltip("Tempogefühl im Wasser: Bugwelle, Gischt, Tempolinien und die Strömungs-Rückmeldung. Aus = Wasser wie bisher.")]
@@ -91,6 +101,11 @@ namespace Drift.Visuals
         static readonly int SpeedFeelGainsId = Shader.PropertyToID("_SpeedFeelGains");
         static readonly int SprayPosId = Shader.PropertyToID("_SprayPos");
         static readonly int WaterLightId = Shader.PropertyToID("_WaterLight");
+        static readonly int PlayerWakeDampId = Shader.PropertyToID("_PlayerWakeDamp");
+        static readonly int CloudShadowTexId = Shader.PropertyToID("_CloudShadowTex");
+        static readonly int CloudShadowTexPrevId = Shader.PropertyToID("_CloudShadowTexPrev");
+        static readonly int CloudShadowTexParamsId = Shader.PropertyToID("_CloudShadowTexParams");
+        static readonly int CloudShadowTexPrevParamsId = Shader.PropertyToID("_CloudShadowTexPrevParams");
         public const int ReachSlots = 32;
 
         MaterialPropertyBlock _block;
@@ -121,6 +136,8 @@ namespace Drift.Visuals
         float _coastAge;
         bool _coastUrgent;
         Vector4 _wakeEdge, _wake;
+        float _wakeDamp;
+        CloudShadowTexture _cloudTex;
         bool _hasWakeEdge;
         CurrentField _field;
         float _fieldAge = float.MaxValue;
@@ -149,6 +166,9 @@ namespace Drift.Visuals
         public float BodyYawRad { get; private set; }
         public Vector4 WakeEdge => _wakeEdge;
         public Vector4 WakeParams => _wake;
+        // 0 = the churn behind the island as bright as ever, up to wakeBigIslandDamping for a continent.
+        public float WakeDamp => _wakeDamp;
+        public CloudShadowTexture CloudShadowTexture => _cloudTex;
         public int ReachRefreshCount { get; private set; }
         public Renderer Water => waterRenderer;
         public CurrentField Field => _field;
@@ -193,6 +213,7 @@ namespace Drift.Visuals
             _field = null;
             _fieldAge = float.MaxValue;
             _coast.Release();
+            ReleaseCloudTexture();
             _coastParams = Vector4.zero;
             _coastOwner = null;
             _coastVersion = -1;
@@ -349,6 +370,7 @@ namespace Drift.Visuals
             if (p == null || speed < wakeMinSpeed || _reachMax <= 0f)
             {
                 _wake = Vector4.zero;
+                _wakeDamp = 0f;
                 _hasWakeEdge = false;
                 return;
             }
@@ -380,9 +402,70 @@ namespace Drift.Visuals
             float width = Mathf.Max(0.5f, _wakeEdge.y - _wakeEdge.w);
             // How far astern the churn reaches, measured from the shore - never past the coast field, whose
             // border fade would otherwise cut the foam off along a straight line.
-            float wakeLen = Mathf.Min(0.9f * width + 2f, 0.72f * (_coastParams.w > 0f ? _coast.Margin : 1e4f));
+            float wakeLen = Mathf.Min(WakeReach(width, wakeSoftReach), 0.72f * (_coastParams.w > 0f ? _coast.Margin : 1e4f));
             float veeLen = 2.4f * width + 4f;
             _wake = new Vector4(wakeLen, veeLen, _reachMax + veeLen + 2f, Mathf.Clamp(width / 8f, 0.6f, 1.25f));
+            _wakeDamp = WakeDamping(width, wakeSoftReach, wakeBigIslandDamping);
+        }
+
+        // Churn reach behind an island `width` wide across its travel: 0.9 width + 2 as always up to softReach, then
+        // growing only with the square root of the excess (same slope at the joint). Behind a continent the old linear
+        // reach (capped only by the coast field, ~37 u) drew a white field a third of the screen wide.
+        public static float WakeReach(float width, float softReach)
+        {
+            float raw = 0.9f * width + 2f;
+            if (raw <= softReach) return raw;
+            // 0.5 (sqrt(1 + 4x) - 1) has slope 1 at x = 0 and grows like sqrt(x) after: width 30 -> 19 u, 100 -> 24 u.
+            return softReach + 0.5f * (Mathf.Sqrt(1f + 4f * (raw - softReach)) - 1f);
+        }
+
+        // Share of the churn foam taken away behind very wide islands: 0 up to the width where the soft reach
+        // starts, easing to `damping` over the next 40 u of width.
+        public static float WakeDamping(float width, float softReach, float damping)
+        {
+            float w0 = (softReach - 2f) / 0.9f;
+            float t = Mathf.Clamp01((width - w0) / 40f);
+            return damping * t * t * (3f - 2f * t);
+        }
+
+        // The cloud shadow texture the sea samples instead of hashing the clumps per pixel (CloudShadowTexture), laid
+        // around the same view centre as the current field. Without CloudShadows (or with the resolution at 0) the
+        // shader keeps the analytic path.
+        void UpdateCloudTexture(float dt)
+        {
+            var clouds = CloudShadows.Instance;
+            int res = cloudShadowResolution;
+            if (clouds == null || !clouds.isActiveAndEnabled || res < 16)
+            {
+                if (_cloudTex != null) ReleaseCloudTexture();
+                Shader.SetGlobalVector(CloudShadowTexParamsId, Vector4.zero);
+                Shader.SetGlobalVector(CloudShadowTexPrevParamsId, Vector4.zero);
+                return;
+            }
+            if (_cloudTex == null || _cloudTex.Resolution != Mathf.Clamp(res, 16, 512))
+            {
+                ReleaseCloudTexture();
+                _cloudTex = new CloudShadowTexture(res);
+            }
+            Vector2 centre = FieldCentre();
+            Vector2 q = (centre + clouds.Shift) * clouds.Scale + clouds.Offset;
+            _cloudTex.Step(clouds.Cover, q, dt, cloudShadowRowsPerFrame);
+            var cur = _cloudTex.Current;
+            if (cur != null)
+            {
+                Shader.SetGlobalTexture(CloudShadowTexId, cur);
+                Shader.SetGlobalTexture(CloudShadowTexPrevId, _cloudTex.Previous != null ? _cloudTex.Previous : cur);
+            }
+            Shader.SetGlobalVector(CloudShadowTexParamsId, cur != null ? _cloudTex.CurrentParams : Vector4.zero);
+            Shader.SetGlobalVector(CloudShadowTexPrevParamsId, cur != null && _cloudTex.Previous != null ? _cloudTex.PreviousParams : Vector4.zero);
+        }
+
+        void ReleaseCloudTexture()
+        {
+            _cloudTex?.Release();
+            _cloudTex = null;
+            Shader.SetGlobalVector(CloudShadowTexParamsId, Vector4.zero);
+            Shader.SetGlobalVector(CloudShadowTexPrevParamsId, Vector4.zero);
         }
 
         // The view's centre on the water: the camera's look ray on the sea plane, else the player.
@@ -554,6 +637,7 @@ namespace Drift.Visuals
             if (_sprayAge > sprayLife) _sprayStrength = 0f;
             _boostShare = alive ? SpeedFeel.BoostShare(p.BoostFactor, 1.65f) : 0f;
             UpdateSpeedFeel(alive ? p : null, dt);
+            UpdateCloudTexture(dt);
 
             _block.SetVector(PlayerPosId, new Vector4(PlayerPos.x, PlayerPos.y, 0f, 0f));
             _block.SetVector(PlayerVelId, new Vector4(PlayerVel.x, PlayerVel.y, 0f, 0f));
@@ -571,6 +655,7 @@ namespace Drift.Visuals
             _block.SetVector(CoastRotId, new Vector4(Mathf.Cos(BodyYawRad), Mathf.Sin(BodyYawRad), 0f, 0f));
             _block.SetVector(PlayerWakeEdgeId, _wakeEdge);
             _block.SetVector(PlayerWakeId, _wake);
+            _block.SetFloat(PlayerWakeDampId, _wakeDamp);
             _block.SetVector(CurrentFieldParamsId, _fieldParams);
             _block.SetVector(CurrentEmphasisId, _emphasis);
             _block.SetVector(SpeedFeelId, SpeedFeelVector);

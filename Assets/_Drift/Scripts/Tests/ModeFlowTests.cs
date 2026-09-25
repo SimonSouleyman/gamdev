@@ -200,6 +200,22 @@ namespace Drift.Tests
             Assert.AreEqual("Versunken", ModeTexts.LostTitle(GameMode.Adventure, true));
             Assert.AreEqual("Versunken", ModeTexts.LostTitle(GameMode.Cozy, false));
             StringAssert.DoesNotContain("Kante", ModeTexts.EdgeLabel, "the edge hint no longer warns of falling");
+            // The world count of the cozy panel and the milestones: volcanoes appear beside the slot count.
+            Assert.AreEqual("7 von 20 Inseln · 2 Vulkane", ModeTexts.WorldProgressLabel(7, 20, 2));
+            Assert.AreEqual("alle vereint", ModeTexts.WorldProgressLabel(20, 20, 2));
+        }
+
+        // The start sentence names what the race is about (dodge, collect, distance) without the words of Gemütlich.
+        [Test]
+        public void Hud_AdventureStartLineSaysWhatTheRaceIsAbout()
+        {
+            string s = ModeTexts.AdventureStartLine;
+            StringAssert.Contains("Weiche", s);
+            StringAssert.Contains("sammle", s);
+            StringAssert.Contains("wie weit", s);
+            StringAssert.DoesNotContain("Tempo", s);
+            StringAssert.DoesNotContain("vereine", s);
+            Assert.AreEqual(1, s.Split('?').Length - 1, "one sentence, one question");
         }
 
         // Abenteuer drives itself: the hint may not promise throttle control, and it reads the same in both

@@ -18,6 +18,10 @@ namespace Drift.Bridge
         public enum EditorPreview { None, Title, Pause, GameOver, Help, AdventureGameOver, ConfirmNewWorld, CozyChoice }
 
         const string CanvasName = "SessionScreensCanvas";
+        // The way back to the title (pause menu, "Versunken"), with the house icon (owner 2026-09-25; was "Home").
+        public const string MainMenuLabel = "Hauptmenü";
+        // Just sunk: Tilda is sorry for the player in both modes, never cheering (first-time reviewer 2026-09-25).
+        public const TildaPose GameOverPose = TildaPose.Comfort;
         const int EditorSampleSeed = 482913;
 
         public GameSession session;
@@ -61,7 +65,6 @@ namespace Drift.Bridge
         UiToggle _pauseVoice;
         float _idleTimer;
         int _idleIndex;
-        bool _overCheered;
         GameObject _title, _pause, _over, _pauseButton, _confirm, _choice;
         Action _confirmAction;
         GameObject _overNewIsland, _overAdventureRow;
@@ -358,7 +361,7 @@ namespace Drift.Bridge
                 }
                 if (t) RefreshTitleBest();
                 if (p) SetPauseMode(GameModes.IsAdventure);
-                UpdatePresenter(editorPreview == EditorPreview.Help ? Stage.Help : t ? Stage.Title : p ? Stage.Pause : o ? Stage.GameOver : Stage.None, 3.2f);
+                UpdatePresenter(editorPreview == EditorPreview.Help ? Stage.Help : t ? Stage.Title : p ? Stage.Pause : o ? Stage.GameOver : Stage.None);
                 if (editorPreview != EditorPreview.None) FillEditorSample();
                 if (player == null)
                     foreach (var i in Island.All) if (i != null && i.useKeyboardInput) { player = i; break; }
@@ -386,7 +389,8 @@ namespace Drift.Bridge
             var s = session.Current;
             if (s != _shown)
             {
-                if (_shown == GameSession.State.GameOver && s == GameSession.State.Playing) TildaVoice.Say(TildaVoiceLines.NewIsland, VoicePriority.Queue);
+                if (_shown == GameSession.State.GameOver && s == GameSession.State.Playing)
+                    TildaVoice.Say(TildaVoiceLines.ForMode(TildaVoiceLines.NewIsland, session.Mode == GameMode.Adventure), VoicePriority.Queue);
                 // A run starts from however the player happens to be holding the phone; a resume keeps the
                 // middle it had, so a pause in mid-turn does not silently re-zero the steering.
                 if (s == GameSession.State.Playing && (_shown != GameSession.State.Paused || session.RunNumber != _shownRun) && tilt != null) tilt.Recalibrate();
@@ -449,7 +453,7 @@ namespace Drift.Bridge
             SetPanelActive(_over, !covered && s == GameSession.State.GameOver);
             UpdatePresenter(covered ? Stage.None : _help.IsOpen ? Stage.Help
                 : s == GameSession.State.Title ? Stage.Title : s == GameSession.State.Paused ? Stage.Pause
-                : s == GameSession.State.GameOver ? Stage.GameOver : Stage.None, session.RestartCountdown);
+                : s == GameSession.State.GameOver ? Stage.GameOver : Stage.None);
 
             var kb = Keyboard.current;
             // The run journal handles back itself while open and in the frame it closed.
@@ -604,7 +608,7 @@ namespace Drift.Bridge
 
         // ---------------------------------------------------------------- Tilda beside the menus
 
-        void UpdatePresenter(Stage stage, float countdown)
+        void UpdatePresenter(Stage stage)
         {
             if (_presenter == null || _root == null) return;
             Vector2 canvas = TildaPresenter.CanvasSize(_root);
@@ -633,14 +637,14 @@ namespace Drift.Bridge
             {
                 if (stage == Stage.Title) view.SetPose(TildaPose.Wave);
                 else if (stage == Stage.Pause) view.SetPose(TildaPose.Idle);
-                else if (stage == Stage.GameOver) view.SetPose(TildaPose.Comfort, true);
+                else if (stage == Stage.GameOver) view.SetPose(GameOverPose, true);
                 return;
             }
             switch (stage)
             {
                 case Stage.Title: TitleStage(view, entered); break;
                 case Stage.Pause: if (entered) PauseStage(view); break;
-                case Stage.GameOver: GameOverStage(view, entered, countdown); break;
+                case Stage.GameOver: if (entered) GameOverStage(view); break;
             }
         }
 
@@ -649,7 +653,7 @@ namespace Drift.Bridge
         {
             if (!Application.isPlaying) return;
             if (stage == Stage.Title) TildaVoice.Hush(TildaVoiceLines.Greeting, "idle_");
-            else if (stage == Stage.Pause) TildaVoice.Hush(TildaVoiceLines.Pause);
+            else if (stage == Stage.Pause) TildaVoice.Hush(TildaVoiceLines.Pause, TildaVoiceLines.AdventurePrefix + TildaVoiceLines.Pause);
             else if (stage == Stage.Help) TildaVoice.Hush("help_");
         }
 
@@ -683,25 +687,18 @@ namespace Drift.Bridge
         {
             view.SetPose(TildaPose.Idle);
             if (s_pauseLineSaid || !Application.isFocused) return;
-            if (!TildaVoice.Say(TildaVoiceLines.Pause, VoicePriority.IfSilent)) return;
+            string line = TildaVoiceLines.ForMode(TildaVoiceLines.Pause, session != null && session.Mode == GameMode.Adventure);
+            if (!TildaVoice.Say(line, VoicePriority.IfSilent)) return;
             s_pauseLineSaid = true;
-            view.Play(TildaPose.Idle, 0f, TildaVoice.LengthOf(TildaVoiceLines.Pause));
+            view.Play(TildaPose.Idle, 0f, TildaVoice.LengthOf(line));
         }
 
-        void GameOverStage(TildaView view, bool entered, float countdown)
+        // She stays sorry for as long as the screen is up; the cheer waits for the new island.
+        void GameOverStage(TildaView view)
         {
-            if (entered)
-            {
-                _overCheered = false;
-                view.SetPose(TildaPose.Idle);
-                bool spoken = TildaVoice.Say(TildaVoiceLines.GameOver, VoicePriority.Interrupt);
-                float seconds = spoken ? TildaVoice.LengthOf(TildaVoiceLines.GameOver) : 3f;
-                view.Play(TildaPose.Comfort, seconds, seconds);
-                return;
-            }
-            if (_overCheered || countdown <= 0f || countdown > 1f) return;
-            _overCheered = true;
-            view.SetPose(TildaPose.Cheer);
+            view.SetPose(GameOverPose);
+            string line = TildaVoiceLines.ForMode(TildaVoiceLines.GameOver, session != null && session.Mode == GameMode.Adventure);
+            if (TildaVoice.Say(line, VoicePriority.Interrupt)) view.Play(GameOverPose, 0f, TildaVoice.LengthOf(line));
         }
 
         void OnToggleVoice()
@@ -743,7 +740,7 @@ namespace Drift.Bridge
             if (_pauseButton != null) _pauseButton.SetActive(pauseButton);
         }
 
-        // Abenteuer scores the distance and waits for "Nochmal" / "Home"; the cozy path (no longer reachable in
+        // Abenteuer scores the distance and waits for "Nochmal" / "Hauptmenü"; the cozy path (no longer reachable in
         // normal play) keeps its stats and the automatic new island. Called every frame of the screen: the texts are
         // only rebuilt when something they show has changed.
         void FillGameOver(SessionStats st, float countdown, GameMode mode, BestDistances.Result result)
@@ -1002,6 +999,7 @@ namespace Drift.Bridge
         // ---------------------------------------------------------------- layout
 
         const float ButtonWidth = 680f;
+        const float OverRowWidth = 760f, OverAgainWidth = 316f, OverRowGap = 16f;
         static readonly Vector2 TitlePanel = new Vector2(920f, 1516f), OverPanel = new Vector2(880f, 1270f);
         static Vector2 PausePanel => new Vector2(880f, Application.isMobilePlatform ? 1300f : 1464f);
         const float TitleExtrasY = -1132f;
@@ -1171,7 +1169,7 @@ namespace Drift.Bridge
             Primary(panel, "Resume", "Fortsetzen", -244f, () => session?.Resume());
             var wide = new Vector2(ButtonWidth, UiStyle.ButtonHeight);
             _pauseRestartLabel = UiStyle.LabelOf(Secondary(panel, "Restart", ModeTexts.RestartLabel(GameMode.Cozy), new Vector2(0f, -408f), wide, OnRestartPressed));
-            UiStyle.ButtonIcon(Secondary(panel, "Title", PangaeaFinale.HomeLabel, new Vector2(0f, -572f), wide, () => session?.ReturnToTitle()), UiIcon.Home);
+            UiStyle.ButtonIcon(Secondary(panel, "Title", MainMenuLabel, new Vector2(0f, -572f), wide, () => session?.ReturnToTitle()), UiIcon.Home);
             // The smaller extras: three rows of 116 at a 132 step below the three big buttons. Watching,
             // photographing and the species journal are the cozy game, so the adventure menu simply leaves them
             // out (WatchTools refuses them there) and the rest closes the gap.
@@ -1225,12 +1223,14 @@ namespace Drift.Bridge
             _countdownText = Line(panel, "", UiStyle.Body, UiStyle.CreamSoft, -966f, 56f);
             _overNewIsland = Primary(panel, "NewIsland", "Neue Insel", -1080f, () => session?.RestartFromGameOver()).gameObject;
 
-            var row = UiStyle.Rect(panel, "AdventureButtons").TopCenter(new Vector2(0f, -1080f), new Vector2(ButtonWidth, UiStyle.ButtonHeight));
+            // As wide as the stats card: "Hauptmenü" behind its house icon needs more room than "Nochmal".
+            var row = UiStyle.Rect(panel, "AdventureButtons").TopCenter(new Vector2(0f, -1080f), new Vector2(OverRowWidth, UiStyle.ButtonHeight));
             _overAdventureRow = row.gameObject;
-            var half = new Vector2(328f, UiStyle.ButtonHeight);
-            var again = UiStyle.PrimaryButton(row, "Again", "Nochmal", half, () => session?.StartNewGame(GameMode.Adventure));
-            ((RectTransform)again.transform).TopCenter(new Vector2(-176f, 0f), half);
-            UiStyle.ButtonIcon(Secondary(row, "Title", PangaeaFinale.HomeLabel, new Vector2(176f, 0f), half, () => session?.ReturnToTitle()), UiIcon.Home);
+            var againSize = new Vector2(OverAgainWidth, UiStyle.ButtonHeight);
+            var menuSize = new Vector2(OverRowWidth - OverAgainWidth - OverRowGap, UiStyle.ButtonHeight);
+            var again = UiStyle.PrimaryButton(row, "Again", "Nochmal", againSize, () => session?.StartNewGame(GameMode.Adventure));
+            ((RectTransform)again.transform).TopCenter(new Vector2((againSize.x - OverRowWidth) * 0.5f, 0f), againSize);
+            UiStyle.ButtonIcon(Secondary(row, "Title", MainMenuLabel, new Vector2((OverRowWidth - menuSize.x) * 0.5f, 0f), menuSize, () => session?.ReturnToTitle()), UiIcon.Home);
             _recordText.gameObject.SetActive(false);
             _overAdventureRow.SetActive(false);
             _overMode = GameMode.Cozy;

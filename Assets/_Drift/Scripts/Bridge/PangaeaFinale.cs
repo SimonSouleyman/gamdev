@@ -973,10 +973,19 @@ namespace Drift.Bridge
                 islandsMerged = st != null ? st.islandsAbsorbed : 0,
                 landArea = player != null ? player.LandArea : 0f,
                 speciesSeen = journal != null ? journal.RunSeenCount : 0,
-                photos = CountPhotos(_runStart ?? DateTime.Now - TimeSpan.FromSeconds(play)),
+                photos = CountPhotos(RunStart(play)),
                 image = "",
                 name = IslandNames.ForSeed(session != null && session.WorldSeed != 0 ? session.WorldSeed : (int)(DateTime.Now.Ticks % int.MaxValue)),
             };
+        }
+
+        // The save keeps the run's start across app restarts; this session's own clock also covers the pauses before
+        // the first save. Both can only be later than the real start, so the earlier one wins.
+        DateTime RunStart(float play)
+        {
+            long start = saveManager != null ? saveManager.RunStartUtcTicks(play) : RunStartTime.Estimate(DateTime.UtcNow.Ticks, play);
+            if (_runStart.HasValue) start = Math.Min(start, _runStart.Value.ToUniversalTime().Ticks);
+            return new DateTime(start, DateTimeKind.Utc).ToLocalTime();
         }
 
         static int CountPhotos(DateTime since)
@@ -1141,7 +1150,7 @@ namespace Drift.Bridge
 
         const float ButtonWidth = 680f;
         // The button back to the title screen, with the house icon (was "Zum Titel").
-        public const string HomeLabel = "Home";
+        public const string HomeLabel = SessionScreens.MainMenuLabel;
         static readonly Vector2 PanelSize = new Vector2(880f, 1540f);
         static readonly Vector2 BannerSize = new Vector2(880f, 216f);
         static readonly Vector2 BannerButton = new Vector2(248f, 96f);

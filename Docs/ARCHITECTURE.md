@@ -2176,3 +2176,50 @@ Structural rules that new content has to follow:
   close-up motion smoothing (`Shaders/DriftMotion.hlsl`, UV4 = previous position + bake time), flock watch framing,
   map-style Pangäa camera (`FlyOverCamera`, `TouchGestures`, `PangaeaSights`), lightning fire patches
   (`firePatchShare`), adventure intro hold (`GameSession.adventureIntroSeconds`), flotsam rings, higher race camera.
+
+## v0.6.7.1 / v0.6.7.2 additions (2026-09-25 night)
+
+v0.6.7.1 was the 90-minute test run of v0.6.7 (`Docs/CHANGES_2026-09-25d.md`): small fixes only. v0.6.7.2 is the
+owner's pick from the proposal list (`Docs/CHANGES_2026-09-25e.md`), seven parallel agents.
+
+- **Fresh start vs. resume**: `GameSession.RunNumber` counts `StartNewGame` calls; `SessionScreens`, `MilestoneToasts`
+  and `ArmIntro` treat a Playing state with a new number as a fresh run even when it came out of the pause menu.
+- **Screen sleep** only while `State.Playing` (`GameSession.ApplyState`), not globally in `PlatformSetup`.
+- **Background return** (cozy): `GameSession` remembers the UTC time on `OnApplicationPause(true)` and calls
+  `IslandLifeSystem.CatchUp` on return with `CatchUpSecondsFor` (life clock × timeScale, capped by
+  `SaveManager.maxOfflineLifeSeconds`, ignored under `MinBackgroundSeconds` = 2 s). `TiltSteering` re-centres on the
+  next active frame after a return (`ResumeRecenterDue`).
+- **Adventure sink ramp** is distance-driven and uncapped again: `RingWorld.SinkScaleFor(sinkSpeed, sinkGainPerKm,
+  metres)` = sinkSpeed × (1 + 0.5 × km). The v0.6.4 time ramp (`sinkScaleMax`) is gone; the owner wants late runs harder.
+- **HUD**: `ModeTexts.WorldProgressLabel` ("5 von 20 Inseln · 3 Vulkane", from `SessionStats.volcanoesAbsorbed`);
+  the momentum row is as large as the buoyancy row; `AdventureStartLine` shows during the intro hold; nested canvases
+  (`UiStyle.SubCanvas`) for the animated parts, colours written only past 1/255 (`UiStyle.Tint`).
+- **Hints**: bubbles are refused in the top HUD band (`IslandHintLogic.OnScreen(…, marginTop)` =
+  `edgeMargins.z / height`); the far last-island pointer uses `WorldStreamer.TryGetSlotPosition` (live island →
+  saved override → plan).
+- **Run start in the save**: `SaveGame.runStartUtcTicks`, resolved by `RunStartTime.Resolve`; `PangaeaFinale` counts
+  the run's photos from it (0 in old files → the old "now − play time" estimate).
+- **Screens**: "Hauptmenü" (`SessionScreens.MainMenuLabel`, also `PangaeaFinale.HomeLabel`); Tilda's `Comfort` pose
+  is the sorry face (`TildaFace.shadesUp` lifts the sport shades); `TildaVoiceLines.ForMode` is wired for game over,
+  pause and new island.
+- **Night readability** (adventure only): `DayNightCycle.NightReadability` maths, global `_DriftShoreRim` (cool rim on
+  the terrain's waterline band in `IslandTerrain.shader`), `DriftStormNightLift` in `DriftCloudPuff.hlsl`, rain
+  columns fade at their silhouette (`RainFacing`), storm-tinted fair-weather clouds get the same night lift.
+- **Water GPU**: half precision for the shading maths (world position, time, depth, noise inputs and the sun
+  highlight stay float); `DriftNoiseStable` (integer-reduced hash inputs); `Visuals/CloudShadowTexture` (256² R8 in
+  cloud space, CPU-filled over frames, `CloudShadowTex` in water and flecks); storm path only computes wind streaks
+  near the camera and above storm 0.25, crest noise only on breaking crests, `StormField` per vertex near the
+  camera; wake reach grows with the square root beyond 16 u (`WaterFeedback.WakeReach`, `WakeDamping`).
+- **Depth texture per camera**: pipeline assets have `RequireDepthTexture` off, the Main Camera overrides it On
+  (`m_RequiresDepthTextureOption: 1`), `IslandPreview.ConfigureUrp` sets the portrait/preview cameras (the preview keeps
+  depth for the water). `Drift.Bridge` now references `Unity.RenderPipelines.Universal.Runtime`.
+- **WaterFlecks** draw only the levels the camera can see (`VisibleLevels`/`IndexRange` + `SetSubMesh`); the fish mesh
+  keeps fixed buffers, `Color32` colours at ¼ with `_Tint` = 4.
+- **Shore-foam tiles on the phone** (open): the probe (`PerfProbe` steps `renderScale1.0`, `noMSAA`, `depthPrepass`,
+  each logging `Drift-PROBE begin <step>` for screenshots) showed the tiles independent of render scale and MSAA and
+  gone without the depth texture → the copied depth on Adreno/Vulkan. Next candidates: `copyDepthMode` ForcePrepass,
+  Native RenderPass off.
+- **Editor lessons**: Play Mode only ticks while the Unity window is the foreground window; the Editor rewrites
+  `ProjectSettings.asset` from memory when a build starts (bump the version through `PlayerSettings` in eval); a build
+  with a dirty scene opens a modal "Scene(s) Have Been Modified" dialog that blocks the CLI (reload the scene from disk
+  first); never edit scripts while a build runs (script layout mismatch).

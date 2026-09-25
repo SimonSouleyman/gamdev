@@ -85,6 +85,16 @@ namespace Drift.Visuals
         const string ObjName = "FishSchools";
         const int VertsPerFish = 7;
         const int IndicesPerFish = 9;
+        // Vertex colours go up as Color32 holding colour / ColorRange, and the material's _Tint multiplies it back:
+        // gold bodies, ambient noses and the Glitter flash (up to ~3.5) are brighter than 1 and must not clamp.
+        const float ColorRange = 4f;
+        const MeshUpdateFlags Upload = MeshUpdateFlags.DontValidateIndices | MeshUpdateFlags.DontRecalculateBounds;
+        static readonly int TintId = Shader.PropertyToID("_Tint");
+        static readonly VertexAttributeDescriptor[] MeshLayout =
+        {
+            new VertexAttributeDescriptor(VertexAttribute.Position, VertexAttributeFormat.Float32, 3, 0),
+            new VertexAttributeDescriptor(VertexAttribute.Color, VertexAttributeFormat.UNorm8, 4, 1),
+        };
 
         struct School
         {
@@ -123,8 +133,12 @@ namespace Drift.Visuals
         int _spentCount;
         Vector3[] _verts;
         Color[] _cols;
+        Color32[] _cols32;
         int[] _tris;
         int _vc, _tc, _mainSlots;
+        // Index slots [0, _patternEnd) of the mesh hold the fixed main-fish pattern; the ambient layer overwrites the
+        // slots after the main fish of its rebuild, so only those (and a growing main pattern) are uploaded again.
+        int _meshVerts, _meshIndices, _patternEnd;
         Mesh _mesh;
         GameObject _go;
         Material _mat;
@@ -271,6 +285,8 @@ namespace Drift.Visuals
                 _cols = new Color[fish * VertsPerFish + extra];
                 _tris = new int[fish * IndicesPerFish + extra * 3];
             }
+            // A new array field comes back empty from a domain reload while the older ones keep their size.
+            if (_cols32 == null || _cols32.Length != _verts.Length) _cols32 = new Color32[_verts.Length];
         }
 
         void DestroyChild()
@@ -306,11 +322,13 @@ namespace Drift.Visuals
                 var shader = Shader.Find("Drift/Fish");
                 if (shader == null) Debug.LogError("FishSystem: shader 'Drift/Fish' not found.");
                 _mat = new Material(shader) { name = "Fish", hideFlags = HideFlags.HideAndDontSave };
+                _mat.SetVector(TintId, new Vector4(ColorRange, ColorRange, ColorRange, 1f));
             }
             if (_mesh == null)
             {
                 _mesh = new Mesh { name = "FishSchools", hideFlags = HideFlags.DontSave };
                 _mesh.MarkDynamic();
+                _meshVerts = _meshIndices = 0;
             }
             _go.GetComponent<MeshRenderer>().sharedMaterial = _mat;
             _go.GetComponent<MeshFilter>().sharedMesh = _mesh;
@@ -918,9 +936,10 @@ namespace Drift.Visuals
                 if (!_schools[si].active || _schools[si].ambient) continue;
                 ref School s = ref _schools[si];
                 if (_vc + s.count * VertsPerFish > _verts.Length) break;
-                Color body = s.color;
-                Color tail = new Color(body.r * 0.75f, body.g * 0.75f, body.b * 0.8f, 1f);
-                Color nose = new Color(Mathf.Min(1f, body.r * 1.1f), Mathf.Min(1f, body.g * 1.1f), Mathf.Min(1f, body.b * 1.1f), 1f);
+                Color c = s.color;
+                Color32 body = Pack(c);
+                Color32 tail = Pack(new Color(c.r * 0.75f, c.g * 0.75f, c.b * 0.8f, 1f));
+                Color32 nose = Pack(new Color(Mathf.Min(1f, c.r * 1.1f), Mathf.Min(1f, c.g * 1.1f), Mathf.Min(1f, c.b * 1.1f), 1f));
                 for (int i = 0; i < s.count; i++)
                 {
                     Vector2 w = FishWorld(ref s, i, out Vector2 f2, out float phase, out float size);
@@ -948,31 +967,77 @@ namespace Drift.Visuals
                     _verts[b + 4] = pos - fwd * (0.25f * len) + right * (wag * 0.25f * len);
                     _verts[b + 5] = pos - fwd * (0.5f * len) + right * ((wag * 0.6f - 0.15f) * len);
                     _verts[b + 6] = pos - fwd * (0.5f * len) + right * ((wag * 0.6f + 0.15f) * len);
-                    _cols[b + 0] = nose;
-                    _cols[b + 1] = body;
-                    _cols[b + 2] = body;
-                    _cols[b + 3] = tail;
-                    _cols[b + 4] = tail;
-                    _cols[b + 5] = tail;
-                    _cols[b + 6] = tail;
-                    int t = _tc;
-                    _tris[t + 0] = b + 0; _tris[t + 1] = b + 1; _tris[t + 2] = b + 3;
-                    _tris[t + 3] = b + 0; _tris[t + 4] = b + 3; _tris[t + 5] = b + 2;
-                    _tris[t + 6] = b + 4; _tris[t + 7] = b + 5; _tris[t + 8] = b + 6;
+                    _cols32[b + 0] = nose;
+                    _cols32[b + 1] = body;
+                    _cols32[b + 2] = body;
+                    _cols32[b + 3] = tail;
+                    _cols32[b + 4] = tail;
+                    _cols32[b + 5] = tail;
+                    _cols32[b + 6] = tail;
                     _vc += VertsPerFish;
                     _tc += IndicesPerFish;
                 }
             }
 
+            EnsureMeshLayout();
+            int mainVc = _vc, mainTc = _tc, dirty = mainTc;
+            if (mainTc > _patternEnd)
+            {
+                WritePattern(_patternEnd, mainTc);
+                dirty = _patternEnd;
+            }
+
             RebuildAmbient();
 
-            _mesh.Clear(false);
-            _mesh.SetVertices(_verts, 0, _vc);
-            _mesh.SetColors(_cols, 0, _vc);
-            _mesh.SetTriangles(_tris, 0, _tc, 0, false);
+            for (int v = mainVc; v < _vc; v++) _cols32[v] = Pack(_cols[v]);
+            _patternEnd = _tc > mainTc ? mainTc : Mathf.Max(_patternEnd, mainTc);
+
+            if (_vc > 0)
+            {
+                _mesh.SetVertexBufferData(_verts, 0, 0, _vc, 0, Upload);
+                _mesh.SetVertexBufferData(_cols32, 0, 0, _vc, 1, Upload);
+            }
+            if (_tc > dirty) _mesh.SetIndexBufferData(_tris, dirty, dirty, _tc - dirty, Upload);
             float ext = recycleRadius * 2f + 10f;
             if (Cozy && _viewOk) ext = Mathf.Max(ext, 2f * ((_viewCenter - _playerPos).magnitude + _viewRadius * 1.5f + 12f));
-            _mesh.bounds = new Bounds(new Vector3(_playerPos.x, 0f, _playerPos.y), new Vector3(ext, 4f, ext));
+            var bounds = new Bounds(new Vector3(_playerPos.x, 0f, _playerPos.y), new Vector3(ext, 4f, ext));
+            _mesh.SetSubMesh(0, new SubMeshDescriptor(0, _tc) { firstVertex = 0, vertexCount = _vc, bounds = bounds }, Upload);
+            _mesh.bounds = bounds;
         }
+
+        // Fixed-size vertex and index buffers for the whole pool, so a rebuild only uploads data and never reallocates.
+        void EnsureMeshLayout()
+        {
+            if (_meshVerts == _verts.Length && _meshIndices == _tris.Length) return;
+            _meshVerts = _verts.Length;
+            _meshIndices = _tris.Length;
+            _patternEnd = 0;
+            _mesh.Clear();
+            _mesh.SetVertexBufferParams(_meshVerts, MeshLayout);
+            _mesh.SetIndexBufferParams(_meshIndices, IndexFormat.UInt32);
+            _mesh.subMeshCount = 1;
+            _mesh.SetSubMesh(0, new SubMeshDescriptor(0, 0), Upload);
+        }
+
+        // Main fish f always uses vertices 7f .. 7f + 6 and index slots 9f .. 9f + 8.
+        void WritePattern(int fromIndex, int toIndex)
+        {
+            for (int t = fromIndex; t < toIndex; t += IndicesPerFish)
+            {
+                int b = t / IndicesPerFish * VertsPerFish;
+                _tris[t + 0] = b + 0; _tris[t + 1] = b + 1; _tris[t + 2] = b + 3;
+                _tris[t + 3] = b + 0; _tris[t + 4] = b + 3; _tris[t + 5] = b + 2;
+                _tris[t + 6] = b + 4; _tris[t + 7] = b + 5; _tris[t + 8] = b + 6;
+            }
+        }
+
+        static Color32 Pack(Color c)
+        {
+            const float k = 255f / ColorRange;
+            return new Color32(ToByte(c.r * k), ToByte(c.g * k), ToByte(c.b * k), ToByte(c.a * 255f));
+        }
+
+        static byte ToByte(float v) => (byte)Mathf.Clamp((int)(v + 0.5f), 0, 255);
+
     }
 }

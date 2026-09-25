@@ -210,6 +210,7 @@ namespace Drift.Bridge
             _cam.useOcclusionCulling = false;
             _cam.targetTexture = _rt;
             _cam.aspect = 1f;
+            IslandPreview.ConfigureUrp(_cam, false);
             _fullBody = true;
             Frame(false);
             Dress();

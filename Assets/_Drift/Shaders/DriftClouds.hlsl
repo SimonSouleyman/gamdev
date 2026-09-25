@@ -36,6 +36,33 @@ float DriftNoise(float2 p)
     return lerp(lerp(a, b, f.x), lerp(c, d, f.x), f.y);
 }
 
+// DriftHash for whole-number p (lattice corners) without its precision loss: frac(p * 123.34) is frac(p * 0.34) for
+// whole p, but p * 123.34 in 32-bit float keeps only a few bits of that fraction once p is in the thousands (a long
+// session scrolls the water's noise by _Time, far islands add their coordinates). The hash then returns a handful of
+// values repeating every few cells: after a few hours of _Time the shore foam lost its break-up and became a flat
+// band (a suspect for the square tiles seen on the phone). Same maths as DriftHash, so the same kind of noise, but not
+// bit-identical values: the clouds (mirrored on the CPU by CloudField) keep DriftHash.
+float DriftHashStable(float2 p)
+{
+    p = frac(p * float2(0.339996337890625, 0.209991455078125));   // 123.34f - 123, 456.21f - 456, both exact
+    p += dot(p, p + 45.32);
+    return frac(p.x * p.y);
+}
+
+// Value noise like DriftNoise on the stable hash: use it wherever the input can get large (time-scrolled or
+// world-anchored noise on the water).
+float DriftNoiseStable(float2 p)
+{
+    float2 i = floor(p);
+    float2 f = p - i;
+    f = f * f * (3.0 - 2.0 * f);
+    float a = DriftHashStable(i);
+    float b = DriftHashStable(i + float2(1, 0));
+    float c = DriftHashStable(i + float2(0, 1));
+    float d = DriftHashStable(i + float2(1, 1));
+    return lerp(lerp(a, b, f.x), lerp(c, d, f.x), f.y);
+}
+
 // Clump of cell id (integer cloud-space coordinates) at the given cover: centre in cloud space, radius in cells
 // (0 = no clump; it grows smoothly while the cover passes the cell's own threshold), long axis (cos, sin) and the
 // stretch along it. The puffs sit at the centre and on a ring of six at 60 degree steps from the axis.
@@ -127,6 +154,42 @@ float CloudShadow(float2 wp)
 {
     float shade = 1.0;
     [branch] if (_CloudShadowStrength > 0.0) shade = 1.0 - CloudDensity(wp) * _CloudShadowStrength;
+    return shade;
+}
+
+// The same shadow from the small cloud-space texture Drift.Visuals.CloudShadowTexture fills (for the sea and its foam
+// flecks, whose pixels are far too many to hash the clumps in each). It stores each clump's linear ramp (encoded
+// -1..1.5, see CloudShadowTexture.RampMin/RampMax), so saturate + smoothstep here restore CloudDensity's soft edge; the
+// previous fill fades out over the new one while the cover changes. Outside the texture (or before it exists:
+// params w = 0) this is exactly CloudShadow.
+TEXTURE2D(_CloudShadowTex);
+SAMPLER(sampler_CloudShadowTex);
+TEXTURE2D(_CloudShadowTexPrev);
+SAMPLER(sampler_CloudShadowTexPrev);
+float4 _CloudShadowTexParams;       // xy = cloud-space origin (cells), z = 1 / size (cells), w = 1 when filled
+float4 _CloudShadowTexPrevParams;   // the previous fill, w = its remaining weight
+
+float CloudShadowTex(float2 wp)
+{
+    float shade = 1.0;
+    [branch] if (_CloudShadowStrength > 0.0)
+    {
+        float2 q = (wp + _CloudShadowShift.xy) * _CloudScale + _CloudOffset.xy;
+        float2 uv = (q - _CloudShadowTexParams.xy) * _CloudShadowTexParams.z;
+        float dens;
+        // 0.497: the outermost half texel has no neighbour to filter with.
+        [branch] if (_CloudShadowTexParams.w > 0.0 && max(abs(uv.x - 0.5), abs(uv.y - 0.5)) < 0.497)
+        {
+            float ramp = SAMPLE_TEXTURE2D_LOD(_CloudShadowTex, sampler_CloudShadowTex, uv, 0).r;
+            float2 uvP = (q - _CloudShadowTexPrevParams.xy) * _CloudShadowTexPrevParams.z;
+            [branch] if (_CloudShadowTexPrevParams.w > 0.0 && max(abs(uvP.x - 0.5), abs(uvP.y - 0.5)) < 0.497)
+                ramp = lerp(ramp, SAMPLE_TEXTURE2D_LOD(_CloudShadowTexPrev, sampler_CloudShadowTexPrev, uvP, 0).r, _CloudShadowTexPrevParams.w);
+            ramp = saturate(ramp * 2.5 - 1.0);
+            dens = ramp * ramp * (3.0 - 2.0 * ramp);
+        }
+        else dens = CloudDensity(wp);
+        shade = 1.0 - dens * _CloudShadowStrength;
+    }
     return shade;
 }
 

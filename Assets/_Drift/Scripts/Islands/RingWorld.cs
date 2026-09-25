@@ -230,8 +230,8 @@ namespace Drift.Islands
         [Range(8f, 240f)] public float flotsamSpacingMax = 120f;
         [Tooltip("Grundtempo des Sinkens im Abenteuer (Faktor auf allen Stufen; v0.6.3: 15 % schneller).")]
         [Range(0.5f, 2f)] public float sinkSpeed = 1.15f;
-        [Tooltip("Wie viel schneller die Insel bei höchster Stufe sinkt (Faktor).")]
-        [Range(0.5f, 3f)] public float sinkScaleMax = 1.5f;
+        [Tooltip("Um so viel schneller sinkt die Insel je 1.000 m Strecke (0,5 = bei 2 km doppelt so schnell, ohne Deckel).")]
+        [Range(0f, 2f)] public float sinkGainPerKm = 0.5f;
         [Tooltip("So nah (u zwischen den Inselrändern) zählt ein Vorbeifahren als knapp ausgewichen.")]
         [Range(0f, 20f)] public float dodgeGap = 6f;
 
@@ -401,6 +401,10 @@ namespace Drift.Islands
 
         // Tests and the debug menu: jump to a point of the difficulty curve.
         public void SetRunDistance(float metres) => _odometer.Distance = Mathf.Max(0f, metres);
+
+        // Sink factor at a distance: sinkSpeed at the start, +gainPerKm of it per 1,000 m, no ceiling.
+        public static float SinkScaleFor(float sinkSpeed, float gainPerKm, float metres) =>
+            Mathf.Max(0.1f, sinkSpeed) * (1f + Mathf.Max(0f, gainPerKm) * Mathf.Max(0f, metres) / 1000f);
 
         // One step of the "Schwung": held while a boost runs, otherwise it halves every momentumHalfLife seconds;
         // surfing a plate boundary (above momentumSurfStart) feeds it all the while. Pickups add momentumPerBoost
@@ -662,10 +666,9 @@ namespace Drift.Islands
             _odometer.Step(pp.y, running);
             float d = Difficulty;
             player.AdventureSpeedScale = PaceScale;
-            // The sink ramp follows the clock, not the distance: with momentum ("Schwung") a run covers the same metres
-            // in much less time, and a distance-driven ramp made the island sink faster the better it was driven
-            // (good bot 174 s -> 63 s). Obstacles and pace stay on the distance.
-            player.AdventureSinkScale = Mathf.Max(0.1f, sinkSpeed) * Mathf.Lerp(1f, sinkScaleMax, Mathf.Min(d, TimeDifficulty));
+            // v0.6.7.2 (owner, after a 12 km run): the sink rate grows with the distance and never caps - later you are
+            // faster and flotsam comes easier, so the sea has to take more.
+            player.AdventureSinkScale = SinkScaleFor(sinkSpeed, sinkGainPerKm, RunDistance);
             player.AdventureCruise = racing ? Cruise : 0f;
             player.MomentumGain = momentumSpeedGain;
             player.MomentumHitLoss = momentumHitLoss;

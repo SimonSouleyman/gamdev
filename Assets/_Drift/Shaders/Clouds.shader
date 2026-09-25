@@ -141,6 +141,8 @@ Shader "Drift/Clouds"
                 float k = saturate(storm * 1.6);
                 lit = lerp(lit, lerp(_StormColor.rgb * 1.35, dark, 0.2) * (0.35 + 0.65 * bright), k);
                 dark = lerp(dark, _StormColor.rgb * 0.35 * (0.3 + 0.7 * bright), k);
+                // At night the clumps a storm darkened went near black: the "dark boxes" under a storm's own puffs.
+                DriftStormNightLift(lit, dark, saturate(_DriftStormNight) * k);
                 float4 p = DriftPuffShade(IN.uvSeed.xy, IN.uvSeed.z, _Time.y * _Boil, lit, dark);
                 float3 col = p.rgb + saturate(_LightningFlash) * float3(0.75, 0.8, 0.95) * 0.6;
                 col = lerp(col, _CurveFogColor.rgb, IN.fogStorm.x);

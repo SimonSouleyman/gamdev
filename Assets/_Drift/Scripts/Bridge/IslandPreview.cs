@@ -1,11 +1,12 @@
 using Drift.Islands;
 using UnityEngine;
+using UnityEngine.Rendering.Universal;
 
 namespace Drift.Bridge
 {
     // A second camera that frames the player island top-down into a small RenderTexture for the
-    // session screens. It is a plain Camera without UniversalAdditionalCameraData, which URP treats
-    // as a Base camera with post-processing off and no stacking with the main camera. The camera
+    // session screens. It is a Base camera of its own (no stacking with the main camera; post-processing,
+    // shadows and the opaque copy off, see ConfigureUrp). The camera
     // component is only enabled on the frames that should render (throttled), so a hidden preview
     // costs nothing; in Edit Mode it stays enabled while an editorPreview screen is shown.
     public sealed class IslandPreview
@@ -47,6 +48,17 @@ namespace Drift.Bridge
 
         public void RequestRender() => _pending = true;
 
+        // The off-screen cameras skip everything URP would otherwise add per camera; the depth copy only
+        // where a shader in the picture samples _CameraDepthTexture.
+        internal static void ConfigureUrp(Camera cam, bool depth)
+        {
+            var data = cam.GetUniversalAdditionalCameraData();
+            data.requiresDepthOption = depth ? CameraOverrideOption.On : CameraOverrideOption.Off;
+            data.requiresColorOption = CameraOverrideOption.Off;
+            data.renderShadows = false;
+            data.renderPostProcessing = false;
+        }
+
         public void Ensure()
         {
             if (_rt == null || _rt.width != size)
@@ -87,6 +99,9 @@ namespace Drift.Bridge
                 _cam.allowMSAA = false;
                 _cam.useOcclusionCulling = false;
                 _cam.cullingMask = ~0;
+                // The sea's shallow tint and shore foam read the camera depth texture, so this camera keeps
+                // one even when the pipeline asset stops making it for every camera.
+                ConfigureUrp(_cam, true);
             }
             if (_cam.targetTexture != _rt) _cam.targetTexture = _rt;
         }

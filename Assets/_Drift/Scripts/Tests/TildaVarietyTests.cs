@@ -1,7 +1,9 @@
 using System;
 using System.Diagnostics;
 using Drift.Audio;
+using Drift.Bridge;
 using NUnit.Framework;
+using UnityEngine;
 
 namespace Drift.Tests
 {
@@ -199,6 +201,75 @@ namespace Drift.Tests
             sw.Stop();
             double msPerSecond = sw.Elapsed.TotalMilliseconds / (blocks * 1024.0 / 48000.0);
             Assert.Less(msPerSecond, 15.0, $"{msPerSecond:0.0} ms per second of audio");
+        }
+
+        // ---------------------------------------------------------------- game over
+        // A first-time reviewer (2026-09-25): she cheered in her sport shades with a big grin while the player had just
+        // sunk. On "Versunken" she is sorry for them in both modes, in her voice and in her face.
+
+        [Test]
+        public void GameOverSoundsSoftInBothModes()
+        {
+            Assert.AreEqual(TildaVoiceLines.AdventureGameOver, TildaVoiceLines.ForMode(TildaVoiceLines.GameOver, true));
+            foreach (bool adventure in new[] { false, true })
+            {
+                string key = TildaVoiceLines.ForMode(TildaVoiceLines.GameOver, adventure);
+                Assert.IsNotNull(TildaVoiceLines.TextOf(key), key);
+                Assert.AreEqual(GrumbleMood.Soft, TildaVoiceLines.MoodOf(key), key);
+            }
+        }
+
+        [Test]
+        public void GameOverFaceIsSorry_NotAGrin()
+        {
+            var sorry = TildaFace.For(SessionScreens.GameOverPose, 1f);
+            var idle = TildaFace.For(TildaPose.Idle, 1f);
+            var cheer = TildaFace.For(TildaPose.Cheer, 1f);
+            Assert.Less(sorry.smile, 0.5f * idle.smile, "no smile");
+            Assert.Less(sorry.mouthWidth, 0.6f * cheer.mouthWidth, "a small mouth, not the cheer's grin");
+            Assert.Greater(sorry.browTiltL, idle.browTiltL + 8f, "worried brows: inner ends up");
+            Assert.Less(sorry.lowerLid, 0.5f, "no smiling cheeks pushing the lower lids up");
+            Assert.AreEqual(1f, sorry.shadesUp, "the mirror shades go up");
+            foreach (TildaPose pose in Enum.GetValues(typeof(TildaPose)))
+                if (pose != SessionScreens.GameOverPose) Assert.AreEqual(0f, TildaFace.For(pose, 1f).shadesUp, pose + " keeps the shades on");
+        }
+
+        [Test]
+        public void InAbenteuerTheShadesGoUpAndHerEyesShow_OnlyWhileSheIsSorry()
+        {
+            var host = new GameObject("TildaSorryProbe", typeof(RectTransform)) { hideFlags = HideFlags.HideAndDontSave };
+            TildaPortrait.AccessoryOverride = TildaAccessory.SportShades;
+            try
+            {
+                TildaPortrait.CreateImage((RectTransform)host.transform, new Vector2(128f, 128f));
+                TildaPortrait.RenderNow(TildaPose.Idle, false, 0f);
+                var parts = TildaPortrait.Parts;
+                Assert.IsNotNull(parts, "no portrait rig");
+                Assert.AreEqual(TildaAccessory.SportShades, parts.accessory);
+                Assert.IsFalse(parts.ballL.parent.gameObject.activeSelf, "behind the mirror her eyes are not seen");
+                Assert.AreEqual(parts.shadesRest.y, parts.shades.localPosition.y, 1e-4f);
+
+                TildaPortrait.RenderNow(SessionScreens.GameOverPose, false, 0f);
+                Assert.IsTrue(parts.ballL.parent.gameObject.activeSelf && parts.ballR.parent.gameObject.activeSelf, "her soft eyes show");
+                var lens = parts.shades.GetComponentsInChildren<Renderer>();
+                Assert.Greater(lens.Length, 0);
+                float lensBottom = float.MaxValue;
+                foreach (var r in lens) lensBottom = Mathf.Min(lensBottom, r.bounds.min.y);
+                float eyeTop = float.MinValue;
+                foreach (var r in parts.ballL.parent.GetComponentsInChildren<Renderer>()) eyeTop = Mathf.Max(eyeTop, r.bounds.max.y);
+                Assert.Greater(lensBottom, eyeTop, "the lens clears her eyes");
+                Assert.Greater(lensBottom, Mathf.Max(parts.browL.position.y, parts.browR.position.y), "and her worried brows");
+
+                TildaPortrait.RenderNow(TildaPose.Idle, false, 0f);
+                Assert.AreEqual(parts.shadesRest.y, parts.shades.localPosition.y, 1e-4f, "back on her nose");
+                Assert.AreEqual(Vector3.one, parts.shades.localScale);
+                Assert.IsFalse(parts.ballL.parent.gameObject.activeSelf);
+            }
+            finally
+            {
+                TildaPortrait.AccessoryOverride = null;
+                UnityEngine.Object.DestroyImmediate(host);
+            }
         }
     }
 }

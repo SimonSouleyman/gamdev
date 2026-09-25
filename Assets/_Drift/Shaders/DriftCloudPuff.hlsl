@@ -11,6 +11,8 @@ float  _CloudHeight;   // base height of the cloud layer
 // Pushed by Drift.Visuals.StormVisuals: 1 on phones - the finest of the three noise octaves of every puff pixel is
 // skipped (a uniform branch; the outline keeps its two big octaves). 0 = full detail.
 float  _DriftPuffLite;
+// Pushed by Drift.Visuals.StormVisuals: 0 by day (and while no storm is out) .. 1 at night.
+float  _DriftStormNight;
 
 #ifndef DRIFT_SKY_INCLUDED
 // The palette's cloud colours (pushed by CurvedWorld for the sky, already linear); zero = not pushed.
@@ -56,6 +58,15 @@ void DriftPuffLayout(float k, float seed, float2 axis, float aspect, float r, ou
         size = (0.36 + 0.1 * h) * r;
         height = (0.45 + 0.12 * h) * r;
     }
+}
+
+// Storm clouds at night: both ends of the shading are lifted to a moonlit grey-blue, so a storm is never a black
+// mass on a dark sea; the bellies stay the darker part (Drift.Visuals.NightReadability.StormPuffLift). night = 0
+// leaves the colours as they are.
+void DriftStormNightLift(inout float3 litCol, inout float3 darkCol, float night)
+{
+    litCol = max(litCol, float3(0.27, 0.31, 0.43) * night);
+    darkCol = max(darkCol, float3(0.12, 0.14, 0.21) * night);
 }
 
 // Bent world position of billboard corner (-1..1) of a puff centred at the unbent world point.

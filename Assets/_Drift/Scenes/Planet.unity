@@ -303,7 +303,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Unity.RenderPipelines.Universal.Runtime::UnityEngine.Rendering.Universal.UniversalAdditionalCameraData
   m_RenderShadows: 1
-  m_RequiresDepthTextureOption: 2
+  m_RequiresDepthTextureOption: 1
   m_RequiresOpaqueTextureOption: 2
   m_CameraType: 0
   m_Cameras: []
@@ -527,6 +527,10 @@ MonoBehaviour:
   coastField: 1
   coastEmphasisRange: 12
   coastRebuildInterval: 2
+  wakeSoftReach: 16
+  wakeBigIslandDamping: 0.45
+  cloudShadowResolution: 256
+  cloudShadowRowsPerFrame: 4
   speedFeelEnabled: 1
   speedWakeBoost: 0.8
   speedLineStrength: 0.45
@@ -739,6 +743,9 @@ MonoBehaviour:
   stormAmbientTint: {r: 0.72, g: 0.75, b: 0.82, a: 1}
   stormSkyTint: {r: 0.6, g: 0.62, b: 0.68, a: 1}
   stormSkyDesaturate: 0.75
+  adventureShoreRim: 1
+  cozyShoreRim: 0
+  shoreRimColor: {r: 0.26, g: 0.33, b: 0.48, a: 1}
 --- !u!114 &479351221
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -1322,7 +1329,7 @@ MonoBehaviour:
   flotsamSpacingStart: 72
   flotsamSpacingMax: 120
   sinkSpeed: 1.15
-  sinkScaleMax: 1.5
+  sinkGainPerKm: 0.5
   dodgeGap: 6
   cruiseStart: 0.62
   cruisePerLevel: 0.03
@@ -2844,6 +2851,7 @@ MonoBehaviour:
   editorMode: 0
   editorExplain: 0
   explainSeconds: 10
+  editorStartLine: 0
 --- !u!1 &1898799845
 GameObject:
   m_ObjectHideFlags: 0

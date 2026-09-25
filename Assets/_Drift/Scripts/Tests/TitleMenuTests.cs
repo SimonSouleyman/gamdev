@@ -11,6 +11,7 @@ namespace Drift.Tests
     // Owner, 2026-09-25: the title has no "Weiter" of its own - "Gemütlich" asks "Weiter" / "Neu beginnen" in a small
     // window when a world is saved (closed by a tap outside, no "Abbrechen"), and the Anleitung inside a run only
     // explains that run's mode; the title's Anleitung keeps both.
+    // Also: the way back to the title reads "Hauptmenü" (was "Home"), and Tilda is sorry, not cheerful, on "Versunken".
     // The test assembly has no uGUI reference, so buttons and texts are reached by type name and reflection.
     public class TitleMenuTests
     {
@@ -260,6 +261,81 @@ namespace Drift.Tests
             // Reopened from a run it drops the tabs again.
             help.Open(HelpScope.Cozy, 0, false);
             Assert.IsFalse(help.TabsShown);
+        }
+
+        // ------------------------------------------------------------ Hauptmenü (owner 2026-09-25, was "Home")
+
+        static Transform ScreenPanel(SessionScreens s, string screen)
+        {
+            foreach (var t in Canvas(s).GetComponentsInChildren<Transform>(true))
+                if (t.name == screen) return Find(t, "Panel");
+            Assert.Fail("no " + screen);
+            return null;
+        }
+
+        static Component Label(Transform button)
+        {
+            foreach (var c in button.GetComponentsInChildren<Component>(true))
+                if (c != null && c.GetType().Name == "Text") return c;
+            Assert.Fail(button.name + " has no label");
+            return null;
+        }
+
+        static float Left(RectTransform r) => r.anchoredPosition.x - r.sizeDelta.x * r.pivot.x;
+        static float Right(RectTransform r) => r.anchoredPosition.x + r.sizeDelta.x * (1f - r.pivot.x);
+
+        [Test]
+        public void TheWayBackToTheTitleIsCalledHauptmenue()
+        {
+            var s = MakeScreens();
+            Assert.AreEqual("Hauptmenü", SessionScreens.MainMenuLabel);
+            var buttons = new[] { Find(ScreenPanel(s, "PauseScreen"), "Title"), Find(ScreenPanel(s, "GameOverScreen"), "AdventureButtons/Title") };
+            foreach (var button in buttons)
+            {
+                CollectionAssert.AreEqual(new[] { "Hauptmenü" }, Texts(button).ToList(), button.parent.name);
+                Assert.IsNotNull(button.Find("Icon"), "the house glyph stays");
+            }
+            foreach (var text in Texts(Canvas(s)))
+                Assert.IsFalse(text != null && text.Contains("Home"), "left over: " + text);
+        }
+
+        [Test]
+        public void HauptmenueFitsBesideNochmalOnTheGameOverScreen()
+        {
+            var panel = ScreenPanel(MakeScreens(), "GameOverScreen");
+            var row = (RectTransform)Find(panel, "AdventureButtons");
+            var again = (RectTransform)Find(row, "Again");
+            var menu = (RectTransform)Find(row, "Title");
+            Assert.LessOrEqual(Right(again) + 12f, Left(menu), "side by side, not overlapping");
+            Assert.GreaterOrEqual(Left(again), -row.sizeDelta.x * 0.5f - 0.5f);
+            Assert.LessOrEqual(Right(menu), row.sizeDelta.x * 0.5f + 0.5f);
+            Assert.LessOrEqual(row.sizeDelta.x, ((RectTransform)panel).sizeDelta.x - 2f * 48f, "a margin to the panel edge");
+            // The longer word gets the wider button: its label fits at (almost) full size behind the house icon.
+            Assert.Greater(menu.sizeDelta.x, again.sizeDelta.x);
+            foreach (var button in new[] { again, menu })
+            {
+                var label = Label(button);
+                float preferred = (float)label.GetType().GetProperty("preferredWidth").GetValue(label);
+                float room = ((RectTransform)label.transform).rect.width;
+                Assert.Greater(preferred, 50f, "the font measured the text");
+                Assert.LessOrEqual(preferred * 0.9f, room, button.name + $": {preferred:0} px text in {room:0} px");
+            }
+        }
+
+        [Test]
+        public void TildaIsSorryOnTheGameOverScreenInBothModes()
+        {
+            var update = typeof(SessionScreens).GetMethod("Update", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+            foreach (var preview in new[] { SessionScreens.EditorPreview.GameOver, SessionScreens.EditorPreview.AdventureGameOver })
+            {
+                var s = MakeScreens();
+                s.editorPreview = preview;
+                update.Invoke(s, null);
+                Assert.IsNotNull(s.Presenter?.View, "Tilda beside the panel");
+                Assert.AreEqual(SessionScreens.GameOverPose, s.Presenter.View.Pose, preview.ToString());
+            }
+            Assert.AreNotEqual(TildaPose.Cheer, SessionScreens.GameOverPose, "no cheering over a sunk island");
+            Assert.AreNotEqual(TildaPose.Wave, SessionScreens.GameOverPose);
         }
     }
 }

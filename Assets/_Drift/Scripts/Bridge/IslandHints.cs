@@ -230,7 +230,7 @@ namespace Drift.Bridge
 
         WorldStreamer streamer;
         Island _lastIsland;
-        // The last island's planned spot while it is not streamed in (it can lie beyond the loaded chunks).
+        // Where the last island will respawn while it is not streamed in (it can lie beyond the loaded chunks).
         bool _lastFar;
         Vector2 _lastFarPos;
         Widget _farLast;
@@ -240,9 +240,9 @@ namespace Drift.Bridge
         // nearest non-volcano island that is not the player's. Volcanoes are bonus land and never count.
         Island FindLastIsland()
         {
+            _lastFar = false;
             if (!Application.isPlaying || streamer == null || GameModes.Current != GameMode.Cozy) return null;
             streamer.Progress(out _, out int left);
-            _lastFar = false;
             if (left != 1) return null;
             Island best = null;
             float bestD = float.MaxValue;
@@ -254,15 +254,16 @@ namespace Drift.Bridge
                 float d = (isl.PlanarPosition - player.PlanarPosition).sqrMagnitude;
                 if (d < bestD) { bestD = d; best = isl; }
             }
-            // Not streamed in: point at its planned spot, the nearest copy on the wrapped world.
+            // Not streamed in: point at where it will respawn (its saved pose if it drifted, else its plan), the nearest
+            // copy on the wrapped world.
             if (best == null)
             {
                 var slots = streamer.WorldSlots();
                 float size = streamer.WorldSize;
                 for (int i = 0; i < slots.Count; i++)
                 {
-                    if (slots[i].consumed) continue;
-                    Vector2 d = slots[i].pos - player.PlanarPosition;
+                    if (slots[i].consumed || !streamer.TryGetSlotPosition(i, out var at)) continue;
+                    Vector2 d = at - player.PlanarPosition;
                     if (size > 0f) d -= size * new Vector2(Mathf.Round(d.x / size), Mathf.Round(d.y / size));
                     _lastFarPos = player.PlanarPosition + d;
                     _lastFar = true;

@@ -20,33 +20,82 @@ namespace Drift.Visuals
         public const string ObjName = "WaterFlecks";
         const string MeshName = "DriftWaterFlecks";
         const string ShaderName = "Drift/WaterFlecks";
+        // The vertex shader keeps a quad while |log2(max(d, 1) / 12) - lv| <= 1.35 (d = camera to cell centre); the slack
+        // covers the frame the haze values lag behind the camera.
+        const float LevelReach = 1.35f + 0.25f;
+        // DRIFT_CURVE_GUARD_Y in DriftCurve.hlsl: nothing below it is hazed.
+        const float FogGuardY = -1000f;
+        const int IndicesPerLevel = 2 * 6;
+        const MeshUpdateFlags SubMeshFlags = MeshUpdateFlags.DontRecalculateBounds | MeshUpdateFlags.DontValidateIndices;
 
         static readonly int FoamColorId = Shader.PropertyToID("_FoamColor");
+        static readonly int FogParamsId = Shader.PropertyToID("_CurveFogParams");
+        static readonly int CellsPerGrid = CountCells();
+        static readonly Bounds Everywhere = new Bounds(Vector3.zero, Vector3.one * 1e6f);
+        static Camera[] s_cams = new Camera[8];
+        static Vector4 s_mainFog;
+        static int s_mainFogFrame = -100;
+        static bool s_hooked;
 
         GameObject _go;
         MeshRenderer _renderer;
         Material _mat;
+        Mesh _mesh;
+        int _first = -1, _last = -1;
 
         public MeshRenderer Renderer => _renderer;
+        public int FirstLevel => _first;
+        public int LastLevel => _last;
 
         public static int QuadCount => Levels * 2 * CellsPerGrid;
 
-        static int CellsPerGrid
+        static int CountCells()
         {
-            get
-            {
-                int n = 0, r = Mathf.CeilToInt(GridRadius);
-                for (int y = -r; y <= r; y++)
-                    for (int x = -r; x <= r; x++)
-                        if (x * x + y * y <= GridRadius * GridRadius) n++;
-                return n;
-            }
+            int n = 0, r = Mathf.CeilToInt(GridRadius);
+            for (int y = -r; y <= r; y++)
+                for (int x = -r; x <= r; x++)
+                    if (x * x + y * y <= GridRadius * GridRadius) n++;
+            return n;
+        }
+
+        // Level indices [first, last] (0 = LevelMin) whose quads can pass the vertex shader for a camera camHeight above
+        // the sea that sees no fleck farther than fogReach (planar) from itself. Every sea point is at least camHeight
+        // away; first > last means none.
+        public static void VisibleLevels(float camHeight, float fogReach, out int first, out int last)
+        {
+            float h = Mathf.Abs(camHeight);
+            float lo = Mathf.Log(Mathf.Max(h, 1f) / 12f, 2f) - LevelReach;
+            first = Mathf.Max(0, Mathf.CeilToInt(lo) - LevelMin);
+            last = Levels - 1;
+            if (float.IsInfinity(fogReach) || float.IsNaN(fogReach) || fogReach > 1e7f) return;
+            float far = Mathf.Sqrt(h * h + fogReach * fogReach);
+            float hi = Mathf.Log(Mathf.Max(far, 1f) / 12f, 2f) + LevelReach;
+            last = Mathf.Min(Levels - 1, Mathf.FloorToInt(hi) - LevelMin);
+        }
+
+        // Planar distance from the camera past which DriftFogAmount (_CurveFogParams: start, 1 / (end - start), centre)
+        // is above the vertex shader's 0.985 cut; infinity without haze.
+        public static float FogReach(Vector4 fogParams, Vector2 camXZ, float seaY)
+        {
+            if (fogParams.y <= 0f || seaY < FogGuardY) return float.PositiveInfinity;
+            return fogParams.x + 1f / fogParams.y + Vector2.Distance(camXZ, new Vector2(fogParams.z, fogParams.w));
+        }
+
+        // The mesh's quads are ordered level by level (BuildMesh), so a level range is one index range.
+        public static void IndexRange(int first, int last, out int start, out int count)
+        {
+            first = Mathf.Clamp(first, 0, Levels);
+            last = Mathf.Clamp(last, first - 1, Levels - 1);
+            int perLevel = IndicesPerLevel * CellsPerGrid;
+            start = first * perLevel;
+            count = (last - first + 1) * perLevel;
         }
 
         public void Sync(Renderer water, MaterialPropertyBlock block, bool visible)
         {
             if (water == null) return;
             if (!Ensure(water)) return;
+            if (visible) visible = CullLevels();
             if (_renderer.enabled != visible) _renderer.enabled = visible;
             if (_go.layer != water.gameObject.layer) _go.layer = water.gameObject.layer;
             var src = water.sharedMaterial;
@@ -105,7 +154,76 @@ namespace Drift.Visuals
             if (filter.sharedMesh == null || filter.sharedMesh.name != MeshName) filter.sharedMesh = BuildMesh();
             _renderer = _go.GetComponent<MeshRenderer>();
             if (_renderer.sharedMaterial != _mat) _renderer.sharedMaterial = _mat;
+            if (_mesh != filter.sharedMesh)
+            {
+                _mesh = filter.sharedMesh;
+                _first = _last = -1;
+            }
             return true;
+        }
+
+        // Most of the 12 levels are far outside their distance band at any zoom: only the index range of the levels a
+        // rendering camera can show is drawn. Other game cameras (the island preview) get no haze bound.
+        bool CullLevels()
+        {
+            int first = 0, last = Levels - 1;
+            if (Application.isPlaying)
+            {
+                if (!s_hooked)
+                {
+                    RenderPipelineManager.endCameraRendering += OnEndCamera;
+                    s_hooked = true;
+                }
+                float seaY = _go.transform.position.y;
+                first = Levels;
+                last = -1;
+                var main = Camera.main;
+                if (main != null)
+                {
+                    bool fresh = Time.frameCount - s_mainFogFrame <= 2;
+                    Widen(main, seaY, fresh ? s_mainFog : Vector4.zero, ref first, ref last);
+                }
+                int n = Camera.allCamerasCount;
+                if (s_cams.Length < n) s_cams = new Camera[n + 4];
+                n = Camera.GetAllCameras(s_cams);
+                int mask = 1 << _go.layer;
+                for (int i = 0; i < n; i++)
+                {
+                    var c = s_cams[i];
+                    s_cams[i] = null;
+                    if (c == main || c.cameraType != CameraType.Game || (c.cullingMask & mask) == 0) continue;
+                    Widen(c, seaY, Vector4.zero, ref first, ref last);
+                }
+                if (first > last) return false;
+            }
+            if (first == _first && last == _last) return true;
+            IndexRange(first, last, out int start, out int count);
+            _mesh.SetSubMesh(0, new SubMeshDescriptor(start, count)
+            {
+                bounds = Everywhere,
+                firstVertex = start / 6 * 4,
+                vertexCount = count / 6 * 4,
+            }, SubMeshFlags);
+            _first = first;
+            _last = last;
+            return true;
+        }
+
+        static void Widen(Camera cam, float seaY, Vector4 fog, ref int first, ref int last)
+        {
+            Vector3 p = cam.transform.position;
+            VisibleLevels(p.y - seaY, FogReach(fog, new Vector2(p.x, p.z), seaY), out int f, out int l);
+            if (f > l) return;
+            first = Mathf.Min(first, f);
+            last = Mathf.Max(last, l);
+        }
+
+        // CurvedWorld sets the haze per camera before it renders; right after the main camera it is still the main one's.
+        static void OnEndCamera(ScriptableRenderContext ctx, Camera cam)
+        {
+            if (cam != Camera.main) return;
+            s_mainFog = Shader.GetGlobalVector(FogParamsId);
+            s_mainFogFrame = Time.frameCount;
         }
 
         // Quad corners in POSITION.xy, (cell offset x, y, level index, phase) in TEXCOORD0. Wound to face up; the shader
@@ -144,7 +262,7 @@ namespace Drift.Visuals
             mesh.SetUVs(0, info);
             mesh.SetIndices(idx, MeshTopology.Triangles, 0, false);
             // Placed around the camera by the shader: never culled.
-            mesh.bounds = new Bounds(Vector3.zero, Vector3.one * 1e6f);
+            mesh.bounds = Everywhere;
             mesh.UploadMeshData(true);
             return mesh;
         }

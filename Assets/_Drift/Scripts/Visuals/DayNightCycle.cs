@@ -5,6 +5,45 @@ using UnityEngine.Rendering;
 
 namespace Drift.Visuals
 {
+    // Night readability of the adventure's hazards, kept pure so it can be tested without a GPU. The shore rim is
+    // mirrored by Drift/IslandTerrain (_DriftShoreRim), the storm lift and the rain's side fade by Drift/Storm.
+    public static class NightReadability
+    {
+        // Strength of the cool shore rim: 0 by day, the mode's share at night.
+        public static float ShoreRimStrength(float night, bool adventure, float adventureShare, float cozyShare) =>
+            Mathf.Clamp01(night) * Mathf.Clamp01(adventure ? adventureShare : cozyShare);
+
+        // Only the waterline gets it: from the cut-away sea floor (-0.45) up to the wet sand, gone by the grass.
+        public static float ShoreRimMask(float height) =>
+            Smooth(-0.45f, -0.2f, height) * (1f - Smooth(0.1f, 0.5f, height));
+
+        // Shape of the rim over the shore: a faint band everywhere, brightest where the ground turns away from the
+        // view (ndv = dot(normal, view), 1 facing the camera, 0 edge-on), so the outline stands out most.
+        public static float ShoreRimShape(float height, float ndv)
+        {
+            float f = 1f - Mathf.Clamp01(ndv);
+            return ShoreRimMask(height) * (0.25f + 0.75f * f * f);
+        }
+
+        // A storm puff's colour at night is never darker than the moonlit floor, so the mass stays a grey-blue shape
+        // on a dark sea; the day look (night 0) is unchanged.
+        public static Color StormPuffLift(Color col, Color floor, float night)
+        {
+            float k = Mathf.Clamp01(night);
+            return new Color(Mathf.Max(col.r, floor.r * k), Mathf.Max(col.g, floor.g * k), Mathf.Max(col.b, floor.b * k), col.a);
+        }
+
+        // A rain shaft is an open cylinder: its veil and streaks fade where the wall turns edge-on to the camera, so
+        // the shaft has soft sides instead of the hard outline of a box.
+        public static float RainSideFade(float facing, float from, float to) => Smooth(from, to, Mathf.Abs(facing));
+
+        public static float Smooth(float a, float b, float x)
+        {
+            float t = Mathf.Clamp01((x - a) / (b - a));
+            return t * t * (3f - 2f * t);
+        }
+    }
+
     [ExecuteAlways]
     [DefaultExecutionOrder(150)]
     public class DayNightCycle : MonoBehaviour
@@ -82,6 +121,16 @@ namespace Drift.Visuals
         public Color stormSkyTint = new Color(0.6f, 0.62f, 0.68f);
         [Range(0f, 1f)] public float stormSkyDesaturate = 0.75f;
 
+        [Header("Nachts lesbar")]
+        [Tooltip("Abenteuer: nachts ein schwacher, kühler Lichtsaum an der Küste jeder Insel, damit Hindernisse sich vom dunklen Meer abheben (0 = aus). Bei Tag nie sichtbar.")]
+        [Range(0f, 1f)] public float adventureShoreRim = 1f;
+        [Tooltip("Gemütlich: derselbe Küstensaum (0 = aus).")]
+        [Range(0f, 1f)] public float cozyShoreRim = 0f;
+        [Tooltip("Farbe des Küstensaums bei voller Stärke (sRGB).")]
+        public Color shoreRimColor = new Color(0.32f, 0.40f, 0.58f);
+
+        static readonly int ShoreRimId = Shader.PropertyToID("_DriftShoreRim");
+
         Quaternion _origRotation;
         Color _origColor;
         float _origIntensity;
@@ -142,6 +191,7 @@ namespace Drift.Visuals
             if (LifeEnvironment.TimeOfDayProvider == _timeProvider) LifeEnvironment.TimeOfDayProvider = null;
             Restore();
             if (water != null) water.ClearSky();
+            Shader.SetGlobalVector(ShoreRimId, Vector4.zero);
         }
 
         void Update()
@@ -318,6 +368,10 @@ namespace Drift.Visuals
                 ambient.a = 1f;
                 RenderSettings.ambientLight = ambient;
             }
+            float rim = NightReadability.ShoreRimStrength(NightAmount, GameModes.IsAdventure, adventureShoreRim, cozyShoreRim);
+            Color rimCol = shoreRimColor.linear * rim;
+            Shader.SetGlobalVector(ShoreRimId, new Vector4(rimCol.r, rimCol.g, rimCol.b, rim));
+
             WaterLight = dimWaterAtNight ? NightWaterLight(SunColor, SunIntensity, noonColor, dayIntensity, NightAmount) : Color.white;
             if (driveWater && water != null) water.SetSky(WaterSky, WaterDeep, WaterLight);
         }

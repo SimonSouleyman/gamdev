@@ -25,6 +25,8 @@ namespace Drift.SaveSystem
         // lacks, and an old file must read 0 (= a layout that no longer exists, not continuable).
         public int worldGenVersion;
         public long savedUtcTicks;
+        // When the run started (UTC). 0 in a file from before v0.6.8; the start is then estimated (RunStartTime).
+        public long runStartUtcTicks;
         public int worldSeed;
         public bool legacySeeds;
         public SessionStats stats = new SessionStats();
@@ -43,6 +45,24 @@ namespace Drift.SaveSystem
         // The run's species pool (Drift.Life.SpeciesPool.Mask, bit per LifeKind); 0 in an older file, which then keeps
         // the pool GameSession chose for its seed.
         public long speciesPool;
+    }
+
+    // The start of the run the finale counts its photos from. "Now minus the time played" misses the photos taken
+    // before an app restart (the time the app was closed is not play time), so the start is kept in the save.
+    public static class RunStartTime
+    {
+        public static long Estimate(long nowUtcTicks, float playSeconds) =>
+            nowUtcTicks - (long)(Math.Max(0.0, playSeconds) * TimeSpan.TicksPerSecond);
+
+        // The stored start counts when it is set, not in the future (clock turned back) and the play time has not gone
+        // back since it was stored (a new run after the finale, which deletes only the file). Never later than the
+        // estimate: the wall time since the start is at least the time played.
+        public static long Resolve(long storedUtcTicks, float storedPlaySeconds, long nowUtcTicks, float playSeconds)
+        {
+            long estimate = Estimate(nowUtcTicks, playSeconds);
+            if (storedUtcTicks <= 0 || storedUtcTicks > nowUtcTicks || playSeconds < storedPlaySeconds) return estimate;
+            return Math.Min(storedUtcTicks, estimate);
+        }
     }
 
     public class SaveManager : MonoBehaviour
@@ -76,6 +96,11 @@ namespace Drift.SaveSystem
         public DiscoveryJournal Journal { get; } = new DiscoveryJournal();
         // The milestone mask of the last successful Load (0 for a file from before the milestones).
         public int LoadedMilestones { get; private set; }
+        long _runStartUtcTicks;
+
+        // When the current run started (UTC ticks), across app restarts.
+        public long RunStartUtcTicks(float playSeconds) =>
+            RunStartTime.Resolve(_runStartUtcTicks, LoadedStats.timeSurvived, DateTime.UtcNow.Ticks, playSeconds);
 
         // A save that Load() would accept: exists, parses, has a player heightfield and a readable version.
         // Cached on the file's size + write time so the title screen can poll it cheaply.
@@ -251,6 +276,8 @@ namespace Drift.SaveSystem
             };
             // A copy: the live stats keep counting while the worker serialises.
             data.stats.CopyFrom(session != null ? session.Stats : LoadedStats);
+            // LoadedStats still describes the previous save here, the one the stored start was written with.
+            data.runStartUtcTicks = RunStartTime.Resolve(_runStartUtcTicks, LoadedStats.timeSurvived, data.savedUtcTicks, data.stats.timeSurvived);
             if (streamer != null)
             {
                 // CaptureOverrides is what marks a slot whose island was merged this frame as consumed,
@@ -263,6 +290,7 @@ namespace Drift.SaveSystem
                 data.volcanoes = volcanoSpawner.Capture(out float cd);
                 data.volcanoCooldown = cd;
             }
+            _runStartUtcTicks = data.runStartUtcTicks;
             return data;
         }
 
@@ -321,6 +349,7 @@ namespace Drift.SaveSystem
                 LoadedWorldSeed = worldSeed;
                 LoadedLegacySeeds = legacySeeds;
                 LoadedStats.CopyFrom(data.version >= 4 ? data.stats : null);
+                _runStartUtcTicks = data.runStartUtcTicks;
                 Journal.Restore(data.version >= 5 ? data.journal : null);
                 LoadedMilestones = data.milestones;
                 Milestones.Restore(LoadedMilestones, LoadedStats.islandsAbsorbed);
@@ -380,6 +409,7 @@ namespace Drift.SaveSystem
             WaitForWrite();
             _savedFrame = -1;
             LoadedStats.Reset();
+            _runStartUtcTicks = 0;
             Journal.Reset();
             LoadedMilestones = 0;
             Milestones.Reset();

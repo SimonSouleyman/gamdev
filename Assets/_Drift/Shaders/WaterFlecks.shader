@@ -56,7 +56,10 @@ Shader "Drift/WaterFlecks"
                 float4 positionHCS : SV_POSITION;
                 float4 posAB       : TEXCOORD0;  // xy = world xz, zw = (along, across) the comet in cell units
                 float4 fleck       : TEXCOORD1;  // x = half length (cells), y = cell size, z = level, w = life x brightness
-                float2 field       : TEXCOORD2;  // x = 0.35 + 0.65 speedN, y = plate boundary closeness
+                // Everything that scales a fleck's strength and changes only over metres (field fade, speed, plate
+                // boundary, emphasis round the player, storm): once per corner instead of per pixel - a fleck is a small
+                // quad. Includes StormField, whose rim noise used to run in every fleck pixel.
+                half   gain        : TEXCOORD2;
             };
 
             float4 FieldAt(float2 wp)
@@ -136,10 +139,20 @@ Shader "Drift/WaterFlecks"
                 float2 wp = centre + (dir * ab.x + perp * ab.y) * cell;
                 float3 posWS = float3(wp.x, seaY, wp.y);
 
+                float2 coastN;
+                float coastFade;
+                float coastD = CoastDistance(wp, coastN, coastFade);
+                float storm = saturate(max(_Storm, StormField(wp)));
+                float nearPlayer = (1.0 - smoothstep(0.35, 1.0, coastD / max(_CurrentEmphasis.x, 1e-3))) * coastFade;
+                float gain = FieldFade(wp) * (0.35 + 0.65 * speedN);
+                gain *= _CurrentFoam * (1.0 + _CurrentEmphasis.y * nearPlayer) * (1.0 + 0.4 * edge) * (1.0 - 0.6 * storm);
+                // Water highway: the longer the island travels with the current, the brighter the flecks around it.
+                gain *= 1.0 + _SpeedFeelGains.z * _SpeedFeel.y * (0.35 + 0.95 * nearPlayer);
+
                 OUT.positionHCS = DriftCurveHClip(posWS);
                 OUT.posAB = float4(wp, ab);
                 OUT.fleck = float4(len, cell, lv, life * (0.6 + 0.4 * h3));
-                OUT.field = float2(0.35 + 0.65 * speedN, edge);
+                OUT.gain = (half)gain;
                 return OUT;
             }
 
@@ -147,39 +160,30 @@ Shader "Drift/WaterFlecks"
             {
                 float2 wp = IN.posAB.xy;
                 float fw = max(fwidth(wp.x), fwidth(wp.y));
-                float cell = IN.fleck.y;
-                float aa = 0.7 * fw / cell + 0.008;
-                float a = IN.posAB.z, b = IN.posAB.w;
-                float len = IN.fleck.x;
-                float ca = clamp(a, -len, len);
-                float taper = saturate((len - ca) / max(2.0 * len, 1e-4));
-                float r = 0.045 * (1.0 - 0.7 * taper);
-                float dist = length(float2(a - ca, b));
-                float shape = 1.0 - smoothstep(r * 0.3 - aa, r + aa, dist);
+                // The comet itself is measured in cell units (well under 1): half precision from here on.
+                half aa = (half)(0.7 * fw / IN.fleck.y + 0.008);
+                half a = (half)IN.posAB.z, b = (half)IN.posAB.w;
+                half len = (half)IN.fleck.x;
+                half ca = clamp(a, -len, len);
+                half taper = saturate((len - ca) / max(2.0h * len, 1e-4h));
+                half r = 0.045h * (1.0h - 0.7h * taper);
+                half dist = length(half2(a - ca, b));
+                half shape = 1.0h - smoothstep(r * 0.3h - aa, r + aa, dist);
 
                 float3 posWS = float3(wp.x, UNITY_MATRIX_M._m13, wp.y);
                 float camDist = length(GetCameraPositionWS() - posWS);
-                float w = saturate(1.0 - abs(log2(max(camDist, 1.0) / 12.0) - IN.fleck.z));
+                half w = (half)saturate(1.0 - abs(log2(max(camDist, 1.0) / 12.0) - IN.fleck.z));
                 float haze = DriftFogAmount(posWS);
                 // Deep in the haze a fleck keeps under 3 % of its contrast: the sea never drew them there.
-                float flecks = haze < 0.97 ? saturate(shape * IN.fleck.w * w) * FieldFade(wp) * IN.field.x : 0.0;
-
-                float2 coastN;
-                float coastFade;
-                float coastD = CoastDistance(wp, coastN, coastFade);
-                float storm = saturate(max(_Storm, StormField(wp)));
-                float nearPlayer = (1.0 - smoothstep(0.35, 1.0, coastD / max(_CurrentEmphasis.x, 1e-3))) * coastFade;
-                flecks *= _CurrentFoam * (1.0 + _CurrentEmphasis.y * nearPlayer) * (1.0 + 0.4 * IN.field.y) * (1.0 - 0.6 * storm);
-                // Water highway: the longer the island travels with the current, the brighter the flecks around it.
-                flecks *= 1.0 + _SpeedFeelGains.z * _SpeedFeel.y * (0.35 + 0.95 * nearPlayer);
-                flecks = saturate(flecks);
+                half flecks = haze < 0.97 ? saturate(saturate(shape * (half)IN.fleck.w * w) * IN.gain) : 0.0h;
 
                 half3 light = _WaterLight.w > 0.0 ? (half3)_WaterLight.rgb : half3(1, 1, 1);
                 half3 col = (half3)_FoamColor.rgb * light * 0.95h;
-                // The sea used to mix the flecks in before its cloud shadow and haze: the same two on top here.
-                if (haze < 0.985) col *= (half)CloudShadow(wp);
+                // The sea used to mix the flecks in before its cloud shadow and haze: the same two on top here (the
+                // shadow from the texture the sea reads too).
+                if (haze < 0.985) col *= (half)CloudShadowTex(wp);
                 col = lerp(col, (half3)_CurveFogColor.rgb, (half)haze);
-                return float4(col, flecks * 0.5);
+                return float4(col, flecks * 0.5h);
             }
             ENDHLSL
         }

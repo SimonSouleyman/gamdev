@@ -74,6 +74,7 @@ namespace Drift.Islands
             public bool consumed;
             public IslandArchetype archetype;
             public float areaFactor;
+            public long key;
             public float EstimatedArea => areaFactor * Mathf.PI * radius * radius;
         }
 
@@ -255,10 +256,32 @@ namespace Drift.Islands
                             radius = Island.KindForSeed(s.shapeSeed) == IslandKind.Barren ? s.radius * 0.8f : s.radius,
                             archetype = s.archetype,
                             areaFactor = IslandArchetypes.AreaFactor(s.archetype),
-                            consumed = _consumed.Contains(Key(chunk.coord, s.index))
+                            consumed = _consumed.Contains(Key(chunk.coord, s.index)),
+                            key = Key(chunk.coord, s.index)
                         });
                 }
             return _worldSlots;
+        }
+
+        // Where the island of WorldSlots()[slot] is now: the live island while its chunk is streamed in, else the pose
+        // saved when it streamed out (a drifted island respawns there, not at its plan), else its planned spot. Not
+        // wrapped: callers take the copy nearest to them.
+        public bool TryGetSlotPosition(int slot, out Vector2 pos)
+        {
+            pos = default;
+            var slots = WorldSlots();
+            if (slot < 0 || slot >= slots.Count) return false;
+            var s = slots[slot];
+            pos = s.pos;
+            foreach (var chunk in _chunks.Values)
+                foreach (var live in chunk.slots)
+                    if (live.spawned && !Gone(live.island) && Key(chunk.coord, live.index) == s.key)
+                    {
+                        pos = live.island.PlanarPosition;
+                        return true;
+                    }
+            if (_overrides.TryGetValue(s.key, out var saved) && saved != null) pos = new Vector2(saved.posX, saved.posZ);
+            return true;
         }
 
         // islandsLeft counts the planned slots whose key is not consumed. A slot is consumed once its streamed island

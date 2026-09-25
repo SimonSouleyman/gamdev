@@ -178,6 +178,7 @@ namespace Drift.SaveSystem
         bool _photoInputHold;
         bool _followInputHold;
         bool _startHold;
+        long _backgroundedUtcTicks;
         readonly AdventureIntro _intro = new AdventureIntro();
 
         public SessionModel Model => _model;
@@ -348,6 +349,7 @@ namespace Drift.SaveSystem
             _photoInputHold = false;
             _followInputHold = false;
             _startHold = false;
+            _backgroundedUtcTicks = 0;
             _intro.Cancel();
             RingWorld.StartHeld = false;
             RingWorld.IntroPull = 0f;
@@ -437,21 +439,51 @@ namespace Drift.SaveSystem
         void OnApplicationPause(bool paused)
         {
             if (paused) OnBackgrounded();
+            else OnForegrounded();
         }
 
         // Devices report backgrounding through OnApplicationPause; in the Editor and desktop players only
         // the focus callback fires, so losing window focus counts as backgrounding there. Nothing auto-resumes.
         void OnApplicationFocus(bool focused)
         {
-            if (focused) return;
-            if (Application.isEditor || !Application.isMobilePlatform) OnBackgrounded();
+            if (!Application.isEditor && Application.isMobilePlatform) return;
+            if (focused) OnForegrounded();
+            else OnBackgrounded();
+        }
+
+        // Switching away for a moment (a notification, the app switcher) is not time the island lived through.
+        public const double MinBackgroundSeconds = 2.0;
+
+        public static bool CatchesUpAfter(double elapsedSeconds) => elapsedSeconds >= MinBackgroundSeconds;
+
+        // The same limits as SaveManager.Load: the life clock's own speed, capped at maxSeconds.
+        public static float CatchUpSecondsFor(double elapsedSeconds, float timeScale, float maxSeconds)
+        {
+            if (!CatchesUpAfter(elapsedSeconds) || !(timeScale > 0f) || !(maxSeconds > 0f)) return 0f;
+            return (float)Math.Min(elapsedSeconds * timeScale, maxSeconds);
         }
 
         void OnBackgrounded()
         {
-            if (!Application.isPlaying || !_model.IsPlaying) return;
+            if (!Application.isPlaying) return;
+            // The earliest stamp wins: in the Editor the pause and the focus callback can both report the same switch.
+            if (_model.InGame && Mode == GameMode.Cozy && _backgroundedUtcTicks == 0) _backgroundedUtcTicks = DateTime.UtcNow.Ticks;
+            if (!_model.IsPlaying) return;
             if (saveManager != null && Mode == GameMode.Cozy) saveManager.Save();
             _model.EnterBackground();
+        }
+
+        // The process survived the background, so no load catches the island up: its life does it here, for the time
+        // the game stood paused. Anything that resumed or left the run in between dropped the stamp (OnModelStateChanged).
+        void OnForegrounded()
+        {
+            long since = _backgroundedUtcTicks;
+            _backgroundedUtcTicks = 0;
+            if (!Application.isPlaying || since == 0 || Mode != GameMode.Cozy || !_model.InGame || player == null || saveManager == null) return;
+            var life = player.GetComponent<Drift.Life.IslandLifeSystem>();
+            if (life == null) return;
+            float lifeSeconds = CatchUpSecondsFor(new TimeSpan(DateTime.UtcNow.Ticks - since).TotalSeconds, life.timeScale, saveManager.maxOfflineLifeSeconds);
+            if (lifeSeconds > 0f) life.CatchUp(lifeSeconds);
         }
 
         void OnSunk()
@@ -534,6 +566,9 @@ namespace Drift.SaveSystem
 
         void OnModelStateChanged(State prev, State next)
         {
+            // Only the background pause itself keeps the stamp: a resumed game counts its own time again, and a run
+            // that was left (title, new game) has nothing to catch up.
+            if (next != State.Paused) _backgroundedUtcTicks = 0;
             ArmIntro(prev, next);
             ApplyState(next);
             StateChanged?.Invoke(next);

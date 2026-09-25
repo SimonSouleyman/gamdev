@@ -36,6 +36,8 @@ namespace Drift.UI
             if (Fill.enabled != visible) Fill.enabled = visible;
         }
 
+        public void Tint(Color color) => UiStyle.Tint(Fill, color);
+
         internal void AttachShine(RectTransform shine)
         {
             _shine = shine;
@@ -294,6 +296,29 @@ namespace Drift.UI
                 if (Application.isPlaying) UnityEngine.Object.Destroy(child);
                 else UnityEngine.Object.DestroyImmediate(child);
             }
+        }
+
+        // A nested canvas batches its graphics on its own: a bar or text animated every frame then rebuilds only this
+        // part instead of the whole parent canvas. Its graphics are invisible to the parent's GraphicRaycaster.
+        public static Canvas SubCanvas(Component c)
+        {
+            var canvas = c.GetComponent<Canvas>();
+            if (canvas == null) canvas = c.gameObject.AddComponent<Canvas>();
+            return canvas;
+        }
+
+        const float ColorStep = 1f / 255f;
+
+        // Every Graphic.color write re-meshes the graphic and re-batches its canvas, so a per-frame tint only writes
+        // once the colour has moved by more than one 8-bit step.
+        public static bool Tint(Graphic g, Color color)
+        {
+            if (g == null) return false;
+            var c = g.color;
+            if (Mathf.Abs(c.r - color.r) <= ColorStep && Mathf.Abs(c.g - color.g) <= ColorStep
+                && Mathf.Abs(c.b - color.b) <= ColorStep && Mathf.Abs(c.a - color.a) <= ColorStep) return false;
+            g.color = color;
+            return true;
         }
 
         public static RectTransform Rect(Transform parent, string name)

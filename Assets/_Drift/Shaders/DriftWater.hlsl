@@ -15,6 +15,7 @@ float4 _PlayerVel;      // xy = player planar velocity
 //   _PlayerWake     = (churn reach from the shore, V line length, cutoff range from the island centre [0 = no wake], foam band scale)
 float4 _PlayerWakeEdge;
 float4 _PlayerWake;
+float  _PlayerWakeDamp;  // share of the churn foam taken away behind a very wide island (0 = small island, as ever)
 float4 _RingPos;        // xy = ring 0 centre, zw = ring 1 centre
 float4 _RingAge;        // x, y = ring ages in seconds
 float4 _RingStrength;   // x, y = ring strengths (0 = inactive)
@@ -95,8 +96,14 @@ float StormField(float2 wp)
         if (i >= (int)_DriftStormCount) break;
         float4 s = _DriftStorms[i];
         float d = length(wp - s.xy) / max(s.z, 1e-3);
-        d *= 0.82 + 0.36 * DriftNoise(wp * 0.05 + s.xy * 0.013);
-        float k = 1.0 - smoothstep(0.55, 1.0, d);
+        // The noise scales d by 0.82..1.18, so inside 0.55 / 1.18 the storm is full and past 1 / 0.82 it is gone
+        // whatever the noise says: only the ragged rim pays for it. Exactly the same field.
+        float k = d < 0.466 ? 1.0 : 0.0;
+        [branch] if (d >= 0.466 && d < 1.2196)
+        {
+            d *= 0.82 + 0.36 * DriftNoise(wp * 0.05 + s.xy * 0.013);
+            k = 1.0 - smoothstep(0.55, 1.0, d);
+        }
         storm = max(storm, s.w * k);
     }
     return storm;

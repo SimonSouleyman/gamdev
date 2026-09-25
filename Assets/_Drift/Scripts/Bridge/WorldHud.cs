@@ -26,6 +26,8 @@ namespace Drift.Bridge
         public bool editorExplain;
         [Tooltip("Sekunden, die die Erklärkarte stehen bleibt, bevor sie sich selbst schließt.")]
         public float explainSeconds = 10f;
+        [Tooltip("Nur im Editor: zeigt den Startsatz unter der Abenteuer-Leiste in der Spielansicht.")]
+        public bool editorStartLine;
 
         public enum EditorMode { Auto, Cozy, Adventure }
 
@@ -34,8 +36,11 @@ namespace Drift.Bridge
         const float HintWide = 760f, HintNarrow = 610f, HintAdventure = 520f;
         // Top panel: 820 wide and left-anchored so the round 120-unit buttons on the right stay clear in portrait.
         const float Inner = 740f, Pad = 40f, PanelWidth = Inner + 2f * Pad;
-        const float CozyHeight = 232f, AdventureHeight = 152f;
+        const float CozyHeight = 232f, AdventureHeight = 198f;
         const float LabelColumn = 138f, ValueColumn = 196f, LevelColumn = 128f;
+        // "5 von 20 Inseln · 3 Vulkane" needs more room than the plain count: the world bar gives way up to this.
+        const float WorldValueMax = 380f;
+        const float StartLineHeight = 128f, StartLineFadeIn = 0.35f;
 
         Canvas _canvas;
         RectTransform _root, _hintRect, _top, _cozy, _adventure, _explain;
@@ -51,11 +56,13 @@ namespace Drift.Bridge
         // Abenteuer
         Text _timerText, _bestText, _boostText, _levelText, _advBuoyLabel;
         UiBar _advBuoyBar;
-        // Abenteuer "Schwung": a thin bar under the buoyancy, filled by chained boosts and surfing.
+        // Abenteuer "Schwung": a bar under the buoyancy, filled by chained boosts and surfing.
         UiBar _momentumBar;
         Text _momentumLabel;
         int _momentumLit = -1;
-        const string MomentumCaption = "Schwung";
+        // Abenteuer: one sentence under the strip while the race waits on the start line.
+        CanvasGroup _startLine;
+        float _startLineAlpha = -1f;
         Image _advTrack;
         UiBar _buoyBar;
         string _lastMilestone = "";
@@ -67,7 +74,7 @@ namespace Drift.Bridge
         Color32[] _pixels;
         float _timer;
         float _lookupTimer;
-        int _lastArea = int.MinValue, _lastIslands = int.MinValue, _lastLeft = int.MinValue;
+        int _lastArea = int.MinValue, _lastIslands = int.MinValue, _lastLeft = int.MinValue, _lastVolcanoes = int.MinValue;
         int _lastSinkState = -1, _lastHintState = -1, _lastForm = -1, _lastHeavy = -1;
         float _explainLeft;
         bool _explainShown;
@@ -89,7 +96,9 @@ namespace Drift.Bridge
         void OnEnable()
         {
             Build();
-            _lastArea = _lastIslands = _lastLeft = int.MinValue;
+            _lastArea = _lastIslands = _lastLeft = _lastVolcanoes = int.MinValue;
+            _startLineAlpha = -1f;
+            _momentumLit = -1;
             _lastSinkState = _lastHintState = _lastForm = _lastHeavy = -1;
             _lastTimer = _lastBest = _lastBoost = int.MinValue;
             _shownMode = (GameMode)(-1);
@@ -130,7 +139,7 @@ namespace Drift.Bridge
         }
 
         // The start line lets go (after the briefing and the breath before the race).
-        void OnRaceStarted() => Call("Los!", UiStyle.Mint);
+        void OnRaceStarted() => Call(ModeTexts.GoLabel, UiStyle.Mint);
 
         void OnDisable()
         {
@@ -181,7 +190,7 @@ namespace Drift.Bridge
                 float pulse = 0.5f + 0.5f * Mathf.Sin(Time.unscaledTime * 5f);
                 if (low) buoyColor = Color.Lerp(buoyColor, UiStyle.Cream, pulse);
                 // The empty part of the track glows coral as well, so a nearly empty bar still reads at a glance.
-                if (low) _advTrack.color = Color.Lerp(UiStyle.Track, UiStyle.WithAlpha(UiStyle.Coral, 0.55f), pulse);
+                if (low) UiStyle.Tint(_advTrack, Color.Lerp(UiStyle.Track, UiStyle.WithAlpha(UiStyle.Coral, 0.55f), pulse));
                 else if (_advTrack.color != UiStyle.Track) _advTrack.color = UiStyle.Track;
                 int heavy = buoy < ModeTexts.HeavyBuoyancy ? 1 : 0;
                 if (heavy != _lastHeavy)
@@ -191,7 +200,7 @@ namespace Drift.Bridge
                 }
             }
             else buoyColor = Color.Lerp(UiStyle.Sand, UiStyle.Sky, Mathf.Clamp01((buoy - 0.3f) / 0.5f));
-            _buoyBar.Fill.color = buoyColor;
+            _buoyBar.Tint(buoyColor);
             _buoyBar.Animate(Time.unscaledTime);
             if (adventure) UpdateAdventure(buoy);
             else UpdateExplain();
@@ -241,8 +250,9 @@ namespace Drift.Bridge
             : GameModes.Current;
 
         // Gemütlich: land mass with what it is doing, a labelled world bar ("x von N Inseln"), a labelled buoyancy
-        // bar with the island's form, the next milestone and the minimap. Abenteuer: one slim strip - distance, the
-        // race calls and the record on top, the buoyancy bar and the level below - and the ring as a small map.
+        // bar with the island's form, the next milestone and the minimap. Abenteuer: one strip - distance, the race
+        // calls and the record on top, the buoyancy bar with the level and the momentum bar below - and the ring as a
+        // small map.
         void ApplyMode(GameMode mode)
         {
             _shownMode = mode;
@@ -265,8 +275,9 @@ namespace Drift.Bridge
             _hintLayout = -1;
             PlaceHint();
             _ringBgBuilt = false;
-            _lastArea = _lastIslands = _lastLeft = _lastTimer = _lastBest = _lastBoost = int.MinValue;
-            _lastSinkState = _lastForm = _lastHeavy = -1;
+            _lastArea = _lastIslands = _lastLeft = _lastVolcanoes = _lastTimer = _lastBest = _lastBoost = int.MinValue;
+            _lastSinkState = _lastForm = _lastHeavy = _momentumLit = -1;
+            _startLineAlpha = -1f;
             _lastMilestone = "";
             _timer = refresh;
         }
@@ -298,11 +309,16 @@ namespace Drift.Bridge
                 _areaText.text = "Landmasse " + areaI;
             }
             _worldBar.Set(pct);
-            if (total != _lastIslands || left != _lastLeft)
+            // Volcanoes are no world slots, yet every merged one counts towards the next milestone; listed apart, so
+            // the milestone line running ahead of "x von N Inseln" does not look like a miscount.
+            int volcanoes = session != null ? session.Stats.volcanoesAbsorbed : 0;
+            if (total != _lastIslands || left != _lastLeft || volcanoes != _lastVolcanoes)
             {
                 _lastIslands = total;
                 _lastLeft = left;
-                _islandsText.text = ModeTexts.CozyIslands(total - left, total);
+                _lastVolcanoes = volcanoes;
+                _islandsText.text = ModeTexts.WorldProgressLabel(total - left, total, volcanoes);
+                FitWorldRow();
             }
             int sinkState = CozySinking ? 1 : 0;
             int form = player.Compactness >= 0.475f ? 1 : 0;
@@ -322,6 +338,19 @@ namespace Drift.Bridge
                 _lastMilestone = next;
                 if (_milestoneText != null) _milestoneText.text = next;
             }
+        }
+
+        // The value column of the world row grows with its text (up to WorldValueMax) and the bar gives way, so the
+        // volcano count stays at full size; without volcanoes the row keeps the buoyancy row's columns.
+        void FitWorldRow()
+        {
+            if (_islandsText == null || _worldBar == null) return;
+            float column = Mathf.Clamp(Mathf.Ceil(_islandsText.preferredWidth) + 16f, ValueColumn, WorldValueMax);
+            var rt = _islandsText.rectTransform;
+            if (Mathf.Abs(rt.sizeDelta.x - (column - 16f)) > 0.5f) rt.sizeDelta = new Vector2(column - 16f, rt.sizeDelta.y);
+            var bar = _worldBar.Root;
+            float width = Inner - LabelColumn - column;
+            if (Mathf.Abs(bar.sizeDelta.x - width) > 0.5f) bar.sizeDelta = new Vector2(width, bar.sizeDelta.y);
         }
 
         // ---------------------------------------------------------------- cozy explanation card
@@ -413,7 +442,7 @@ namespace Drift.Bridge
                 _momentumBar.Set(mom);
                 Color mc = Color.Lerp(UiStyle.Sand, UiStyle.Mint, Mathf.Clamp01(mom * 1.25f));
                 if (mom > 0.9f) mc = Color.Lerp(mc, UiStyle.Cream, 0.35f + 0.35f * Mathf.Sin(Time.unscaledTime * 6f));
-                _momentumBar.Fill.color = mc;
+                _momentumBar.Tint(mc);
                 int lit = mom > 0.05f ? 1 : 0;
                 if (lit != _momentumLit)
                 {
@@ -443,11 +472,36 @@ namespace Drift.Bridge
                 else if (state == 5) _boostText.text = ModeTexts.LowBuoyancyCall;
                 else if (state == 2) _boostText.text = ModeTexts.SurfLabel;
             }
-            if (state == 4) _boostText.color = UiStyle.WithAlpha(UiStyle.Sand, 0.7f + 0.3f * Mathf.Sin(Time.unscaledTime * 6f));
-            else if (state == 3) _boostText.color = UiStyle.WithAlpha(_callColor, 0.7f + 0.3f * Mathf.Sin(Time.unscaledTime * 12f));
-            else if (state == 1) _boostText.color = UiStyle.WithAlpha(UiStyle.Mint, 0.75f + 0.25f * Mathf.Sin(Time.unscaledTime * 8f));
-            else if (state == 5) _boostText.color = UiStyle.WithAlpha(UiStyle.Coral, 0.75f + 0.25f * Mathf.Sin(Time.unscaledTime * 5f));
-            else if (state == 2) _boostText.color = UiStyle.WithAlpha(UiStyle.Sky, 0.85f);
+            // The pulse goes through the renderer's alpha: a Graphic.color write would regenerate the text mesh every frame.
+            float t = Time.unscaledTime;
+            if (state == 4) PulseCall(UiStyle.Sand, 0.7f + 0.3f * Mathf.Sin(t * 6f));
+            else if (state == 3) PulseCall(_callColor, 0.7f + 0.3f * Mathf.Sin(t * 12f));
+            else if (state == 1) PulseCall(UiStyle.Mint, 0.75f + 0.25f * Mathf.Sin(t * 8f));
+            else if (state == 5) PulseCall(UiStyle.Coral, 0.75f + 0.25f * Mathf.Sin(t * 5f));
+            else if (state == 2) PulseCall(UiStyle.Sky, 0.85f);
+            UpdateStartLine(live);
+        }
+
+        void PulseCall(Color color, float alpha)
+        {
+            UiStyle.Tint(_boostText, UiStyle.WithAlpha(color, 1f));
+            _boostText.canvasRenderer.SetAlpha(alpha);
+        }
+
+        // Shown while the race waits on the start line after the briefing (Tilda explains it herself while she talks),
+        // then gone with the "Los!" call: it fades over the same CallSeconds.
+        void UpdateStartLine(bool live)
+        {
+            if (_startLine == null) return;
+            bool waiting = live ? RingWorld.StartHeld && !session.StartHold : editorStartLine;
+            float a = _startLineAlpha < 0f ? 0f : _startLineAlpha;
+            if (!live) a = waiting ? 1f : 0f;
+            else if (waiting) a = Mathf.Min(1f, a + Time.unscaledDeltaTime / StartLineFadeIn);
+            else a = Mathf.Max(0f, a - Time.unscaledDeltaTime / CallSeconds);
+            if (a == _startLineAlpha) return;
+            _startLineAlpha = a;
+            SetActive(_startLine, a > 0f);
+            _startLine.alpha = a;
         }
 
         void DrawMap()
@@ -661,6 +715,8 @@ namespace Drift.Bridge
             _worldBar = LabelledBar(Row(_cozy, "World", 86f, 32f), "WorldBar", ModeTexts.WorldLabel, UiStyle.Mint, 24f, ValueColumn, out _, out _islandsText);
             _islandsText.color = UiStyle.Muted;
             _cozyBuoyBar = LabelledBar(Row(_cozy, "Buoyancy", 130f, 36f), "BuoyBar", ModeTexts.BuoyancyLabel, UiStyle.Sky, 30f, ValueColumn, out _, out _formText);
+            // The buoyancy bar is tinted and glinted every frame: its own canvas, so the panel is not rebuilt with it.
+            UiStyle.SubCanvas(_cozyBuoyBar.Root);
             var mile = Row(_cozy, "Milestone", 176f, 38f);
             _milestoneText = RowText(mile, "", UiStyle.Caption, UiStyle.Sand, TextAnchor.MiddleLeft, false, 0f, Inner);
         }
@@ -680,13 +736,30 @@ namespace Drift.Bridge
             _levelText.color = UiStyle.Sand;
             _levelText.fontStyle = UiStyle.Weight(true);
             _advTrack = _advBuoyBar.Root.GetComponent<Image>();
-            // Row 3, a slim one: the momentum ("Schwung") that makes the island faster.
-            var mrow = Row(_adventure, "Momentum", 136f, 16f);
-            _momentumLabel = RowText(mrow, MomentumCaption, 20, UiStyle.Muted, TextAnchor.MiddleLeft, true, 0f, LabelColumn - 8f);
-            float mw = Inner - LabelColumn - LevelColumn;
-            _momentumBar = UiStyle.Bar(mrow, "MomentumBar", new Vector2(mw, 8f), UiStyle.Sand);
-            _momentumBar.Root.Place(new Vector2(0f, 0.5f), new Vector2(0f, 0.5f), new Vector2(LabelColumn, 0f), new Vector2(mw, 8f));
+            // Row 3: the momentum ("Schwung") that makes the island faster, as big as the buoyancy row above it.
+            var mrow = Row(_adventure, "Momentum", 144f, 38f);
+            _momentumBar = LabelledBar(mrow, "MomentumBar", ModeTexts.MomentumLabel, UiStyle.Sand, 32f, LevelColumn, out _momentumLabel, out _);
+            _momentumLabel.color = UiStyle.Muted;
+            BuildStartLine(_adventure);
+            // Everything in the strip moves every frame (distance, calls, pulsing bars): its own canvas keeps those
+            // rebuilds away from the rest of the HUD.
+            UiStyle.SubCanvas(_adventure);
             _adventure.gameObject.SetActive(false);
+        }
+
+        void BuildStartLine(RectTransform adventure)
+        {
+            var panel = UiStyle.Panel(adventure, "StartLine", new Vector2(PanelWidth, StartLineHeight), true, false)
+                .TopLeft(new Vector2(0f, -(AdventureHeight + UiStyle.GapSmall)), new Vector2(PanelWidth, StartLineHeight));
+            // Broken after the dash: a free wrap split "wie | weit kommst du?".
+            var text = UiStyle.Label(panel, ModeTexts.AdventureStartLine.Replace(" – ", " –\n"), UiStyle.Body, UiStyle.Cream, TextAnchor.MiddleCenter, true);
+            text.lineSpacing = UiStyle.Lines(1.08f);
+            text.rectTransform.Stretch(Pad, 8f, Pad, 8f);
+            _startLine = panel.gameObject.AddComponent<CanvasGroup>();
+            _startLine.interactable = false;
+            _startLine.blocksRaycasts = false;
+            _startLine.alpha = 0f;
+            panel.gameObject.SetActive(false);
         }
 
         void BuildExplain(RectTransform root)

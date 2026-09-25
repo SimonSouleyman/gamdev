@@ -26,6 +26,34 @@ namespace Drift.Tests
             StringAssert.DoesNotContain("Tiefgang", ModeTexts.ExplainBuoyancy);
         }
 
+        // Volcanoes are no world slots: listed beside the slot count, never folded into it.
+        [Test]
+        public void Hud_WorldProgressListsVolcanoesApart()
+        {
+            Assert.AreEqual("5 von 20 Inseln", ModeTexts.WorldProgressLabel(5, 20, 0));
+            Assert.AreEqual("5 von 20 Inseln · 3 Vulkane", ModeTexts.WorldProgressLabel(5, 20, 3));
+            Assert.AreEqual("5 von 20 Inseln · 1 Vulkan", ModeTexts.WorldProgressLabel(5, 20, 1));
+            Assert.AreEqual("0 von 20 Inseln · 2 Vulkane", ModeTexts.WorldProgressLabel(0, 20, 2));
+            Assert.AreEqual("5 von 20 Inseln", ModeTexts.WorldProgressLabel(5, 20, -4), "a negative count is no count");
+            Assert.AreEqual("alle vereint", ModeTexts.WorldProgressLabel(20, 20, 3), "the Pangäa keeps its line");
+            Assert.AreEqual("alle vereint", ModeTexts.WorldProgressLabel(21, 20, 0));
+            Assert.AreEqual("", ModeTexts.WorldProgressLabel(0, 0, 3));
+            Assert.AreEqual(ModeTexts.CozyIslands(7, 20), ModeTexts.WorldProgressLabel(7, 20, 0));
+        }
+
+        [Test]
+        public void Hud_AdventureStartLineIsOneShortGermanSentence()
+        {
+            string s = ModeTexts.AdventureStartLine;
+            StringAssert.Contains("Treibgut", s);
+            StringAssert.Contains("Inseln", s);
+            StringAssert.EndsWith("?", s);
+            StringAssert.DoesNotContain("\n", s, "the panel wraps it");
+            Assert.LessOrEqual(s.Length, 64, "two lines under the strip at most");
+            Assert.AreEqual("Los!", ModeTexts.GoLabel);
+            Assert.AreEqual("Schwung", ModeTexts.MomentumLabel);
+        }
+
         [Test]
         public void Hud_AdventureTextsAreGermanAndShort()
         {
