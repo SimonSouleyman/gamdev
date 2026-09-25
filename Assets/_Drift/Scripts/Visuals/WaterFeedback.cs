@@ -114,6 +114,7 @@ namespace Drift.Visuals
         float _reachAge;
         float _reachMax;
         readonly CoastField _coast = new();
+        readonly WaterFlecks _flecks = new();
         Vector4 _coastParams;
         Island _coastOwner;
         int _coastVersion = -1;
@@ -187,6 +188,7 @@ namespace Drift.Visuals
             if (Drift.Core.LifeEnvironment.WindProvider == _windProvider) Drift.Core.LifeEnvironment.WindProvider = null;
             if (Drift.Core.LifeEnvironment.StormProvider == _stormProvider) Drift.Core.LifeEnvironment.StormProvider = null;
             if (waterRenderer != null) waterRenderer.SetPropertyBlock(null);
+            _flecks.Release();
             _field?.Release();
             _field = null;
             _fieldAge = float.MaxValue;
@@ -584,6 +586,10 @@ namespace Drift.Visuals
             }
 
             if (waterRenderer != null) waterRenderer.SetPropertyBlock(_block);
+            // The current's foam flecks are their own draw on top of the sea, fed by the same block.
+            if (waterRenderer != null) _flecks.Sync(waterRenderer, _block, currentStreakStrength > 0f);
         }
+
+        public Renderer FleckRenderer => _flecks.Renderer;
     }
 }

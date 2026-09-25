@@ -55,7 +55,7 @@ void DriftCloudClump(float2 id, float cover, out float2 centre, out float radius
 }
 
 // Same clump as DriftCloudClump, evaluated in stages so a point that no clump can reach stops early: an empty
-// cell (about half of them at the default cover) costs one hash, a cell whose clump is out of reach four, and
+// cell (about half of them at the default cover) costs one hash, a cell whose clump is out of reach three, and
 // only the clump actually over the point pays for the axis sincos and the lobe shape. The result is exactly
 // DriftCloudClump's: a clump never reaches past r * 1.05 * aspect from its centre.
 float DriftClumpDensity(float2 q, float2 id, float cover)
@@ -69,10 +69,16 @@ float DriftClumpDensity(float2 q, float2 id, float cover)
         float h3 = DriftHash(id + float2(3.71, 41.9));
         float h4 = DriftHash(id + float2(29.3, 11.1));
         float2 d = q - (id + 0.3 + 0.4 * float2(h3, h4));
-        float h2 = DriftHash(id + float2(17.31, 5.17));
-        float r = (0.16 + 0.12 * h2) * grow;
         float aspect = 1.0 + 0.5 * h3;
-        float reach = r * 1.05 * aspect;
+        // r <= 0.28 * grow whatever h2 is: most points are out of even that reach and skip the fourth hash.
+        float reachMax = 0.294 * grow * aspect;
+        float h2 = 0.0, r = 0.0, reach = -1.0;
+        [branch] if (dot(d, d) < reachMax * reachMax)
+        {
+            h2 = DriftHash(id + float2(17.31, 5.17));
+            r = (0.16 + 0.12 * h2) * grow;
+            reach = r * 1.05 * aspect;
+        }
         [branch] if (dot(d, d) < reach * reach)
         {
             float2 axis;
@@ -99,8 +105,16 @@ float CloudDensity(float2 wp)
     {
         float2 q = (wp + _CloudShadowShift.xy) * _CloudScale + _CloudOffset.xy;
         float2 b = floor(q - 0.5);
-        dens = max(max(DriftClumpDensity(q, b, cover), DriftClumpDensity(q, b + float2(1, 0), cover)),
-                   max(DriftClumpDensity(q, b + float2(0, 1), cover), DriftClumpDensity(q, b + float2(1, 1), cover)));
+        // q - b is in [0.5, 1.5). A clump centre lies in [0.3, 0.7] of its cell and reaches at most 0.441 cells, so
+        // cell b can only cover the point while q - b < 1.15 and cell b + 1 only while q - b > 0.85 (per axis): about
+        // 1.7 of the 4 cells need looking at, and the result is exactly the same.
+        float2 f = q - b;
+        bool2 lo = f < 1.15;
+        bool2 hi = f > 0.85;
+        [branch] if (lo.x && lo.y) dens = DriftClumpDensity(q, b, cover);
+        [branch] if (hi.x && lo.y) dens = max(dens, DriftClumpDensity(q, b + float2(1, 0), cover));
+        [branch] if (lo.x && hi.y) dens = max(dens, DriftClumpDensity(q, b + float2(0, 1), cover));
+        [branch] if (hi.x && hi.y) dens = max(dens, DriftClumpDensity(q, b + float2(1, 1), cover));
     }
     return dens;
 }

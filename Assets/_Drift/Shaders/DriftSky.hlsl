@@ -349,9 +349,8 @@ float3 DriftSky(float3 dir, float3 sdir, float3 camPos, float2 pixel)
     UNITY_BRANCH
     if (_SkySpace.x > 0.001) outside = DriftSkyOutsideRing(dir, camPos) * saturate(_SkySpace.x);
 
-    // Below the limb the dome is hidden by the sea, but the sea is transparent and drawn later, so these pixels
-    // are shaded all the same: they only get the haze colour. Everything else fades in from zero at up = 0, so
-    // there is no edge.
+    // Below the limb only the haze colour (the dome skips the pixels the sea covers, which blends this very colour
+    // under itself). Everything else fades in from zero at up = 0, so there is no edge.
     float up = _CurveSkyCenter.w - dot(dir, _CurveSkyCenter.xyz);
     float3 col = _CurveFogColor.rgb;
     UNITY_BRANCH

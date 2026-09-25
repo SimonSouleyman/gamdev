@@ -23,6 +23,8 @@ Shader "Drift/Skybox"
             #include "DriftClouds.hlsl"
             #include "DriftSky.hlsl"
 
+            float _CurveSkyDraw;
+
             struct Attributes { float4 positionOS : POSITION; };
 
             struct Varyings
@@ -36,6 +38,9 @@ Shader "Drift/Skybox"
             {
                 Varyings OUT;
                 OUT.positionHCS = TransformObjectToHClip(IN.positionOS.xyz);
+                // A camera that draws Drift/CurvedSky needs no skybox: the dome covers everything the water does not
+                // (it used to reject this pass by depth, but it is drawn after the water now).
+                if (_CurveSkyDraw > 0.5) OUT.positionHCS = float4(0, 0, 0, 1);
                 OUT.dir = IN.positionOS.xyz;
                 OUT.sdir = DriftSkyStarSpace(IN.positionOS.xyz);
                 return OUT;

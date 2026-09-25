@@ -206,6 +206,7 @@ namespace Drift.Visuals
         Camera _farCam;
         float _farBefore;
         SkyPalette _fallbackPalette;
+        MeshRenderer _skyRenderer;
         Vector3 _sunDir = Vector3.up, _moonDir = Vector3.down;
         float _sunChord2 = 1e-3f, _moonInvChord = 25f, _moonPhase = 0.5f;
         float _skyClock;
@@ -514,7 +515,7 @@ namespace Drift.Visuals
                 Shader.SetGlobalVector(FogParamsId, new Vector4(1e6f, 0f, 0f, 0f));
                 Shader.SetGlobalVector(SkyCenterId, flatSky);
                 // The dome is for the world cameras; the island preview and portrait cameras keep their clear colour.
-                Shader.SetGlobalFloat(SkyDrawId, cam.cameraType == CameraType.SceneView ? 1f : 0f);
+                Shader.SetGlobalFloat(SkyDrawId, cam.cameraType == CameraType.SceneView ? DomeDraw(cam) : 0f);
                 PushCelestial(flatSky);
                 return;
             }
@@ -541,7 +542,7 @@ namespace Drift.Visuals
             if (invR > 0f) start = HazeStart(start, full, hazeEnd, Vector2.Distance(hazeCenter, focus), viewDist, hazeClearView, hazeMinBand);
             Shader.SetGlobalVector(FogParamsId, own ? new Vector4(start, 1f / Mathf.Max(1f, full - start), hazeCenter.x, hazeCenter.y) : new Vector4(1e6f, 0f, 0f, 0f));
             Shader.SetGlobalVector(SkyCenterId, own ? skyCenter : flatSky);
-            Shader.SetGlobalFloat(SkyDrawId, 1f);
+            Shader.SetGlobalFloat(SkyDrawId, DomeDraw(cam));
             PushCelestial(own ? skyCenter : flatSky);
             if (invR > 0f) WidenCulling(cam, focus, invR, hazeCenter, hazeEnd);
         }
@@ -560,7 +561,7 @@ namespace Drift.Visuals
             Shader.SetGlobalVector(FogParamsId, own ? new Vector4(start, 1f / (end - start), cp.x, cp.z) : new Vector4(1e6f, 0f, 0f, 0f));
             var flatSky = new Vector4(0f, -1f, 0f, 0f);
             Shader.SetGlobalVector(SkyCenterId, flatSky);
-            Shader.SetGlobalFloat(SkyDrawId, 1f);
+            Shader.SetGlobalFloat(SkyDrawId, DomeDraw(cam));
             // Past the two rims the world ends and space begins: the sky shader turns every direction that leaves
             // the band through an open end of the ring into the plain starfield (day and night).
             Shader.SetGlobalVector(SpaceId, new Vector4(own ? ringSpace : 0f, ringSpaceStars, Mathf.Max(0.01f, ringSpaceEdge), ringSpaceMilkyWay));
@@ -790,7 +791,15 @@ namespace Drift.Visuals
             if (filter.sharedMesh != _skyMesh) filter.sharedMesh = _skyMesh;
             var renderer = sky.GetComponent<MeshRenderer>();
             if (renderer.sharedMaterial != mat) renderer.sharedMaterial = mat;
+            _skyRenderer = renderer;
         }
+
+        // 1 when this camera really draws the dome. Drift/Water then blends the below-limb sky colour under itself and
+        // Drift/Skybox skips the camera, because the dome is drawn after the water (see CurvedSky.shader): with the dome
+        // missing (drawSky off, renderer disabled, layer culled) the skybox and plain water blending are all there is.
+        float DomeDraw(Camera cam) =>
+            _skyRenderer != null && _skyRenderer.enabled && _skyRenderer.gameObject.activeInHierarchy
+            && (cam.cullingMask & (1 << _skyRenderer.gameObject.layer)) != 0 ? 1f : 0f;
 
         void EnsureSkybox()
         {
@@ -832,6 +841,7 @@ namespace Drift.Visuals
         {
             Transform sky = transform.Find(SkyName);
             if (sky != null) Kill(sky.gameObject);
+            _skyRenderer = null;
             if (_skyMesh != null) Kill(_skyMesh);
             if (_skyMat != null) Kill(_skyMat);
             _skyMesh = null;

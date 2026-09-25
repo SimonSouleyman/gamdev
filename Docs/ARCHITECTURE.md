@@ -2155,3 +2155,24 @@ Structural rules that new content has to follow:
 - **New world per run** (`WorldSeeds`): the title proposes a fresh seed after every run; typed seeds are exact.
 - **Harbour** (`Life/SettlementMeshes.Harbour.cs`): fisherman's hut on stilts + props next to the jetty's land end,
   reserved circle, re-derived from the terrain; `IslandSettlementSystem.TryGetHarbourView` feeds the watch framing.
+
+
+## v0.6.6 / v0.6.7 additions (2026-09-25)
+
+- **Device diagnostics** (dev builds on phones): `Core/FrameStatsLogger` logs "Drift-FPS avg/p95/max/slow" every 10 s;
+  `Bridge/PerfProbe` runs when `persistentDataPath/perfprobe` exists (adb: `touch /sdcard/Android/data/com.drift.game/files/perfprobe`),
+  steps through baseline / renderScale 0.6 / no depth texture / no UI / each shader's renderers off and logs
+  "Drift-PROBE <step> fps gpu cpu" (FrameTimingManager; PlayerSettings.enableFrameTimingStats on). Remote profiler:
+  `adb forward tcp:55000 tcp:55000` + `ProfilerDriver.DirectIPConnect("127.0.0.1")`.
+- **`Bridge/DynamicResolution`** (phones): URP renderScale between 0.6 and the asset's 0.8; down one 0.05 step when the
+  0.75 s GPU average > 16.3 ms (1.5 s hold), up 0.025 when < 13.5 ms (4 s hold). Disabled while the probe flag exists.
+- **Water perf**: foam flecks drawn by `Visuals/WaterFlecks` (+`Drift/WaterFlecks` shader) instead of a per-pixel cell
+  search; shared uniforms in `Shaders/DriftWater.hlsl`; CurvedSky draws after the water and skips water pixels.
+- **Last-island hint**: `IslandHintKind.LastIsland` (rank −1, any distance) on the nearest non-volcano island when
+  `WorldStreamer.Progress` reports one planned island left; `HintGlyph.Island`; an extra edge widget points at the
+  unconsumed slot's wrapped position when that island is not streamed in.
+- Also in v0.6.6: title cozy choice window, per-mode help, audio mix (all SFX under the music, `AudioMixTests`),
+  Tilda grumble variety, moonlit nights (DayNightCycle "Mondnacht", water moon path), fireflies always (not pooled),
+  close-up motion smoothing (`Shaders/DriftMotion.hlsl`, UV4 = previous position + bake time), flock watch framing,
+  map-style Pangäa camera (`FlyOverCamera`, `TouchGestures`, `PangaeaSights`), lightning fire patches
+  (`firePatchShare`), adventure intro hold (`GameSession.adventureIntroSeconds`), flotsam rings, higher race camera.

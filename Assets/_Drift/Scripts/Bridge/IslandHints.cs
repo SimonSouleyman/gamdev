@@ -170,7 +170,7 @@ namespace Drift.Bridge
                     var isl = Island.All[i];
                     if (isl != null && isl.useKeyboardInput) { player = isl; break; }
                 }
-            if (session != null && saveManager != null && watch != null && tutorial != null) return;
+            if (session != null && saveManager != null && watch != null && tutorial != null && streamer != null) return;
             _lookupTimer -= Time.unscaledDeltaTime;
             if (_lookupTimer > 0f) return;
             _lookupTimer = 1f;
@@ -178,6 +178,7 @@ namespace Drift.Bridge
             if (saveManager == null) saveManager = FindAnyObjectByType<SaveManager>();
             if (watch == null) watch = FindAnyObjectByType<WatchTools>();
             if (tutorial == null) tutorial = FindAnyObjectByType<TutorialGuide>();
+            if (streamer == null) streamer = FindAnyObjectByType<WorldStreamer>();
         }
 
         bool ShouldShow()
@@ -227,9 +228,74 @@ namespace Drift.Bridge
 
         // ---------------------------------------------------------------- scan
 
+        WorldStreamer streamer;
+        Island _lastIsland;
+        // The last island's planned spot while it is not streamed in (it can lie beyond the loaded chunks).
+        bool _lastFar;
+        Vector2 _lastFarPos;
+        Widget _farLast;
+        static readonly Entry FarLastEntry = new Entry { kind = IslandHintKind.LastIsland };
+
+        // Cozy with exactly one planned island left (owner, v0.6.7: "eine Anzeige, um sie einfacher zu finden"): the
+        // nearest non-volcano island that is not the player's. Volcanoes are bonus land and never count.
+        Island FindLastIsland()
+        {
+            if (!Application.isPlaying || streamer == null || GameModes.Current != GameMode.Cozy) return null;
+            streamer.Progress(out _, out int left);
+            _lastFar = false;
+            if (left != 1) return null;
+            Island best = null;
+            float bestD = float.MaxValue;
+            var all = Island.All;
+            for (int i = 0; i < all.Count; i++)
+            {
+                var isl = all[i];
+                if (isl == null || isl == player || isl.useKeyboardInput || isl.isVolcano || !isl.isActiveAndEnabled || isl.IsSunk) continue;
+                float d = (isl.PlanarPosition - player.PlanarPosition).sqrMagnitude;
+                if (d < bestD) { bestD = d; best = isl; }
+            }
+            // Not streamed in: point at its planned spot, the nearest copy on the wrapped world.
+            if (best == null)
+            {
+                var slots = streamer.WorldSlots();
+                float size = streamer.WorldSize;
+                for (int i = 0; i < slots.Count; i++)
+                {
+                    if (slots[i].consumed) continue;
+                    Vector2 d = slots[i].pos - player.PlanarPosition;
+                    if (size > 0f) d -= size * new Vector2(Mathf.Round(d.x / size), Mathf.Round(d.y / size));
+                    _lastFarPos = player.PlanarPosition + d;
+                    _lastFar = true;
+                    break;
+                }
+            }
+            return best;
+        }
+
+        void PresentFarLast(Camera cam, Vector2 centre, Rect inner, Vector2 pixels, float step, float time)
+        {
+            var w = _farLast;
+            if (w == null) return;
+            bool want = _lastFar && cam != null;
+            w.alpha = Mathf.MoveTowards(w.alpha, want ? 1f : 0f, step);
+            if (w.alpha <= 0f) { if (w.rect.gameObject.activeSelf) w.rect.gameObject.SetActive(false); return; }
+            if (!w.rect.gameObject.activeSelf) w.rect.gameObject.SetActive(true);
+            w.group.alpha = w.alpha * w.alpha * (3f - 2f * w.alpha);
+            Style(w, FarLastEntry);
+            if (!want) return;
+            Vector3 vp = cam.WorldToViewportPoint(CurvedWorld.Bend(new Vector3(_lastFarPos.x, 0f, _lastFarPos.y)));
+            Vector2 dir = IslandHintLogic.DirectionOf(vp, pixels);
+            w.rect.anchoredPosition = IslandHintLogic.EdgePoint(centre, dir, inner);
+            w.pointer.localRotation = Quaternion.Euler(0f, 0f, Mathf.Atan2(dir.y, dir.x) * Mathf.Rad2Deg);
+            float pulse = 1f + 0.05f * Mathf.Sin(time * 3f);
+            w.rect.localScale = new Vector3(pulse, pulse, 1f);
+            if (w.sparkle.enabled) w.sparkle.color = UiStyle.WithAlpha(w.sparkle.color, 0.5f + 0.5f * Mathf.Sin(time * 4.2f));
+        }
+
         void Scan(float now)
         {
             _stamp++;
+            _lastIsland = FindLastIsland();
             var journal = saveManager != null ? saveManager.Journal : null;
             bool preview = !Application.isPlaying && editorPreview;
             ulong unseen = preview ? CollectionCatalog.CollectibleMask
@@ -242,7 +308,7 @@ namespace Drift.Bridge
                 var island = islands[n];
                 if (island == null || island == player || island.useKeyboardInput || !island.isActiveAndEnabled || island.IsSunk) continue;
                 float dist = (island.PlanarPosition - origin).magnitude - island.BoundingRadius;
-                if (dist > scanRange) continue;
+                if (dist > scanRange && island != _lastIsland) continue;
                 if (!_byIsland.TryGetValue(island, out var e))
                 {
                     e = _spare.Count > 0 ? _spare.Pop() : new Entry();
@@ -299,6 +365,7 @@ namespace Drift.Bridge
                     e.showKind = LifeKind.Sheep;
                 }
                 e.kind = IslandHintLogic.Classify(facts, unseen, out e.ev, out e.species);
+                if (island == _lastIsland) e.kind = IslandHintKind.LastIsland;
             }
             for (int i = _entries.Count - 1; i >= 0; i--)
             {
@@ -372,12 +439,12 @@ namespace Drift.Bridge
                 _rank[i] = IslandHintLogic.Rank(e.kind, e.distance);
                 if (IslandHintLogic.OnScreen(e.viewport, mx, my))
                 {
-                    _bubbleOk[i] = e.distance <= bubbleRange;
+                    _bubbleOk[i] = e.distance <= bubbleRange || e.kind == IslandHintKind.LastIsland;
                     RectTransformUtility.ScreenPointToLocalPointInRectangle(_root, new Vector2(e.viewport.x * pixels.x, e.viewport.y * pixels.y), UiCamera, out e.pos);
                 }
                 else
                 {
-                    _edgeOk[i] = e.distance <= edgeRange;
+                    _edgeOk[i] = e.distance <= edgeRange || e.kind == IslandHintKind.LastIsland;
                     e.dir = IslandHintLogic.DirectionOf(e.viewport, pixels);
                     e.pos = IslandHintLogic.EdgePoint(centre, e.dir, inner);
                 }
@@ -394,6 +461,7 @@ namespace Drift.Bridge
             float t = Application.isPlaying ? Time.unscaledTime : 0.6f;
             foreach (var w in _bubbles) Tick(w, step, t);
             foreach (var w in _edges) Tick(w, step, t);
+            PresentFarLast(cam, centre, inner, pixels, step, t);
         }
 
         int SelectInto(int[] pick, int n, int count, bool[] ok, float spacing)
@@ -477,7 +545,7 @@ namespace Drift.Bridge
         Camera UiCamera => _canvas.renderMode == RenderMode.ScreenSpaceOverlay ? null : _canvas.worldCamera;
 
         static Color RingOf(IslandHintKind kind) =>
-            kind == IslandHintKind.NewSpecies ? UiStyle.Sand : kind == IslandHintKind.Event ? UiStyle.Coral : UiStyle.Lagoon;
+            kind == IslandHintKind.LastIsland ? UiStyle.Mint : kind == IslandHintKind.NewSpecies ? UiStyle.Sand : kind == IslandHintKind.Event ? UiStyle.Coral : UiStyle.Lagoon;
 
         void Style(Widget w, Entry e)
         {
@@ -495,8 +563,8 @@ namespace Drift.Bridge
             w.glyph.sprite = GlyphOf(e);
             w.badge.enabled = w.badgeText.enabled = !volcano;
             w.badge.color = ring;
-            w.badgeText.text = e.kind == IslandHintKind.NewSpecies ? "?" : "!";
-            w.sparkle.enabled = e.kind == IslandHintKind.NewSpecies;
+            w.badgeText.text = e.kind == IslandHintKind.NewSpecies ? "?" : e.kind == IslandHintKind.LastIsland ? "1" : "!";
+            w.sparkle.enabled = e.kind == IslandHintKind.NewSpecies || e.kind == IslandHintKind.LastIsland;
             if (w.label != null)
             {
                 w.label.text = IslandHintLogic.LabelOf(e.kind, e.ev);
@@ -512,6 +580,8 @@ namespace Drift.Bridge
                     return JournalGlyphs.Of(JournalGlyphs.For(CollectionCatalog.At(e.species)));
                 case IslandHintKind.Volcano:
                     return HintGlyphs.Of(HintGlyph.Volcano);
+                case IslandHintKind.LastIsland:
+                    return HintGlyphs.Of(HintGlyph.Island);
                 default:
                     switch (e.ev)
                     {
@@ -529,6 +599,7 @@ namespace Drift.Bridge
         {
             foreach (var w in _bubbles) Clear(w);
             foreach (var w in _edges) Clear(w);
+            if (_farLast != null) Clear(_farLast);
         }
 
         static void Clear(Widget w)
@@ -547,6 +618,7 @@ namespace Drift.Bridge
             _canvas = UiStyle.Canvas(transform, CanvasName, sortingOrder, false, out _root);
             _bubbles = new Widget[8];
             for (int i = 0; i < _bubbles.Length; i++) _bubbles[i] = BuildWidget(false, i);
+            _farLast = BuildWidget(true, 9);
             _edges = new Widget[3];
             for (int i = 0; i < _edges.Length; i++) _edges[i] = BuildWidget(true, i);
             _shown = false;

@@ -35,12 +35,13 @@ Shader "Drift/Fish"
                 float4 color      : COLOR;
             };
 
+            // Everything is lit per vertex: the light, the cloud shadow, the underwater tint and the haze all vary over
+            // many fish lengths, and a fish is a handful of vertices a fraction of a unit apart, so the fragment only
+            // outputs the interpolated colour.
             struct Varyings
             {
                 float4 positionHCS : SV_POSITION;
-                float3 positionWS  : TEXCOORD0;
-                float  shade       : TEXCOORD1;
-                float4 color       : COLOR;
+                half4 color        : COLOR;
             };
 
             CBUFFER_START(UnityPerMaterial)
@@ -53,21 +54,19 @@ Shader "Drift/Fish"
                 Varyings OUT;
                 float3 posWS = TransformObjectToWorld(IN.positionOS.xyz);
                 OUT.positionHCS = DriftCurveHClip(posWS);
-                OUT.positionWS = posWS;
-                OUT.color = IN.color;
-                OUT.shade = CloudShadow(posWS.xz);
+                Light l = GetMainLight();
+                float lit = _Ambient + (1.0 - _Ambient) * saturate(l.direction.y);
+                float3 col = IN.color.rgb * _Tint.rgb * lit * l.color * CloudShadow(posWS.xz);
+                float below = saturate(-posWS.y / max(_SubmergeDepth, 1e-3));
+                col = lerp(col, col * _WaterTint.rgb, below * 0.7);
+                float alpha = lerp(1.0, _SubmergedAlpha, below) * IN.color.a;
+                OUT.color = half4(DriftFog(col, posWS), alpha);
                 return OUT;
             }
 
-            float4 frag(Varyings IN) : SV_Target
+            half4 frag(Varyings IN) : SV_Target
             {
-                Light l = GetMainLight();
-                float lit = _Ambient + (1.0 - _Ambient) * saturate(l.direction.y);
-                float3 col = IN.color.rgb * _Tint.rgb * lit * l.color * IN.shade;
-                float below = saturate(-IN.positionWS.y / max(_SubmergeDepth, 1e-3));
-                col = lerp(col, col * _WaterTint.rgb, below * 0.7);
-                float alpha = lerp(1.0, _SubmergedAlpha, below) * IN.color.a;
-                return float4(DriftFog(col, IN.positionWS), alpha);
+                return IN.color;
             }
             ENDHLSL
         }

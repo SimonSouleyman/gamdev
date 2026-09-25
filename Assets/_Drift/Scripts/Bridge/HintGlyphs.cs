@@ -2,7 +2,7 @@ using UnityEngine;
 
 namespace Drift.Bridge
 {
-    public enum HintGlyph { Sparkle, Flame, Volcano, Party, Pointer }
+    public enum HintGlyph { Sparkle, Flame, Volcano, Party, Pointer, Island }
 
     // White silhouettes for the island hints, drawn once per domain like JournalGlyphs (soft signed distances in a
     // -1..1 box, y up); the Image colour tints them.
@@ -96,6 +96,16 @@ namespace Drift.Bridge
                         d = Mathf.Min(d, Polygon(p - new Vector2(x, y), Pennant) - 0.03f);
                     }
                     return d;
+                }
+                case HintGlyph.Island:
+                {
+                    // A little island: a mound on a wave line with a leaning palm.
+                    float mound = Mathf.Max(Disc(p, 0f, -1.05f, 0.95f), -0.62f - p.y);
+                    float waves = Mathf.Abs(p.y + 0.72f - 0.06f * Mathf.Sin(p.x * 9f)) - 0.05f + Mathf.Max(0f, Mathf.Abs(p.x) - 0.9f);
+                    float trunk = Capsule(p, 0.02f, -0.2f, 0.22f, 0.5f, 0.07f);
+                    float leaves = Mathf.Min(Mathf.Min(Drop(p, 0.22f, 0.52f, 0.12f, -0.36f, 0.34f), Drop(p, 0.22f, 0.52f, 0.12f, 0.74f, 0.3f)),
+                        Mathf.Min(Drop(p, 0.22f, 0.52f, 0.12f, 0.02f, 0.86f), Drop(p, 0.22f, 0.52f, 0.12f, 0.56f, 0.8f)));
+                    return Mathf.Min(Mathf.Min(mound, waves), Mathf.Min(trunk, leaves));
                 }
                 default:
                     return Polygon(p, Tip) - 0.08f;

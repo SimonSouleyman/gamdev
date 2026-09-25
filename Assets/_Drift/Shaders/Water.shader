@@ -35,6 +35,10 @@ Shader "Drift/Water"
             Tags { "LightMode"="UniversalForward" }
             Blend SrcAlpha OneMinusSrcAlpha
             ZWrite Off
+            // Marks every sea pixel for Drift/CurvedSky, which is drawn right after the water and skips them (it used
+            // to fill the whole screen behind the sea). Where nothing opaque lies behind, the water puts the sky's
+            // below-the-limb colour (_CurveFogColor) under itself, see the end of frag.
+            Stencil { Ref 8 WriteMask 8 Comp Always Pass Replace }
 
             HLSLPROGRAM
             #pragma vertex vert
@@ -51,6 +55,8 @@ Shader "Drift/Water"
                 float4 positionHCS : SV_POSITION;
                 float3 positionWS  : TEXCOORD0;
                 float4 screenPos   : TEXCOORD1;
+                float4 current     : TEXCOORD2;
+                float3 bentWS      : TEXCOORD3;   // where the pixel really is (its view ray, for the sky under the sea)   // _CurrentField at the vertex: 5 u texels, bilinear, carried well by the 3 u grid
             };
 
             CBUFFER_START(UnityPerMaterial)
@@ -61,90 +67,18 @@ Shader "Drift/Water"
                 float _MoonReflectSize, _MoonGlitter;
             CBUFFER_END
 
-            // Per-frame feedback uniforms, pushed by Drift.Visuals.WaterFeedback through a
-            // MaterialPropertyBlock. Deliberately not material Properties so the .mat asset never
-            // serializes them and everything below degrades to nothing when they are left at zero.
-            float4 _PlayerPos;      // xy = player island world xz
-            float4 _PlayerVel;      // xy = player planar velocity
-            // Island outline for the wake, all pushed by WaterFeedback:
-            //   _PlayerWakeEdge = widest outline points across the velocity: (along, across) of the +perp side, then of the -perp side
-            //   _PlayerWake     = (churn reach from the shore, V line length, cutoff range from the island centre [0 = no wake], foam band scale)
-            float4 _PlayerWakeEdge;
-            float4 _PlayerWake;
-            float4 _RingPos;        // xy = ring 0 centre, zw = ring 1 centre
-            float4 _RingAge;        // x, y = ring ages in seconds
-            float4 _RingStrength;   // x, y = ring strengths (0 = inactive)
-            float4 _CurrentDir;     // xy = normalized plate current direction
-            float  _CurrentSpeed;
-            float  _CurrentFoam;    // current fleck strength knob (WaterFeedback.currentStreakStrength)
-            // Plate currents around the view (Drift.Visuals.CurrentField): rg = velocity / max * 0.5 + 0.5,
-            // b = closeness to a plate boundary, a = closing speed there. Params: xy = world origin, z = 1 / size,
-            // w = max speed (0 = no field: no flecks).
-            TEXTURE2D(_CurrentField);
-            SAMPLER(sampler_CurrentField);
-            float4 _CurrentFieldParams;
-            float4 _CurrentEmphasis;  // x = distance from the coastline, y = extra strength (carry), z = carry against steering
-            // Drift.Islands.SpeedFeel through WaterFeedback: x = drive (0 = idling, 1 = own top speed, up to 1.4 when
-            // the water carries), y = flow build-up while travelling with the current, z = surf on a plate boundary,
-            // w = the island's speed in u/s. Gains: x = speed lines, y = bow/wake boost, z = flow, w = surf. All zero
-            // (the default and "Tempogefühl aus") leaves the water exactly as it was.
-            float4 _SpeedFeel;
-            float4 _SpeedFeelGains;
-            float4 _SprayPos;       // xy = merge contact, z = age, w = strength
-            // How much light the shallow tint and the foam get (Drift.Visuals.DayNightCycle through WaterFeedback): rgb =
-            // multiplier, 1 by day, the dim bluish moonlight at night; w = 0 when nobody set it (then 1). Without it the
-            // fixed turquoise and white glowed at night as bright slabs along every shore.
-            float4 _WaterLight;
-            float  _Storm;          // 0..1 storm intensity at the player
-            // Every visible storm (Drift.Visuals.StormVisuals): xy centre, z radius, w intensity. Unset = no storms.
-            float4 _DriftStorms[4];
-            float  _DriftStormCount;
-            float4 _WindDir;        // xy = normalized wind (current + global wind), z = wind speed
-            float4 _SplashPos;      // xy = fish splash centre, z = age, w = strength
-            // The sky's moon (Drift.Visuals.CurvedWorld, per camera; see DriftSky.hlsl): xyz = where it is drawn,
-            // w = 1 / disc radius (chord); colour a = visibility; stars x = how dark the sky is (0 by day); star
-            // params y = halo strength x lit share of the disc.
-            float4 _SkyMoonDir;
-            float4 _SkyMoonColor;
-            float4 _SkyStars;
-            float4 _SkyStarParams;
-            // The player island's real coastline (Drift.Visuals.CoastField): a small signed-distance field in
-            // the island's BODY space. r = distance to the waterline in world units (negative on land),
-            // gb = outward normal there. Everything the water draws around the player reads this - a bounding
-            // circle or the radial profile that came before fills the notches of a branched island and turns
-            // the wake into a white box with straight edges.
-            TEXTURE2D(_CoastField);
-            SAMPLER(sampler_CoastField);
-            float4 _CoastParams;    // xy = field origin in body space, z = 1 / size, w = 1 when the field is valid
-            float4 _CoastRot;       // xy = (cos, sin) of the island's yaw (world -> body)
-
-            // Distance to the player island's shore with its outward normal (world space). `fade` goes to 0 at
-            // the field's own border, so nothing anchored to it can ever draw a straight edge there.
-            float CoastDistance(float2 wp, out float2 nrm, out float fade)
-            {
-                nrm = float2(0.0, 1.0);
-                fade = 0.0;
-                if (_CoastParams.w <= 0.0) return 1e4;
-                float2 rel = wp - _PlayerPos.xy;
-                float2 lp = float2(rel.x * _CoastRot.x - rel.y * _CoastRot.y, rel.x * _CoastRot.y + rel.y * _CoastRot.x);
-                float2 uv = (lp - _CoastParams.xy) * _CoastParams.z;
-                float2 e = saturate(min(uv, 1.0 - uv) * 14.0);
-                fade = e.x * e.y;
-                if (fade <= 0.0) return 1e4;
-                float4 s = SAMPLE_TEXTURE2D_LOD(_CoastField, sampler_CoastField, uv, 0);
-                float2 nb = s.gb;
-                nb = dot(nb, nb) > 1e-6 ? normalize(nb) : float2(0.0, 1.0);
-                nrm = float2(nb.x * _CoastRot.x + nb.y * _CoastRot.y, -nb.x * _CoastRot.y + nb.y * _CoastRot.x);
-                return s.r;
-            }
+            #include "DriftWater.hlsl"
 
             Varyings vert(Attributes IN)
             {
                 Varyings OUT;
                 float3 posWS = TransformObjectToWorld(IN.positionOS.xyz);
-                OUT.positionHCS = DriftCurveHClip(posWS);
+                OUT.bentWS = DriftCurveWS(posWS);
+                OUT.positionHCS = TransformWorldToHClip(OUT.bentWS);
                 OUT.positionWS = posWS;
                 OUT.screenPos = ComputeScreenPos(OUT.positionHCS);
+                float2 fuv = (posWS.xz - _CurrentFieldParams.xy) * _CurrentFieldParams.z;
+                OUT.current = SAMPLE_TEXTURE2D_LOD(_CurrentField, sampler_CurrentField, fuv, 0);
                 return OUT;
             }
 
@@ -172,7 +106,8 @@ Shader "Drift/Water"
                     height += a * (2.0 * e * e - 1.0);
                     grad += d * (k * a * 2.0 * e * c);
                 }
-                // Storm chop travelling with the wind so gusts and waves agree on a direction.
+                // Storm chop travelling with the wind so gusts and waves agree on a direction (amplitude 0 in calm water).
+                [branch] if (storm > 0.0)
                 {
                     float k = 2.2 * scale;
                     float a = 0.45 * storm;
@@ -350,111 +285,10 @@ Shader "Drift/Water"
                 float s1 = StretchedNoise(sp, wp);
                 float s2 = DriftNoise(wp * 0.3 + wind * (_Time.y * 0.25) + 13.7);
                 float streak = smoothstep(0.42, 0.95, s1 * 0.6 + s2 * 0.4);
-                // Storm-only now: the plate current has its own drifting flecks (CurrentFlecks), and wind-aligned
+                // Storm-only now: the plate current has its own drifting flecks (Drift/WaterFlecks), and wind-aligned
                 // streaks that also grew with the current pointed the wrong way whenever wind and current disagreed.
                 float strength = 0.63 * storm;
                 return streak * mask * saturate(strength);
-            }
-
-            // One foam fleck per cell of q (cell units): a short comet whose round head leads along the current and
-            // whose tail thins out behind it, so even a still frame shows which way the water goes. hl = half length.
-            // The centre keeps 0.3 cells from the cell edge and the fleck stays within that, so one cell is enough.
-            float Fleck(float2 q, float2 dir, float hl, float seed, float ph, float density, float aa)
-            {
-                float2 id = floor(q);
-                float2 f = q - id;
-                float2 hs = id + seed;
-                float h1 = DriftHash(hs);
-                float h2 = DriftHash(hs + float2(7.31, 1.93));
-                float2 d = f - (0.3 + 0.4 * float2(h1, h2));
-                // Nearly every pixel of a cell is outside its fleck: the fleck ends hl * 1.4 (longest comet) + 0.045
-                // (head) + aa from its centre, so past that the result is exactly 0 and the rest is skipped.
-                float reach = hl * 1.4 + 0.045 + aa;
-                float res = 0.0;
-                [branch] if (dot(d, d) < reach * reach)
-                {
-                    float h3 = DriftHash(hs + float2(2.17, 9.41));
-                    float a = dot(d, dir);
-                    float b = dot(d, float2(-dir.y, dir.x));
-                    float len = hl * (0.6 + 0.8 * h3);
-                    float ca = clamp(a, -len, len);
-                    float taper = saturate((len - ca) / max(2.0 * len, 1e-4));
-                    float r = 0.045 * (1.0 - 0.7 * taper);
-                    float dist = length(float2(a - ca, b));
-                    float shape = 1.0 - smoothstep(r * 0.3 - aa, r + aa, dist);
-                    // Each fleck lives for its own random window inside the phase, so they fade in and out one by one.
-                    float start = h1 * 0.45;
-                    float life = sin(3.14159 * saturate((ph - start) / 0.55));
-                    res = shape * life * step(h2 * 0.7 + h3 * 0.3, density) * (0.6 + 0.4 * h3);
-                }
-                return res;
-            }
-
-            // Foam flecks carried by the plate current under them: a two-phase flow map (each phase restarts its flecks
-            // at fresh random spots while they are invisible) at two cell sizes picked by camera distance, so the
-            // flecks keep roughly the same size on screen from the chase view to fully zoomed out.
-            float CurrentFlecks(float2 wp, float camDist, float fw, out float edge)
-            {
-                edge = 0.0;
-                if (_CurrentFieldParams.w <= 0.0) return 0.0;
-                float2 uv = (wp - _CurrentFieldParams.xy) * _CurrentFieldParams.z;
-                float2 inside = saturate(min(uv, 1.0 - uv) * 12.0);
-                float fade = inside.x * inside.y;
-                if (fade <= 0.0) return 0.0;
-                float4 fld = SAMPLE_TEXTURE2D_LOD(_CurrentField, sampler_CurrentField, uv, 0);
-                float2 vel = (fld.rg * 2.0 - 1.0) * _CurrentFieldParams.w;
-                edge = fld.b * fade;
-                float speed = length(vel);
-                float2 dir = speed > 1e-3 ? vel / speed : float2(1.0, 0.0);
-                float speedN = saturate(speed / 3.0);
-                // Riding with the current stretches the comets: the longer you stay in the stream, the more the
-                // water reads as streaming past you.
-                float hl = 0.03 + 0.15 * speedN + 0.12 * _SpeedFeel.y * _SpeedFeelGains.z;
-                // Converging plates bunch the flecks up along the seam, parting ones leave it calmer.
-                float closing = fld.a * 2.0 - 1.0;
-                float density = 0.4 + 0.25 * edge * (1.0 + 2.0 * saturate(closing * 3.0));
-
-                float L = log2(max(camDist, 1.0) / 12.0);
-                float lv = floor(L);
-                float blend = L - lv;
-                float res = 0.0;
-                [unroll]
-                for (int layer = 0; layer < 2; layer++)
-                {
-                    float cell = 2.0 * exp2(lv + layer);
-                    float w = layer == 0 ? 1.0 - blend : blend;
-                    // A layer that is almost faded out adds at most 1 % of a fleck: skip its two phases.
-                    [branch] if (w < 0.02) continue;
-                    float T = 2.2 + 0.08 * cell;
-                    float aa = 0.7 * fw / cell + 0.008;
-                    [unroll]
-                    for (int k = 0; k < 2; k++)
-                    {
-                        float tt = _Time.y / T + 0.5 * k;
-                        float ph = frac(tt);
-                        float cyc = frac(floor(tt) * 0.618034) * 89.0 + 31.0 * k + 17.0 * layer;
-                        float2 q = (wp - vel * (T * ph)) / cell;
-                        res += w * Fleck(q, dir, hl, cyc, ph, density, aa);
-                    }
-                }
-                return saturate(res) * fade * (0.35 + 0.65 * speedN);
-            }
-
-            // The profile of StormSystem.IntensityAt (full strength over the inner 55 %, easing out to the rim) with
-            // its rim pushed in and out by noise, so the rough sea is a ragged patch under the cloud cluster, not a disc.
-            float StormField(float2 wp)
-            {
-                float storm = 0.0;
-                for (int i = 0; i < 4; i++)
-                {
-                    if (i >= (int)_DriftStormCount) break;
-                    float4 s = _DriftStorms[i];
-                    float d = length(wp - s.xy) / max(s.z, 1e-3);
-                    d *= 0.82 + 0.36 * DriftNoise(wp * 0.05 + s.xy * 0.013);
-                    float k = 1.0 - smoothstep(0.55, 1.0, d);
-                    storm = max(storm, s.w * k);
-                }
-                return storm;
             }
 
             float4 frag(Varyings IN) : SV_Target
@@ -463,7 +297,8 @@ Shader "Drift/Water"
                 float2 wp = IN.positionWS.xz;
                 float fw = max(fwidth(wp.x), fwidth(wp.y));
                 float2 uv = IN.screenPos.xy / IN.screenPos.w;
-                float sceneDepth = LinearEyeDepth(SampleSceneDepth(uv), _ZBufferParams);
+                float rawDepth = SampleSceneDepth(uv);
+                float sceneDepth = LinearEyeDepth(rawDepth, _ZBufferParams);
                 float surfDepth = IN.screenPos.w;
                 float diff = max(0, sceneDepth - surfDepth);
 
@@ -480,23 +315,27 @@ Shader "Drift/Water"
                 float t = _Time.y * _WaveSpeed;
                 float2 wind = normalize(_WindDir.xy + float2(1e-4, 0));
 
-                float2 g;
-                float h;
-                Waves(wp, t, storm, wind, g, h);
+                float3 toCam = GetCameraPositionWS() - IN.positionWS;
+                float camDist = length(toCam);
+                // Past 120 u farLod below has flattened the waves to under 2 % brightness and a barely tilted normal:
+                // they fade out completely by 170 u and the far sea (most of a zoomed-out or title view) skips the sines.
+                float waveFar = saturate((170.0 - camDist) / 50.0);
+                float2 g = 0;
+                float h = 0;
+                [branch] if (waveFar > 0.0)
+                {
+                    Waves(wp, t, storm, wind, g, h);
+                    g *= waveFar;
+                    h *= waveFar;
+                }
                 // Fine sines alias into a moire lattice when the camera is far: fade the detail and
                 // flatten the main waves with distance instead of letting them shimmer.
-                float camDist = length(GetCameraPositionWS() - IN.positionWS);
                 float lod = saturate(1.0 - (camDist - 12.0) / 30.0);
                 // The curved world shows the sea from 100 u and more, where even the flattened waves and their glints
                 // line up into a grid: a second, slower fade takes them down to a calm sheen.
                 float farLod = 1.0 - 0.85 * saturate((camDist - 40.0) / 80.0);
                 g = g * _WaveNormalScale * lerp(0.3, 1.0, lod) * farLod;
                 [branch] if (lod > 0.0) g += Detail(wp, t, storm, wind) * lod;
-                float3 n = normalize(float3(-g.x, 1.0, -g.y));
-
-                float n1 = DriftNoise(wp * 1.7 + t * 0.6);
-                float n2 = DriftNoise(wp * 3.1 - t * 0.4);
-                float churn = n1 * 0.6 + n2 * 0.4;
 
                 half3 light = _WaterLight.w > 0.0 ? (half3)_WaterLight.rgb : half3(1, 1, 1);
                 half3 shallowCol = (half3)_ShallowColor.rgb * light;
@@ -510,7 +349,7 @@ Shader "Drift/Water"
                 half3 col = lerp(shallowCol, (half3)_DeepColor.rgb, (half)pow(depthFade, 0.7));
                 col *= (half)(1.0 + h * (0.05 + 0.05 * storm) * farLod);
 
-                float3 V = normalize(GetCameraPositionWS() - IN.positionWS);
+                float3 V = toCam / max(camDist, 1e-6);
                 Light l = GetMainLight();
                 float3 H = normalize(l.direction + V);
                 // Glints from a calmed normal too: the broad lobe on the full wave normal lit every crest facing the sun
@@ -540,33 +379,64 @@ Shader "Drift/Water"
                               * (_CurveRing.x > 0.0 ? 0.0 : 1.0);
                 [branch] if (moonVis > 0.01)
                 {
-                    float3 nMoon = normalize(float3(-g.x * 0.2, 1.0, -g.y * 0.2));
-                    float3 R = reflect(-V, nMoon);
-                    float3 dm = R - _SkyMoonDir.xyz;
-                    float mr2 = 1.0 / (_SkyMoonDir.w * _SkyMoonDir.w);
-                    float md2 = dot(dm, dm) / (mr2 * _MoonReflectSize * _MoonReflectSize);
-                    float mdisc = saturate(1.6 - md2 * 1.6);
-                    float mglow = 1.0 / (1.0 + md2 * 0.35);
-
                     float2 rh = normalize(-V.xz + 1e-5);
                     float2 mh = normalize(_SkyMoonDir.xz + 1e-5);
                     float2 side = float2(mh.y, -mh.x);
                     float across = dot(rh, side) + dot(g, side) * 0.12;
                     float nearer = V.y - _SkyMoonDir.y;
                     float width = 0.035 + 0.05 * saturate(nearer * 3.0);
-                    float band = saturate(1.0 - (across * across) / (width * width)) * step(0.0, dot(rh, mh));
-                    band *= saturate(nearer * 12.0 + 0.6) * saturate(1.0 - nearer * 2.2);
-                    float glit = 0.0;
-                    [branch] if (band > 0.001)
-                    {
-                        float sp = DriftNoise(wp * 6.2 + float2(0.0, t * 1.7)) * 0.55 + DriftNoise(wp * 13.1 - t * 1.3) * 0.45;
-                        glit = band * (0.08 + smoothstep(0.58, 0.8, sp) * 1.2) * _MoonGlitter;
-                    }
-                    float lit = 0.35 + 0.65 * saturate(_SkyStarParams.y);
-                    // The mirror disc only near the path: with the waves it would scatter as white blobs over the sea.
+                    // Everything below (disc, sheen and glitter) is scaled by nearPath, which is 0 more than two path
+                    // widths off the moon's bearing: most of the night sea stops here.
                     float nearPath = saturate(1.0 - (across * across) / (width * width * 4.0));
-                    col += (half3)(_SkyMoonColor.rgb * (moonVis * lit * ((mdisc * mdisc * 0.85 + mglow * 0.05) * nearPath + glit)));
+                    [branch] if (nearPath > 0.0)
+                    {
+                        float3 nMoon = normalize(float3(-g.x * 0.2, 1.0, -g.y * 0.2));
+                        float3 R = reflect(-V, nMoon);
+                        float3 dm = R - _SkyMoonDir.xyz;
+                        float mr2 = 1.0 / (_SkyMoonDir.w * _SkyMoonDir.w);
+                        float md2 = dot(dm, dm) / (mr2 * _MoonReflectSize * _MoonReflectSize);
+                        float mdisc = saturate(1.6 - md2 * 1.6);
+                        float mglow = 1.0 / (1.0 + md2 * 0.35);
+
+                        float band = saturate(1.0 - (across * across) / (width * width)) * step(0.0, dot(rh, mh));
+                        band *= saturate(nearer * 12.0 + 0.6) * saturate(1.0 - nearer * 2.2);
+                        float glit = 0.0;
+                        [branch] if (band > 0.001)
+                        {
+                            float sp = DriftNoise(wp * 6.2 + float2(0.0, t * 1.7)) * 0.55 + DriftNoise(wp * 13.1 - t * 1.3) * 0.45;
+                            glit = band * (0.08 + smoothstep(0.58, 0.8, sp) * 1.2) * _MoonGlitter;
+                        }
+                        float lit = 0.35 + 0.65 * saturate(_SkyStarParams.y);
+                        // The mirror disc only near the path: with the waves it would scatter as white blobs over the sea.
+                        col += (half3)(_SkyMoonColor.rgb * (moonVis * lit * ((mdisc * mdisc * 0.85 + mglow * 0.05) * nearPath + glit)));
+                    }
                 }
+
+                // The foam flecks carried by the current are drawn by Drift/WaterFlecks right after the sea (one small
+                // quad per living fleck instead of four cell lookups in every sea pixel); only the plate-boundary
+                // closeness they also carry is needed here, for the surf foam.
+                float curEdge = 0.0;
+                [branch] if (_CurrentFieldParams.w > 0.0)
+                {
+                    float2 fuv = (wp - _CurrentFieldParams.xy) * _CurrentFieldParams.z;
+                    float2 inside = saturate(min(fuv, 1.0 - fuv) * 12.0);
+                    curEdge = IN.current.b * inside.x * inside.y;
+                }
+
+                // The two churn noises feed only the shore foam, caustics, wake, impact/splash/spray rings, whitecaps and
+                // the surf foam - each of them exactly 0 outside its own zone - so open water skips the eight hashes.
+                float2 relP = wp - _PlayerPos.xy;
+                bool wakeZone = dot(relP, relP) < _PlayerWake.z * _PlayerWake.z && coastD > 0.0;
+                bool needChurn = diff < max(_FoamWidth * 3.2, 0.9 * _DepthRange) || wakeZone || storm > 0.001
+                               || max(_RingStrength.x, _RingStrength.y) > 0.0 || _SplashPos.w > 0.0 || _SprayPos.w > 0.0
+                               || (curEdge > 0.0 && _SpeedFeel.z * _SpeedFeelGains.w > 0.0);
+                float n1 = 0.0, n2 = 0.0;
+                [branch] if (needChurn)
+                {
+                    n1 = DriftNoise(wp * 1.7 + t * 0.6);
+                    n2 = DriftNoise(wp * 3.1 - t * 0.4);
+                }
+                float churn = n1 * 0.6 + n2 * 0.4;
 
                 // Shore foam that surges and breaks up over time instead of a fixed rim (depth only: the analytic circle
                 // drew a white disc around every elongated island). Both terms are 0 past 3.2 foam widths of water.
@@ -613,15 +483,8 @@ Shader "Drift/Water"
                     float capMask = smoothstep(0.35, 0.8, DriftNoise(wp * 0.11 + wind * (_Time.y * 0.08)));
                     whitecap = smoothstep(0.62, 0.95, saturate(h * 0.5 + 0.5) * (0.35 + 0.9 * capTex)) * storm * 0.4 * capMask;
                 }
-                // Deep in the haze a fleck keeps under 3 % of its contrast: skipped there (the far half of a zoomed-out view).
-                float curEdge = 0.0, flecks = 0.0;
-                [branch] if (haze < 0.97) flecks = CurrentFlecks(wp, camDist, fw, curEdge);
                 // Emphasis along the shore, not in a circle: _CurrentEmphasis.x is a distance from the coastline.
                 float nearPlayer = (1.0 - smoothstep(0.35, 1.0, coastD / max(_CurrentEmphasis.x, 1e-3))) * coastFade;
-                flecks *= _CurrentFoam * (1.0 + _CurrentEmphasis.y * nearPlayer) * (1.0 + 0.4 * curEdge) * (1.0 - 0.6 * storm);
-                // Water highway: the longer the island travels with the current, the brighter the flecks around it.
-                flecks *= 1.0 + _SpeedFeelGains.z * _SpeedFeel.y * (0.35 + 0.95 * nearPlayer);
-                flecks = saturate(flecks);
                 // Surfing a plate boundary lights the seam up, so gaining and losing it is unmistakable.
                 float surfFoam = smoothstep(0.22, 0.8, curEdge * curEdge * _SpeedFeel.z * (0.3 + 1.2 * churn))
                                * _SpeedFeelGains.w * (0.2 + 0.8 * nearPlayer) * 0.7;
@@ -630,17 +493,36 @@ Shader "Drift/Water"
                 col *= lerp(half3(1, 1, 1), (half3)_StormTint.rgb, (half)storm);
                 col = lerp(col, shallowCol, (half)saturate(churnTint));
                 col = lerp(col, foamCol * 0.92, (half)(streaks * 0.16));
-                col = lerp(col, foamCol * 0.95, (half)(flecks * 0.5));
                 col = lerp(col, foamCol * 0.98, speedLines * 0.45);
                 half foamMask = saturate(foam + ring + (half)(wakeFoam + bowFoam + impact + whitecap + surfFoam));
                 col = lerp(col, foamCol, foamMask);
                 col += (sparkle + caustic * 0.35) * foamCol;
-                col *= (half)CloudShadow(wp);
+                // Almost fully hazed, the cloud shadow changes the result by well under 1/255: skipped there.
+                [branch] if (haze < 0.985) col *= (half)CloudShadow(wp);
 
                 half alpha = lerp((half)_MinAlpha, 0.97, (half)pow(depthFade, 0.6));
-                alpha = max(alpha, max(foamMask, max((half)(streaks * 0.3), max((half)(flecks * 0.5), speedLines * 0.45))));
+                alpha = max(alpha, max(foamMask, max((half)(streaks * 0.3), speedLines * 0.45)));
                 col = lerp(col, (half3)_CurveFogColor.rgb, (half)haze);
                 alpha = max(alpha, (half)haze);
+                // Nothing opaque behind the sea: the sky dome is drawn after the water now and skips every sea pixel, so
+                // the colour it showed there (below the limb it is exactly _CurveFogColor) is blended in here.
+            #if UNITY_REVERSED_Z
+                bool open = rawDepth <= 0.0;
+            #else
+                bool open = rawDepth >= 1.0;
+            #endif
+                if (open && _CurveSkyDraw > 0.5)
+                {
+                    // DriftSky's base gradient for this view ray: exactly _CurveFogColor below the limb (the whole
+                    // globe), the gradient where the adventure ring's band climbs into the sky (no sun glow, clouds or
+                    // stars: they would change the 3 % that shows through by next to nothing).
+                    float3 ray = normalize(IN.bentWS - GetCameraPositionWS());
+                    float up = _CurveSkyCenter.w - dot(ray, _CurveSkyCenter.xyz);
+                    float q = 1.0 / (1.0 + _SkyStarParams.w * max(up, 0.0));
+                    half3 behind = (half3)lerp(_CurveFogColor.rgb, _CurveSkyZenith.rgb, 1.0 - q * q);
+                    col = lerp(behind, col, alpha);
+                    alpha = 1.0;
+                }
                 return float4(col, alpha);
             }
             ENDHLSL

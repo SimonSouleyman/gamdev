@@ -4,22 +4,27 @@ Shader "Drift/CurvedSky"
     // are directions). The skybox puts its horizon at eye level, but the bent sea ends at a limb up to
     // 45 degrees below it, which would show the ground half of the skybox. This dome is drawn around whichever
     // bent camera renders it (_CurveSkyDraw, pushed per camera: the island preview and portrait cameras keep
-    // their own clear colour), just inside the far plane, last of the opaques with depth write on (so the skybox
-    // pass is rejected behind it), and starts its gradient at the limb, all the way round the planet:
-    // _CurveFogColor there (the colour the sea and far islands fade into). The sky itself is DriftSky.hlsl.
+    // their own clear colour), just inside the far plane, and starts its gradient at the limb, all the way round
+    // the planet: _CurveFogColor there (the colour the sea and far islands fade into). The sky itself is DriftSky.hlsl.
+    // Drawn right after the water (Transparent+1, before every other transparent) and not on any pixel the water
+    // marked in the stencil: in the portrait chase view the sea covers nearly the whole screen, and the dome used to
+    // be shaded (and overdrawn) behind all of it. Drift/Water blends _CurveFogColor - what the dome showed below the
+    // limb - under itself where nothing opaque lies behind it. The skybox is skipped for a camera that draws the dome.
     Properties
     {
     }
     SubShader
     {
-        Tags { "RenderType"="Opaque" "Queue"="Geometry+480" "RenderPipeline"="UniversalPipeline" "IgnoreProjector"="True" }
+        Tags { "RenderType"="Transparent" "Queue"="Transparent+1" "RenderPipeline"="UniversalPipeline" "IgnoreProjector"="True" }
 
         Pass
         {
             Name "CurvedSky"
             Tags { "LightMode"="UniversalForward" }
             Cull Off
+            // Depth stays written: transparents beyond 0.9 of the far plane (far cloud puffs) keep being hidden behind it.
             ZWrite On
+            Stencil { Ref 8 ReadMask 8 Comp NotEqual }
 
             HLSLPROGRAM
             #pragma vertex vert

@@ -5,7 +5,8 @@ using UnityEngine;
 namespace Drift.Bridge
 {
     // Ordered by priority: an island shows only its highest hint.
-    public enum IslandHintKind { None, Volcano, Event, NewSpecies }
+    // LastIsland (cozy, one planned island left) outranks everything and is shown at any distance.
+    public enum IslandHintKind { None, Volcano, Event, NewSpecies, LastIsland }
     public enum IslandHintEvent { None, Show, Fire, Festival, Eruption }
 
     // What one scan found on an island (IslandHints fills it from the life systems, tests from fake data).
@@ -48,6 +49,7 @@ namespace Drift.Bridge
         {
             switch (kind)
             {
+                case IslandHintKind.LastIsland: return "Letzte Insel";
                 case IslandHintKind.NewSpecies: return "Neue Art";
                 case IslandHintKind.Volcano: return "Vulkan";
                 case IslandHintKind.Event:
@@ -76,6 +78,7 @@ namespace Drift.Bridge
         public static float Rank(IslandHintKind kind, float distance, float newSpeciesBonus = 1.35f)
         {
             float d = Mathf.Max(0f, distance);
+            if (kind == IslandHintKind.LastIsland) return -1f;
             return kind == IslandHintKind.NewSpecies ? d / newSpeciesBonus : kind == IslandHintKind.Volcano ? d * 1.25f : d;
         }
 
