@@ -1,0 +1,22 @@
+{
+    "scenario": "cozy_observe",
+    "version": "0.6.7",
+    "started": "2026-09-25 20:56:07",
+    "seed": 4242,
+    "mode": "",
+    "bot": "none",
+    "directSteering": true,
+    "pipeline": "Mobile_RPAsset",
+    "screenW": 1116,
+    "screenH": 2484,
+    "realSeconds": 287.2904357910156,
+    "phases": [],
+    "events": [],
+    "levels": [],
+    "memory": [],
+    "notes": [
+        "aborted: play mode ended"
+    ],
+    "shots": [],
+    "errors": []
+}

@@ -169,6 +169,7 @@ namespace Drift.Bridge
         string _freeText = "";
         readonly MilestoneToastQueue _queue = new();
         GameSession.State _lastState = GameSession.State.Title;
+        int _lastRun = -1;
 
         public string CurrentToast => _text != null && _queue.Showing ? _text.text : null;
         public bool ToastVisible => _queue.Showing;
@@ -248,7 +249,7 @@ namespace Drift.Bridge
             // of its save back. Either way nothing is celebrated again.
             if (state != _lastState)
             {
-                if (state == GameSession.State.Playing && _lastState != GameSession.State.Paused)
+                if (state == GameSession.State.Playing && (_lastState != GameSession.State.Paused || session.RunNumber != _lastRun))
                 {
                     // A toast of the previous run (or the other mode) is not carried into the new one.
                     _queue.Clear();
@@ -256,6 +257,7 @@ namespace Drift.Bridge
                     _retry = 0f;
                 }
                 _lastState = state;
+                _lastRun = session.RunNumber;
             }
             if (state != GameSession.State.Playing || !Milestones.Enabled) return;
 

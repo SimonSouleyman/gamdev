@@ -97,6 +97,10 @@ float DriftPuffClearView(float3 centreWS, float radius)
 float4 DriftPuffShade(float2 uv, float seed, float boil, float3 litCol, float3 darkCol)
 {
     float r2 = dot(uv, uv);
+    // The outline never reaches past r = 1 (edge <= 1), so the billboard's corners - a fifth of every quad - skip
+    // the three noises.
+    UNITY_BRANCH
+    if (r2 >= 1.0) return float4(0, 0, 0, 0);
     float r = sqrt(r2);
     float2 drift = float2(boil, -0.7 * boil);
     float n1 = DriftNoise(uv * 2.3 + seed * 17.0 + drift);

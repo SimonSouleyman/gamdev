@@ -85,6 +85,7 @@ namespace Drift.Bridge
         bool _fieldSaved;
         int _fieldSeed = -1;
         GameSession.State _shown = (GameSession.State)(-1);
+        int _shownRun = -1;
         Func<Vector2> _provider, _directionProvider;
         int _steerFrame = -10;
         bool _wasFlyOver;
@@ -388,7 +389,8 @@ namespace Drift.Bridge
                 if (_shown == GameSession.State.GameOver && s == GameSession.State.Playing) TildaVoice.Say(TildaVoiceLines.NewIsland, VoicePriority.Queue);
                 // A run starts from however the player happens to be holding the phone; a resume keeps the
                 // middle it had, so a pause in mid-turn does not silently re-zero the steering.
-                if (s == GameSession.State.Playing && _shown != GameSession.State.Paused && tilt != null) tilt.Recalibrate();
+                if (s == GameSession.State.Playing && (_shown != GameSession.State.Paused || session.RunNumber != _shownRun) && tilt != null) tilt.Recalibrate();
+                _shownRun = session.RunNumber;
                 var from = _shown;
                 _shown = s;
                 ShowPanels(s == GameSession.State.Title, s == GameSession.State.Paused, s == GameSession.State.GameOver, s == GameSession.State.Playing);

@@ -429,6 +429,9 @@ namespace Drift.Bridge
                 centre = new Vector2(Mathf.Clamp(centre.x, inner.xMin, inner.xMax), Mathf.Clamp(centre.y, inner.yMin, inner.yMax));
             }
             float mx = 0.5f * edgeMargins.x / Mathf.Max(1f, rect.width), my = 0.04f;
+            // The top band belongs to the HUD panel: an island projected there gets an edge pointer under it, not a
+            // bubble on top of the text.
+            float myTop = Mathf.Max(my, edgeMargins.z / Mathf.Max(1f, rect.height));
             for (int i = 0; i < count; i++)
             {
                 var e = _entries[i];
@@ -437,7 +440,7 @@ namespace Drift.Bridge
                 Vector3 anchor = e.island.transform.position + Vector3.up * (e.top + lift);
                 e.viewport = cam.WorldToViewportPoint(CurvedWorld.Bend(anchor));
                 _rank[i] = IslandHintLogic.Rank(e.kind, e.distance);
-                if (IslandHintLogic.OnScreen(e.viewport, mx, my))
+                if (IslandHintLogic.OnScreen(e.viewport, mx, my, myTop))
                 {
                     _bubbleOk[i] = e.distance <= bubbleRange || e.kind == IslandHintKind.LastIsland;
                     RectTransformUtility.ScreenPointToLocalPointInRectangle(_root, new Vector2(e.viewport.x * pixels.x, e.viewport.y * pixels.y), UiCamera, out e.pos);

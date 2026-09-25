@@ -31,7 +31,10 @@ namespace Drift.Bridge
             return
                 $"Strecke   {BestDistances.Format(st.distance)}\n" +
                 $"Rekord   {BestDistances.Format(best > st.distance ? best : st.distance)}\n" +
-                $"Treibgut   {flotsam}   ·   Ausgewichen   {dodges}   ·   Rempler   {hits}";
+                // One value per line: the three side by side wrapped on a phone and left a lone "·" at the line end.
+                $"Treibgut   {flotsam}\n" +
+                $"Ausgewichen   {dodges}\n" +
+                $"Rempler   {hits}";
         }
 
         // "3:42", "12:05", "1:02:09": Gemütlich still shows how long a world lasted.
@@ -115,10 +118,12 @@ namespace Drift.Bridge
 
         // The driving hint of the HUD. Abenteuer drives itself ("man fährt immer"): the input only steers sideways,
         // pulling back brakes and can never bring the island to a stop, so both steering schemes read the same.
-        public static string SteerHint(GameMode mode, bool touch, bool direct)
+        // tilt: the phone's tilt steering is on, so there is no stick to point at.
+        public static string SteerHint(GameMode mode, bool touch, bool direct, bool tilt = false)
         {
             if (mode == GameMode.Adventure)
-                return touch ? "Stick: seitlich lenken, unten bremsen" : "A/D lenken  ·  S bremsen";
+                return tilt ? "Neigen: seitlich lenken, zu dir kippen bremst" : touch ? "Stick: seitlich lenken, unten bremsen" : "A/D lenken  ·  S bremsen";
+            if (tilt) return "Handy neigen: Richtung";
             if (touch) return direct ? "Stick links: Richtung" : "Stick links: lenken & Tempo";
             return direct ? "W A S D Richtung" : "W/S Tempo  ·  A/D lenken";
         }

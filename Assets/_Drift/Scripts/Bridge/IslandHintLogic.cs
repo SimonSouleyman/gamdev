@@ -118,8 +118,11 @@ namespace Drift.Bridge
         }
 
         // Inside the viewport rect shrunk by margin (fractions), and in front of the camera.
-        public static bool OnScreen(Vector3 viewport, float marginX, float marginY) =>
-            viewport.z > 0f && viewport.x >= marginX && viewport.x <= 1f - marginX && viewport.y >= marginY && viewport.y <= 1f - marginY;
+        public static bool OnScreen(Vector3 viewport, float marginX, float marginY) => OnScreen(viewport, marginX, marginY, marginY);
+
+        // marginTop: the band under the top edge (the HUD) that counts as off screen.
+        public static bool OnScreen(Vector3 viewport, float marginX, float marginY, float marginTop) =>
+            viewport.z > 0f && viewport.x >= marginX && viewport.x <= 1f - marginX && viewport.y >= marginY && viewport.y <= 1f - marginTop;
 
         // Screen direction (from the centre, in canvas units, y up) towards a viewport point; a point behind the camera
         // is mirrored so the arrow still points the way to turn.

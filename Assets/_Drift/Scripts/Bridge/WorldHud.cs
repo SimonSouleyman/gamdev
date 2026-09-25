@@ -41,6 +41,7 @@ namespace Drift.Bridge
         RectTransform _root, _hintRect, _top, _cozy, _adventure, _explain;
         int _hintLayout = -1;
         WatchTools _watch;
+        TiltSteering _tilt;
         TutorialGuide _tutorial;
         Image _topBody;
         Button _topButton;
@@ -213,8 +214,10 @@ namespace Drift.Bridge
             if (_watch == null && _lookupTimer <= 0f) _watch = FindAnyObjectByType<WatchTools>();
             bool following = _watch != null && _watch.Following;
             bool flyOver = PangaeaFinale.AnyFlyingOver;
+            if (_tilt == null && _lookupTimer <= 0f) _tilt = FindAnyObjectByType<TiltSteering>();
+            bool tilting = _tilt != null && _tilt.Active;
             int hintState = (InputMode.TouchPreferred ? 1 : 0) + (following ? 2 : 0)
-                + (adventure ? 4 : 0) + (Island.DirectionSteering ? 8 : 0) + (flyOver ? 16 : 0);
+                + (adventure ? 4 : 0) + (Island.DirectionSteering ? 8 : 0) + (flyOver ? 16 : 0) + (tilting ? 32 : 0);
             if (hintState != _lastHintState)
             {
                 _lastHintState = hintState;
@@ -742,7 +745,7 @@ namespace Drift.Bridge
             string zoom = touch ? "Zwei Finger: Zoom" : "Q/E Zoom  ·  Esc Pause";
             _hintText.text = following
                 ? (touch ? "Ziehen: drehen" + br + "Zwei Finger: Zoom" : "A/D drehen  ·  W/S neigen" + br + "Q/E Zoom  ·  R zurück")
-                : ModeTexts.SteerHint(mode, touch, (state & 8) != 0) + br + zoom;
+                : ModeTexts.SteerHint(mode, touch, (state & 8) != 0, (state & 32) != 0) + br + zoom;
         }
     }
 }

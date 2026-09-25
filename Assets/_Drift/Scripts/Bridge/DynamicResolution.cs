@@ -60,9 +60,8 @@ namespace Drift.Bridge
             if (FrameTimingManager.GetLatestTimings(1, _timing) > 0)
             {
                 double gpu = _timing[0].gpuFrameTime;
-                double cpu = _timing[0].cpuMainThreadFrameTime;
-                // No GPU time on this device: a long frame with a quick CPU is the GPU's.
-                if (gpu <= 0) gpu = cpu < 12.0 ? dt * 1000.0 : 0.0;
+                // No GPU time on this device: nothing to steer by. (The frame time is no substitute - at a steady
+                // 60 Hz it reads 16.7 ms, over DownMs, and sank the scale to the minimum on a smooth game.)
                 if (gpu > 0) { _sum += (float)gpu; _n++; }
             }
             if (_window < Window) return;

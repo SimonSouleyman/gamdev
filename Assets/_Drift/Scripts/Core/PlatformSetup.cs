@@ -16,7 +16,6 @@ namespace Drift.Core
         {
             if (!Application.isMobilePlatform) return;
             Application.targetFrameRate = MobileFrameRate;
-            Screen.sleepTimeout = SleepTimeout.NeverSleep;
         }
     }
 }

@@ -167,6 +167,15 @@ namespace Drift.Tests
         }
 
         [Test]
+        public void OnScreen_TopBandUnderTheHudCountsAsOff()
+        {
+            // The HUD panel takes the top 13 %: a point at 92 % height gets an edge pointer, one at 80 % a bubble.
+            Assert.IsFalse(IslandHintLogic.OnScreen(new Vector3(0.5f, 0.92f, 10f), 0.05f, 0.04f, 0.13f));
+            Assert.IsTrue(IslandHintLogic.OnScreen(new Vector3(0.5f, 0.80f, 10f), 0.05f, 0.04f, 0.13f));
+            Assert.IsTrue(IslandHintLogic.OnScreen(new Vector3(0.5f, 0.06f, 10f), 0.05f, 0.04f, 0.13f), "the bottom keeps its small margin");
+        }
+
+        [Test]
         public void DirectionOf_MirrorsPointsBehindTheCamera()
         {
             var size = new Vector2(1080f, 1920f);

@@ -513,7 +513,8 @@ namespace Drift.SaveSystem
         // applied, so the run is held from its first frame, and put the camera straight into the wide start framing.
         void ArmIntro(State prev, State next)
         {
-            bool fresh = Application.isPlaying && next == State.Playing && prev != State.Paused && Mode == GameMode.Adventure
+            // "Neuer Versuch" from the pause menu also comes from Paused: the run number tells it from a resume.
+            bool fresh = Application.isPlaying && next == State.Playing && (prev != State.Paused || _freshStart) && Mode == GameMode.Adventure
                          && adventureIntroSeconds > 0f;
             if (!fresh)
             {
@@ -547,6 +548,8 @@ namespace Drift.SaveSystem
             SetIslandInputLocked(IslandInputLocked(playing, _photoInputHold, _followInputHold, _model.PangaeaFreeLook) || RaceHold);
             Time.timeScale = s == State.Paused ? 0f : 1f;
             if (saveManager != null) saveManager.autosaveInterval = inGame && Mode == GameMode.Cozy ? autosaveInterval : 0f;
+            // The screen stays on while a run plays; a phone left on the title, the pause menu or "Versunken" may dim.
+            if (Application.isMobilePlatform) Screen.sleepTimeout = playing ? SleepTimeout.NeverSleep : SleepTimeout.SystemSetting;
         }
 
         // Switches the mode the title works with (which save "Weiter" continues). Only on the title.
@@ -581,12 +584,20 @@ namespace Drift.SaveSystem
 
         public void StartNewGame(int seed) => StartNewGame(seed, false);
 
+        // Counts the runs started in this session: a Playing state with a new number is a fresh run even when it
+        // came out of the pause menu ("Neuer Versuch"), which the screens tell from a plain resume.
+        public int RunNumber { get; private set; }
+        bool _freshStart;
+
         void StartNewGame(int seed, bool legacy)
         {
             if (saveManager != null) saveManager.DeleteSave();
             ApplyWorldSeed(seed, legacy);
             Restart();
-            _model.BeginPlaying();
+            RunNumber++;
+            _freshStart = true;
+            try { _model.BeginPlaying(); }
+            finally { _freshStart = false; }
         }
 
         // Rebuilds the fresh world of a seed without leaving the title (seed field / "Zufall"). A loaded

@@ -342,6 +342,10 @@ namespace Drift.SaveSystem
                 }
 
                 player.Restore(data.player);
+                // ChooseSpeciesPool marked the player as the start island (one herd until the first merge); a
+                // continued run that has already absorbed islands is past that.
+                var herds = player.GetComponent<Drift.Life.IslandHerdSystem>();
+                if (herds != null) herds.StartIsland = LoadedStats.islandsAbsorbed == 0;
                 var life = player.GetComponent<IslandLifeSystem>();
                 if (life != null && data.life != null)
                 {

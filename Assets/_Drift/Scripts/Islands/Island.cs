@@ -635,14 +635,22 @@ namespace Drift.Islands
         const float RaceHeadingRate = 240f;
         const float RaceSteerResponse = 4f;
 
+        int _maxHeightVersion = -1;
+        float _maxHeight;
+
+        // Cached per shape version: the hints and the streamer read it every scan, and a full field walk each time
+        // added up with sinking or emerging islands in range.
         public float MaxHeight
         {
             get
             {
+                if (_maxHeightVersion == _version && _shape != null) return _maxHeight;
                 float m = 0f;
                 for (int j = 0; j < _shape.nz; j++)
                     for (int i = 0; i < _shape.nx; i++)
                         m = Mathf.Max(m, _shape.Height(i, j));
+                _maxHeight = m;
+                _maxHeightVersion = _version;
                 return m;
             }
         }

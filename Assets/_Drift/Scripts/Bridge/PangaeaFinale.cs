@@ -650,7 +650,7 @@ namespace Drift.Bridge
             _shownIndex = i;
             _shownCount = n;
             _shownLabel = name;
-            _sightsLabel.text = i >= 0 ? _sights.Label(i) : !string.IsNullOrEmpty(name) ? name : n > 0 ? $"{n} Ziele · ‹ › fliegt hin" : "Nichts in Sicht";
+            _sightsLabel.text = i >= 0 ? _sights.Label(i) : !string.IsNullOrEmpty(name) ? name : n == 1 ? "1 Ziel · ‹ › fliegt hin" : n > 0 ? $"{n} Ziele · ‹ › fliegt hin" : "Nichts in Sicht";
         }
 
         void SetSightsBar(bool on, float alpha)
