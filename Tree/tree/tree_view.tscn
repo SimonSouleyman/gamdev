@@ -1,0 +1,65 @@
+[gd_scene load_steps=6 format=3 uid="uid://c0tree0view0001"]
+
+[ext_resource type="Script" path="res://tree/tree_view.gd" id="1_view"]
+
+[sub_resource type="PlaneMesh" id="PlaneMesh_ground"]
+size = Vector2(40, 40)
+
+[sub_resource type="StandardMaterial3D" id="Mat_ground"]
+albedo_color = Color(0.35, 0.55, 0.25, 1)
+
+[sub_resource type="StandardMaterial3D" id="Mat_bark"]
+albedo_color = Color(0.45, 0.32, 0.2, 1)
+
+[sub_resource type="ProceduralSkyMaterial" id="Sky_mat"]
+sky_top_color = Color(0.35, 0.55, 0.9, 1)
+sky_horizon_color = Color(0.75, 0.82, 0.9, 1)
+ground_bottom_color = Color(0.2, 0.3, 0.15, 1)
+ground_horizon_color = Color(0.6, 0.7, 0.55, 1)
+
+[node name="TreeView" type="Node3D"]
+script = ExtResource("1_view")
+
+[node name="Ground" type="MeshInstance3D" parent="."]
+mesh = SubResource("PlaneMesh_ground")
+surface_material_override/0 = SubResource("Mat_ground")
+
+[node name="Tree" type="MeshInstance3D" parent="."]
+material_override = SubResource("Mat_bark")
+
+[node name="Sun" type="DirectionalLight3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 0.7, 0.7, 0, -0.7, 0.7, 0, 10, 10)
+shadow_enabled = true
+
+[node name="Camera" type="Camera3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 0.97, 0.24, 0, -0.24, 0.97, 0, 2.5, 7)
+fov = 55.0
+
+[node name="Env" type="WorldEnvironment" parent="."]
+environment = null
+
+[node name="UI" type="CanvasLayer" parent="."]
+
+[node name="Info" type="Label" parent="UI"]
+offset_left = 16.0
+offset_top = 16.0
+offset_right = 700.0
+offset_bottom = 120.0
+theme_override_font_sizes/font_size = 22
+
+[node name="Boost" type="Button" parent="UI"]
+offset_left = 160.0
+offset_top = 1120.0
+offset_right = 560.0
+offset_bottom = 1220.0
+theme_override_font_sizes/font_size = 36
+text = "Hold to boost the sun"
+
+[node name="Speed" type="HSlider" parent="UI"]
+offset_left = 16.0
+offset_top = 1060.0
+offset_right = 704.0
+offset_bottom = 1100.0
+min_value = 1.0
+max_value = 60.0
+value = 10.0

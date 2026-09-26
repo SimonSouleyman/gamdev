@@ -1,0 +1,14 @@
+class_name Budgets
+extends RefCounted
+## Hard limits that keep the game affordable on a phone. Enforced in code.
+
+## Max internodes (segments) of the tree plant graph.
+const TREE_MAX_NODES: int = 3000
+## Max nodes of one main root the player steers.
+const ROOT_MAX_NODES_PER_MAIN_ROOT: int = 400
+## Max automatic fine-root nodes that may sprout around one main root.
+const FINE_ROOTS_PER_MAIN_ROOT: int = 150
+## Max nutrient dots kept in memory for the underground at once.
+const NUTRIENT_DOTS_LOADED: int = 4000
+## Max attraction markers alive in the tree canopy at once.
+const TREE_MARKERS: int = 2000
