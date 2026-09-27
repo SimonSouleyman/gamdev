@@ -259,8 +259,8 @@ func _build_world() -> void:
 	add_child(_sun_disc)
 
 
-const GRASS_CLUMPS := 7000
-const HERB_CLUMPS := 900
+const GRASS_CLUMPS := Budgets.MEADOW_GRASS_CLUMPS
+const HERB_CLUMPS := Budgets.MEADOW_HERB_CLUMPS
 const GRASS_RADIUS := 20.0
 
 
@@ -447,6 +447,7 @@ func _process(delta: float) -> void:
 		if _pressing:
 			_end_press(false)
 		_touches.clear()
+		sun_arc.cancel_drag()
 		_pinch_start = 0.0
 	_time += delta
 	_rebuild_timer += delta

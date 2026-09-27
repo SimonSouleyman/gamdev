@@ -324,9 +324,19 @@ func save() -> void:
 		SaveData.save_game(state)
 
 
+var _paused_at: float = -1.0
+
+
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_WM_CLOSE_REQUEST or what == NOTIFICATION_APPLICATION_PAUSED:
 		save()
+		_paused_at = Time.get_unix_time_from_system()
+	elif what == NOTIFICATION_APPLICATION_RESUMED and _paused_at > 0.0 and state != null:
+		# Back from the background without a restart: the tree grew a little meanwhile too.
+		var away := clampf(Time.get_unix_time_from_system() - _paused_at, 0.0, 7.0 * 86400.0)
+		_paused_at = -1.0
+		if away > 1.0:
+			state.sim.apply_offline(away)
 
 
 func _unhandled_key_input(event: InputEvent) -> void:

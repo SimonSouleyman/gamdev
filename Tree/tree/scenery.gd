@@ -77,7 +77,7 @@ const FOREST_CACHE_VERSION := 8
 func _grow_variant(seed: int, variant: int, bark: Material, leaf: Material) -> ArrayMesh:
 	var kind: Dictionary = KINDS[variant]
 	# Grown once per seed, then kept in the user folder: later starts just load them.
-	var key := hash([FOREST_CACHE_VERSION, Budgets.FOREST_VARIANT_NODES, kind])
+	var key := hash([FOREST_CACHE_VERSION, Budgets.FOREST_VARIANT_NODES, kind, Assets.has_leaf_atlas()])
 	var cache := "user://cache/forest_%d_%d_%d.res" % [seed, variant, key]
 	if _cache_file_ok(cache):
 		var cached := ResourceLoader.load(cache, "", ResourceLoader.CACHE_MODE_IGNORE) as ArrayMesh
@@ -112,12 +112,19 @@ func _cache_file_ok(path: String) -> bool:
 
 
 ## Removes cached forests of other seeds or older generator versions.
+var _current_forest_files: Dictionary = {}
+
+
 func _prune_cache(seed: int) -> void:
+	_current_forest_files.clear()
+	for v in range(KINDS.size()):
+		var key := hash([FOREST_CACHE_VERSION, Budgets.FOREST_VARIANT_NODES, KINDS[v], Assets.has_leaf_atlas()])
+		_current_forest_files["forest_%d_%d_%d.res" % [seed, v, key]] = true
 	var dir := DirAccess.open("user://cache")
 	if dir == null:
 		return
 	for f in dir.get_files():
-		if f.begins_with("forest_") and not f.begins_with("forest_%d_" % seed):
+		if f.begins_with("forest_") and not _current_forest_files.has(f):
 			dir.remove(f)
 
 
@@ -126,7 +133,7 @@ func _build_broadleaf(seed: int, variant: int, local: RandomNumberGenerator, kin
 	sim.species.apical_dominance = kind["apical"]
 	sim.species.max_crown_radius = kind["crown"]
 	sim.species.phototropism = kind["photo"]
-	sim.graph.max_nodes = mini(int(kind["nodes"]), Budgets.FOREST_VARIANT_NODES + 80)
+	sim.graph.max_nodes = mini(int(kind["nodes"]), Budgets.FOREST_VARIANT_NODES)
 	# Grown quickly with small steps (big steps would make bushes): only the shape matters here.
 	sim.max_growth_per_second = 6.0
 	sim.markers_per_second = 30.0

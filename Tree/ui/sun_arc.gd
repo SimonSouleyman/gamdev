@@ -30,6 +30,11 @@ func _arc_point(p: float) -> Vector2:
 	return Vector2(w * 0.5 + cos(a) * w * 0.42, h * 0.92 - sin(a) * h * 0.78)
 
 
+## A page opened mid-drag: drop the drag, or it would keep moving time while paused.
+func cancel_drag() -> void:
+	_dragging = false
+
+
 func is_dragging() -> bool:
 	return _dragging
 
