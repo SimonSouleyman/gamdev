@@ -7,6 +7,7 @@ var shots_dir := ""
 var days := 10
 var seed := 42
 var boost := false
+var hour := 0.5  # fraction of the daylight, 0.5 = noon
 var view: TreeView
 var frame := 0
 
@@ -19,6 +20,8 @@ func _initialize() -> void:
 			days = int(a.substr(7))
 		elif a.begins_with("--seed="):
 			seed = int(a.substr(7))
+		elif a.begins_with("--hour="):
+			hour = float(a.substr(7))
 		elif a == "--boost":
 			boost = true
 	DirAccess.make_dir_recursive_absolute(shots_dir)
@@ -39,7 +42,7 @@ func _initialize() -> void:
 				g.sim.clock.boost_active = boost and g.sim.clock.time_of_day < 0.2
 				g.tick(0.5)
 	# Stop at noon of the last day.
-	while g.sim.clock.time_of_day < g.sim.clock.daylight_fraction * 0.5:
+	while g.sim.clock.time_of_day < g.sim.clock.daylight_fraction * hour:
 		g.tick(0.5)
 	g.take_events()
 	print("day %d: %d nodes, %.1f m, %d tips, crown centre %s" % [g.day_number(), g.sim.graph.size(), g.sim.height(), g.sim.tip_count(), g.sim.centroid()])
@@ -59,7 +62,7 @@ func _process(_delta: float) -> bool:
 	var i := frame / 20
 	if frame % 20 == 0 and i - 1 < names.size():
 		RenderingServer.force_draw(false)
-		root.get_viewport().get_texture().get_image().save_png(shots_dir.path_join("tree_day%d_%s.png" % [days, names[i - 1]]))
+		root.get_viewport().get_texture().get_image().save_png(shots_dir.path_join("tree_day%d_h%d_%s.png" % [days, int(hour * 100), names[i - 1]]))
 	if i < names.size():
 		view._yaw = yaws[i]
 		view._pitch = 0.12

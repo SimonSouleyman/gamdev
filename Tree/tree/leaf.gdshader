@@ -11,6 +11,9 @@ uniform sampler2D leaf_normal : hint_normal, filter_linear_mipmap, repeat_disabl
 uniform float wind_strength = 1.0;
 // > 0: fragments closer to the camera than this dissolve (forest trees in front of a far camera).
 uniform float near_fade = 0.0;
+// The forest behind is darker and cooler; the hero tree gets a light rim, so it stands out.
+uniform vec3 tint_mul : source_color = vec3(1.0);
+uniform float rim_strength = 0.0;
 uniform vec3 translucency = vec3(0.22, 0.32, 0.06);
 
 void vertex() {
@@ -32,7 +35,9 @@ void fragment() {
 		if (dither > keep) { discard; }
 	}
 	vec4 tex = texture(leaf_texture, UV);
-	ALBEDO = tex.rgb * COLOR.rgb;
+	ALBEDO = tex.rgb * COLOR.rgb * tint_mul;
+	RIM = rim_strength;
+	RIM_TINT = 0.4;
 	ALPHA = use_atlas ? texture(leaf_opacity, UV).r : tex.a;
 	if (use_atlas) {
 		NORMAL_MAP = texture(leaf_normal, UV).rgb;

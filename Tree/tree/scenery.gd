@@ -35,6 +35,12 @@ func build(seed: int, bark: Material, leaf: Material, noise: Texture2D) -> void:
 	leaf = leaf.duplicate()
 	(bark as ShaderMaterial).set_shader_parameter("near_fade", 9.0)
 	(leaf as ShaderMaterial).set_shader_parameter("near_fade", 9.0)
+	# Depth separation (Simon: the tree must stand out from the forest): the wood is darker,
+	# cooler and without the hero tree's rim light.
+	(bark as ShaderMaterial).set_shader_parameter("tint_mul", Color(0.62, 0.64, 0.66))
+	(leaf as ShaderMaterial).set_shader_parameter("tint_mul", Color(0.6, 0.68, 0.7))
+	(bark as ShaderMaterial).set_shader_parameter("rim_strength", 0.0)
+	(leaf as ShaderMaterial).set_shader_parameter("rim_strength", 0.0)
 	for c in get_children():
 		c.queue_free()
 	_clouds.clear()

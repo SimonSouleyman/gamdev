@@ -125,7 +125,8 @@ func _build_world() -> void:
 	_env.glow_intensity = 0.35
 	_env.glow_bloom = 0.05
 	_env.fog_enabled = true
-	_env.fog_density = 0.007
+	# Haze lies between the tree and the forest: the wood recedes, the tree stays crisp.
+	_env.fog_density = 0.013
 	_env.fog_light_color = Color(0.45, 0.55, 0.5)
 	_env.fog_aerial_perspective = 0.85
 	_env.fog_sky_affect = 0.05
@@ -180,6 +181,7 @@ func _build_world() -> void:
 	_bark_mat.set_shader_parameter("noise", _noise_tex)
 	Assets.apply_bark(_bark_mat)
 	_tree_mesh.material_override = _bark_mat
+	_bark_mat.set_shader_parameter("rim_strength", 0.12)
 	add_child(_tree_mesh)
 
 	# Leaf clusters: crossed leaf cards per living tip, alpha-cut, swaying in the wind.
@@ -193,6 +195,8 @@ func _build_world() -> void:
 	_leaf_mat.shader = preload("res://tree/leaf.gdshader")
 	Assets.apply_leaf(_leaf_mat)
 	_leaves.material_override = _leaf_mat
+	# The player's tree catches the light at its edges, so it reads against the forest wall.
+	_leaf_mat.set_shader_parameter("rim_strength", 0.25)
 	_leaves.extra_cull_margin = 4.0
 
 	# The meadow: dense soft clumps of grass on crossed cards, with herb and wildflower clumps
@@ -540,7 +544,7 @@ func _update_sun() -> void:
 	_env.tonemap_exposure = 1.1 + 0.6 * (1.0 - k)
 	# Never too dark by day: the dawn burst must be seen.
 	# Brighter dusk (Simon: the start at sunset was too dark).
-	_env.ambient_light_energy = (0.9 + 0.6 * k) if state.phase == GameState.Phase.DAY else 1.1
+	_env.ambient_light_energy = (1.2 + 0.3 * k) if state.phase == GameState.Phase.DAY else 1.2
 
 
 # --- camera -----------------------------------------------------------------
@@ -558,7 +562,8 @@ func _frame_camera(snap: bool, delta: float = 0.0) -> void:
 	# The camera stays inside the clearing; a tall tree is seen with a wider lens instead.
 	# The camera stays in the clearing; a tall tree is seen from lower down with a wider lens,
 	# and the forest trees right behind the camera dissolve (near_fade in the scenery materials).
-	var want_distance := clampf(clampf(height * 1.7 + 2.2, 2.4, 21.0) * _zoom, 1.5, 24.0)
+	# Never beyond the bushes at the clearing edge (about 17 m): the forest stays behind the camera.
+	var want_distance := clampf(clampf(height * 1.7 + 2.2, 2.4, 15.0) * _zoom, 1.5, 15.5)
 	camera.fov = clampf(55.0 + height * 1.2, 55.0, 85.0)
 	var k := 1.0 if snap else 1.0 - exp(-2.0 * delta)
 	_focus = _focus.lerp(want_focus, k)

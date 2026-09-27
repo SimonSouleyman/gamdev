@@ -13,6 +13,8 @@ uniform vec3 light_bark : source_color = vec3(0.58, 0.53, 0.47);
 uniform vec3 dark_bark : source_color = vec3(0.24, 0.2, 0.16);
 uniform float normal_strength = 1.0;
 uniform float near_fade = 0.0;
+uniform vec3 tint_mul : source_color = vec3(1.0);
+uniform float rim_strength = 0.0;
 // Roots underground glow faintly so they read in the dark.
 uniform vec3 glow : source_color = vec3(0.0);
 
@@ -46,7 +48,9 @@ void fragment() {
 		ROUGHNESS = mix(0.95, 0.8, f);
 	}
 	// Per-species bark tint from vertex colours (white where a mesh has none).
-	ALBEDO *= COLOR.rgb;
+	ALBEDO *= COLOR.rgb * tint_mul;
+	RIM = rim_strength;
+	RIM_TINT = 0.5;
 	SPECULAR = 0.3;
 	EMISSION = glow * ALBEDO;
 }
