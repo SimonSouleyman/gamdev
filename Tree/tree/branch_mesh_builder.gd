@@ -27,10 +27,25 @@ func _r(raw: float) -> float:
 	return maxf(min_radius, raw * radius_scale)
 
 
-func build(g: PlantGraph) -> ArrayMesh:
+## Builds the segments of nodes `first_id` .. `end_id` - 1 (-1: to the last node). Frames are
+## only computed for those nodes and their ancestors, so rebuilding a growing root is cheap.
+func build(g: PlantGraph, first_id: int = 1, end_id: int = -1) -> ArrayMesh:
 	var n := g.size()
 	if n < 2:
 		return ArrayMesh.new()
+	var last := n if end_id < 0 else mini(end_id, n)
+	var first := maxi(1, first_id)
+	var needed := PackedByteArray()
+	needed.resize(n)
+	var order := PackedInt32Array()
+	for id in range(first, last):
+		var cur := id
+		while cur >= 0 and needed[cur] == 0:
+			needed[cur] = 1
+			cur = g.parents[cur]
+	for id in range(n):
+		if needed[id] == 1:
+			order.append(id)
 	var alive := PackedByteArray()
 	alive.resize(n)
 	for id in range(n):
@@ -38,7 +53,7 @@ func build(g: PlantGraph) -> ArrayMesh:
 	# The main continuation of each node: its thickest living child.
 	var main_child := PackedInt32Array()
 	main_child.resize(n)
-	for id in range(n):
+	for id in order:
 		var best := -1
 		var best_r := -1.0
 		for c in (g.children[id] as Array):
@@ -55,7 +70,7 @@ func build(g: PlantGraph) -> ArrayMesh:
 	side.resize(n)
 	dir_in.resize(n)
 	along.resize(n)
-	for id in range(n):
+	for id in order:
 		var p := g.parents[id]
 		var din := Vector3.UP
 		if p >= 0:
@@ -83,7 +98,7 @@ func build(g: PlantGraph) -> ArrayMesh:
 	var tangents := PackedFloat32Array()
 	var uvs := PackedVector2Array()
 	var indices := PackedInt32Array()
-	for id in range(1, n):
+	for id in range(first, last):
 		if alive[id] == 0:
 			continue
 		var p := g.parents[id]

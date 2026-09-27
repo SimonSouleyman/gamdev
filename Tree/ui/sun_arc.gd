@@ -30,6 +30,10 @@ func _arc_point(p: float) -> Vector2:
 	return Vector2(w * 0.5 + cos(a) * w * 0.42, h * 0.92 - sin(a) * h * 0.78)
 
 
+func is_dragging() -> bool:
+	return _dragging
+
+
 func knob_position() -> Vector2:
 	return _arc_point(progress)
 
@@ -43,9 +47,9 @@ func _draw() -> void:
 	var pulse := 1.0 + 0.15 * sin(_time * 3.0)
 	draw_circle(k, 34.0 * pulse, Color(1.0, 0.85, 0.4, 0.25))
 	draw_circle(k, 22.0, Color(1.0, 0.92, 0.6))
-	var font := get_theme_default_font()
-	draw_string(font, _arc_point(0.0) + Vector2(-30, 34), "sunrise", HORIZONTAL_ALIGNMENT_LEFT, -1, 20, Color(1, 1, 1, 0.85))
-	draw_string(font, _arc_point(1.0) + Vector2(-40, 34), "sunset", HORIZONTAL_ALIGNMENT_LEFT, -1, 20, Color(1, 1, 1, 0.85))
+	var font := Paper.hand_font(true)
+	draw_string(font, _arc_point(0.0) + Vector2(-30, 34), "sunrise", HORIZONTAL_ALIGNMENT_LEFT, -1, 24, Color(1, 1, 0.95, 0.95))
+	draw_string(font, _arc_point(1.0) + Vector2(-40, 34), "sunset", HORIZONTAL_ALIGNMENT_LEFT, -1, 24, Color(1, 1, 0.95, 0.95))
 
 
 func _gui_input(event: InputEvent) -> void:

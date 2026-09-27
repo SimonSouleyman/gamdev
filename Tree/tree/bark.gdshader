@@ -12,6 +12,9 @@ uniform sampler2D noise : filter_linear_mipmap, repeat_enable;
 uniform vec3 light_bark : source_color = vec3(0.58, 0.53, 0.47);
 uniform vec3 dark_bark : source_color = vec3(0.24, 0.2, 0.16);
 uniform float normal_strength = 1.0;
+uniform float near_fade = 0.0;
+// Roots underground glow faintly so they read in the dark.
+uniform vec3 glow : source_color = vec3(0.0);
 
 float fissure(vec2 uv) {
 	// Long ridges along the wood, broken up by a second noise.
@@ -21,6 +24,11 @@ float fissure(vec2 uv) {
 }
 
 void fragment() {
+	if (near_fade > 0.0) {
+		float keep = smoothstep(near_fade * 0.6, near_fade, length(VERTEX));
+		float dither = fract(sin(dot(floor(FRAGCOORD.xy), vec2(12.9898, 78.233))) * 43758.5453);
+		if (dither > keep) { discard; }
+	}
 	if (use_textures) {
 		ALBEDO = texture(bark_albedo, UV).rgb * texture_tint;
 		NORMAL_MAP = texture(bark_normal, UV).rgb;
@@ -38,4 +46,5 @@ void fragment() {
 		ROUGHNESS = mix(0.95, 0.8, f);
 	}
 	SPECULAR = 0.3;
+	EMISSION = glow * ALBEDO;
 }

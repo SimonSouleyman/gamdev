@@ -111,17 +111,82 @@ static func paper_box(w: int, h: int, seed: int, torn: String = "", margin: floa
 	return sb
 
 
-## The leather cover the book pages lie on.
-static func cover_box() -> StyleBoxFlat:
-	var sb := StyleBoxFlat.new()
-	sb.bg_color = LEATHER
-	sb.set_corner_radius_all(14)
-	sb.border_color = LEATHER.darkened(0.35)
-	sb.set_border_width_all(4)
-	sb.shadow_color = Color(0, 0, 0, 0.5)
-	sb.shadow_size = 18
-	sb.shadow_offset = Vector2(0, 6)
+## The leather cover the book pages lie on: grained leather with a stitched border and worn corners.
+static func cover_box() -> StyleBoxTexture:
+	var sb := StyleBoxTexture.new()
+	sb.texture = leather_texture(160, 220)
+	sb.texture_margin_left = 24
+	sb.texture_margin_right = 24
+	sb.texture_margin_top = 24
+	sb.texture_margin_bottom = 24
 	return sb
+
+
+static func leather_texture(w: int, h: int) -> ImageTexture:
+	var key := "leather_%d_%d" % [w, h]
+	if _cache.has(key):
+		return _cache[key]
+	var grain := FastNoiseLite.new()
+	grain.seed = 9
+	grain.frequency = 0.35
+	var mottle := FastNoiseLite.new()
+	mottle.seed = 10
+	mottle.frequency = 0.04
+	var img := Image.create(w, h, false, Image.FORMAT_RGBA8)
+	for y in range(h):
+		for x in range(w):
+			var g := grain.get_noise_2d(x, y) * 0.5 + 0.5
+			var m := mottle.get_noise_2d(x, y) * 0.5 + 0.5
+			var c := LEATHER.darkened(0.25).lerp(LEATHER.lightened(0.12), m) * (0.88 + 0.22 * g)
+			# Rounded, worn corners.
+			var cx := minf(x, w - 1 - x)
+			var cy := minf(y, h - 1 - y)
+			var a := 1.0
+			if cx < 12 and cy < 12 and Vector2(12 - cx, 12 - cy).length() > 12.0:
+				a = 0.0
+			if cx < 20 and cy < 20:
+				c = c.lightened(0.08 * (1.0 - Vector2(cx, cy).length() / 28.0))
+			# Stitches along the border.
+			if (cx == 9 or cy == 9) and cx >= 9 and cy >= 9 and int(x + y) % 8 < 4:
+				c = Color(0.82, 0.72, 0.5)
+			img.set_pixel(x, y, Color(c, a))
+	var tex := ImageTexture.create_from_image(img)
+	_cache[key] = tex
+	return tex
+
+
+## A hand-drawn check box: [empty, ticked], ink on transparent.
+static func check_icons(size: int = 34) -> Array[ImageTexture]:
+	if _cache.has("checks"):
+		return _cache["checks"]
+	var out: Array[ImageTexture] = []
+	for ticked in [false, true]:
+		var img := Image.create(size, size, false, Image.FORMAT_RGBA8)
+		img.fill(Color(0, 0, 0, 0))
+		var rng := RandomNumberGenerator.new()
+		rng.seed = 3
+		# A slightly wobbly square.
+		var corners := [Vector2(4, 5), Vector2(size - 5, 4), Vector2(size - 4, size - 5), Vector2(5, size - 4)]
+		for i in range(4):
+			_ink_line(img, corners[i], corners[(i + 1) % 4], INK, 2.0)
+		if ticked:
+			_ink_line(img, Vector2(8, size * 0.5), Vector2(size * 0.42, size - 8), RED_INK, 3.0)
+			_ink_line(img, Vector2(size * 0.42, size - 8), Vector2(size - 3, 3), RED_INK, 3.0)
+		out.append(ImageTexture.create_from_image(img))
+	_cache["checks"] = out
+	return out
+
+
+static func _ink_line(img: Image, a: Vector2, b: Vector2, col: Color, width: float) -> void:
+	var steps := int(a.distance_to(b) * 2.0) + 1
+	for s in range(steps + 1):
+		var p := a.lerp(b, float(s) / steps)
+		for dy in range(-2, 3):
+			for dx in range(-2, 3):
+				var q := p + Vector2(dx, dy)
+				var d := q.distance_to(p)
+				if d <= width * 0.5 and q.x >= 0 and q.y >= 0 and q.x < img.get_width() and q.y < img.get_height():
+					img.set_pixelv(Vector2i(q), col)
 
 
 static func ink_label(text: String, size: int, color: Color = INK, bold: bool = false) -> Label:

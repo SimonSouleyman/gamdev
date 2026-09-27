@@ -37,7 +37,7 @@ var _hover: MeshInstance3D
 var _find_nodes: Array = []
 ## Rocks and finds of the current underground (rebuilt on setup).
 var _content: Node3D
-var _builder := TreeMeshBuilder.new()
+var _builder := BranchMeshBuilder.new()
 var _rebuild_timer: float = 0.0
 var _orbit_yaw: float = 0.6
 var _orbit_pitch: float = 0.45
@@ -53,7 +53,7 @@ var joystick: ThumbStick
 var dive_button: Button
 var end_button: Button
 var _life_label: Label
-var _hint: Label
+var _hint: PaperNote
 var _life_bar: ColorRect
 var _life_bar_bg: ColorRect
 var _counts: Label
@@ -66,10 +66,9 @@ var compass: Compass
 
 
 func _ready() -> void:
-	_builder.radius_scale = 0.7
-	_builder.min_radius = 0.03
-	_builder.sides_thick = 5
-	_builder.sides_thin = 3
+	_builder.radius_scale = 0.75
+	_builder.min_radius = 0.02
+	_builder.bark_tiling = 2.0
 	_build_world()
 	_build_hud()
 	if get_parent() == get_tree().root:
@@ -134,12 +133,18 @@ func _build_world() -> void:
 	_dots.extra_cull_margin = 40.0
 	add_child(_dots)
 
-	var root_mat := StandardMaterial3D.new()
-	root_mat.albedo_color = ROOT_COLOR
-	root_mat.emission_enabled = true
-	root_mat.emission = ROOT_COLOR
-	root_mat.emission_energy_multiplier = 0.25
-	root_mat.roughness = 0.8
+	# Roots: the bark texture, pale as fresh root skin, glowing a little in the dark.
+	var root_mat := ShaderMaterial.new()
+	root_mat.shader = preload("res://tree/bark.gdshader")
+	var noise := NoiseTexture2D.new()
+	noise.seamless = true
+	noise.noise = FastNoiseLite.new()
+	root_mat.set_shader_parameter("noise", noise)
+	root_mat.set_shader_parameter("light_bark", ROOT_COLOR)
+	root_mat.set_shader_parameter("dark_bark", ROOT_COLOR.darkened(0.35))
+	Assets.apply_bark(root_mat)
+	root_mat.set_shader_parameter("texture_tint", Color(1.25, 1.15, 0.95))
+	root_mat.set_shader_parameter("glow", Color(0.35, 0.3, 0.22))
 	_static_roots = MeshInstance3D.new()
 	_static_roots.material_override = root_mat
 	add_child(_static_roots)
@@ -154,7 +159,7 @@ func _build_world() -> void:
 	_tip_light = OmniLight3D.new()
 	_tip_light.light_color = Color(1.0, 0.92, 0.8)
 	_tip_light.omni_range = 8.0
-	_tip_light.light_energy = 2.2
+	_tip_light.light_energy = 1.1
 	_tip.add_child(_tip_light)
 	_tip.visible = false
 
@@ -246,8 +251,19 @@ func _build_hud() -> void:
 	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	hud.add_child(root)
 
+	# The readouts sit on a scrap of journal paper, like the day's.
+	var scrap := Panel.new()
+	scrap.add_theme_stylebox_override("panel", Paper.paper_box(256, 96, 64, "all", 12.0))
+	scrap.set_anchors_preset(Control.PRESET_TOP_WIDE)
+	scrap.offset_left = 22
+	scrap.offset_right = -160
+	scrap.offset_top = 22
+	scrap.offset_bottom = 140
+	scrap.rotation_degrees = -0.6
+	scrap.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	root.add_child(scrap)
 	_life_bar_bg = ColorRect.new()
-	_life_bar_bg.color = Color(1, 1, 1, 0.12)
+	_life_bar_bg.color = Color(Paper.INK, 0.15)
 	_life_bar_bg.position = Vector2(40, 40)
 	_life_bar_bg.size = Vector2(640, 18)
 	_life_bar_bg.set_anchors_preset(Control.PRESET_TOP_WIDE)
@@ -258,7 +274,7 @@ func _build_hud() -> void:
 	_life_bar_bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	root.add_child(_life_bar_bg)
 	_life_bar = ColorRect.new()
-	_life_bar.color = Color(1.0, 0.9, 0.55, 0.85)
+	_life_bar.color = Color(0.78, 0.55, 0.12, 0.9)
 	_life_bar.size = Vector2(0, 18)
 	_life_bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_life_bar_bg.add_child(_life_bar)
@@ -266,13 +282,11 @@ func _build_hud() -> void:
 	root.add_child(_life_label)
 	_counts = _label(24, Vector2(40, 98))
 	root.add_child(_counts)
-	_hint = _label(28, Vector2(40, 200))
+	_hint = PaperNote.new(27, 62)
 	_hint.set_anchors_preset(Control.PRESET_TOP_WIDE)
-	_hint.offset_left = 40
-	_hint.offset_right = -40
-	_hint.offset_top = 170
-	_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_hint.offset_left = 50
+	_hint.offset_right = -50
+	_hint.offset_top = 190
 	root.add_child(_hint)
 
 	joystick = ThumbStick.new()
@@ -320,8 +334,7 @@ func _label(font_size: int, pos: Vector2) -> Label:
 	l.position = pos
 	l.add_theme_font_override("font", Paper.hand_font(true))
 	l.add_theme_font_size_override("font_size", font_size + 2)
-	l.add_theme_color_override("font_color", Color(0.95, 0.93, 0.88))
-	l.add_theme_color_override("font_shadow_color", Color(0, 0, 0, 0.8))
+	l.add_theme_color_override("font_color", Paper.INK)
 	l.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	return l
 
@@ -591,8 +604,8 @@ func _flash(p: Vector3, color: Color, size: float = 0.5) -> void:
 	add_child(m)
 	var tw := create_tween()
 	tw.set_parallel(true)
-	tw.tween_property(m, "scale", Vector3.ONE * size * 1.6, 0.45)
-	tw.tween_method(func(a: float) -> void: mat.set_shader_parameter("tint", Color(color, a)), 1.0, 0.0, 0.45)
+	tw.tween_property(m, "scale", Vector3.ONE * size * 0.9, 0.25)
+	tw.tween_method(func(a: float) -> void: mat.set_shader_parameter("tint", Color(color, a)), 0.8, 0.0, 0.25)
 	tw.chain().tween_callback(m.queue_free)
 
 

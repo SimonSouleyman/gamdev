@@ -6,8 +6,8 @@ render_mode cull_disabled;
 uniform float wind_strength = 1.0;
 uniform float fade_start = 35.0;
 uniform float fade_end = 70.0;
-uniform vec3 root_color : source_color = vec3(0.14, 0.24, 0.07);
-uniform vec3 tip_color : source_color = vec3(0.34, 0.45, 0.17);
+uniform vec3 root_color : source_color = vec3(0.22, 0.36, 0.11);
+uniform vec3 tip_color : source_color = vec3(0.44, 0.58, 0.22);
 
 varying float v_height;
 
@@ -34,5 +34,5 @@ void fragment() {
 	ALBEDO = mix(root_color, tip_color, v_height) * COLOR.rgb;
 	ROUGHNESS = 0.8;
 	SPECULAR = 0.25;
-	BACKLIGHT = vec3(0.18, 0.25, 0.06) * v_height;
+	BACKLIGHT = vec3(0.3, 0.4, 0.1) * v_height;
 }

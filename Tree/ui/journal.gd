@@ -36,6 +36,7 @@ var _note: LineEdit
 var _toggles: Dictionary = {}
 var _open_button: Button
 var _pages_list: VBoxContainer
+var _pages_empty: Label
 
 
 func _ready() -> void:
@@ -286,7 +287,7 @@ func _build_book() -> void:
 		c.set_anchors_preset(Control.PRESET_FULL_RECT)
 		content.add_child(c)
 
-	# Ribbon bookmarks sticking out of the right edge of the book.
+	# Cloth ribbon bookmarks sticking out of the right edge of the book, with forked ends.
 	var ribbons := {"diary": Color(0.62, 0.2, 0.16), "pages": Color(0.25, 0.38, 0.22), "settings": Color(0.25, 0.3, 0.5)}
 	var y := 120
 	for k in ribbons:
@@ -297,14 +298,22 @@ func _build_book() -> void:
 		b.add_theme_font_size_override("font_size", 22)
 		for fc in ["font_color", "font_hover_color", "font_pressed_color"]:
 			b.add_theme_color_override(fc, Color(0.98, 0.95, 0.88))
-		for s in ["normal", "hover", "pressed"]:
-			var sb := StyleBoxFlat.new()
-			sb.bg_color = (ribbons[k] as Color).lightened(0.12 if s == "hover" else 0.0)
-			sb.corner_radius_top_right = 8
-			sb.corner_radius_bottom_right = 8
-			sb.content_margin_left = 10
-			sb.content_margin_right = 8
-			b.add_theme_stylebox_override(s, sb)
+		for s in ["normal", "hover", "pressed", "focus"]:
+			b.add_theme_stylebox_override(s, StyleBoxEmpty.new())
+		var cloth := Control.new()
+		cloth.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		cloth.set_anchors_preset(Control.PRESET_FULL_RECT)
+		cloth.show_behind_parent = true
+		var col: Color = ribbons[k]
+		cloth.draw.connect(func() -> void:
+			var w := cloth.size.x
+			var h := cloth.size.y
+			# A strip of cloth with a V cut into its free end.
+			cloth.draw_colored_polygon(PackedVector2Array([Vector2(0, 0), Vector2(w, 0), Vector2(w - 16, h * 0.5), Vector2(w, h), Vector2(0, h)]), col)
+			cloth.draw_colored_polygon(PackedVector2Array([Vector2(0, 0), Vector2(8, 0), Vector2(8, h), Vector2(0, h)]), col.darkened(0.25))
+			for i in range(0, int(h), 10):
+				cloth.draw_line(Vector2(12, i + 2), Vector2(12, i + 6), col.lightened(0.35), 1.0))
+		b.add_child(cloth)
 		b.set_anchors_preset(Control.PRESET_TOP_RIGHT)
 		b.offset_left = -76
 		b.offset_right = -2
@@ -366,6 +375,9 @@ func _build_pages_tab() -> Control:
 	var box := VBoxContainer.new()
 	box.add_theme_constant_override("separation", 12)
 	box.add_child(Paper.ink_label("Pages to read again", 32, Paper.INK, true))
+	_pages_empty = Paper.ink_label("Nothing to read again yet. Pages the journal shows you will be kept here.", 25, Paper.FAINT_INK)
+	_pages_empty.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	box.add_child(_pages_empty)
 	_pages_list = VBoxContainer.new()
 	_pages_list.add_theme_constant_override("separation", 10)
 	box.add_child(_pages_list)
@@ -385,10 +397,11 @@ func _build_settings_tab() -> Control:
 		c.add_theme_font_size_override("font_size", 28)
 		for fc in ["font_color", "font_pressed_color", "font_hover_color", "font_hover_pressed_color"]:
 			c.add_theme_color_override(fc, Paper.INK)
-		c.add_theme_color_override("icon_normal_color", Paper.INK)
-		c.add_theme_color_override("icon_pressed_color", Paper.RED_INK)
-		c.add_theme_color_override("icon_hover_color", Paper.INK)
-		c.add_theme_color_override("icon_hover_pressed_color", Paper.RED_INK)
+		var icons := Paper.check_icons()
+		c.add_theme_icon_override("unchecked", icons[0])
+		c.add_theme_icon_override("checked", icons[1])
+		c.add_theme_icon_override("unchecked_disabled", icons[0])
+		c.add_theme_icon_override("checked_disabled", icons[1])
 		c.button_pressed = settings[key]
 		c.toggled.connect(func(on: bool) -> void:
 			settings[key] = on
@@ -459,12 +472,15 @@ func _refresh_diary() -> void:
 	_diary_text.text = out
 	for c in _pages_list.get_children():
 		c.queue_free()
+	var any := false
 	for id in Pages.TEXTS:
 		if state.seen_pages.has(id):
 			var b := Paper.ink_button(Pages.title(id), 26)
 			b.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
 			b.pressed.connect(func() -> void: show_page(id, Pages.title(id), Pages.body(id)))
 			_pages_list.add_child(b)
+			any = true
+	_pages_empty.visible = not any
 
 
 func set_setting(key: String, on: bool) -> void:

@@ -26,7 +26,7 @@ func build(ground: Underground) -> void:
 		var r: float = h["radius"]
 		match str(h["kind"]):
 			"damp":
-				_disc(p, r * 1.1, _mats["damp"])
+				_wet_patch(p, r * 1.2)
 			"rushes":
 				_scatter(p, r, 18, func(q: Vector3) -> void: _blade(q, _rng.randf_range(0.45, 0.8), 0.012, _mats["rush"]))
 			"clover":
@@ -36,7 +36,36 @@ func build(ground: Underground) -> void:
 			"stones":
 				_scatter(p, r, 7, _stone)
 			"moss":
-				_disc(p + Vector3(0, 0.0, -0.1), 0.16, _mats["moss"], 0.012)
+				_wet_patch(p + Vector3(0, 0.0, -0.1), 0.22, Color(0.2, 0.3, 0.1), 0.9)
+
+
+const WET_SHADER := """
+shader_type spatial;
+render_mode depth_draw_opaque;
+uniform vec3 color = vec3(0.12, 0.17, 0.1);
+uniform float rough = 0.25;
+void fragment() {
+	vec2 c = UV * 2.0 - 1.0;
+	float edge = 1.0 - smoothstep(0.45, 1.0, length(c) + 0.08 * sin(atan(c.y, c.x) * 5.0));
+	ALBEDO = color;
+	ROUGHNESS = rough;
+	ALPHA = edge * 0.75;
+}
+"""
+
+
+## A damp patch: darker, glossy ground with a soft ragged edge, lying just on the grass floor.
+func _wet_patch(at: Vector3, radius: float, color: Color = Color(0.12, 0.17, 0.1), roughness: float = 0.25) -> void:
+	var plane := PlaneMesh.new()
+	plane.size = Vector2.ONE * radius * 2.0
+	var sh := Shader.new()
+	sh.code = WET_SHADER
+	var mat := ShaderMaterial.new()
+	mat.shader = sh
+	mat.set_shader_parameter("color", color)
+	mat.set_shader_parameter("rough", roughness)
+	var m := _add(plane, mat, at + Vector3(0, 0.01, 0), Basis(Vector3.UP, _rng.randf() * TAU))
+	m.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 
 
 func _mat(c: Color) -> StandardMaterial3D:

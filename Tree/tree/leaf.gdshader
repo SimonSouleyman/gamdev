@@ -9,6 +9,8 @@ uniform bool use_atlas = false;
 uniform sampler2D leaf_opacity : hint_default_white, filter_linear_mipmap, repeat_disable;
 uniform sampler2D leaf_normal : hint_normal, filter_linear_mipmap, repeat_disable;
 uniform float wind_strength = 1.0;
+// > 0: fragments closer to the camera than this dissolve (forest trees in front of a far camera).
+uniform float near_fade = 0.0;
 uniform vec3 translucency = vec3(0.22, 0.32, 0.06);
 
 void vertex() {
@@ -23,6 +25,12 @@ void vertex() {
 }
 
 void fragment() {
+	if (near_fade > 0.0) {
+		float d = length(VERTEX);
+		float keep = smoothstep(near_fade * 0.6, near_fade, d);
+		float dither = fract(sin(dot(floor(FRAGCOORD.xy), vec2(12.9898, 78.233))) * 43758.5453);
+		if (dither > keep) { discard; }
+	}
 	vec4 tex = texture(leaf_texture, UV);
 	ALBEDO = tex.rgb * COLOR.rgb;
 	ALPHA = use_atlas ? texture(leaf_opacity, UV).r : tex.a;

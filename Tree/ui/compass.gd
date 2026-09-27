@@ -21,7 +21,10 @@ func _draw() -> void:
 		return
 	var c := size * 0.5
 	var r := minf(size.x, size.y) * 0.36
-	draw_circle(c, r + 14.0, Color(0.98, 0.96, 0.9, 0.55))
+	# An ink compass on a round scrap of paper.
+	draw_circle(c, r + 16.0, Color(0.2, 0.15, 0.1, 0.25))
+	draw_circle(c, r + 14.0, Paper.PAPER)
+	draw_arc(c, r + 10.0, 0.0, TAU, 40, Color(Paper.INK, 0.6), 1.5, true)
 	var basis := camera.global_basis
 	var fwd := Vector3(-basis.z.x, 0.0, -basis.z.z)
 	var right := Vector3(basis.x.x, 0.0, basis.x.z)
@@ -29,9 +32,14 @@ func _draw() -> void:
 		fwd = Vector3(basis.y.x, 0.0, basis.y.z)
 	fwd = fwd.normalized()
 	right = right.normalized()
-	var font := get_theme_default_font()
+	var font := Paper.hand_font(true)
 	for k in DIRS:
 		var d: Vector3 = DIRS[k]
 		var p := c + Vector2(d.dot(right), -d.dot(fwd)) * r
-		var col := Color(0.7, 0.15, 0.1) if k == "N" else Color(0.25, 0.2, 0.15)
-		draw_string(font, p + Vector2(-8, 8), k, HORIZONTAL_ALIGNMENT_LEFT, -1, 22, col)
+		var col := Paper.RED_INK if k == "N" else Paper.INK
+		draw_string(font, p + Vector2(-8, 9), k, HORIZONTAL_ALIGNMENT_LEFT, -1, 26, col)
+	# The needle: north in red ink.
+	var nd: Vector3 = DIRS["N"]
+	var np := Vector2(nd.dot(right), -nd.dot(fwd))
+	draw_line(c - np * r * 0.45, c, Paper.INK, 2.0, true)
+	draw_line(c, c + np * r * 0.45, Paper.RED_INK, 3.0, true)

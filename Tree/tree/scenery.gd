@@ -31,6 +31,11 @@ var _butterfly_params: Array = []
 
 
 func build(seed: int, bark: Material, leaf: Material, noise: Texture2D) -> void:
+	# The forest gets its own copies of the materials, which dissolve near the camera.
+	bark = bark.duplicate()
+	leaf = leaf.duplicate()
+	(bark as ShaderMaterial).set_shader_parameter("near_fade", 9.0)
+	(leaf as ShaderMaterial).set_shader_parameter("near_fade", 9.0)
 	for c in get_children():
 		c.queue_free()
 	_clouds.clear()
@@ -54,7 +59,7 @@ func build(seed: int, bark: Material, leaf: Material, noise: Texture2D) -> void:
 ## grown the same way, as the player's tree.
 func _grow_variant(seed: int, variant: int, bark: Material, leaf: Material) -> ArrayMesh:
 	var sim := GrowthSim.new(hash([seed, "background tree", variant]))
-	sim.graph.max_nodes = 420 + variant * 90
+	sim.graph.max_nodes = 700 + variant * 120
 	# Grown quickly with small steps (big steps would make bushes): only the shape matters here.
 	sim.max_growth_per_second = 6.0
 	sim.markers_per_second = 30.0
@@ -66,7 +71,7 @@ func _grow_variant(seed: int, variant: int, bark: Material, leaf: Material) -> A
 		if sim.graph.is_full():
 			break
 	var builder := BranchMeshBuilder.new()
-	builder.radius_scale = 2.2
+	builder.radius_scale = 3.2
 	var wood := builder.build(sim.graph)
 	var mesh := ArrayMesh.new()
 	if wood.get_surface_count() > 0:
@@ -87,7 +92,7 @@ func _grow_variant(seed: int, variant: int, bark: Material, leaf: Material) -> A
 	for id in range(2, g.size()):
 		if g.radii[id] >= 0.03:
 			continue
-		var s := _rng.randf_range(0.35, 0.5)
+		var s := _rng.randf_range(0.26, 0.36)
 		var xf := Transform3D(Basis(Vector3.UP, _rng.randf() * TAU).scaled(Vector3.ONE * s), g.positions[id])
 		# The forest is older and shadier than the tree in the sun: darker leaves.
 		var tint := _rng.randf_range(0.5, 0.78)
@@ -124,7 +129,7 @@ func _build_distant_trees(seed: int, bark: Material, leaf: Material) -> void:
 	for _t in range(FOREST_TREES):
 		var ang := _rng.randf() * TAU
 		# Denser toward the inside edge, thinning into the dark wood behind.
-		var d := CLEARING_RADIUS + 3.0 + pow(_rng.randf(), 1.6) * 26.0
+		var d := CLEARING_RADIUS + 7.0 + pow(_rng.randf(), 1.6) * 24.0
 		(per_variant[_rng.randi() % TREE_VARIANTS] as Array).append(Vector3(cos(ang) * d, 0, sin(ang) * d))
 	for v in range(TREE_VARIANTS):
 		var spots: Array = per_variant[v]
@@ -248,8 +253,8 @@ func _build_clouds(noise: Texture2D) -> void:
 
 func _build_flowers() -> void:
 	var head := CylinderMesh.new()
-	head.top_radius = 0.028
-	head.bottom_radius = 0.018
+	head.top_radius = 0.018
+	head.bottom_radius = 0.011
 	head.height = 0.012
 	head.radial_segments = 6
 	head.rings = 1

@@ -41,7 +41,7 @@ var _time: float = 0.0
 ## PI: the camera stands north of the tree and looks south, toward the sun's arc,
 ## so sunrise (east) is on the left as on the sun arc chart.
 var _yaw: float = PI
-var _pitch: float = 0.18
+var _pitch: float = 0.3
 var _zoom: float = 1.0
 var _focus: Vector3 = Vector3(0, 0.6, 0)
 var _distance: float = 4.0
@@ -65,13 +65,13 @@ var hud: CanvasLayer
 var _day_label: Label
 var _life_label: Label
 var _res_labels: Array[Label] = []
-var _hint: Label
+var _hint: PaperNote
 var _boost_label: Label
 var sun_arc: SunArc
 
 
 func _ready() -> void:
-	_builder.radius_scale = 1.9
+	_builder.radius_scale = 2.5
 	_build_world()
 	_build_hud()
 	if get_parent() == get_tree().root:
@@ -339,22 +339,13 @@ func _build_hud() -> void:
 	compass.offset_bottom = 190
 	hud.add_child(compass)
 
-	_hint = Label.new()
+	_hint = PaperNote.new(28, 61)
 	_hint.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
-	_hint.offset_left = 40
-	_hint.offset_right = -40
-	_hint.offset_top = -260
+	_hint.offset_left = 50
+	_hint.offset_right = -50
+	_hint.offset_top = -220
 	_hint.offset_bottom = -120
-	_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_hint.vertical_alignment = VERTICAL_ALIGNMENT_BOTTOM
-	_hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_hint.add_theme_font_override("font", Paper.hand_font(true))
-	_hint.add_theme_font_size_override("font_size", 30)
-	_hint.add_theme_color_override("font_color", Color(1, 1, 0.97))
-	_hint.add_theme_color_override("font_shadow_color", Color(0, 0, 0, 0.7))
-	_hint.add_theme_constant_override("shadow_offset_x", 2)
-	_hint.add_theme_constant_override("shadow_offset_y", 2)
-	_hint.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_hint.grow_vertical = Control.GROW_DIRECTION_BEGIN
 	hud.add_child(_hint)
 
 
@@ -399,7 +390,8 @@ func _update_hud() -> void:
 	# The sun's arc is always there by day: drag the sun to move the day on (brighter once
 	# there is nothing left to grow with).
 	sun_arc.visible = state.can_skip_time()
-	sun_arc.modulate.a = 1.0 if state.day_is_spent() else 0.6
+	# Faint unless it matters: while dragging, or once the day has nothing left to grow with.
+	sun_arc.modulate.a = 1.0 if state.day_is_spent() or sun_arc.is_dragging() else 0.35
 	sun_arc.progress = s.clock.time_of_day / s.clock.daylight_fraction
 	match state.phase:
 		GameState.Phase.SUNSET:
@@ -501,8 +493,9 @@ func _update_sun() -> void:
 	var light_dir := dir if h > 0.0 else Vector3(-1, 0.012, 0.1).normalized()
 	_sun_light.visible = true
 	_sun_light.look_at_from_position(light_dir * 20.0, Vector3.ZERO, Vector3.UP if absf(light_dir.y) < 0.99 else Vector3.FORWARD)
-	_sun_light.light_energy = (0.35 + 1.4 * minf(clock.light_level(), 1.6)) if h > 0.0 else 0.12
+	_sun_light.light_energy = (0.45 + 1.4 * minf(clock.light_level(), 1.6)) if h > 0.0 else 0.4
 	_sun_light.shadow_enabled = h > 0.03
+	_sun_light.shadow_blur = 2.5
 	_sun_light.light_color = Color(1.0, 0.68, 0.42).lerp(Color(1.0, 0.96, 0.9), clampf(h * 2.5, 0.0, 1.0))
 	var k := clampf(h * 3.0, 0.0, 1.0)
 	_scenery.update(get_process_delta_time(), h > 0.0, h, _sun_light.light_color, state.sim.height())
@@ -511,7 +504,7 @@ func _update_sun() -> void:
 	_env.tonemap_exposure = 1.1 + 1.1 * (1.0 - k)
 	# Never too dark by day: the dawn burst must be seen.
 	# Brighter dusk (Simon: the start at sunset was too dark).
-	_env.ambient_light_energy = 0.8 + 0.4 * k if state.phase == GameState.Phase.DAY else 0.8
+	_env.ambient_light_energy = 1.0 + 0.4 * k if state.phase == GameState.Phase.DAY else 1.25
 
 
 # --- camera -----------------------------------------------------------------
@@ -527,15 +520,17 @@ func _frame_camera(snap: bool, delta: float = 0.0) -> void:
 	var height := _framed_height
 	var want_focus := Vector3(0, clampf(height * 0.5, 0.25, 30.0), 0)
 	# The camera stays inside the clearing; a tall tree is seen with a wider lens instead.
-	var want_distance := clampf(clampf(height * 1.9 + 2.2, 2.4, 16.0) * _zoom, 1.5, 17.0)
-	camera.fov = clampf(55.0 + height * 1.0, 55.0, 82.0)
+	# The camera stays in the clearing; a tall tree is seen from lower down with a wider lens,
+	# and the forest trees right behind the camera dissolve (near_fade in the scenery materials).
+	var want_distance := clampf(clampf(height * 1.7 + 2.2, 2.4, 21.0) * _zoom, 1.5, 24.0)
+	camera.fov = clampf(55.0 + height * 0.8, 55.0, 78.0)
 	var k := 1.0 if snap else 1.0 - exp(-2.0 * delta)
 	_focus = _focus.lerp(want_focus, k)
 	_distance = lerpf(_distance, want_distance, k)
 	var orbit := _focus + Vector3(sin(_yaw) * cos(_pitch), sin(_pitch), cos(_yaw) * cos(_pitch)) * _distance
 	orbit.y = maxf(orbit.y, 0.25)
 	# The dive ends low beside the trunk looking into the soil; sunrise starts there and rises.
-	var dive_point := Vector3(sin(_yaw), 0.0, cos(_yaw)) * 0.7 + Vector3(0, 0.3, 0)
+	var dive_point := Vector3(sin(_yaw), 0.0, cos(_yaw)) * 1.0 + Vector3(0, 0.8, 0)
 	camera.position = orbit.lerp(dive_point, dive_amount)
 	var look := _focus.lerp(Vector3(0, -1.0, 0), dive_amount)
 	var d := look - camera.position
