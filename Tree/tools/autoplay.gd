@@ -166,7 +166,8 @@ func _process(delta: float) -> bool:
 				_next("sapling page read")
 		7:
 			# Hold anywhere to boost.
-			if stage_time < 0.1:
+			if stage_time > 0.3 and not has_meta("held"):
+				set_meta("held", true)
 				_click(Vector2(360, 640), true)
 			elif stage_time > 3.0:
 				if not s.sim.clock.boost_active:

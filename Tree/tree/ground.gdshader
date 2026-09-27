@@ -20,7 +20,7 @@ void fragment() {
 	float big = texture(noise, p * 0.012).r;
 	float mid = texture(noise, p * 0.07 + vec2(0.3, 0.7)).r;
 	float fine = texture(noise, p * 0.6).r;
-	vec3 col = mix(lush, dry, smoothstep(0.35, 0.8, big) * 0.7);
+	vec3 col = mix(lush, dry, smoothstep(0.3, 0.85, big) * 0.45);
 	col = mix(col, earth, smoothstep(0.65, 0.9, mid) * 0.3);
 	col *= 0.9 + 0.2 * fine;
 	if (use_texture) {

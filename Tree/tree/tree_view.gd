@@ -444,10 +444,10 @@ func _rebuild() -> void:
 	mm.instance_count = spots.size()
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 5
-	var grow := 1.0 + state.sim.height() * 0.035
+	var grow := 1.0 + state.sim.height() * 0.06
 	for i in range(spots.size()):
 		var id := spots[i]
-		var s := (0.13 + 0.07 * rng.randf()) * grow
+		var s := (0.08 + 0.05 * rng.randf()) * grow
 		var basis := Basis(Vector3.UP, rng.randf() * TAU) * Basis(Vector3.RIGHT, rng.randf_range(-0.4, 0.4))
 		mm.set_instance_transform(i, Transform3D(basis.scaled(Vector3.ONE * s), g.positions[id]))
 		var tint := rng.randf_range(0.85, 1.12)

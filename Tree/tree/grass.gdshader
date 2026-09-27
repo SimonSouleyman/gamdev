@@ -4,8 +4,8 @@ shader_type spatial;
 render_mode cull_disabled;
 
 uniform float wind_strength = 1.0;
-uniform float fade_start = 14.0;
-uniform float fade_end = 30.0;
+uniform float fade_start = 35.0;
+uniform float fade_end = 70.0;
 uniform vec3 root_color : source_color = vec3(0.1, 0.18, 0.05);
 uniform vec3 tip_color : source_color = vec3(0.34, 0.45, 0.17);
 
