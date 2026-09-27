@@ -18,12 +18,15 @@ Design doc: `docs/design-doc.md` (the source of truth for gameplay decisions).
 - `audio/`, `ui/` as named.
 - `tests/` headless tests. Run: `godot --headless --path . -s tests/run_tests.gd` (exit code 0 = pass). After a fresh checkout run `godot --headless --path . --import` once, or class_name lookups fail.
 - `docs/` design doc and research notes.
+- `tools/` dev tools: `autoplay.gd` plays the real scene end to end (seed, first root, sapling, boost, sun drag, second root) and takes screenshots; `grow_shot.gd` grows a tree for N days and photographs it; `month_report.gd` prints 30 days of bot play for tuning; `root_bot.gd` is the autopilot they share.
+- `main.tscn` is the game: it owns `GameState` (shared/) and switches `TreeView` (tree/) and `RootView` (roots/).
 
 ## Workflow
 - One build step (see design doc "Prototype 1") per branch and pull request. Each PR ends playable on PC.
 - Write acceptance criteria into `docs/acceptance.md` before starting a step; add a test for each.
 - Run the tests before every push. A failing test is never skipped or deleted to get green.
 - Visual judgement (does it look natural) is Simon's: post a screenshot in the project thread. After each step, ask the play-test questions from `docs/game-feel-review-2026-09-27.md`.
+- Before handing a step over, run `godot --path . -s tools/autoplay.gd -- --shots=<folder>` and look at the screenshots.
 - Sun steering is three-dimensional (east / south+up / west) and boosting trades life force for growth speed; keep both when touching `DayCycle` or `GrowthSim`.
 
 ## Style

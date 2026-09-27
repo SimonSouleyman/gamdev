@@ -38,30 +38,60 @@ func test_grows_and_spends_nutrients_in_daylight() -> void:
 	t.check(s.height() > 0.3, "got taller (%f m)" % s.height())
 
 
-func test_morning_boost_leans_east() -> void:
-	# Acceptance criterion from the design doc: boosting in the morning grows the tree east.
-	var s := _fed_sim(11)
-	s.clock.time_of_day = 0.02
+## Centroid of the nodes grown while `time_of_day` is held at `t` with the boost on.
+## The sapling first grows 20 s at calm noon, since a seedling grows straight up before it leans.
+## Averaged over three seeds, so one lucky or unlucky tree does not decide the test.
+func _boosted_growth_centroid(t_of_day: float) -> Vector3:
+	var c := Vector3.ZERO
+	var d := Vector3.ZERO
+	for seed in [11, 12, 13]:
+		c += _boosted_growth_centroid_one(t_of_day, seed)
+		d += _last_direction
+	_last_direction = d / 3.0
+	return c / 3.0
+
+
+func _boosted_growth_centroid_one(t_of_day: float, seed: int) -> Vector3:
+	var s := _fed_sim(seed)
+	var noon := s.clock.daylight_fraction * 0.5
+	for _i in range(40):
+		s.clock.time_of_day = noon
+		s.tick(0.5)
+	var first_new := s.graph.size()
 	s.clock.boost_active = true
 	for _i in range(60):
+		s.clock.time_of_day = t_of_day
 		s.tick(0.5)
-		if s.clock.time_of_day > 0.2:
-			s.clock.time_of_day = 0.02  # keep it morning
-	t.check(s.centroid().x > 0.1, "crown leans east (x=%f)" % s.centroid().x)
+	var c := Vector3.ZERO
+	var dir := Vector3.ZERO
+	var n := s.graph.size() - first_new
+	for id in range(first_new, s.graph.size()):
+		c += s.graph.positions[id]
+		dir += s.graph.direction_of(id)
+	_last_direction = dir / maxf(1.0, float(n))
+	return c / maxf(1.0, float(n))
+
+
+## Mean growth direction of the nodes from the last _boosted_growth_centroid call.
+var _last_direction := Vector3.ZERO
+
+
+func test_morning_boost_leans_east() -> void:
+	# Acceptance criterion from the design doc: boosting in the morning grows the tree east.
+	var c := _boosted_growth_centroid(0.03)
+	t.check(c.x > 0.1, "morning growth leans east (x=%f)" % c.x)
 
 
 func test_noon_boost_leans_south_and_up() -> void:
 	# Sun steering in all three dimensions: at noon the sun stands in the south (-Z) and high.
-	var s := _fed_sim(11)
-	var noon := s.clock.daylight_fraction * 0.5
-	s.clock.time_of_day = noon
-	s.clock.boost_active = true
-	for _i in range(60):
-		s.tick(0.5)
-		if absf(s.clock.time_of_day - noon) > 0.05:
-			s.clock.time_of_day = noon
-	t.check(s.centroid().z < -0.1, "crown leans south (z=%f)" % s.centroid().z)
-	t.check(absf(s.centroid().x) < 0.3, "crown neither east nor west (x=%f)" % s.centroid().x)
+	var noon := DayCycle.new().daylight_fraction * 0.5
+	var c := _boosted_growth_centroid(noon)
+	var up_at_noon := _last_direction.y
+	_boosted_growth_centroid(0.03)
+	var up_in_morning := _last_direction.y
+	t.check(c.z < -0.1, "noon growth leans south (z=%f)" % c.z)
+	t.check(absf(c.x) < 0.3, "neither east nor west (x=%f)" % c.x)
+	t.check(up_at_noon > up_in_morning, "a high sun grows up, a low sun sideways (%f vs %f)" % [up_at_noon, up_in_morning])
 
 
 func test_boosted_day_grows_more_but_yields_less_life_force() -> void:
@@ -78,14 +108,8 @@ func test_boosted_day_grows_more_but_yields_less_life_force() -> void:
 
 
 func test_evening_boost_leans_west() -> void:
-	var s := _fed_sim(11)
-	s.clock.time_of_day = 0.45
-	s.clock.boost_active = true
-	for _i in range(60):
-		s.tick(0.5)
-		if s.clock.time_of_day > 0.49 or s.clock.time_of_day < 0.3:
-			s.clock.time_of_day = 0.45
-	t.check(s.centroid().x < -0.1, "crown leans west (x=%f)" % s.centroid().x)
+	var c := _boosted_growth_centroid(0.6)
+	t.check(c.x < -0.1, "evening growth leans west (x=%f)" % c.x)
 
 
 func test_deterministic_from_seed() -> void:

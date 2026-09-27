@@ -1,4 +1,4 @@
-class_name VirtualJoystick
+class_name ThumbStick
 extends Control
 ## A virtual thumb stick. `value`: x = right, y = up, each -1..1.
 ## Works with touch (multi-touch, so the dive button can be held at the same time) and the mouse.

@@ -4,6 +4,7 @@ extends RefCounted
 ## Stores a unix timestamp so offline growth can be applied on load.
 
 const SAVE_PATH := "user://tree_save.json"
+const GAME_PATH := "user://tree_game.json"
 
 
 static func save(sim: GrowthSim, path: String = SAVE_PATH) -> Error:
@@ -36,6 +37,41 @@ static func load(path: String = SAVE_PATH, now_unix: float = -1.0) -> GrowthSim:
 	if away > 0.0:
 		sim.apply_offline(away)
 	return sim
+
+
+## The whole game (tree, roots, underground, diary, loop). Offline growth is applied on load.
+static func save_game(state: GameState, path: String = GAME_PATH) -> Error:
+	var data := {"saved_at_unix": Time.get_unix_time_from_system(), "game": state.to_dict()}
+	var f := FileAccess.open(path, FileAccess.WRITE)
+	if f == null:
+		return FileAccess.get_open_error()
+	f.store_string(JSON.stringify(data, "", false, true))
+	f.close()
+	return OK
+
+
+static func load_game(path: String = GAME_PATH, now_unix: float = -1.0) -> GameState:
+	if not FileAccess.file_exists(path):
+		return null
+	var parsed: Variant = JSON.parse_string(FileAccess.get_file_as_string(path))
+	if parsed == null or not (parsed is Dictionary) or not (parsed as Dictionary).has("game"):
+		return null
+	var data := parsed as Dictionary
+	var state := GameState.from_dict(data["game"])
+	if now_unix < 0.0:
+		now_unix = Time.get_unix_time_from_system()
+	var away := maxf(0.0, now_unix - float(data.get("saved_at_unix", now_unix)))
+	if away > 0.0:
+		state.sim.apply_offline(away)
+	return state
+
+
+static func flatten_sim(sim_dict: Dictionary) -> Dictionary:
+	return _flatten_packed(sim_dict)
+
+
+static func restore_sim(sim_dict: Dictionary) -> Dictionary:
+	return _restore_packed(sim_dict)
 
 
 ## JSON cannot store Vector3 arrays, so they are saved as flat [x, y, z, x, y, z, ...] lists.

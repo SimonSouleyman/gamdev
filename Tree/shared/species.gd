@@ -10,9 +10,10 @@ var max_crown_radius: float = 12.0
 ## Resource demand per unit of growth, indexed by Resources.Kind (water, N, P, K).
 var needs: PackedFloat32Array = PackedFloat32Array([1.0, 0.8, 0.3, 0.4])
 ## Apical dominance 0..1 (Borchert-Honda lambda): high = tall and narrow, low = broad.
-var apical_dominance: float = 0.45
+## Also the share of new markers placed just above the leader (GrowthSim).
+var apical_dominance: float = 0.15
 ## How strongly shoots bend toward the sun.
-var phototropism: float = 0.35
+var phototropism: float = 0.5
 ## How strongly shoots resist gravity (negative = droop).
 var gravitropism: float = 0.15
 
@@ -28,7 +29,7 @@ static func birch() -> Species:
 	s.max_height = 25.0
 	s.max_crown_radius = 6.0
 	s.needs = PackedFloat32Array([0.7, 0.4, 0.2, 0.3])
-	s.apical_dominance = 0.7
+	s.apical_dominance = 0.3
 	s.phototropism = 0.45
 	return s
 

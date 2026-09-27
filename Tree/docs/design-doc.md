@@ -94,7 +94,7 @@ Sound on/off, battery saver (lower frame rate), wallpaper mode, no-UI toggle, no
 ## 12. Prototype 1 (PC): all basics in one loop
 Goal: play the full loop from seed to roots to sapling to tree and back. Grey-box visuals, algorithmic growth. Each step is playable on its own and gets acceptance criteria and headless tests before it starts (docs/acceptance.md in the repo).
 
-Status 2026-09-27: steps 1 to 4 and 9 are built, 82 headless tests pass. Steps 5 to 8, 10 and 11 are open.
+Status 2026-09-27: all eleven steps are built as a grey-box loop on PC; 213 headless tests and an end-to-end autoplay pass. Values are first guesses to tune while playing.
 1. **Project setup:** Godot 4.7, Mobile renderer, GDScript, git. Folders `tree/`, `roots/`, `shared/`, `audio/`, `ui/`, `tests/`, `docs/`.
 2. **Shared plant graph:** nodes with position, parent, radius and age; pipe-model radii. Used by tree and roots.
 3. **Tree growth v0:** space colonization toward markers, tube mesh rebuilt on change.

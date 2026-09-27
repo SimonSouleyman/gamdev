@@ -14,17 +14,28 @@ var resources := Resources.new()
 var clock := DayCycle.new()
 
 ## Nutrient cost of one new segment, scaled by species.needs.
-var cost_per_node: float = 0.05
+var cost_per_node: float = 0.08
 ## Life force produced per tip per second at full light.
-var life_force_per_tip: float = 0.02
+var life_force_per_tip: float = 0.004
 ## Segments the tree may add per second at full light and full nutrients.
-var max_growth_per_second: float = 24.0
+## Low enough that one night's nutrients last a good part of the day.
+var max_growth_per_second: float = 0.8
+## Dawn burst: this share of what the nutrients can buy is released in the first seconds after sunrise.
+var dawn_burst_share: float = 0.3
+var dawn_burst_seconds: float = 10.0
+var dawn_burst_max_nodes: int = 150
+var _burst_nodes_left: int = 0
+var _burst_rate: float = 0.0
+var _burst_accum: float = 0.0
 ## Markers seeded per second on the sun side while the sun is up.
 var markers_per_second: float = 12.0
 ## Fractional growth and markers carried over between ticks (so growth scales with time, not tick count).
 var _growth_accum: float = 0.0
 var _marker_accum: float = 0.0
+var _leader_accum: float = 0.0
 var marker_distance: float = 1.5
+## Only the newest markers stay alive, so the crown follows today's sun, not last week's.
+var live_markers: int = 150
 var marker_radius: float = 0.8
 
 
@@ -62,27 +73,43 @@ func tick(delta: float) -> void:
 		graph.age_all()
 		return
 
-	# Life force from leaves: every tip counts as a leaf cluster.
-	var tip_count := graph.tips().size()
-	resources.life_force += tip_count * life_force_per_tip * clock.life_force_light() * delta
+	# Life force from leaves: every tip counts as a leaf cluster. Inner leaves shade each other,
+	# so a big crown yields less per leaf (a stand-in until the shadow grid exists).
+	resources.life_force += effective_leaves() * life_force_per_tip * clock.life_force_light() * delta
 
 	# Seed markers on the sun's side, above the current crown, capped by the species size.
 	var sun := clock.sun_direction()
 	var top := height()
-	if top < species.max_height:
-		var center := Vector3(0, maxf(top, 0.3), 0) + sun * marker_distance
-		center.y = maxf(center.y, 0.2)
-		_marker_accum += markers_per_second * delta
+	if not nutrients_spent():
+		var center := marker_center(sun, top)
+		var r := crown_radius(top)
+		# Apical dominance: part of the markers sit just above the leader, so the tree keeps
+		# getting taller while the rest fill out the crown on the sun's side.
+		# A high sun feeds the leader (grow up), a low sun the sides (grow sideways).
+		var rate := markers_per_second * maxf(1.0, r) * delta
+		var leader_share := species.apical_dominance * clampf(0.2 + 1.3 * sun.y, 0.0, 1.3)
+		if top >= species.max_height:
+			leader_share = 0.0
+		# Separate accumulators, so small ticks (60 fps) seed the leader as well as big ones.
+		_leader_accum += rate * leader_share
+		_marker_accum += rate * (1.0 - leader_share)
+		var leader := int(_leader_accum)
+		_leader_accum -= leader
 		var to_seed := int(_marker_accum)
 		_marker_accum -= to_seed
-		colonizer.seed_sphere(center, marker_radius, to_seed)
+		var leader_center := Vector3(0, top + 0.45, 0) + Vector3(sun.x, 0.0, sun.z) * 0.4
+		colonizer.seed_sphere(leader_center, 0.45, leader, mini(live_markers, Budgets.TREE_MARKERS))
+		colonizer.seed_sphere(center, r, to_seed, mini(live_markers, Budgets.TREE_MARKERS))
 
 	# Growth budget: light x nutrient factor x species need.
 	var factor := Resources.growth_factor(resources.stock, species.needs)
 	_growth_accum += max_growth_per_second * minf(light, 1.0) * factor * delta
 	var budget := int(_growth_accum)
 	_growth_accum -= budget
+	budget += _dawn_burst_budget(delta, sun, top)
 	colonizer.bias_direction = (Vector3.UP * (1.0 - species.phototropism) + sun * species.phototropism).normalized()
+	# Buds sense space further away in a bigger crown, so side branches can reach its edge.
+	colonizer.influence_radius = clampf(crown_radius(top) * 0.5, 1.2, 4.0)
 	var affordable := _affordable_nodes()
 	var grown := colonizer.step(graph, mini(budget, affordable))
 	if grown > 0:
@@ -91,18 +118,84 @@ func tick(delta: float) -> void:
 	graph.age_all()
 
 
-func _affordable_nodes() -> int:
-	var n := 1_000_000
-	for k in range(4):
-		var per_node := cost_per_node * species.needs[k]
-		if per_node > 0.0:
-			n = mini(n, int(resources.stock[k] / per_node))
+## Where new markers go: a sphere around the upper crown, shifted toward the sun.
+## A low sun shifts it sideways, a high sun lifts it (sun steering in three dimensions).
+## The sphere grows with the tree, so the crown fills out instead of shooting up as a pole.
+func marker_center(sun: Vector3, top: float) -> Vector3:
+	var r := crown_radius(top)
+	var flat := Vector3(sun.x, 0.0, sun.z)
+	var c := Vector3(0, maxf(top, 0.15) * 0.7 + 0.3 + 0.7 * r * maxf(sun.y, 0.0), 0) + flat * r
+	c.y = maxf(c.y, r * 0.5 + 0.1)
+	return c
+
+
+func crown_radius(top: float) -> float:
+	return clampf(0.3 + top * 0.4, marker_radius, species.max_crown_radius)
+
+
+## Starts the dawn burst: part of what last night's nutrients buy is grown in the first
+## seconds of the day. It only changes when the growth happens, not how much: nutrients cap it.
+func start_dawn_burst() -> void:
+	_burst_nodes_left = mini(dawn_burst_max_nodes, int(_affordable_nodes() * dawn_burst_share))
+	_burst_rate = _burst_nodes_left / dawn_burst_seconds
+	_burst_accum = 0.0
+
+
+func dawn_burst_active() -> bool:
+	return _burst_nodes_left > 0
+
+
+func _dawn_burst_budget(delta: float, sun: Vector3, top: float) -> int:
+	if _burst_nodes_left <= 0:
+		return 0
+	_burst_accum += _burst_rate * delta
+	var n := mini(int(_burst_accum), _burst_nodes_left)
+	_burst_accum -= n
+	_burst_nodes_left -= n
+	# The burst needs room to grow into: extra markers on the sun's side.
+	if n > 0 and top < species.max_height:
+		colonizer.seed_sphere(marker_center(sun, top), crown_radius(top), n * 2, mini(live_markers, Budgets.TREE_MARKERS))
 	return n
+
+
+## True when the stock cannot pay for a single new segment: the day may be moved on.
+func nutrients_spent() -> bool:
+	return _affordable_nodes() <= 0
+
+
+## Leaf clusters, for life force and the HUD.
+func tip_count() -> int:
+	var n := 0
+	for id in graph.tips():
+		if not graph.get_flag(id, "dead", false):
+			n += 1
+	return n
+
+
+## Water is needed for all growth and caps it hard; N, P and K follow the soft Liebig rule:
+## a shortage slows growth (growth_factor) but never stops it.
+## Leaf clusters after self-shading: grows like sqrt beyond the first 50.
+func effective_leaves() -> float:
+	var tips := float(graph.tips().size())
+	return tips if tips <= 50.0 else sqrt(50.0 * tips)
+
+
+## A bigger tree needs more material per new segment (it also thickens everything below),
+## so the growth spreads over the whole month instead of filling the budget early.
+func node_cost() -> float:
+	return cost_per_node * (1.0 + graph.size() / 600.0)
+
+
+func _affordable_nodes() -> int:
+	var per_node := node_cost() * species.needs[Resources.Kind.WATER]
+	if per_node <= 0.0:
+		return 1_000_000
+	return int(resources.stock[Resources.Kind.WATER] / per_node + 1e-4)
 
 
 func _pay_for(nodes: int) -> void:
 	for k in range(4):
-		resources.stock[k] = maxf(0.0, resources.stock[k] - nodes * cost_per_node * species.needs[k])
+		resources.stock[k] = maxf(0.0, resources.stock[k] - nodes * node_cost() * species.needs[k])
 
 
 ## Prune: mark a node and its whole subtree dead. The mesh builder hides dead nodes,
@@ -123,12 +216,23 @@ func prune(node_id: int) -> int:
 
 ## Offline catch-up: `real_seconds` closed become a much slower growth.
 ## Design doc first guess: one real day closed = about 20 s of active game time.
+## The in-game clock does not move while the app is closed (it only runs while open), so
+## offline growth runs at a fixed mid-morning light and the clock is restored afterwards.
 func apply_offline(real_seconds: float, active_seconds_per_real_day: float = 20.0) -> void:
 	var active := real_seconds / 86400.0 * active_seconds_per_real_day
+	var saved_time := clock.time_of_day
+	var saved_day := clock.day_count
+	var saved_boost := clock.boost_active
+	clock.boost_active = false
 	var step := 0.5
 	while active > 0.0:
+		clock.time_of_day = clock.daylight_fraction * 0.3
+		clock.day_count = saved_day
 		tick(minf(step, active))
 		active -= step
+	clock.time_of_day = saved_time
+	clock.day_count = saved_day
+	clock.boost_active = saved_boost
 
 
 func to_dict() -> Dictionary:

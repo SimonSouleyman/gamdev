@@ -20,6 +20,8 @@ var res: Resources
 var mode: Mode = Mode.IDLE
 ## When false the view ignores player input (a journal page is open, or a transition runs).
 var input_enabled: bool = true
+## Asked before a run starts (GameState allows one run per night).
+var can_start: Callable = func() -> bool: return true
 ## Test hook: when set, used instead of the joystick and keyboard.
 var scripted_stick: Variant = null
 var scripted_dive: bool = false
@@ -32,6 +34,8 @@ var _tip: MeshInstance3D
 var _tip_light: OmniLight3D
 var _hover: MeshInstance3D
 var _find_nodes: Array = []
+## Rocks and finds of the current underground (rebuilt on setup).
+var _content: Node3D
 var _builder := TreeMeshBuilder.new()
 var _rebuild_timer: float = 0.0
 var _orbit_yaw: float = 0.6
@@ -44,7 +48,7 @@ var _dragged: bool = false
 
 # HUD
 var hud: CanvasLayer
-var joystick: VirtualJoystick
+var joystick: ThumbStick
 var dive_button: Button
 var _life_label: Label
 var _hint: Label
@@ -73,6 +77,12 @@ func setup(p_ground: Underground, p_roots: RootSystem, p_res: Resources) -> void
 	ground = p_ground
 	roots = p_roots
 	res = p_res
+	mode = Mode.IDLE
+	if _content != null:
+		_content.queue_free()
+	_content = Node3D.new()
+	add_child(_content)
+	_find_nodes.clear()
 	_fill_dots()
 	_build_rocks()
 	_build_finds()
@@ -196,7 +206,7 @@ func _build_rocks() -> void:
 		m.position = ground.rock_centers[i]
 		# A little irregularity so rocks do not read as perfect balls.
 		m.scale = Vector3(1.0 + 0.15 * sin(i * 1.3), 0.85 + 0.1 * cos(i * 2.1), 1.0 + 0.12 * cos(i * 0.7))
-		add_child(m)
+		_content.add_child(m)
 
 
 func _build_finds() -> void:
@@ -204,7 +214,7 @@ func _build_finds() -> void:
 		var m := _glow_sphere(0.12, Color(1.0, 0.85, 0.45), 5.0)
 		m.position = f["position"]
 		m.visible = not f["found"]
-		add_child(m)
+		_content.add_child(m)
 		_find_nodes.append(m)
 
 
@@ -231,7 +241,7 @@ func _build_hud() -> void:
 	_life_bar_bg.size = Vector2(640, 18)
 	_life_bar_bg.set_anchors_preset(Control.PRESET_TOP_WIDE)
 	_life_bar_bg.offset_left = 40
-	_life_bar_bg.offset_right = -40
+	_life_bar_bg.offset_right = -180
 	_life_bar_bg.offset_top = 40
 	_life_bar_bg.offset_bottom = 58
 	_life_bar_bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -254,7 +264,7 @@ func _build_hud() -> void:
 	_hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	root.add_child(_hint)
 
-	joystick = VirtualJoystick.new()
+	joystick = ThumbStick.new()
 	joystick.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
 	joystick.position = Vector2(50, -320)
 	joystick.offset_left = 50
@@ -327,16 +337,26 @@ func begin_pick() -> void:
 
 ## Starts the run from a root node (the tutorial starts from the seed, node 0).
 func start_at(node_id: int) -> bool:
-	if not roots.start_run(node_id):
+	if not can_start.call() or not roots.start_run(node_id):
 		return false
+	_enter_run()
+	run_started.emit(node_id)
+	return true
+
+
+## After loading a save in the middle of a run.
+func resume_run() -> void:
+	_enter_run()
+	camera.position = roots.tip_position - roots.heading * 2.4 + Vector3.UP * 0.8
+
+
+func _enter_run() -> void:
 	mode = Mode.RUN
 	_life_at_start = maxf(res.life_force, 0.001)
 	_hover.visible = false
 	_tip.visible = true
 	_show_run_controls(true)
 	_rebuild_all()
-	run_started.emit(node_id)
-	return true
 
 
 ## A night without life force, or after the run: the camera just looks around.
