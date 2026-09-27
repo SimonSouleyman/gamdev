@@ -42,7 +42,7 @@ var _time: float = 0.0
 ## PI: the camera stands north of the tree and looks south, toward the sun's arc,
 ## so sunrise (east) is on the left as on the sun arc chart.
 var _yaw: float = PI
-var _pitch: float = 0.3
+var _pitch: float = 0.15
 var _zoom: float = 1.0
 var _focus: Vector3 = Vector3(0, 0.6, 0)
 var _distance: float = 4.0
@@ -74,7 +74,7 @@ var sun_arc: SunArc
 
 
 func _ready() -> void:
-	_builder.radius_scale = 2.5
+	_builder.radius_scale = 3.2
 	_build_world()
 	_build_hud()
 	if get_parent() == get_tree().root:
@@ -128,9 +128,9 @@ func _build_world() -> void:
 	_env.fog_density = 0.007
 	_env.fog_light_color = Color(0.45, 0.55, 0.5)
 	_env.fog_aerial_perspective = 0.85
-	_env.fog_sky_affect = 0.25
+	_env.fog_sky_affect = 0.05
 	_env.adjustment_enabled = true
-	_env.adjustment_saturation = 0.92
+	_env.adjustment_saturation = 1.0
 	_env.adjustment_contrast = 1.05
 	camera.environment = _env
 	add_child(camera)
@@ -294,7 +294,13 @@ func _plant_grass(seed: int) -> void:
 			var basis := Basis(Vector3.UP, rng.randf() * TAU).scaled(Vector3(w, h, w))
 			mm.set_instance_transform(i, Transform3D(basis, Vector3(cos(a) * d, -0.02, sin(a) * d)))
 			var v := rng.randf_range(0.82, 1.12)
-			mm.set_instance_color(i, Color(v * rng.randf_range(0.92, 1.06), v, v * rng.randf_range(0.85, 1.0)))
+			var pos := Vector2(cos(a) * d, sin(a) * d)
+			# Soft patches: dry yellowish, lush and dark green, shade under the forest edge.
+			var dry := clampf(0.5 + 0.5 * sin(pos.x * 0.23 + 1.3) * cos(pos.y * 0.19 - 0.4), 0.0, 1.0)
+			var col := Color(v, v, v).lerp(Color(1.15 * v, 1.05 * v, 0.6 * v), dry * 0.55)
+			if d > 16.0:
+				col = col.darkened(clampf((d - 16.0) / 5.0, 0.0, 0.55))
+			mm.set_instance_color(i, col)
 
 
 ## A soft four-pointed sparkle, drawn once into a small texture.
@@ -461,13 +467,13 @@ func _rebuild() -> void:
 	# Leaf clusters on every living twig (thin wood), so the crown fills out, not just the tips.
 	var spots := PackedInt32Array()
 	for id in range(2, g.size()):
-		if g.radii[id] < 0.03 and not g.get_flag(id, "dead", false):
+		if g.radii[id] < 0.04 and not g.get_flag(id, "dead", false):
 			spots.append(id)
 	var mm := _leaves.multimesh
 	mm.instance_count = spots.size()
 	var rng := RandomNumberGenerator.new()
 	rng.seed = hash([state.seed, "leaf clusters"])
-	var grow := 1.0 + state.sim.height() * 0.06
+	var grow := 1.0 + state.sim.height() * 0.1
 	for i in range(spots.size()):
 		var id := spots[i]
 		var s := (0.08 + 0.05 * rng.randf()) * grow
@@ -521,17 +527,20 @@ func _update_sun() -> void:
 	_sun_light.light_energy = maxf(0.9, 0.45 + 1.4 * minf(clock.light_level(), 1.6)) if h > 0.0 else 0.55
 	_sun_light.shadow_enabled = h > 0.03
 	_sun_light.shadow_blur = 2.5
+	_sun_light.shadow_opacity = 0.8
 	_sun_light.light_color = Color(1.0, 0.68, 0.42).lerp(Color(1.0, 0.96, 0.9), clampf(h * 2.5, 0.0, 1.0))
 	var k := clampf(h * 3.0, 0.0, 1.0)
 	_scenery.update(get_process_delta_time(), h > 0.0, h, _sun_light.light_color, state.sim.height(), camera.global_position)
 	# The sky glows brighter near the horizon hours, and the haze takes the sun's colour.
-	_sky_mat.energy_multiplier = 1.0 + 0.8 * (1.0 - k) + (0.35 if clock.boost_active else 0.0)
-	_env.fog_light_color = Color(0.45, 0.55, 0.5).lerp(_sun_light.light_color * 0.8, 0.5 * (1.0 - k))
+	# A low sun: a bright golden sky and haze, the ground in raking light (the reference photos).
+	_sky_mat.energy_multiplier = 1.0 + 2.2 * (1.0 - k) + (0.35 if clock.boost_active else 0.0)
+	_env.fog_light_color = Color(0.45, 0.55, 0.5).lerp(_sun_light.light_color * 0.9, 0.8 * (1.0 - k))
+	_env.fog_sun_scatter = 0.35 * (1.0 - k)
 	# The eye adapts: a low sun and the dusk are exposed brighter, so the tree stays readable.
-	_env.tonemap_exposure = 1.1 + 1.1 * (1.0 - k)
+	_env.tonemap_exposure = 1.1 + 0.6 * (1.0 - k)
 	# Never too dark by day: the dawn burst must be seen.
 	# Brighter dusk (Simon: the start at sunset was too dark).
-	_env.ambient_light_energy = (1.6 - 0.2 * k) if state.phase == GameState.Phase.DAY else 1.5
+	_env.ambient_light_energy = (0.9 + 0.6 * k) if state.phase == GameState.Phase.DAY else 1.1
 
 
 # --- camera -----------------------------------------------------------------

@@ -26,6 +26,8 @@ void fragment() {
 	if (use_texture) {
 		col *= texture(ground_albedo, p * 0.5).rgb * 1.6;
 	}
+	// Shade under the forest edge: the ground darkens toward the trees.
+	col *= mix(1.0, 0.4, smoothstep(16.0, 21.0, length(p)));
 	ALBEDO = col;
 	ROUGHNESS = 0.95;
 	SPECULAR = 0.2;

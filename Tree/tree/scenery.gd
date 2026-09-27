@@ -58,14 +58,14 @@ func build(seed: int, bark: Material, leaf: Material, noise: Texture2D) -> void:
 ## species, different heights and greens). Broadleaves are grown by the real growth model with
 ## their own shape; the spruce is built directly. Each kind has its own bark and leaf colour.
 const KINDS: Array[Dictionary] = [
-	{"name": "oak", "apical": 0.03, "crown": 12.0, "photo": 0.3, "nodes": 380, "bark": Color(0.42, 0.37, 0.32), "leaf": Color(0.5, 0.62, 0.36), "card": 0.46, "scale": Vector2(1.5, 2.2)},
-	{"name": "beech", "apical": 0.07, "crown": 9.0, "photo": 0.4, "nodes": 340, "bark": Color(0.75, 0.74, 0.7), "leaf": Color(0.66, 0.8, 0.42), "card": 0.42, "scale": Vector2(1.6, 2.3)},
-	{"name": "birch", "apical": 0.22, "crown": 4.5, "photo": 0.45, "nodes": 280, "bark": Color(1.45, 1.42, 1.35), "leaf": Color(0.8, 0.92, 0.5), "card": 0.32, "scale": Vector2(1.6, 2.2)},
-	{"name": "linden", "apical": 0.1, "crown": 12.0, "photo": 0.5, "nodes": 330, "bark": Color(0.55, 0.47, 0.38), "leaf": Color(0.58, 0.72, 0.4), "card": 0.42, "scale": Vector2(1.4, 2.0)},
-	{"name": "spruce", "spruce": true, "bark": Color(0.4, 0.33, 0.28), "leaf": Color(0.36, 0.5, 0.36), "card": 0.55, "scale": Vector2(1.0, 1.6)},
+	{"name": "oak", "apical": 0.03, "crown": 12.0, "photo": 0.3, "nodes": 380, "bark": Color(0.42, 0.37, 0.32), "leaf": Color(0.5, 0.62, 0.36), "card": 0.26, "scale": Vector2(2.6, 3.4)},
+	{"name": "beech", "apical": 0.07, "crown": 9.0, "photo": 0.4, "nodes": 340, "bark": Color(0.75, 0.74, 0.7), "leaf": Color(0.66, 0.8, 0.42), "card": 0.24, "scale": Vector2(2.7, 3.6)},
+	{"name": "birch", "apical": 0.22, "crown": 4.5, "photo": 0.45, "nodes": 280, "bark": Color(1.45, 1.42, 1.35), "leaf": Color(0.8, 0.92, 0.5), "card": 0.2, "scale": Vector2(2.6, 3.4)},
+	{"name": "linden", "apical": 0.1, "crown": 12.0, "photo": 0.5, "nodes": 330, "bark": Color(0.55, 0.47, 0.38), "leaf": Color(0.58, 0.72, 0.4), "card": 0.24, "scale": Vector2(2.5, 3.3)},
+	{"name": "spruce", "spruce": true, "bark": Color(0.4, 0.33, 0.28), "leaf": Color(0.36, 0.5, 0.36), "card": 0.45, "scale": Vector2(1.5, 2.1)},
 ]
 ## Bump when the forest generator changes, so cached meshes are regrown.
-const FOREST_CACHE_VERSION := 7
+const FOREST_CACHE_VERSION := 8
 
 
 func _grow_variant(seed: int, variant: int, bark: Material, leaf: Material) -> ArrayMesh:
@@ -140,7 +140,8 @@ func _build_broadleaf(seed: int, variant: int, local: RandomNumberGenerator, kin
 	var spots: Array[Transform3D] = []
 	var g := sim.graph
 	for id in range(2, g.size()):
-		if g.radii[id] >= 0.05:
+		# Bare lower trunks: leaves only in the upper crown, so the wood has depth and trunks.
+		if g.radii[id] >= 0.05 or g.positions[id].y < 0.35 * sim.height():
 			continue
 		var s: float = kind["card"] * local.randf_range(0.85, 1.2)
 		spots.append(Transform3D(Basis(Vector3.UP, local.randf() * TAU).scaled(Vector3.ONE * s), g.positions[id]))
@@ -188,7 +189,7 @@ func _tinted(arrays: Array, tint: Color) -> Array:
 
 
 func _add_leaf_surface(mesh: ArrayMesh, spots: Array[Transform3D], tint: Color, local: RandomNumberGenerator) -> void:
-	var cluster := Foliage.cluster_mesh(5, 1.0, Assets.has_leaf_atlas()).surface_get_arrays(0)
+	var cluster := Foliage.cluster_mesh(8, 1.0, Assets.has_leaf_atlas()).surface_get_arrays(0)
 	var cv: PackedVector3Array = cluster[Mesh.ARRAY_VERTEX]
 	var cn: PackedVector3Array = cluster[Mesh.ARRAY_NORMAL]
 	var cu: PackedVector2Array = cluster[Mesh.ARRAY_TEX_UV]
@@ -272,7 +273,8 @@ func _weighted(weights: Array) -> int:
 
 const BACKDROP_SHADER := """
 shader_type spatial;
-render_mode cull_front, depth_draw_opaque, fog_disabled;
+render_mode cull_front, depth_draw_opaque, unshaded;
+uniform vec3 tint = vec3(1.0);
 uniform sampler2D noise : filter_linear_mipmap, repeat_enable;
 void fragment() {
 	vec2 uv = vec2(UV.x * 6.0, UV.y);
@@ -283,7 +285,7 @@ void fragment() {
 	ALPHA = smoothstep(line, line + 0.06, UV.y);
 	float trunk = smoothstep(0.55, 0.6, texture(noise, vec2(uv.x * 14.0, 0.7)).r) * smoothstep(0.55, 0.8, UV.y);
 	vec3 leaves = mix(vec3(0.07, 0.11, 0.06), vec3(0.16, 0.24, 0.11), crowns);
-	ALBEDO = mix(leaves, vec3(0.1, 0.08, 0.06), trunk * 0.6) * mix(1.0, 0.55, UV.y);
+	ALBEDO = mix(leaves, vec3(0.1, 0.08, 0.06), trunk * 0.6) * mix(1.0, 0.55, UV.y) * tint;
 	ROUGHNESS = 1.0;
 }
 """
@@ -400,8 +402,9 @@ func _build_clouds(noise: Texture2D) -> void:
 
 func _build_flowers() -> void:
 	var head := CylinderMesh.new()
-	head.top_radius = 0.018
-	head.bottom_radius = 0.011
+	head.top_radius = 0.011
+	head.bottom_radius = 0.007
+	head.radial_segments = 8
 	head.height = 0.012
 	head.radial_segments = 6
 	head.rings = 1
@@ -420,7 +423,7 @@ func _build_flowers() -> void:
 		var center := Vector3(cos(a) * r, 0, sin(a) * r)
 		var col := palette[_rng.randi() % palette.size()]
 		for _f in range(FLOWERS / 60):
-			var p := center + Vector3(_rng.randf_range(-1.2, 1.2), _rng.randf_range(0.1, 0.28), _rng.randf_range(-1.2, 1.2))
+			var p := center + Vector3(_rng.randf_range(-1.2, 1.2), _rng.randf_range(0.04, 0.14), _rng.randf_range(-1.2, 1.2))
 			spots.append(Transform3D(Basis(Vector3.RIGHT, _rng.randf_range(-0.3, 0.3)).scaled(Vector3.ONE * _rng.randf_range(0.7, 1.3)), p))
 			colors.append(col * _rng.randf_range(0.9, 1.05))
 	mm.instance_count = spots.size()
@@ -561,6 +564,7 @@ func update(delta: float, day: bool, h: float, sun_color: Color, tree_height: fl
 		var top := maxf(18.0, camera_pos.y + 14.0)
 		_wall.scale.y = top / 22.0
 		_wall.position.y = top * 0.5 - 2.0
+		(_wall.material_override as ShaderMaterial).set_shader_parameter("tint", Color(0.55, 0.6, 0.55).lerp(sun_color, 0.3) * (0.5 + 0.5 * clampf(h * 3.0, 0.0, 1.0)))
 	# Clouds: drift with the wind, white by day, warm and dim at the low sun.
 	var cloud_col := Color(1.0, 0.72, 0.55).lerp(Color(1, 1, 1), clampf(h * 3.0, 0.0, 1.0))
 	var bright := 0.35 + 0.75 * clampf(h * 2.5, 0.0, 1.0) if day else 0.3

@@ -30,5 +30,5 @@ void fragment() {
 	ALPHA_ANTIALIASING_EDGE = 0.3;
 	ROUGHNESS = 0.85;
 	SPECULAR = 0.2;
-	BACKLIGHT = tex.rgb * 0.45 * (1.0 - UV.y);
+	BACKLIGHT = tex.rgb * 0.15 * (1.0 - UV.y);
 }
