@@ -120,7 +120,7 @@ Later milestones, in rough order: realistic assets (bark, leaf atlases, grass, s
 ## 14. Not in Prototype 1
 Realistic assets, the full light model, seasons, live wallpaper, extra species, mobile export, sound beyond placeholders, visitor and find art, the 3D grove.
 
-## 15. Tree species (decided 2026-09-27; quirks awaiting Simon's final OK)
+## 15. Tree species (decided 2026-09-27)
 Six broadleaf trees from the most common species in German forests and towns (Bundeswaldinventur 2022: beech and oak lead the broadleaves, then birch, ash, maple, alder, hornbeam; linden is the classic village and avenue tree). No conifers for now. Ash is left out on purpose: ash dieback is killing it across Germany, which is a sad fit for a calm game.
 
 **Rule for gameplay differences:** the loop stays identical for every species (day with sun and boost, night with one root run, about a month per tree). A species differs in three small ways only:
@@ -152,7 +152,7 @@ Values are first guesses to tune while playing, like everything in section 13. L
 2. Unlock order as in the table: easy first, oak as the grand finale.
 3. Each species differs by needs, shape and one quirk.
 4. About a month per tree; birch a little shorter (about 25 days), oak a little longer (about 35 days).
-The quirks as listed were explained in the thread; Simon's OK or changes are pending.
+5. All six quirks kept as listed in the table.
 
 ## Decision log
 - 2026-09-27 play test 2 and QA rounds (Simon): the meadow is dense soft grass with herbs and wildflowers (no single blades); the clearing is closed in by a dense wall of mixed trees (oak, beech, birch, linden, spruce) and undergrowth; reference photos in docs/references/clearing. Moving the sun on rests the tree (life force still gathers) so the nutrients wait for the hour the player picks; a missing N, P or K slows growth to about a third instead of stopping it (soft Liebig floor 0.35); the simulation runs in fixed steps.
@@ -165,3 +165,4 @@ The quirks as listed were explained in the thread; Simon's OK or changes are pen
 - 2026-09-27 feel review: all eight additions accepted, shorter day, orbit as part of the day, sun steering in three dimensions, boost as a trade.
 - 2026-09-27 species roster (Simon asked for at least six common German broadleaf trees, each with its own look, needs, growth and a small gameplay difference): proposal in section 15, six species (linden, birch, beech, maple, alder, oak), conifers dropped for now, each species differs by needs, shape and one quirk on an existing mechanic. Awaiting Simon's survey answers.
 - 2026-09-27 species survey (Simon): the six above in the proposed order, needs + shape + one quirk each, about a month per tree with birch shorter and oak longer.
+- 2026-09-27 species quirks (Simon): all six kept as proposed. The roster is final.
