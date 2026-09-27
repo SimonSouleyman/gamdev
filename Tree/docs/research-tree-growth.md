@@ -57,7 +57,7 @@ Use Palubicki's **self-organizing tree model**, driven by **space-colonization m
 - Cap the tree at roughly 1,000 to 3,000 internodes. Turn the finest twigs into leaf clusters, and shed branches that get too little light.
 - Split the mesh into chunks and rebuild only the ones that changed. Do the rebuilds on WorkerThreadPool, then swap them in on the main thread.
 - Use 4 to 6 sided tubes and lower the side count for thin branches. Draw leaves with MultiMeshInstance3D.
-- Use the voxel shadow grid for light, not raycasts. Move the hot loops to C# or GDExtension if GDScript turns out too slow.
+- Use the voxel shadow grid for light, not raycasts. Move the hot loops to GDExtension (C++) if GDScript turns out too slow (no C#, see CLAUDE.md).
 
 ## Roots references
 - CRootBox, a root-architecture framework (S): https://plant-root-soil-interactions-modelling.github.io/CRootBox/

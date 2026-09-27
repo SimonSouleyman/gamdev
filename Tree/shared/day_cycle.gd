@@ -10,7 +10,7 @@ var time_of_day: float = 0.0
 ## Whole days completed since this tree was planted.
 var day_count: int = 0
 ## Fraction of the day that is daylight.
-var daylight_fraction: float = 0.5
+var daylight_fraction: float = 0.625  # 5 min day, 3 min night (survey 2, to tune)
 ## Sun boost: brighter sun, faster growth, while active.
 var boost_active: bool = false
 var boost_multiplier: float = 3.0

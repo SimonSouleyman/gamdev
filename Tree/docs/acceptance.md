@@ -14,7 +14,7 @@ Each criterion has a test in `tests/` unless marked (visual), which Simon judges
 - (visual) The grey-box tree branches and does not look like a straight pole.
 
 ## Step 4: sun — done
-- A full in-game day is at most 10 real minutes.
+- A full in-game day is at most 10 real minutes; the start values are five minutes of daylight and three of night (survey 2, to tune).
 - The sun rises in the east and sets in the west; no growth at night.
 - Boost in the morning leans the crown east; boost in the evening leans it west.
 - Growth spends nutrients and produces life force; an empty stock gives no growth.
