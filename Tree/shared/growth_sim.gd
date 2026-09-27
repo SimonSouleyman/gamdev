@@ -126,8 +126,8 @@ func _seed_markers(sun: Vector3, top: float, amount: float, steer: float) -> voi
 	var r := crown_radius(top)
 	# A high sun feeds the leader (grow up), a low sun the sides (grow sideways).
 	var leader_share := species.apical_dominance * clampf(0.2 + 1.3 * sun.y, 0.0, 1.3)
-	if top >= species.max_height:
-		leader_share = 0.0
+	# The leader slows as the tree nears its species height: a linden broadens into a dome.
+	leader_share *= pow(clampf(1.0 - top / species.max_height, 0.0, 1.0), 2.0)
 	# Separate accumulators, so small ticks (60 fps) seed the leader as well as big ones.
 	_leader_accum += amount * leader_share
 	_marker_accum += amount * (1.0 - leader_share)
@@ -145,13 +145,13 @@ func _seed_markers(sun: Vector3, top: float, amount: float, steer: float) -> voi
 func marker_center(sun: Vector3, top: float, steer: float = 1.0) -> Vector3:
 	var r := crown_radius(top)
 	var flat := Vector3(sun.x, 0.0, sun.z) * steer
-	var c := Vector3(0, maxf(top, 0.15) * 0.7 + 0.3 + 0.7 * r * maxf(sun.y, 0.0) * steer, 0) + flat * r
+	var c := Vector3(0, maxf(top, 0.15) * 0.6 + 0.3 + 0.7 * r * maxf(sun.y, 0.0) * steer, 0) + flat * r
 	c.y = maxf(c.y, r * 0.5 + 0.1)
 	return c
 
 
 func crown_radius(top: float) -> float:
-	return clampf(0.3 + top * 0.5, 0.4, species.max_crown_radius)
+	return clampf(0.3 + top * 0.6, 0.4, species.max_crown_radius)
 
 
 ## Starts the dawn burst: part of what last night's nutrients buy is grown in the first

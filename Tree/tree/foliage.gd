@@ -143,8 +143,8 @@ static func grass_transforms(count: int, radius: float, seed: int) -> Array[Tran
 		if d < 0.35:
 			continue
 		var a := rng.randf() * TAU
-		var h := rng.randf_range(0.09, 0.26)
-		var w := rng.randf_range(0.018, 0.034)
+		var h := rng.randf_range(0.09, 0.24)
+		var w := rng.randf_range(0.012, 0.022)
 		var basis := Basis(Vector3.UP, rng.randf() * TAU) * Basis(Vector3.RIGHT, rng.randf_range(-0.2, 0.2))
 		basis = basis.scaled(Vector3(w, h, w))
 		out.append(Transform3D(basis, Vector3(cos(a) * d, 0.0, sin(a) * d)))

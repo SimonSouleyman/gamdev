@@ -110,6 +110,9 @@ static func paper_box(w: int, h: int, seed: int, torn: String = "", margin: floa
 	sb.texture_margin_right = 20
 	sb.texture_margin_top = 20
 	sb.texture_margin_bottom = 20
+	# Tile the middle instead of stretching it, so a big page keeps the paper's grain.
+	sb.axis_stretch_horizontal = StyleBoxTexture.AXIS_STRETCH_MODE_TILE_FIT
+	sb.axis_stretch_vertical = StyleBoxTexture.AXIS_STRETCH_MODE_TILE_FIT
 	sb.content_margin_left = margin
 	sb.content_margin_right = margin
 	sb.content_margin_top = margin * 0.8 + (8.0 if torn in ["top", "all"] else 0.0)

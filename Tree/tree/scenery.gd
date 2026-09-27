@@ -167,13 +167,15 @@ func _build_distant_trees(seed: int, bark: Material, leaf: Material) -> void:
 
 const BACKDROP_SHADER := """
 shader_type spatial;
-render_mode cull_front, depth_draw_opaque;
+render_mode cull_front, depth_draw_opaque, fog_disabled;
 uniform sampler2D noise : filter_linear_mipmap, repeat_enable;
 void fragment() {
 	vec2 uv = vec2(UV.x * 6.0, UV.y);
 	float crowns = texture(noise, uv * vec2(3.0, 1.5)).r;
-	float line = 0.18 + 0.22 * texture(noise, vec2(uv.x * 2.0, 0.3)).r;
-	if (UV.y < line + crowns * 0.08) { discard; }
+	// A soft, rounded crown line: overlapping bumps, fading out at the top instead of a hard cut.
+	float bumps = 0.5 + 0.5 * sin(UV.x * 380.0 + crowns * 6.0) * 0.5 + 0.25 * sin(UV.x * 157.0);
+	float line = 0.12 + 0.16 * texture(noise, vec2(uv.x * 2.0, 0.3)).r + 0.05 * bumps;
+	ALPHA = smoothstep(line, line + 0.06, UV.y);
 	float trunk = smoothstep(0.55, 0.6, texture(noise, vec2(uv.x * 14.0, 0.7)).r) * smoothstep(0.55, 0.8, UV.y);
 	vec3 leaves = mix(vec3(0.07, 0.11, 0.06), vec3(0.16, 0.24, 0.11), crowns);
 	ALBEDO = mix(leaves, vec3(0.1, 0.08, 0.06), trunk * 0.6) * mix(1.0, 0.55, UV.y);
@@ -181,15 +183,17 @@ void fragment() {
 }
 """
 var _noise: Texture2D
+var _wall: MeshInstance3D
 
 
 ## The deep wood behind the trees: a dark ring, so no gap between trunks looks out onto open land.
 func _build_backdrop() -> void:
 	var wall := MeshInstance3D.new()
+	_wall = wall
 	var cyl := CylinderMesh.new()
 	cyl.top_radius = 52.0
 	cyl.bottom_radius = 52.0
-	cyl.height = 24.0
+	cyl.height = 22.0
 	cyl.radial_segments = 64
 	cyl.cap_top = false
 	cyl.cap_bottom = false
@@ -371,7 +375,7 @@ func _critters(count: int, span: float, flap: float) -> MultiMeshInstance3D:
 
 
 func _build_butterflies() -> void:
-	_butterflies = _critters(BUTTERFLIES, 0.11, 16.0)
+	_butterflies = _critters(BUTTERFLIES, 0.16, 16.0)
 	var colors: Array[Color] = [Color(1.0, 0.95, 0.5), Color(0.95, 0.95, 0.92), Color(0.95, 0.5, 0.2), Color(0.45, 0.6, 1.0)]
 	_butterfly_params.clear()
 	for i in range(BUTTERFLIES):
@@ -445,8 +449,13 @@ func _motes(color: Color, amount: int, extents: Vector3, center: Vector3, size: 
 # --- every frame ------------------------------------------------------------------
 
 ## `day`: the sun is up. `h`: sun height 0..1. `tree_height`: the hero tree, for butterflies and pollen.
-func update(delta: float, day: bool, h: float, sun_color: Color, tree_height: float) -> void:
+func update(delta: float, day: bool, h: float, sun_color: Color, tree_height: float, camera_pos: Vector3 = Vector3.ZERO) -> void:
 	_time += delta
+	# The deep wood always rises above the camera's eye line, so no view looks out over it.
+	if _wall:
+		var top := maxf(18.0, camera_pos.y + 14.0)
+		_wall.scale.y = top / 22.0
+		_wall.position.y = top * 0.5 - 2.0
 	# Clouds: drift with the wind, white by day, warm and dim at the low sun.
 	var cloud_col := Color(1.0, 0.72, 0.55).lerp(Color(1, 1, 1), clampf(h * 3.0, 0.0, 1.0))
 	var bright := 0.35 + 0.75 * clampf(h * 2.5, 0.0, 1.0) if day else 0.3

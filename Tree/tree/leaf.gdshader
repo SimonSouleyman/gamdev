@@ -38,7 +38,8 @@ void fragment() {
 		NORMAL_MAP = texture(leaf_normal, UV).rgb;
 		NORMAL_MAP_DEPTH = 0.6;
 	}
-	ALPHA_SCISSOR_THRESHOLD = 0.5;
+	ALPHA_SCISSOR_THRESHOLD = 0.45;
+	ALPHA_ANTIALIASING_EDGE = 0.3;
 	ROUGHNESS = 0.8;
 	SPECULAR = 0.12;
 	BACKLIGHT = translucency * COLOR.rgb;

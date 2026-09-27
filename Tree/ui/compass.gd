@@ -20,7 +20,7 @@ func _draw() -> void:
 	if camera == null or not camera.is_inside_tree():
 		return
 	var c := size * 0.5
-	var r := minf(size.x, size.y) * 0.36
+	var r := minf(size.x, size.y) * 0.3
 	# An ink compass on a round scrap of paper.
 	draw_circle(c, r + 16.0, Color(0.2, 0.15, 0.1, 0.25))
 	draw_circle(c, r + 14.0, Paper.PAPER)

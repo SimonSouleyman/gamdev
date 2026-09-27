@@ -182,8 +182,11 @@ func _on_page_closed(id: String) -> void:
 		root_view.start_at(0)
 
 
+## The open book covers the screen: the HUD scraps would only peek over its edge.
 func _on_journal_opened(_open: bool) -> void:
-	pass
+	var book := journal.is_book_open()
+	tree_view.hud.visible = not book and not _underground and not journal.settings["no_ui"]
+	root_view.hud.visible = not book and _underground
 
 
 # --- switching --------------------------------------------------------------

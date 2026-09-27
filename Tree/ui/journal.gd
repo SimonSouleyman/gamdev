@@ -46,6 +46,10 @@ func _ready() -> void:
 	_build_book()
 
 
+func is_book_open() -> bool:
+	return _book.visible
+
+
 func is_open() -> bool:
 	return _page.visible or _book.visible
 
@@ -209,7 +213,7 @@ func _build_book() -> void:
 	_book.mouse_filter = Control.MOUSE_FILTER_STOP
 	add_child(_book)
 	var dim := ColorRect.new()
-	dim.color = Color(0.05, 0.04, 0.02, 0.55)
+	dim.color = Color(0.05, 0.04, 0.02, 0.78)
 	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
 	_book.add_child(dim)
 
@@ -217,10 +221,10 @@ func _build_book() -> void:
 	var cover := Panel.new()
 	cover.add_theme_stylebox_override("panel", Paper.cover_box())
 	cover.set_anchors_preset(Control.PRESET_FULL_RECT)
-	cover.offset_left = 22
-	cover.offset_right = -52
-	cover.offset_top = 44
-	cover.offset_bottom = -40
+	cover.offset_left = 8
+	cover.offset_right = -40
+	cover.offset_top = 22
+	cover.offset_bottom = -18
 	_book.add_child(cover)
 	# The stack of pages under the open page (edges showing at the right and bottom).
 	for i in range(3):

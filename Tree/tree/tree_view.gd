@@ -493,18 +493,21 @@ func _update_sun() -> void:
 	var light_dir := dir if h > 0.0 else Vector3(-1, 0.012, 0.1).normalized()
 	_sun_light.visible = true
 	_sun_light.look_at_from_position(light_dir * 20.0, Vector3.ZERO, Vector3.UP if absf(light_dir.y) < 0.99 else Vector3.FORWARD)
-	_sun_light.light_energy = (0.45 + 1.4 * minf(clock.light_level(), 1.6)) if h > 0.0 else 0.4
+	# A low sun still lights the clearing warmly (dawn burst, evening): at least 0.9.
+	_sun_light.light_energy = maxf(0.9, 0.45 + 1.4 * minf(clock.light_level(), 1.6)) if h > 0.0 else 0.55
 	_sun_light.shadow_enabled = h > 0.03
 	_sun_light.shadow_blur = 2.5
 	_sun_light.light_color = Color(1.0, 0.68, 0.42).lerp(Color(1.0, 0.96, 0.9), clampf(h * 2.5, 0.0, 1.0))
 	var k := clampf(h * 3.0, 0.0, 1.0)
-	_scenery.update(get_process_delta_time(), h > 0.0, h, _sun_light.light_color, state.sim.height())
-	_sky_mat.energy_multiplier = 1.0 + (0.35 if clock.boost_active else 0.0)
+	_scenery.update(get_process_delta_time(), h > 0.0, h, _sun_light.light_color, state.sim.height(), camera.global_position)
+	# The sky glows brighter near the horizon hours, and the haze takes the sun's colour.
+	_sky_mat.energy_multiplier = 1.0 + 0.8 * (1.0 - k) + (0.35 if clock.boost_active else 0.0)
+	_env.fog_light_color = Color(0.45, 0.55, 0.5).lerp(_sun_light.light_color * 0.8, 0.5 * (1.0 - k))
 	# The eye adapts: a low sun and the dusk are exposed brighter, so the tree stays readable.
 	_env.tonemap_exposure = 1.1 + 1.1 * (1.0 - k)
 	# Never too dark by day: the dawn burst must be seen.
 	# Brighter dusk (Simon: the start at sunset was too dark).
-	_env.ambient_light_energy = 1.0 + 0.4 * k if state.phase == GameState.Phase.DAY else 1.25
+	_env.ambient_light_energy = (1.6 - 0.2 * k) if state.phase == GameState.Phase.DAY else 1.5
 
 
 # --- camera -----------------------------------------------------------------
@@ -523,7 +526,7 @@ func _frame_camera(snap: bool, delta: float = 0.0) -> void:
 	# The camera stays in the clearing; a tall tree is seen from lower down with a wider lens,
 	# and the forest trees right behind the camera dissolve (near_fade in the scenery materials).
 	var want_distance := clampf(clampf(height * 1.7 + 2.2, 2.4, 21.0) * _zoom, 1.5, 24.0)
-	camera.fov = clampf(55.0 + height * 0.8, 55.0, 78.0)
+	camera.fov = clampf(55.0 + height * 1.2, 55.0, 85.0)
 	var k := 1.0 if snap else 1.0 - exp(-2.0 * delta)
 	_focus = _focus.lerp(want_focus, k)
 	_distance = lerpf(_distance, want_distance, k)

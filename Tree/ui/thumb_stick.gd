@@ -78,7 +78,9 @@ func _move(p: Vector2) -> void:
 
 func _draw() -> void:
 	var c := size * 0.5
-	draw_circle(c, radius, Color(1, 1, 1, 0.08))
-	draw_arc(c, radius, 0, TAU, 48, Color(1, 1, 1, 0.35), 3.0, true)
-	draw_circle(c + _knob, knob_radius, Color(1, 1, 1, 0.3 if is_pressed() else 0.18))
-	draw_arc(c + _knob, knob_radius, 0, TAU, 32, Color(1, 1, 1, 0.6), 2.0, true)
+	# A ring sketched in pale ink, and a knob like a round paper scrap.
+	draw_circle(c, radius, Color(Paper.PAPER, 0.06))
+	for k in range(2):
+		draw_arc(c + Vector2(k * 1.5, -k), radius - k * 3.0, 0.1 * k, TAU + 0.1 * k, 48, Color(Paper.PAPER, 0.45 - 0.2 * k), 2.0, true)
+	draw_circle(c + _knob, knob_radius, Color(Paper.PAPER, 0.9 if is_pressed() else 0.7))
+	draw_arc(c + _knob, knob_radius - 3.0, 0, TAU, 32, Color(Paper.INK, 0.6), 2.0, true)

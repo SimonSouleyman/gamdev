@@ -6,7 +6,7 @@ render_mode cull_disabled;
 uniform float wind_strength = 1.0;
 uniform float fade_start = 35.0;
 uniform float fade_end = 70.0;
-uniform vec3 root_color : source_color = vec3(0.22, 0.36, 0.11);
+uniform vec3 root_color : source_color = vec3(0.12, 0.22, 0.06);
 uniform vec3 tip_color : source_color = vec3(0.44, 0.58, 0.22);
 
 varying float v_height;
