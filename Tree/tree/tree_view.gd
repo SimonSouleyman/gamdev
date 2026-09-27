@@ -29,6 +29,9 @@ var _noise_tex: NoiseTexture2D
 var _bark_mat: ShaderMaterial
 var _leaf_mat: ShaderMaterial
 var _ground_mat: ShaderMaterial
+var _ground: MeshInstance3D
+## Radius of the clearing the world was last built for.
+var _clearing: float = -1.0
 var _scenery: Scenery
 var _env: Environment
 var _meadow: Meadow
@@ -85,9 +88,8 @@ func _ready() -> void:
 
 func setup(p_state: GameState) -> void:
 	state = p_state
-	_meadow.build(state.ground)
-	_plant_grass(state.seed)
-	_scenery.build(state.seed, _bark_mat, _leaf_mat, _noise_tex)
+	_clearing = -1.0
+	refresh_clearing()
 	_built_size = -1
 	_births.clear()
 	# Nodes that already exist do not twinkle.
@@ -96,6 +98,23 @@ func setup(p_state: GameState) -> void:
 
 
 # --- world ------------------------------------------------------------------
+
+## Rebuilds the ground, meadow and forest ring when the tree has outgrown its clearing.
+## Called at setup and at night, while the tree scene is hidden.
+func refresh_clearing() -> void:
+	var r := Scenery.radius_for(state.sim.height())
+	if r == _clearing:
+		return
+	_clearing = r
+	Terrain.edge = r
+	Shed.origin = Vector3(0.0, 0.0, r - 2.5)
+	_ground.mesh = Terrain.ground_mesh(160.0 + (r - Scenery.CLEARING_RADIUS) * 2.0, 110)
+	_meadow.build(state.ground)
+	_plant_grass(state.seed)
+	_scenery.build(state.seed, _bark_mat, _leaf_mat, _noise_tex, r)
+	# The same haze over a wider clearing would bury the forest; it thins as the clearing grows.
+	_env.fog_density = 0.011 * Scenery.CLEARING_RADIUS / r
+
 
 func _build_world() -> void:
 	camera = Camera3D.new()
@@ -139,6 +158,7 @@ func _build_world() -> void:
 	add_child(camera)
 
 	var ground := MeshInstance3D.new()
+	_ground = ground
 	# Uneven ground: a level spot at the trunk, swells and hollows, rising toward the forest.
 	ground.mesh = Terrain.ground_mesh(160.0, 110)
 	_noise_tex = NoiseTexture2D.new()
@@ -262,7 +282,6 @@ func _build_world() -> void:
 
 const GRASS_CLUMPS := Budgets.MEADOW_GRASS_CLUMPS
 const HERB_CLUMPS := Budgets.MEADOW_HERB_CLUMPS
-const GRASS_RADIUS := 20.0
 
 
 func _clump_layer(tex: Texture2D) -> MultiMeshInstance3D:
@@ -277,7 +296,7 @@ func _clump_layer(tex: Texture2D) -> MultiMeshInstance3D:
 	mat.set_shader_parameter("clump_texture", tex)
 	mmi.material_override = mat
 	mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	mmi.custom_aabb = AABB(Vector3(-24, -1, -24), Vector3(48, 3, 48))
+	mmi.custom_aabb = AABB(Vector3(-46, -1, -46), Vector3(92, 6, 92))
 	add_child(mmi)
 	return mmi
 
@@ -291,15 +310,17 @@ func _plant_grass(seed: int) -> void:
 		mm.instance_count = count
 		for i in range(count):
 			# Denser in the open meadow a few metres out, where the camera looks.
-			var d := GRASS_RADIUS * pow(rng.randf(), 0.55)
+			var d := (_clearing + 2.0) * pow(rng.randf(), 0.55)
 			if d < 0.3:
 				d = 0.3 + rng.randf() * 0.4
 			var a := rng.randf() * TAU
 			# No grass inside the garden shed.
-			if Vector2(cos(a) * d - Shed.ORIGIN.x, sin(a) * d - Shed.ORIGIN.z).length() < 2.4:
+			if Vector2(cos(a) * d - Shed.origin.x, sin(a) * d - Shed.origin.z).length() < 2.4:
 				d = maxf(0.3, d - 4.0)
-			var w := rng.randf_range(layer[2].x, layer[2].y)
-			var h := rng.randf_range(layer[3].x, layer[3].y)
+			# A wider clearing spreads the same clumps further: they grow fuller to keep it a meadow.
+			var fuller := sqrt(_clearing / Scenery.CLEARING_RADIUS)
+			var w := rng.randf_range(layer[2].x, layer[2].y) * fuller
+			var h := rng.randf_range(layer[3].x, layer[3].y) * lerpf(1.0, fuller, 0.5)
 			var basis := Basis(Vector3.UP, rng.randf() * TAU).scaled(Vector3(w, h, w))
 			mm.set_instance_transform(i, Transform3D(basis, Terrain.at(Vector3(cos(a) * d, 0.0, sin(a) * d)) + Vector3(0, -0.02, 0)))
 			var v := rng.randf_range(0.82, 1.12)
@@ -600,12 +621,18 @@ func _frame_camera(snap: bool, delta: float = 0.0) -> void:
 		_framed_day = state.day_number()
 	var height := _framed_height
 	var want_focus := Vector3(0, clampf(height * 0.5, 0.25, 30.0), 0)
-	# The camera stays inside the clearing; a tall tree is seen with a wider lens instead.
-	# The camera stays in the clearing; a tall tree is seen from lower down with a wider lens,
-	# and the forest trees right behind the camera dissolve (near_fade in the scenery materials).
-	# Never beyond the bushes at the clearing edge (about 17 m): the forest stays behind the camera.
-	var want_distance := clampf(clampf(height * 1.7 + 2.2, 2.4, 16.0) * _zoom, 1.5, 16.5)
-	camera.fov = clampf(55.0 + height * 1.2, 55.0, 85.0)
+	# The camera stays inside the clearing, which grows with the tree (refresh_clearing), so a
+	# grown linden is seen whole from further back rather than through a wide lens.
+	var room := maxf(_clearing, Scenery.CLEARING_RADIUS) - 3.0
+	var want_distance := clampf(clampf(height * 1.35 + 2.2, 2.4, room) * _zoom, 1.5, room + 0.5)
+	# Just wide enough to hold the whole tree at this distance.
+	camera.fov = clampf(rad_to_deg(2.0 * atan(height * 0.62 / maxf(want_distance, 0.1))) + 10.0, 50.0, 80.0)
+	# The meadow grass fades out beyond the tree, however far back the camera stands.
+	var fade := maxf(24.0, want_distance + 22.0)
+	for layer in [_grass, _herbs]:
+		var gm := (layer as MultiMeshInstance3D).material_override as ShaderMaterial
+		gm.set_shader_parameter("fade_start", fade)
+		gm.set_shader_parameter("fade_end", fade + 18.0)
 	var k := 1.0 if snap else 1.0 - exp(-2.0 * delta)
 	_focus = _focus.lerp(want_focus, k)
 	_distance = lerpf(_distance, want_distance, k)

@@ -37,6 +37,8 @@ var night_empty: bool = false
 var _empty_timer: float = 0.0
 ## One-time journal pages already shown (the tutorial lives in the journal).
 var seen_pages: Dictionary = {}
+## Tutorial pages shown but not yet closed when the game was saved; they come back on load.
+var pending_pages: Array = []
 ## Things that happened since the scenes last looked: "sunset", "dive", "sunrise",
 ## "run_done", "night_empty", "find:<kind>", "spent". Scenes pop them with take_events().
 var _events: Array[String] = []
@@ -321,6 +323,7 @@ func to_dict() -> Dictionary:
 		"night_done": night_done,
 		"night_empty": night_empty,
 		"seen_pages": seen_pages.keys(),
+		"pending_pages": pending_pages,
 		"empty_timer": _empty_timer,
 		"morning_timer": morning_timer,
 		"spent_announced": _spent_announced,
@@ -342,6 +345,7 @@ static func from_dict(d_in: Dictionary) -> GameState:
 	g.run_used = bool(d.get("run_used", false))
 	g.night_done = bool(d.get("night_done", false))
 	g.night_empty = bool(d.get("night_empty", false))
+	g.pending_pages = Array(d.get("pending_pages", []))
 	for k in d.get("seen_pages", []):
 		g.seen_pages[str(k)] = true
 	return g

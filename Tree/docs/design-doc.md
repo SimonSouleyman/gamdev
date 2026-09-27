@@ -131,3 +131,6 @@ Realistic assets, the full light model, seasons, live wallpaper, extra species, 
 - 2026-09-27: journal UI, weather as mood, style mockups.
 - 2026-09-27 survey 2: realistic 3D, dive only at sunset, night without life force, 5/3 split, no boost cap, offline life force, one run per night, auto-sink, rocks as walls, fog, water upkeep, finished at species size, species order, notification text, pruning free, ambience only, journal pages, Android only, minimum phone.
 - 2026-09-27 feel review: all eight additions accepted, shorter day, orbit as part of the day, sun steering in three dimensions, boost as a trade.
+- 2026-09-28: the garden shed is only seen in the shed scene; the clearing edge has three layers (herbs and flowers, mixed shrubs of five species, then trees).
+- 2026-09-28 (Simon, visuals thread): the clearing grows with the tree (18 m for a young tree, up to 42 m in 6 m steps, widened at night) so the camera can step back about 35 m and see a grown linden whole.
+- 2026-09-28 review rounds: steady growth over 30 days (calm pace capped, the new root's first contact takes 40 % of a deposit), reached deposits dimmed, nitrogen regrows faster, unread tutorial pages survive a save.

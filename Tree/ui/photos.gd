@@ -15,7 +15,7 @@ static func save_from(viewport: Viewport, day: int, tag: String) -> String:
 	var w := 360
 	img.resize(w, int(float(w) * img.get_height() / img.get_width()), Image.INTERPOLATE_BILINEAR)
 	DirAccess.make_dir_recursive_absolute(DIR)
-	var path := "%s/linden_day%03d_%s_%d.png" % [DIR, day, tag, int(Time.get_unix_time_from_system())]
+	var path := "%s/linden_day%03d_%s_%d.png" % [DIR, day, tag, int(Time.get_unix_time_from_system() * 1000.0)]
 	img.save_png(path)
 	return path
 

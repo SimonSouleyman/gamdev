@@ -121,6 +121,16 @@ func release_pages() -> void:
 		_next_page()
 
 
+## Ids of the page on screen, the queued and the held ones, in order (saved with the game).
+func pending_ids() -> Array[String]:
+	var out: Array[String] = []
+	if _page.visible and _page_id != "":
+		out.append(_page_id)
+	for p in _held + _queue:
+		out.append(str(p["id"]))
+	return out
+
+
 func current_page() -> String:
 	return _page_id if _page.visible else ""
 

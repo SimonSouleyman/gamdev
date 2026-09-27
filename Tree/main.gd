@@ -123,10 +123,17 @@ func start(p_state: GameState) -> void:
 		_show_underground(false)
 	# Events from before the scenes existed (the planting sunset) are handled like live ones.
 	_handle_events()
+	# Pages that were open when the game was saved come back.
+	for id in state.pending_pages:
+		if Pages.TEXTS.has(id) and not journal.pending_ids().has(id):
+			journal.show_page(id, Pages.title(id), Pages.body(id))
 
 
 func _show_underground(on: bool) -> void:
 	_underground = on
+	# By night the tree scene is hidden: the time to widen the clearing for a grown tree.
+	if on:
+		tree_view.refresh_clearing()
 	tree_view.visible = not on
 	tree_view.hud.visible = not on and not journal.settings["no_ui"]
 	root_view.visible = on
@@ -357,10 +364,13 @@ func _save_settings() -> void:
 
 func save() -> void:
 	if not ephemeral and state != null:
+		# An unread tutorial page must not be lost when the game closes while it is open.
+		state.pending_pages = journal.pending_ids().filter(func(id: String) -> bool: return Pages.TEXTS.has(id))
 		SaveData.save_game(state)
 
 
 var _paused_at: float = -1.0
+var _photo_busy := false
 
 
 func _notification(what: int) -> void:
@@ -429,6 +439,7 @@ func enter_shed(animate: bool) -> void:
 		root_view.hud.visible = false
 		tree_view.hud.visible = false
 		shed.visible = true
+		shed.place()
 		tree_view.set_shed_open(true)
 		shed.frame_tree(state.sim.height(), tree_view.camera.environment)
 		shed.camera.make_current()
@@ -487,7 +498,14 @@ func _unhandled_input(event: InputEvent) -> void:
 
 ## Saves a photo of the tree for the album (without the HUD), with a camera flash.
 func _take_photo(tag: String) -> void:
-	if ephemeral or in_shed or _underground:
+	if ephemeral or in_shed or _underground or _photo_busy:
+		return
+	_photo_busy = true
+	# Never through the black fade of a sunrise or a trip to the shed.
+	while _transitioning:
+		await get_tree().process_frame
+	if in_shed or _underground:
+		_photo_busy = false
 		return
 	var huds: Array = [tree_view.hud, journal, _corner]
 	var was: Array = []
@@ -498,6 +516,7 @@ func _take_photo(tag: String) -> void:
 	Photos.save_from(get_viewport(), state.day_number(), tag)
 	for i in range(huds.size()):
 		(huds[i] as CanvasLayer).visible = was[i]
+	_photo_busy = false
 	if tag == "camera":
 		_flash.color.a = 0.8
 		create_tween().tween_property(_flash, "color:a", 0.0, 0.4)

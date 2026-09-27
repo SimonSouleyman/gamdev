@@ -13,7 +13,8 @@ signal options_pressed
 
 ## Where the shed stands: the south edge of the clearing (behind the default view of the tree),
 ## the door facing north to the tree, which the sun lights from behind the shed.
-const ORIGIN := Vector3(0.0, 0.0, 15.5)
+## It moves out with the edge as the clearing grows.
+static var origin := Vector3(0.0, 0.0, 15.5)
 const WIDTH := 3.2
 const DEPTH := 2.8
 const WALL_H := 2.4
@@ -27,7 +28,7 @@ var menu: Control  # 2D handwritten menu note, added to a CanvasLayer by the own
 
 
 func _ready() -> void:
-	position = Terrain.at(ORIGIN)
+	place()
 	rotation.y = PI
 	_wood = ShaderMaterial.new()
 	_wood.shader = preload("res://shed/wood.gdshader")
@@ -35,6 +36,11 @@ func _ready() -> void:
 	_build_bench()
 	_build_pinboard()
 	_build_camera()
+
+
+## Stands the shed at the current edge of the clearing.
+func place() -> void:
+	position = Terrain.at(origin)
 
 
 func _box(size: Vector3, at: Vector3, mat: Material, parent: Node3D = self) -> MeshInstance3D:

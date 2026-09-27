@@ -7,7 +7,17 @@ extends Node3D
 
 const FOREST_TREES := Budgets.FOREST_TREES
 ## The open middle where the player's tree grows; the underground reaches about as far.
+## The clearing of a young tree (Simon: a small clearing ringed by trees).
 const CLEARING_RADIUS := 18.0
+## The clearing grows with the tree, so the camera can step back and see a grown linden whole
+## (Simon's pick in the visuals thread: "bigger clearing").
+const CLEARING_MAX := 42.0
+var clearing_radius: float = CLEARING_RADIUS
+
+
+## The clearing for a tree of this height, in steps of 6 m so the world is rebuilt rarely.
+static func radius_for(tree_height: float) -> float:
+	return clampf(CLEARING_RADIUS + snappedf(maxf(0.0, tree_height - 8.0) * 1.4, 6.0), CLEARING_RADIUS, CLEARING_MAX)
 const BUSHES := Budgets.FOREST_BUSHES
 const CLOUDS := 16
 const FLOWERS := Budgets.MEADOW_FLOWERS
@@ -29,7 +39,9 @@ var _bird_wait: float = 8.0
 var _butterfly_params: Array = []
 
 
-func build(seed: int, bark: Material, leaf: Material, noise: Texture2D) -> void:
+func build(seed: int, bark: Material, leaf: Material, noise: Texture2D, radius: float = CLEARING_RADIUS) -> void:
+	clearing_radius = radius
+	Terrain.edge = radius
 	# The forest gets its own copies of the materials, which dissolve near the camera.
 	bark = bark.duplicate()
 	leaf = leaf.duplicate()
@@ -252,7 +264,7 @@ func _build_distant_trees(seed: int, bark: Material, leaf: Material) -> void:
 	for t in range(FOREST_TREES):
 		var ang := TAU * (float(t) + _rng.randf() * 0.8) / FOREST_TREES * 3.0
 		var front := t % 3 != 2
-		var d := CLEARING_RADIUS + (_rng.randf_range(2.6, 7.0) if front else _rng.randf_range(8.0, 24.0))
+		var d := clearing_radius + (_rng.randf_range(2.6, 7.0) if front else _rng.randf_range(8.0, 24.0))
 		var kind := _weighted(weights)
 		if front and kind == 4 and _rng.randf() < 0.6:
 			kind = 2
@@ -314,8 +326,8 @@ func _build_backdrop() -> void:
 	var wall := MeshInstance3D.new()
 	_wall = wall
 	var cyl := CylinderMesh.new()
-	cyl.top_radius = 52.0
-	cyl.bottom_radius = 52.0
+	cyl.top_radius = clearing_radius + 34.0
+	cyl.bottom_radius = clearing_radius + 34.0
 	cyl.height = 22.0
 	cyl.radial_segments = 64
 	cyl.cap_top = false
@@ -431,7 +443,7 @@ func _build_bushes(forest_leaf: Material) -> void:
 			var ang := _rng.randf() * TAU
 			# The middle layer: a belt of shrubs between the herbs and the first trees, and a few
 			# more as undergrowth deeper in the wood.
-			var d := CLEARING_RADIUS + (_rng.randf_range(-1.2, 2.2) if i % 4 != 3 else _rng.randf_range(3.0, 12.0))
+			var d := clearing_radius + (_rng.randf_range(-1.2, 2.2) if i % 4 != 3 else _rng.randf_range(3.0, 12.0))
 			var s := _rng.randf_range(0.8, 1.3)
 			mm.set_instance_transform(i, Transform3D(Basis(Vector3.UP, _rng.randf() * TAU).scaled(Vector3(s, s * _rng.randf_range(0.85, 1.2), s)), Terrain.at(Vector3(cos(ang) * d, 0, sin(ang) * d)) + Vector3(0, -0.15, 0)))
 		mmi.multimesh = mm
@@ -454,7 +466,7 @@ func _build_edge_herbs() -> void:
 		var tint: Color = layer[4]
 		for i in range(mm.instance_count):
 			var ang := _rng.randf() * TAU
-			var d := CLEARING_RADIUS - _rng.randf_range(0.6, 3.0)
+			var d := clearing_radius - _rng.randf_range(0.6, 3.0)
 			var w := _rng.randf_range(layer[2].x, layer[2].y)
 			var h := _rng.randf_range(layer[3].x, layer[3].y)
 			var basis := Basis(Vector3.UP, _rng.randf() * TAU).scaled(Vector3(w, h, w))
@@ -465,8 +477,8 @@ func _build_edge_herbs() -> void:
 		var mat := ShaderMaterial.new()
 		mat.shader = preload("res://tree/grass_card.gdshader")
 		mat.set_shader_parameter("clump_texture", layer[1])
-		mat.set_shader_parameter("fade_start", 60.0)
-		mat.set_shader_parameter("fade_end", 90.0)
+		mat.set_shader_parameter("fade_start", clearing_radius * 2.0 + 20.0)
+		mat.set_shader_parameter("fade_end", clearing_radius * 2.0 + 50.0)
 		mmi.material_override = mat
 		mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		add_child(mmi)
@@ -489,7 +501,7 @@ func _build_edge_herbs() -> void:
 	fm.instance_count = EDGE_FLOWERS
 	for i in range(EDGE_FLOWERS):
 		var ang := _rng.randf() * TAU
-		var d := CLEARING_RADIUS - _rng.randf_range(0.8, 3.2)
+		var d := clearing_radius - _rng.randf_range(0.8, 3.2)
 		var at := Terrain.at(Vector3(cos(ang) * d, 0, sin(ang) * d)) + Vector3(0, _rng.randf_range(0.5, 1.2), 0)
 		var k := _rng.randi() % EDGE_FLOWER_COLORS.size()
 		# Foxgloves are tall spikes; the others round heads.
@@ -513,7 +525,7 @@ func _split_near_shed(mmi: MultiMeshInstance3D, radius: float) -> void:
 	var far: Array[int] = []
 	for i in range(mm.instance_count):
 		var o := mm.get_instance_transform(i).origin
-		if Vector2(o.x - Shed.ORIGIN.x, o.z - Shed.ORIGIN.z).length() < radius:
+		if Vector2(o.x - Shed.origin.x, o.z - Shed.origin.z).length() < radius:
 			near.append(i)
 		else:
 			far.append(i)

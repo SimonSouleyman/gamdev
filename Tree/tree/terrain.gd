@@ -7,8 +7,8 @@ extends RefCounted
 
 ## Radius of the level spot around the trunk.
 const FLAT_RADIUS: float = 3.5
-## Where the meadow meets the forest (matches Scenery.CLEARING_RADIUS).
-const EDGE: float = 18.0
+## Where the meadow meets the forest (set by Scenery with the clearing, which grows with the tree).
+static var edge: float = 18.0
 
 static var _noise: FastNoiseLite
 
@@ -28,7 +28,7 @@ static func height(x: float, z: float) -> float:
 	var swell := _n().get_noise_2d(x, z) * 1.4
 	var ripple := _n().get_noise_2d(x * 3.1 + 40.0, z * 3.1) * 0.12
 	# The ground rises gently toward the trees.
-	var rim := smoothstep(EDGE * 0.6, EDGE + 12.0, d) * 1.6
+	var rim := smoothstep(edge * 0.6, edge + 12.0, d) * 1.6
 	return open * (swell + ripple) + rim
 
 
