@@ -11,11 +11,14 @@ var min_radius: float = 0.008
 var radius_scale: float = 1.0
 
 
-func build(graph: PlantGraph) -> ArrayMesh:
+## Builds segments `first_id` up to (not including) `end_id`; -1 means to the last node.
+## Roots use the range to rebuild only the root that is growing right now.
+func build(graph: PlantGraph, first_id: int = 1, end_id: int = -1) -> ArrayMesh:
 	var st := SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
 	var tri_count := 0
-	for id in range(1, graph.size()):
+	var last := graph.size() if end_id < 0 else mini(end_id, graph.size())
+	for id in range(maxi(1, first_id), last):
 		if graph.get_flag(id, "dead", false):
 			continue
 		var p := graph.parents[id]

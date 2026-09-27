@@ -155,3 +155,25 @@ static func from_dict(d: Dictionary) -> PlantGraph:
 	while g.flags.size() < g.positions.size():
 		g.flags.append(null)
 	return g
+
+
+## JSON-safe variant: positions stored as a flat [x, y, z, ...] list.
+func to_json_dict() -> Dictionary:
+	var d := to_dict()
+	var flat := PackedFloat32Array()
+	for p in positions:
+		flat.append_array([p.x, p.y, p.z])
+	d["positions"] = flat
+	return d
+
+
+static func from_json_dict(d: Dictionary) -> PlantGraph:
+	var copy := d.duplicate()
+	var flat: Array = Array(d.get("positions", []))
+	var out := PackedVector3Array()
+	var i := 0
+	while i + 2 < flat.size():
+		out.append(Vector3(float(flat[i]), float(flat[i + 1]), float(flat[i + 2])))
+		i += 3
+	copy["positions"] = out
+	return from_dict(copy)

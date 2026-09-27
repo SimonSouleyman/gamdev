@@ -1,0 +1,317 @@
+class_name RootSystem
+extends RefCounted
+## The roots: one PlantGraph under the trunk, grown one steered main root per night
+## (design doc section 5). The player steers the tip; the path becomes permanent nodes;
+## at the end of the run fine roots sprout by space colonization toward nearby dots.
+## Pure data: the view only feeds joystick input in and reads the graph.
+
+## Life force per metre at the trunk, near the surface.
+var base_cost_per_metre: float = 1.0
+## Extra cost per metre for each metre of horizontal distance from the trunk.
+var distance_cost: float = 0.06
+## Extra cost per metre for each metre of depth.
+var depth_cost: float = 0.12
+## Tip speed in metres per second, and while diving.
+var speed: float = 0.9
+var dive_speed: float = 1.8
+## Radians per second at full joystick deflection.
+var turn_rate: float = 1.7
+## The root drifts down on its own at this speed (m/s); diving also bends the heading down.
+var sink_speed: float = 0.12
+var dive_sink_rate: float = 1.2
+## Length of one permanent root segment.
+var step_length: float = 0.25
+## Dots within this distance of the tip are drunk immediately.
+var collect_radius: float = 0.55
+## Fine roots reach dots within this distance of the new main root.
+var fine_radius: float = 1.6
+
+var graph: PlantGraph
+var main_root_count: int = 0
+var rng := RandomNumberGenerator.new()
+
+# Run state.
+var run_active: bool = false
+var tip_id: int = -1
+var tip_position: Vector3 = Vector3.ZERO
+var heading: Vector3 = Vector3.DOWN
+var run_start_id: int = -1
+var run_first_new_id: int = -1
+var run_length: float = 0.0
+var _carry: float = 0.0
+var _right: Vector3 = Vector3.RIGHT
+
+## Filled by advance() and end_run() for the view: ids of dots drunk and finds touched.
+var last_collected: PackedInt32Array = PackedInt32Array()
+var last_finds: Array = []
+## Totals collected during the current (or last) run, by Resources.Kind.
+var run_totals: PackedFloat32Array = PackedFloat32Array([0, 0, 0, 0])
+
+
+func _init(random_seed: int = 1) -> void:
+	rng.seed = hash([random_seed, "roots"])
+	graph = PlantGraph.new(Vector3.ZERO, Budgets.MAX_MAIN_ROOTS * (Budgets.ROOT_MAX_NODES_PER_MAIN_ROOT + Budgets.FINE_ROOTS_PER_MAIN_ROOT) + 1)
+
+
+## Life force for one metre of root at `p`: rises with distance from the trunk and with depth.
+func cost_per_metre(p: Vector3) -> float:
+	var horizontal := Vector2(p.x, p.z).length()
+	return base_cost_per_metre * (1.0 + distance_cost * horizontal + depth_cost * maxf(0.0, -p.y))
+
+
+func can_start_run() -> bool:
+	return not run_active and main_root_count < Budgets.MAX_MAIN_ROOTS
+
+
+## Starts tonight's run from any existing root node (not only a tip).
+func start_run(from_id: int) -> bool:
+	if not can_start_run() or from_id < 0 or from_id >= graph.size():
+		return false
+	run_active = true
+	run_start_id = from_id
+	run_first_new_id = graph.size()
+	tip_id = from_id
+	tip_position = graph.positions[from_id]
+	run_length = 0.0
+	_carry = 0.0
+	run_totals = PackedFloat32Array([0, 0, 0, 0])
+	if from_id == 0:
+		heading = Vector3(0.0, -0.5, -1.0).normalized()
+	else:
+		var d := graph.direction_of(from_id)
+		heading = (Vector3(d.x, 0.0, d.z).normalized() + Vector3.DOWN * 0.4).normalized()
+		if Vector3(d.x, 0.0, d.z).length_squared() < 1e-4:
+			heading = Vector3(0.0, -0.5, -1.0).normalized()
+	_update_right()
+	return true
+
+
+## Nodes added in the current run (the permanent path).
+func run_node_count() -> int:
+	return 0 if run_first_new_id < 0 else graph.size() - run_first_new_id
+
+
+## One frame of steering. `stick`: x = right, y = up, each -1..1. Returns false once the run ended.
+func advance(stick: Vector2, dive: bool, delta: float, ground: Underground, res: Resources) -> bool:
+	last_collected = PackedInt32Array()
+	last_finds = []
+	if not run_active:
+		return false
+	_steer(stick, dive, delta)
+	var distance := (dive_speed if dive else speed) * delta
+	var cost := distance * cost_per_metre(tip_position)
+	var ends := false
+	if res.life_force < cost:
+		# Spend what is left on the last bit of root.
+		distance *= res.life_force / cost
+		res.life_force = 0.0
+		ends = true
+	else:
+		res.life_force -= cost
+	_move(distance, Vector3.DOWN * sink_speed * delta * (distance / maxf((dive_speed if dive else speed) * delta, 1e-6)), ground)
+	_collect(tip_position, collect_radius, ground, res)
+	last_finds = ground.touch_finds(tip_position)
+	if run_node_count() >= Budgets.ROOT_MAX_NODES_PER_MAIN_ROOT:
+		ends = true
+	if ends:
+		end_run(ground, res)
+		return false
+	return true
+
+
+func _update_right() -> void:
+	var r := heading.cross(Vector3.UP)
+	if r.length_squared() > 1e-4:
+		_right = r.normalized()
+
+
+func _steer(stick: Vector2, dive: bool, delta: float) -> void:
+	stick = stick.limit_length(1.0)
+	heading = heading.rotated(Vector3.UP, -stick.x * turn_rate * delta)
+	_update_right()
+	heading = heading.rotated(_right, stick.y * turn_rate * delta)
+	if dive:
+		heading = (heading + Vector3.DOWN * dive_sink_rate * delta).normalized()
+	# Roots do not grow back out of the soil or climb steeply.
+	if heading.y > 0.4:
+		heading = Vector3(heading.x, 0.4, heading.z).normalized()
+	_update_right()
+
+
+func _move(distance: float, drift: Vector3, ground: Underground) -> void:
+	if distance <= 0.0:
+		return
+	var p := tip_position + heading * distance + drift
+	# Rocks are hard walls: push out to the surface and slide along it.
+	var r := ground.rock_at(p, 0.08)
+	if r >= 0:
+		var c := ground.rock_centers[r]
+		var n := (p - c).normalized()
+		p = c + n * (ground.rock_radii[r] + 0.08)
+		var slid := heading - n * heading.dot(n)
+		heading = slid.normalized() if slid.length_squared() > 1e-4 else _right
+		_update_right()
+	# The floor, the surface and the edge of the world slide the heading along them too.
+	if p.y <= -Underground.DEPTH and heading.y < 0.0 or p.y >= -0.05 and heading.y > 0.0:
+		heading = _flattened(Vector3(heading.x, 0.0, heading.z))
+	p.y = clampf(p.y, -Underground.DEPTH, -0.05)
+	var flat := Vector2(p.x, p.z)
+	if flat.length() > Underground.EXTENT:
+		var n := Vector3(flat.x, 0.0, flat.y).normalized()
+		heading = _flattened(heading - n * maxf(0.0, heading.dot(n)))
+		flat = flat.normalized() * Underground.EXTENT
+		p = Vector3(flat.x, p.y, flat.y)
+	_carry += p.distance_to(tip_position)
+	run_length += p.distance_to(tip_position)
+	tip_position = p
+	if _carry >= step_length:
+		_carry = 0.0
+		var id := graph.add_node(tip_id, tip_position)
+		if id < 0:
+			run_active = false
+			return
+		graph.set_flag(id, "main", main_root_count)
+		tip_id = id
+
+
+func _flattened(v: Vector3) -> Vector3:
+	if v.length_squared() < 1e-4:
+		v = _right
+	var out := v.normalized()
+	_update_right()
+	return out
+
+
+func _collect(p: Vector3, radius: float, ground: Underground, res: Resources) -> void:
+	var ids := ground.collect(ground.dots_near(p, radius), res)
+	for i in ids:
+		run_totals[ground.dot_kinds[i]] += ground.dot_amounts[i]
+	last_collected.append_array(ids)
+
+
+## Ends the run: fine roots sprout along the new path and drink the dots they reach.
+func end_run(ground: Underground, res: Resources) -> void:
+	if not run_active:
+		return
+	run_active = false
+	if run_node_count() > 0:
+		_grow_fine_roots(ground, res)
+		main_root_count += 1
+	graph.update_radii()
+
+
+func _grow_fine_roots(ground: Underground, res: Resources) -> void:
+	# Space colonization on a small temporary graph holding only the new path,
+	# then the fine roots are grafted onto the real graph.
+	var path := PackedInt32Array()
+	for id in range(run_first_new_id, graph.size()):
+		path.append(id)
+	var temp := PlantGraph.new(graph.positions[run_start_id], path.size() + 1 + Budgets.FINE_ROOTS_PER_MAIN_ROOT)
+	var to_real := {0: run_start_id}
+	var to_temp := {run_start_id: 0}
+	for id in path:
+		var t_id := temp.add_node(to_temp[graph.parents[id]], graph.positions[id])
+		to_temp[id] = t_id
+		to_real[t_id] = id
+	var path_temp_count := temp.size()
+
+	var marker_ids := PackedInt32Array()
+	var seen := {}
+	for id in path:
+		for d in ground.dots_near(graph.positions[id], fine_radius):
+			if not seen.has(d):
+				seen[d] = true
+				marker_ids.append(d)
+	if marker_ids.is_empty():
+		return
+	var sc := SpaceColonization.new(rng)
+	sc.influence_radius = fine_radius
+	sc.kill_distance = 0.22
+	sc.step_length = 0.14
+	sc.bias_direction = Vector3.DOWN
+	sc.bias_strength = 0.1
+	sc.jitter = 0.15
+	for d in marker_ids:
+		sc.add_marker(ground.dot_positions[d])
+	var guard := 0
+	while not sc.markers.is_empty() and not temp.is_full() and guard < 60:
+		if sc.step(temp) == 0:
+			break
+		guard += 1
+
+	for t_id in range(path_temp_count, temp.size()):
+		var real := graph.add_node(to_real[temp.parents[t_id]], temp.positions[t_id])
+		if real < 0:
+			break
+		graph.set_flag(real, "fine", main_root_count)
+		to_real[t_id] = real
+	# Dots whose markers were consumed were reached by a fine root.
+	var left := {}
+	for m in sc.markers:
+		left[m] = true
+	var reached := PackedInt32Array()
+	for d in marker_ids:
+		if not left.has(ground.dot_positions[d]):
+			reached.append(d)
+	_collect_ids(reached, ground, res)
+
+
+func _collect_ids(ids: PackedInt32Array, ground: Underground, res: Resources) -> void:
+	var got := ground.collect(ids, res)
+	for i in got:
+		run_totals[ground.dot_kinds[i]] += ground.dot_amounts[i]
+	last_collected.append_array(got)
+
+
+## Nearest root node to `p` (for picking a start point). -1 if none within `max_distance`.
+func nearest_node(p: Vector3, max_distance: float = INF) -> int:
+	var best := -1
+	var best_d := max_distance
+	for id in range(graph.size()):
+		var d := graph.positions[id].distance_to(p)
+		if d < best_d:
+			best_d = d
+			best = id
+	return best
+
+
+func count_flagged(key: String, value: int) -> int:
+	var n := 0
+	for id in range(graph.size()):
+		if graph.get_flag(id, key, -1) == value:
+			n += 1
+	return n
+
+
+func to_dict() -> Dictionary:
+	return {
+		"graph": graph.to_json_dict(),
+		"main_root_count": main_root_count,
+		"rng_state": rng.state,
+		"run_active": run_active,
+		"tip_id": tip_id,
+		"tip_position": [tip_position.x, tip_position.y, tip_position.z],
+		"heading": [heading.x, heading.y, heading.z],
+		"run_start_id": run_start_id,
+		"run_first_new_id": run_first_new_id,
+		"run_length": run_length,
+	}
+
+
+static func from_dict(d: Dictionary, random_seed: int = 1) -> RootSystem:
+	var r := RootSystem.new(random_seed)
+	if d.has("graph"):
+		r.graph = PlantGraph.from_json_dict(d["graph"])
+	r.main_root_count = int(d.get("main_root_count", 0))
+	r.rng.state = int(d.get("rng_state", r.rng.state))
+	r.run_active = bool(d.get("run_active", false))
+	r.tip_id = int(d.get("tip_id", -1))
+	var tp: Array = d.get("tip_position", [0, 0, 0])
+	r.tip_position = Vector3(tp[0], tp[1], tp[2])
+	var hd: Array = d.get("heading", [0, -1, 0])
+	r.heading = Vector3(hd[0], hd[1], hd[2])
+	r.run_start_id = int(d.get("run_start_id", -1))
+	r.run_first_new_id = int(d.get("run_first_new_id", -1))
+	r.run_length = float(d.get("run_length", 0.0))
+	r._update_right()
+	return r

@@ -5,9 +5,23 @@ extends SceneTree
 var _failures: int = 0
 var _passes: int = 0
 var _current: String = ""
+var _logger := ErrorCounter.new()
+
+
+## Counts script errors, so a test that crashes half-way fails instead of passing silently.
+class ErrorCounter extends Logger:
+	var count: int = 0
+
+	func _log_error(_function: String, _file: String, _line: int, _code: String, _rationale: String, _editor_notify: bool, error_type: int, _script_backtraces: Array[ScriptBacktrace]) -> void:
+		if error_type == ERROR_TYPE_SCRIPT or error_type == ERROR_TYPE_ERROR:
+			count += 1
+
+	func _log_message(_message: String, _error: bool) -> void:
+		pass
 
 
 func _init() -> void:
+	OS.add_logger(_logger)
 	var tests := [
 		preload("res://tests/test_plant_graph.gd"),
 		preload("res://tests/test_space_colonization.gd"),
@@ -16,6 +30,8 @@ func _init() -> void:
 		preload("res://tests/test_growth_sim.gd"),
 		preload("res://tests/test_save_data.gd"),
 		preload("res://tests/test_tree_mesh_builder.gd"),
+		preload("res://tests/test_underground.gd"),
+		preload("res://tests/test_root_system.gd"),
 	]
 	for script in tests:
 		var suite: RefCounted = script.new()
@@ -25,7 +41,11 @@ func _init() -> void:
 			if name.begins_with("test_"):
 				_current = "%s.%s" % [script.resource_path.get_file(), name]
 				print("RUN ", _current)
+				var errors_before := _logger.count
 				suite.call(name)
+				if _logger.count > errors_before:
+					_failures += 1
+					printerr("FAIL %s: script error (see above)" % _current)
 	print("\n%d passed, %d failed" % [_passes, _failures])
 	quit(0 if _failures == 0 else 1)
 
