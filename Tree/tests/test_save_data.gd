@@ -27,3 +27,15 @@ func test_round_trip_and_offline_catch_up() -> void:
 	var later := SaveData.load(PATH, now + 86400.0)
 	t.check(later.graph.size() > s.graph.size(), "grew while away")
 	DirAccess.remove_absolute(ProjectSettings.globalize_path(PATH))
+
+
+func test_broken_saves_are_kept_aside_not_loaded() -> void:
+	var path := "user://test_broken.json"
+	for text in ['{"game":{"sim":{"graph":{}}}}', '{"game":5}', '{"game":{"sim":5}}', 'not json', '']:
+		var f := FileAccess.open(path, FileAccess.WRITE)
+		f.store_string(text)
+		f.close()
+		t.check(SaveData.load_game(path) == null, "broken save is not loaded: " + text)
+		t.check(not FileAccess.file_exists(path), "and moved aside: " + text)
+		t.check(FileAccess.file_exists(path + ".broken"), "kept as .broken: " + text)
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(path + ".broken"))

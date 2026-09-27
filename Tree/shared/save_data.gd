@@ -55,8 +55,10 @@ static func save_game(state: GameState, path: String = GAME_PATH) -> Error:
 static func load_game(path: String = GAME_PATH, now_unix: float = -1.0) -> GameState:
 	if not FileAccess.file_exists(path):
 		return null
-	var parsed: Variant = JSON.parse_string(FileAccess.get_file_as_string(path))
-	if parsed == null or not (parsed is Dictionary) or not (parsed as Dictionary).has("game") 			or not ((parsed as Dictionary)["game"] as Dictionary).has("sim"):
+	# A JSON instance reports a parse failure quietly (JSON.parse_string logs an engine error).
+	var json := JSON.new()
+	var parsed: Variant = json.data if json.parse(FileAccess.get_file_as_string(path)) == OK else null
+	if not _looks_like_a_game(parsed):
 		# Keep the broken file aside instead of letting the next autosave overwrite it.
 		DirAccess.rename_absolute(ProjectSettings.globalize_path(path), ProjectSettings.globalize_path(path + ".broken"))
 		return null
@@ -64,10 +66,41 @@ static func load_game(path: String = GAME_PATH, now_unix: float = -1.0) -> GameS
 	var state := GameState.from_dict(data["game"])
 	if now_unix < 0.0:
 		now_unix = Time.get_unix_time_from_system()
-	var away := maxf(0.0, now_unix - float(data.get("saved_at_unix", now_unix)))
+	# At most a week counts: after that the tree simply waited for the player.
+	var away := clampf(now_unix - float(data.get("saved_at_unix", now_unix)), 0.0, 7.0 * 86400.0)
 	if away > 0.0:
 		state.sim.apply_offline(away)
 	return state
+
+
+## GDScript has no try/catch, so a save is checked for the shape GameState.from_dict reads
+## before it is trusted; anything else counts as broken.
+static func _looks_like_a_game(parsed: Variant) -> bool:
+	if not (parsed is Dictionary) or not ((parsed as Dictionary).get("game") is Dictionary):
+		return false
+	var game: Dictionary = parsed["game"]
+	if not (game.get("sim") is Dictionary):
+		return false
+	var sim: Dictionary = game["sim"]
+	if not (sim.get("graph") is Dictionary):
+		return false
+	var graph: Dictionary = sim["graph"]
+	for key in ["positions", "parents", "radii", "ages"]:
+		if not (graph.get(key) is Array):
+			return false
+	var n := (graph["parents"] as Array).size()
+	if n < 1 or (graph["positions"] as Array).size() != n * 3 or (graph["radii"] as Array).size() != n or (graph["ages"] as Array).size() != n:
+		return false
+	for key in ["roots", "underground", "diary"]:
+		if game.has(key) and not (game[key] is Dictionary):
+			return false
+	if game.has("roots") and (game["roots"] as Dictionary).has("graph"):
+		var rg: Variant = game["roots"]["graph"]
+		if not (rg is Dictionary) or not ((rg as Dictionary).get("parents") is Array) or not ((rg as Dictionary).get("positions") is Array):
+			return false
+		if ((rg as Dictionary)["positions"] as Array).size() != ((rg as Dictionary)["parents"] as Array).size() * 3:
+			return false
+	return true
 
 
 static func flatten_sim(sim_dict: Dictionary) -> Dictionary:
