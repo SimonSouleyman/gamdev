@@ -292,6 +292,9 @@ func _plant_grass(seed: int) -> void:
 			if d < 0.3:
 				d = 0.3 + rng.randf() * 0.4
 			var a := rng.randf() * TAU
+			# No grass inside the garden shed.
+			if Vector2(cos(a) * d - Shed.ORIGIN.x, sin(a) * d - Shed.ORIGIN.z).length() < 2.4:
+				d = maxf(0.3, d - 4.0)
 			var w := rng.randf_range(layer[2].x, layer[2].y)
 			var h := rng.randf_range(layer[3].x, layer[3].y)
 			var basis := Basis(Vector3.UP, rng.randf() * TAU).scaled(Vector3(w, h, w))

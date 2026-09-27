@@ -294,7 +294,7 @@ func _build_book() -> void:
 		content.add_child(c)
 
 	# Cloth ribbon bookmarks sticking out of the right edge of the book, with forked ends.
-	var ribbons := {"diary": Color(0.62, 0.2, 0.16), "pages": Color(0.25, 0.38, 0.22), "settings": Color(0.25, 0.3, 0.5)}
+	var ribbons := {"diary": Color(0.62, 0.2, 0.16), "pages": Color(0.25, 0.38, 0.22)}
 	var y := 120
 	for k in ribbons:
 		var b := Button.new()
