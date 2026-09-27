@@ -1,9 +1,9 @@
 # Tree
 
-A calm idle game about one realistic tree. Godot 4.5, GDScript, mobile-first (portrait).
+A calm idle game about one realistic tree. Godot 4.7, GDScript, mobile-first (portrait).
 
 ## Open on the PC
-1. Install Godot 4.5 stable (standard build, not .NET).
+1. Install Godot 4.7 stable (standard build, not .NET).
 2. Godot project manager → Import → pick this folder's `project.godot`.
 3. Press F5. You get the grey-box tree: a seedling grows toward the sun, hold the button to boost, the slider speeds time up.
 

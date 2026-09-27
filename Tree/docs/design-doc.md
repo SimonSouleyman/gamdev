@@ -1,6 +1,6 @@
 # Tree: Design Doc (v2.0, 2026-09-27)
 
-Working title: **Tree**. UI language: English. Status: planning complete, Prototype 1 in progress. Engine: Godot 4.5, GDScript. Target: Android only for now (APK and F-Droid style stores, no Google services), minimum a Fairphone 6 class phone (2022 or newer, Vulkan). Developed and prototyped on PC.
+Working title: **Tree**. UI language: English. Status: planning complete, Prototype 1 in progress. Engine: Godot 4.7, GDScript. Target: Android only for now (APK and F-Droid style stores, no Google services), minimum a Fairphone 6 class phone (2022 or newer, Vulkan). Developed and prototyped on PC.
 
 This version consolidates every decision from the interviews (2026-09-26), the two surveys and the feel review (2026-09-27) into one text. Older drafts kept the decisions as dated tables; here each topic is stated once. Companion files: research-tree-growth.md (algorithm and sources), asset-research-2026-09-27.md (free assets and licences), game-feel-review-2026-09-27.md (feel review and play-test plan), review-2026-09-26.md (historical plan review), concepts/ (UI and style mockups).
 
@@ -95,7 +95,7 @@ Sound on/off, battery saver (lower frame rate), wallpaper mode, no-UI toggle, no
 Goal: play the full loop from seed to roots to sapling to tree and back. Grey-box visuals, algorithmic growth. Each step is playable on its own and gets acceptance criteria and headless tests before it starts (docs/acceptance.md in the repo).
 
 Status 2026-09-27: steps 1 to 4 and 9 are built, 82 headless tests pass. Steps 5 to 8, 10 and 11 are open.
-1. **Project setup:** Godot 4.5, Mobile renderer, GDScript, git. Folders `tree/`, `roots/`, `shared/`, `audio/`, `ui/`, `tests/`, `docs/`.
+1. **Project setup:** Godot 4.7, Mobile renderer, GDScript, git. Folders `tree/`, `roots/`, `shared/`, `audio/`, `ui/`, `tests/`, `docs/`.
 2. **Shared plant graph:** nodes with position, parent, radius and age; pipe-model radii. Used by tree and roots.
 3. **Tree growth v0:** space colonization toward markers, tube mesh rebuilt on change.
 4. **Sun:** the day/night clock, the real sun arc, hold-to-boost, markers seeded on the sun's side, boost as a trade, nutrients spent and life force produced.

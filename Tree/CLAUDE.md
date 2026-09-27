@@ -1,9 +1,9 @@
-# Tree (Godot 4.5) — conventions for agents and humans
+# Tree (Godot 4.7) — conventions for agents and humans
 
 Design doc: `docs/design-doc.md` (the source of truth for gameplay decisions).
 
 ## Hard rules
-- Godot **4.5 stable**, **Mobile renderer**, **GDScript** only (GDExtension/C++ only for proven hot loops, by explicit decision).
+- Godot **4.7 stable**, **Mobile renderer**, **GDScript** only (GDExtension/C++ only for proven hot loops, by explicit decision).
 - Growth is always **algorithmic** (self-organizing tree model: space colonization + light + Borchert-Honda + pipe model). Never swap in pre-made tree models to fake growth.
 - **No Google services** (no Play Games, Firebase, AdMob). Local notifications only.
 - **Simulation is separate from rendering.** Everything in `shared/` is plain `RefCounted` code with no scene dependency and no `Node` access. Scenes and meshes only *read* the plant graph.
