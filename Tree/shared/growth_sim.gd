@@ -19,11 +19,11 @@ var cost_per_node: float = 0.08
 var life_force_per_tip: float = 0.02  # scaled with the 2-minute day (play test 3)
 ## Segments the tree may add per second at full light and full nutrients.
 ## Low enough that one night's nutrients last a good part of the day.
-var max_growth_per_second: float = 4.0
+var max_growth_per_second: float = 1.0
 ## Dawn burst: this share of what the nutrients can buy is released in the first seconds after sunrise.
 var dawn_burst_share: float = 0.25
 var dawn_burst_seconds: float = 10.0
-var dawn_burst_max_nodes: int = 60
+var dawn_burst_max_nodes: int = 30
 var _burst_nodes_left: int = 0
 var _burst_rate: float = 0.0
 var _burst_accum: float = 0.0

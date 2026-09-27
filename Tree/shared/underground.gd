@@ -34,6 +34,9 @@ var dot_amounts: PackedFloat32Array = PackedFloat32Array()
 var dot_capacity: PackedFloat32Array = PackedFloat32Array()
 ## How many first-contact shares a deposit holds.
 const DEPOSIT_SHARES: float = 4.0
+## The new root's first contact takes this much, so a well-steered night pays off that night
+## (QA round 2: at 1/4 the old roots drank more than the new one).
+const FIRST_SHARE: float = 0.4
 var dot_collected: PackedByteArray = PackedByteArray()
 var rock_centers: PackedVector3Array = PackedVector3Array()
 var rock_radii: PackedFloat32Array = PackedFloat32Array()
@@ -212,7 +215,7 @@ func dots_near(p: Vector3, radius: float) -> PackedInt32Array:
 var last_drawn: PackedFloat32Array = PackedFloat32Array()
 
 
-func collect(ids: PackedInt32Array, into: Resources, share: float = 1.0 / DEPOSIT_SHARES) -> PackedInt32Array:
+func collect(ids: PackedInt32Array, into: Resources, share: float = FIRST_SHARE) -> PackedInt32Array:
 	var out := PackedInt32Array()
 	last_drawn = PackedFloat32Array()
 	for i in ids:

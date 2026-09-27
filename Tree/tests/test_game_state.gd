@@ -101,7 +101,7 @@ func test_night_without_life_force_is_a_short_visit() -> void:
 	t.check(waited < GameState.EMPTY_NIGHT_VISIT + 15.0, "after a short visit (%f s)" % waited)
 
 
-func test_dawn_burst_front_loads_growth_but_not_the_total() -> void:
+func test_dawn_burst_front_loads_growth_and_never_costs_growth() -> void:
 	# Acceptance: part of the night's growth is released in the first ten seconds after sunrise.
 	var a := _morning_after_first_night(9)
 	var b := _morning_after_first_night(9)
@@ -117,8 +117,8 @@ func test_dawn_burst_front_loads_growth_but_not_the_total() -> void:
 			a.tick(0.5)
 		if b.phase == GameState.Phase.DAY:
 			b.tick(0.5)
-	var diff := absi(a.sim.graph.size() - b.sim.graph.size())
-	t.check(diff <= maxi(8, a.sim.graph.size() / 10), "the daily total is about the same (%d vs %d)" % [a.sim.graph.size(), b.sim.graph.size()])
+	# The calm pace is capped (QA round 2), so the burst is a real head start, never a loss.
+	t.check(a.sim.graph.size() >= b.sim.graph.size() - 8, "the daily total is at least as big (%d vs %d)" % [a.sim.graph.size(), b.sim.graph.size()])
 
 
 func _morning_after_first_night(seed: int) -> GameState:

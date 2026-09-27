@@ -202,7 +202,10 @@ func _set_dot(i: int) -> void:
 	# The glow shrinks as a deposit is drawn down; tapped deposits keep glowing until empty.
 	var s := 0.0 if ground.dot_collected[i] != 0 else (0.16 + 0.16 * ground.fullness(i)) * (0.8 + 0.2 * ground.dot_capacity[i] / Underground.DEPOSIT_SHARES)
 	mm.set_instance_transform(i, Transform3D(Basis.from_scale(Vector3.ONE * s), ground.dot_positions[i]))
-	mm.set_instance_color(i, Resources.KIND_COLORS[ground.dot_kinds[i]])
+	# Deposits the roots already reach are dimmed, so the player looks for fresh ones.
+	var reached := roots != null and roots.tapped.has(i)
+	mm.set_instance_transform(i, Transform3D(Basis.from_scale(Vector3.ONE * s * (0.7 if reached else 1.0)), ground.dot_positions[i]))
+	mm.set_instance_color(i, Resources.KIND_COLORS[ground.dot_kinds[i]] * (0.4 if reached else 1.0))
 
 
 func _build_rocks() -> void:

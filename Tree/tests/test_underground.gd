@@ -63,8 +63,8 @@ func test_collect_marks_and_adds() -> void:
 	var cap := u.dot_capacity[id]
 	var got := u.collect(PackedInt32Array([id]), res)
 	t.check_eq(got.size(), 1, "drawn from")
-	t.check_near(res.amount(kind), cap / Underground.DEPOSIT_SHARES, 1e-5, "one share into the matching resource")
-	t.check_near(u.dot_amounts[id], cap * (1.0 - 1.0 / Underground.DEPOSIT_SHARES), 1e-5, "the deposit keeps the rest")
+	t.check_near(res.amount(kind), cap * Underground.FIRST_SHARE, 1e-5, "one share into the matching resource")
+	t.check_near(u.dot_amounts[id], cap * (1.0 - Underground.FIRST_SHARE), 1e-5, "the deposit keeps the rest")
 	for _k in range(10):
 		u.collect(PackedInt32Array([id]), res)
 	t.check_near(res.amount(kind), cap, 1e-4, "a deposit gives exactly what it held")
@@ -121,4 +121,4 @@ func test_round_trip() -> void:
 	t.check_eq(v.dot_collected, u.dot_collected, "empty deposits kept")
 	t.check_eq(v.dot_amounts, u.dot_amounts, "deposit levels kept")
 	t.check_eq(v.finds[1]["found"], true, "found finds kept")
-	t.check_near(v.dot_amounts[1], v.dot_capacity[1] * (1.0 - 1.0 / Underground.DEPOSIT_SHARES), 1e-5, "a drawn deposit is lower")
+	t.check_near(v.dot_amounts[1], v.dot_capacity[1] * (1.0 - Underground.FIRST_SHARE), 1e-5, "a drawn deposit is lower")

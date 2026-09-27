@@ -281,7 +281,7 @@ func test_tapped_deposits_are_drunk_night_after_night() -> void:
 		var got := r.drink_tapped(u, res)
 		nights.append(got[0] + got[1] + got[2] + got[3])
 	t.check(float(nights[0]) > 0.5, "the first night after the run draws more (%s)" % str(nights))
-	t.check(float(nights[3]) > 0.1, "and later nights still draw from the same roots (%s)" % str(nights))
+	t.check(float(nights[2]) > 0.1, "and later nights still draw from the same roots (%s)" % str(nights))
 	var d := RootSystem.from_dict(JSON.parse_string(JSON.stringify(r.to_dict())))
 	t.check_eq(d.tapped.size(), r.tapped.size(), "tapped deposits survive a save")
 
