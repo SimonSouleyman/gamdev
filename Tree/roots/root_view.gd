@@ -417,8 +417,11 @@ func _process(delta: float) -> void:
 		return
 	match mode:
 		Mode.RUN:
+			(_dots.material_override as ShaderMaterial).set_shader_parameter("fog_far", 15.0)
 			_process_run(delta)
 		Mode.PICK, Mode.DONE:
+			# From the overview the whole underground glows; up close only the near dots do.
+			(_dots.material_override as ShaderMaterial).set_shader_parameter("fog_far", _orbit_distance + 12.0)
 			if not _pressing:
 				_orbit_yaw += delta * 0.08
 			var target := _orbit_position()
@@ -539,7 +542,7 @@ func _flash(p: Vector3, color: Color, size: float = 0.5) -> void:
 	add_child(m)
 	var tw := create_tween()
 	tw.set_parallel(true)
-	tw.tween_property(m, "scale", Vector3.ONE * size * 2.5, 0.45)
+	tw.tween_property(m, "scale", Vector3.ONE * size * 1.6, 0.45)
 	tw.tween_method(func(a: float) -> void: mat.set_shader_parameter("tint", Color(color, a)), 1.0, 0.0, 0.45)
 	tw.chain().tween_callback(m.queue_free)
 

@@ -75,6 +75,7 @@ func start_run(from_id: int) -> bool:
 	run_length = 0.0
 	_carry = 0.0
 	run_totals = PackedFloat32Array([0, 0, 0, 0])
+	_stuck_time = 0.0
 	if from_id == 0:
 		heading = Vector3(0.0, -0.5, -1.0).normalized()
 	else:
@@ -104,6 +105,7 @@ func advance(stick: Vector2, dive: bool, delta: float, ground: Underground, res:
 	# Life force pays for the distance the tip really moved, never for pushing against a wall.
 	var steps := maxi(1, ceili(want / 0.1))
 	var ends := false
+	var start_of_frame := tip_position
 	for _i in range(steps):
 		var before := tip_position
 		var cost_rate := cost_per_metre(tip_position)
@@ -117,6 +119,9 @@ func advance(stick: Vector2, dive: bool, delta: float, ground: Underground, res:
 		if ends or not run_active:
 			break
 	last_finds = ground.touch_finds(tip_position)
+	_unstick(start_of_frame, want, delta)
+	if _stuck_time > STUCK_END_SECONDS:
+		ends = true  # truly wedged: the root ends here; the life force left is kept
 	if res.life_force <= 1e-4:
 		ends = true
 	if run_node_count() >= Budgets.ROOT_MAX_NODES_PER_MAIN_ROOT:
@@ -126,6 +131,24 @@ func advance(stick: Vector2, dive: bool, delta: float, ground: Underground, res:
 		end_run(ground, res)
 		return false
 	return true
+
+
+## A tip wedged between rocks, the floor and the world edge turns back toward the trunk and up;
+## if it still cannot move after a few seconds the run ends, so a night can never hang.
+const STUCK_TURN_SECONDS: float = 0.6
+const STUCK_END_SECONDS: float = 4.0
+var _stuck_time: float = 0.0
+
+
+func _unstick(start: Vector3, want: float, delta: float) -> void:
+	if start.distance_to(tip_position) > want * 0.15:
+		_stuck_time = 0.0
+		return
+	_stuck_time += delta
+	if _stuck_time > STUCK_TURN_SECONDS:
+		var inward := Vector3(-tip_position.x, 0.0, -tip_position.z)
+		heading = _clamp_pitch((inward.normalized() + Vector3.UP * 0.6).normalized() if inward.length_squared() > 0.01 else Vector3.UP)
+		_update_right()
 
 
 func _update_right() -> void:

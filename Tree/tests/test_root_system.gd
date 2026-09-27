@@ -215,3 +215,20 @@ func test_run_is_about_the_same_at_any_frame_rate() -> void:
 			guard += 1
 		lengths.append(r.run_length)
 	t.check(absf(lengths[0] - lengths[2]) < 1.0, "run length does not depend on the frame rate (%s)" % str(lengths))
+
+
+func test_a_wedged_root_ends_instead_of_hanging() -> void:
+	# QA: a rock through both the floor and the world edge could box the tip in for good.
+	var u := Underground.new(5)
+	u.rock_centers.append(Vector3(0.0, -9.6, -13.4))
+	u.rock_radii.append(1.2)
+	var r := RootSystem.new(5)
+	var res := Resources.new()
+	res.life_force = 500.0
+	r.start_run(0)
+	r.tip_position = Vector3(1.0, -9.95, -13.9)
+	r.heading = Vector3(-0.5, -0.9, -0.3).normalized()
+	var frames := 0
+	while r.advance(Vector2(-1.0, -1.0), true, 1.0 / 30.0, u, res) and frames < 30 * 120:
+		frames += 1
+	t.check(not r.run_active, "the run ends or escapes within two minutes (%d frames)" % frames)
