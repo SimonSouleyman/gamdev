@@ -149,3 +149,102 @@ static func grass_transforms(count: int, radius: float, seed: int) -> Array[Tran
 		basis = basis.scaled(Vector3(w, h, w))
 		out.append(Transform3D(basis, Vector3(cos(a) * d, 0.0, sin(a) * d)))
 	return out
+
+
+## A painted clump of meadow grass (or, with `herbs`, low leaves and wildflowers) for the
+## crossed-card meadow: many thin curved blades in varied greens, a few dry ones, soft tips.
+## Seeded; the root of the clump is at the bottom centre of the image.
+static func clump_texture(herbs: bool, seed: int, size: int = 256) -> ImageTexture:
+	# Painted once, then kept in the user folder.
+	var cache := "user://cache/clump_%s_%d_%d_v1.png" % ["herbs" if herbs else "grass", seed, size]
+	if FileAccess.file_exists(cache):
+		var cached := Image.load_from_file(ProjectSettings.globalize_path(cache))
+		if cached != null and not cached.is_empty():
+			cached.generate_mipmaps()
+			return ImageTexture.create_from_image(cached)
+	var img := Image.create(size, size, true, Image.FORMAT_RGBA8)
+	img.fill(Color(0.2, 0.3, 0.1, 0.0))
+	var rng := RandomNumberGenerator.new()
+	rng.seed = seed
+	var blades := 70 if not herbs else 40
+	for _b in range(blades):
+		var base := Vector2(size * rng.randf_range(0.18, 0.82), size - 1.0)
+		var h := size * rng.randf_range(0.45, 0.97) * (0.6 if herbs else 1.0)
+		var lean := rng.randf_range(-0.35, 0.35)
+		var bend := rng.randf_range(-0.25, 0.25)
+		var dry := rng.randf() < 0.12 and not herbs
+		var base_col := Color(0.1, 0.18, 0.05)
+		var tip_col := Color(0.47, 0.6, 0.22).lerp(Color(0.62, 0.62, 0.3), 0.6 if dry else rng.randf() * 0.2)
+		tip_col = tip_col * rng.randf_range(0.8, 1.1)
+		var width := rng.randf_range(2.2, 3.6)
+		var steps := int(h)
+		for s in range(steps):
+			var t := float(s) / steps
+			var p := base + Vector2((lean * t + bend * t * t) * h, -t * h)
+			var r := width * (1.0 - t) + 0.4
+			var col := base_col.lerp(tip_col, pow(t, 0.7))
+			_dab(img, p, r, col)
+	if herbs:
+		# Low leaves and a few flower heads: white, yellow, violet.
+		var flower_cols: Array[Color] = [Color(0.96, 0.95, 0.9), Color(1.0, 0.86, 0.25), Color(0.66, 0.5, 0.86), Color(0.95, 0.55, 0.62)]
+		for _l in range(26):
+			var p := Vector2(size * rng.randf_range(0.2, 0.8), size * rng.randf_range(0.55, 0.95))
+			var leaf_col := Color(0.2, 0.36, 0.1) * rng.randf_range(0.8, 1.2)
+			for k in range(6):
+				_dab(img, p + Vector2(k * 1.5 - 4.0, -k * 1.2), 4.0 - k * 0.4, leaf_col)
+		var fc := flower_cols[rng.randi() % flower_cols.size()]
+		for _f in range(rng.randi_range(3, 7)):
+			var stem := Vector2(size * rng.randf_range(0.25, 0.75), size - 1.0)
+			var top := stem + Vector2(rng.randf_range(-20, 20), -size * rng.randf_range(0.45, 0.8))
+			for s in range(40):
+				_dab(img, stem.lerp(top, s / 40.0), 1.2, Color(0.2, 0.32, 0.1))
+			for k in range(5):
+				var a := TAU * k / 5.0
+				_dab(img, top + Vector2(cos(a), sin(a)) * 5.0, 3.6, fc)
+			_dab(img, top, 2.5, Color(0.95, 0.8, 0.2))
+	DirAccess.make_dir_recursive_absolute("user://cache")
+	img.save_png(cache)
+	img.generate_mipmaps()
+	return ImageTexture.create_from_image(img)
+
+
+static func _dab(img: Image, p: Vector2, r: float, col: Color) -> void:
+	var ri := int(ceil(r))
+	for dy in range(-ri, ri + 1):
+		for dx in range(-ri, ri + 1):
+			var x := int(p.x) + dx
+			var y := int(p.y) + dy
+			if x < 0 or y < 0 or x >= img.get_width() or y >= img.get_height():
+				continue
+			var d := Vector2(dx, dy).length()
+			if d <= r:
+				var a := clampf(r - d + 0.5, 0.0, 1.0)
+				var under := img.get_pixel(x, y)
+				img.set_pixel(x, y, Color(under.lerp(col, a), maxf(under.a, a)))
+
+
+## Three crossed cards, 1 m wide and 1 m tall, standing on the origin. UV.y = 1 at the ground.
+static func clump_mesh() -> ArrayMesh:
+	var verts := PackedVector3Array()
+	var normals := PackedVector3Array()
+	var uvs := PackedVector2Array()
+	var indices := PackedInt32Array()
+	for i in range(3):
+		var a := PI * i / 3.0
+		var side := Vector3(cos(a), 0, sin(a)) * 0.5
+		var n := Vector3(-sin(a), 0, cos(a))
+		var b := verts.size()
+		verts.append_array([-side, side, side + Vector3.UP, -side + Vector3.UP])
+		uvs.append_array([Vector2(0, 1), Vector2(1, 1), Vector2(1, 0), Vector2(0, 0)])
+		for _k in range(4):
+			normals.append(n)
+		indices.append_array([b, b + 1, b + 2, b, b + 2, b + 3])
+	var arrays := []
+	arrays.resize(Mesh.ARRAY_MAX)
+	arrays[Mesh.ARRAY_VERTEX] = verts
+	arrays[Mesh.ARRAY_NORMAL] = normals
+	arrays[Mesh.ARRAY_TEX_UV] = uvs
+	arrays[Mesh.ARRAY_INDEX] = indices
+	var mesh := ArrayMesh.new()
+	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	return mesh

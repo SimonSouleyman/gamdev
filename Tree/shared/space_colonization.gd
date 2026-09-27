@@ -31,7 +31,7 @@ func add_marker(p: Vector3) -> void:
 
 ## Seed `count` markers uniformly inside a sphere (center, radius), capped by `limit`.
 ## At the cap the oldest markers make room, so the crown keeps following the sun.
-func seed_sphere(center: Vector3, radius: float, count: int, limit: int = Budgets.TREE_MARKERS, min_y: float = -INF) -> void:
+func seed_sphere(center: Vector3, radius: float, count: int, limit: int = Budgets.TREE_MARKERS, min_y: float = -INF, max_y: float = INF) -> void:
 	count = mini(count, limit)
 	var overflow := markers.size() + count - limit
 	if overflow > 0:
@@ -41,7 +41,7 @@ func seed_sphere(center: Vector3, radius: float, count: int, limit: int = Budget
 		while v.length_squared() > 1.0:
 			v = Vector3(rng.randf_range(-1, 1), rng.randf_range(-1, 1), rng.randf_range(-1, 1))
 		var p := center + v * radius
-		p.y = maxf(p.y, min_y)
+		p.y = clampf(p.y, min_y, max_y)
 		markers.append(p)
 
 

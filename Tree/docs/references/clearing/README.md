@@ -1,0 +1,2 @@
+Reference photos of forest clearings from Simon (play test 2026-09-27), downscaled to 1024 px.
+1 sunlit meadow clearing framed by oak branches, low sun; 2 misty clearing with a stream and mossy rocks; 3 autumn forest edge, leaf litter, mixed deciduous and conifer; 4 small clearing through a gap in dense trees; 5 old spreading oak in green forest; 6 huge old beech-like tree, wide crown, low sun (AI-generated image); 7 gnarled old oak with ferns; 8 broad oak on a lawn.

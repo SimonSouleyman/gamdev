@@ -254,6 +254,10 @@ func skip_time(fraction: float) -> void:
 	if fraction >= to_sunset:
 		seconds += 0.01  # land on the sunset itself, not a hair before it
 	sim.clock.boost_active = false
+	# The dawn burst (the night's growth) always plays out first.
+	while sim.dawn_burst_active() and seconds > 0.0 and phase == Phase.DAY:
+		tick(0.5)
+		seconds -= 0.5
 	# The skipped hours move the sun and fill the life force, but the tree waits: the night's
 	# nutrients stay for the hour the player picked (Simon: wait for the afternoon, then boost).
 	sim.growth_paused = true

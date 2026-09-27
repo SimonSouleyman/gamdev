@@ -62,6 +62,10 @@ func _begin(index: int, p: Vector2) -> void:
 	pressed_changed.emit(true)
 
 
+func release() -> void:
+	_end()
+
+
 func _end() -> void:
 	_touch_index = -1
 	_knob = Vector2.ZERO

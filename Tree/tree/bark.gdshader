@@ -45,6 +45,8 @@ void fragment() {
 		NORMAL_MAP = normalize(vec3(-dx * 3.0 * normal_strength, -dy * 1.0 * normal_strength, 1.0)) * 0.5 + 0.5;
 		ROUGHNESS = mix(0.95, 0.8, f);
 	}
+	// Per-species bark tint from vertex colours (white where a mesh has none).
+	ALBEDO *= COLOR.rgb;
 	SPECULAR = 0.3;
 	EMISSION = glow * ALBEDO;
 }

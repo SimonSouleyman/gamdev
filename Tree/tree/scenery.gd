@@ -9,7 +9,6 @@ const FOREST_TREES := Budgets.FOREST_TREES
 ## The open middle where the player's tree grows; the underground reaches about as far.
 const CLEARING_RADIUS := 18.0
 const BUSHES := Budgets.FOREST_BUSHES
-const TREE_VARIANTS := 4
 const CLOUDS := 16
 const FLOWERS := Budgets.MEADOW_FLOWERS
 const BUTTERFLIES := 6
@@ -53,24 +52,75 @@ func build(seed: int, bark: Material, leaf: Material, noise: Texture2D) -> void:
 	_fireflies = _motes(Color(0.85, 1.0, 0.45, 1.0), 40, Vector3(9, 0.8, 9), Vector3(0, 0.6, 0), 0.04)
 
 
-# --- distant trees -------------------------------------------------------------
+# --- the forest around the clearing ----------------------------------------------
 
-## Grows a small tree with the real growth model (fed and in noon light), then bakes wood and
-## leaf cards into one mesh with two surfaces. Distant trees are therefore the same species,
-## grown the same way, as the player's tree.
+## The kinds of trees around the clearing (Simon's reference photos: a closed wall of mixed
+## species, different heights and greens). Broadleaves are grown by the real growth model with
+## their own shape; the spruce is built directly. Each kind has its own bark and leaf colour.
+const KINDS: Array[Dictionary] = [
+	{"name": "oak", "apical": 0.03, "crown": 12.0, "photo": 0.3, "nodes": 380, "bark": Color(0.42, 0.37, 0.32), "leaf": Color(0.5, 0.62, 0.36), "card": 0.46, "scale": Vector2(1.5, 2.2)},
+	{"name": "beech", "apical": 0.07, "crown": 9.0, "photo": 0.4, "nodes": 340, "bark": Color(0.75, 0.74, 0.7), "leaf": Color(0.66, 0.8, 0.42), "card": 0.42, "scale": Vector2(1.6, 2.3)},
+	{"name": "birch", "apical": 0.22, "crown": 4.5, "photo": 0.45, "nodes": 280, "bark": Color(1.45, 1.42, 1.35), "leaf": Color(0.8, 0.92, 0.5), "card": 0.32, "scale": Vector2(1.6, 2.2)},
+	{"name": "linden", "apical": 0.1, "crown": 12.0, "photo": 0.5, "nodes": 330, "bark": Color(0.55, 0.47, 0.38), "leaf": Color(0.58, 0.72, 0.4), "card": 0.42, "scale": Vector2(1.4, 2.0)},
+	{"name": "spruce", "spruce": true, "bark": Color(0.4, 0.33, 0.28), "leaf": Color(0.36, 0.5, 0.36), "card": 0.55, "scale": Vector2(1.0, 1.6)},
+]
+## Bump when the forest generator changes, so cached meshes are regrown.
+const FOREST_CACHE_VERSION := 7
+
+
 func _grow_variant(seed: int, variant: int, bark: Material, leaf: Material) -> ArrayMesh:
+	var kind: Dictionary = KINDS[variant]
 	# Grown once per seed, then kept in the user folder: later starts just load them.
-	var cache := "user://cache/forest_%d_%d_v3.res" % [seed, variant]
-	if ResourceLoader.exists(cache):
-		var cached := load(cache) as ArrayMesh
+	var key := hash([FOREST_CACHE_VERSION, Budgets.FOREST_VARIANT_NODES, kind])
+	var cache := "user://cache/forest_%d_%d_%d.res" % [seed, variant, key]
+	if _cache_file_ok(cache):
+		var cached := ResourceLoader.load(cache, "", ResourceLoader.CACHE_MODE_IGNORE) as ArrayMesh
 		if cached != null and cached.get_surface_count() == 2:
 			cached.surface_set_material(0, bark)
 			cached.surface_set_material(1, leaf)
 			return cached
 	var local := RandomNumberGenerator.new()
 	local.seed = hash([seed, "background tree growth", variant])
+	var mesh: ArrayMesh
+	if kind.get("spruce", false):
+		mesh = _build_spruce(local, kind)
+	else:
+		mesh = _build_broadleaf(seed, variant, local, kind)
+	if mesh.get_surface_count() == 2:
+		DirAccess.make_dir_recursive_absolute("user://cache")
+		ResourceSaver.save(mesh, cache, ResourceSaver.FLAG_COMPRESS)
+		mesh.surface_set_material(0, bark)
+		mesh.surface_set_material(1, leaf)
+	return mesh
+
+
+## A file the engine can read as a resource (so a truncated cache file is skipped quietly).
+func _cache_file_ok(path: String) -> bool:
+	if not FileAccess.file_exists(path):
+		return false
+	var f := FileAccess.open(path, FileAccess.READ)
+	if f == null or f.get_length() < 64:
+		return false
+	var magic := f.get_buffer(4).get_string_from_ascii()
+	return magic == "RSCC" or magic == "RSRC"
+
+
+## Removes cached forests of other seeds or older generator versions.
+func _prune_cache(seed: int) -> void:
+	var dir := DirAccess.open("user://cache")
+	if dir == null:
+		return
+	for f in dir.get_files():
+		if f.begins_with("forest_") and not f.begins_with("forest_%d_" % seed):
+			dir.remove(f)
+
+
+func _build_broadleaf(seed: int, variant: int, local: RandomNumberGenerator, kind: Dictionary) -> ArrayMesh:
 	var sim := GrowthSim.new(hash([seed, "background tree", variant]))
-	sim.graph.max_nodes = Budgets.FOREST_VARIANT_NODES + variant * 60
+	sim.species.apical_dominance = kind["apical"]
+	sim.species.max_crown_radius = kind["crown"]
+	sim.species.phototropism = kind["photo"]
+	sim.graph.max_nodes = mini(int(kind["nodes"]), Budgets.FOREST_VARIANT_NODES + 80)
 	# Grown quickly with small steps (big steps would make bushes): only the shape matters here.
 	sim.max_growth_per_second = 6.0
 	sim.markers_per_second = 30.0
@@ -83,12 +133,61 @@ func _grow_variant(seed: int, variant: int, bark: Material, leaf: Material) -> A
 			break
 	var builder := BranchMeshBuilder.new()
 	builder.radius_scale = 3.2
-	var wood := builder.build(sim.graph)
 	var mesh := ArrayMesh.new()
+	var wood := builder.build(sim.graph)
 	if wood.get_surface_count() > 0:
-		mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, wood.surface_get_arrays(0))
-		mesh.surface_set_material(0, bark)
-	# Leaf cards, baked: one cluster per twig, bigger than on the hero tree (seen from afar).
+		mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, _tinted(wood.surface_get_arrays(0), kind["bark"]))
+	var spots: Array[Transform3D] = []
+	var g := sim.graph
+	for id in range(2, g.size()):
+		if g.radii[id] >= 0.05:
+			continue
+		var s: float = kind["card"] * local.randf_range(0.85, 1.2)
+		spots.append(Transform3D(Basis(Vector3.UP, local.randf() * TAU).scaled(Vector3.ONE * s), g.positions[id]))
+	_add_leaf_surface(mesh, spots, kind["leaf"], local)
+	return mesh
+
+
+## A spruce: a straight trunk and tiers of dark leaf cards narrowing to a point.
+func _build_spruce(local: RandomNumberGenerator, kind: Dictionary) -> ArrayMesh:
+	var h := local.randf_range(11.0, 15.0)
+	var trunk := PlantGraph.new(Vector3.ZERO, 64)
+	var prev := 0
+	for i in range(1, 12):
+		prev = trunk.add_node(prev, Vector3(local.randf_range(-0.05, 0.05), h * i / 11.0, local.randf_range(-0.05, 0.05)))
+	trunk.update_radii()
+	var builder := BranchMeshBuilder.new()
+	builder.radius_scale = 7.0
+	var mesh := ArrayMesh.new()
+	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, _tinted(builder.build(trunk).surface_get_arrays(0), kind["bark"]))
+	var spots: Array[Transform3D] = []
+	var tiers := 14
+	for t in range(tiers):
+		var y := h * (0.15 + 0.88 * t / float(tiers))
+		var r := (1.0 - (y / h)) * 2.8 + 0.35
+		var n := int(6 + r * 7)
+		for k in range(n):
+			var a := TAU * k / n + local.randf() * 0.4
+			var d := r * sqrt(local.randf_range(0.2, 1.0))
+			var s: float = kind["card"] * local.randf_range(0.8, 1.2) * (0.6 + r * 0.25)
+			# Drooping sprays: cards tilt downward toward the outside.
+			var basis := Basis(Vector3.UP, a).rotated(Vector3(cos(a + PI * 0.5), 0, sin(a + PI * 0.5)), 0.35).scaled(Vector3(s, s * 0.7, s))
+			spots.append(Transform3D(basis, Vector3(cos(a) * d, y - d * 0.25, sin(a) * d)))
+	_add_leaf_surface(mesh, spots, kind["leaf"], local)
+	return mesh
+
+
+## Sets a surface's vertex colours (bark tint per kind).
+func _tinted(arrays: Array, tint: Color) -> Array:
+	var verts: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+	var colors := PackedColorArray()
+	colors.resize(verts.size())
+	colors.fill(tint)
+	arrays[Mesh.ARRAY_COLOR] = colors
+	return arrays
+
+
+func _add_leaf_surface(mesh: ArrayMesh, spots: Array[Transform3D], tint: Color, local: RandomNumberGenerator) -> void:
 	var cluster := Foliage.cluster_mesh(5, 1.0, Assets.has_leaf_atlas()).surface_get_arrays(0)
 	var cv: PackedVector3Array = cluster[Mesh.ARRAY_VERTEX]
 	var cn: PackedVector3Array = cluster[Mesh.ARRAY_NORMAL]
@@ -99,56 +198,49 @@ func _grow_variant(seed: int, variant: int, bark: Material, leaf: Material) -> A
 	var uvs := PackedVector2Array()
 	var colors := PackedColorArray()
 	var indices := PackedInt32Array()
-	var g := sim.graph
-	for id in range(2, g.size()):
-		if g.radii[id] >= 0.03:
-			continue
-		var s := local.randf_range(0.26, 0.36)
-		var xf := Transform3D(Basis(Vector3.UP, local.randf() * TAU).scaled(Vector3.ONE * s), g.positions[id])
-		# The forest is older and shadier than the tree in the sun: darker leaves.
-		var tint := local.randf_range(0.5, 0.78)
+	for xf in spots:
+		var v := local.randf_range(0.8, 1.1)
+		var col := Color(tint.r * v, tint.g * v, tint.b * v)
 		var base := verts.size()
 		for i in range(cv.size()):
 			verts.append(xf * cv[i])
 			normals.append((xf.basis * cn[i]).normalized())
 			uvs.append(cu[i])
-			colors.append(Color(tint, tint, tint * 0.95))
+			colors.append(col)
 		for i in ci:
 			indices.append(base + i)
-	if not indices.is_empty():
-		var arrays := []
-		arrays.resize(Mesh.ARRAY_MAX)
-		arrays[Mesh.ARRAY_VERTEX] = verts
-		arrays[Mesh.ARRAY_NORMAL] = normals
-		arrays[Mesh.ARRAY_TEX_UV] = uvs
-		arrays[Mesh.ARRAY_COLOR] = colors
-		arrays[Mesh.ARRAY_INDEX] = indices
-		mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
-		mesh.surface_set_material(mesh.get_surface_count() - 1, leaf)
-	if mesh.get_surface_count() == 2:
-		DirAccess.make_dir_recursive_absolute("user://cache")
-		var plain := mesh.duplicate() as ArrayMesh
-		plain.surface_set_material(0, null)
-		plain.surface_set_material(1, null)
-		ResourceSaver.save(plain, cache, ResourceSaver.FLAG_COMPRESS)
-	return mesh
+	if indices.is_empty():
+		return
+	var arrays := []
+	arrays.resize(Mesh.ARRAY_MAX)
+	arrays[Mesh.ARRAY_VERTEX] = verts
+	arrays[Mesh.ARRAY_NORMAL] = normals
+	arrays[Mesh.ARRAY_TEX_UV] = uvs
+	arrays[Mesh.ARRAY_COLOR] = colors
+	arrays[Mesh.ARRAY_INDEX] = indices
+	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
 
 
 func _build_distant_trees(seed: int, bark: Material, leaf: Material) -> void:
+	_prune_cache(seed)
 	var variants: Array[ArrayMesh] = []
-	for v in range(TREE_VARIANTS):
+	for v in range(KINDS.size()):
 		variants.append(_grow_variant(seed, v, bark, leaf))
 	var per_variant: Array = []
-	for _v in range(TREE_VARIANTS):
+	for _v in range(KINDS.size()):
 		per_variant.append([])
-	# A forest clearing (Simon, play test 2026-09-27): the tree grows in the open middle, the
-	# forest closes in all around, so the world stays small and the view ends at the trees.
-	for _t in range(FOREST_TREES):
-		var ang := _rng.randf() * TAU
-		# Denser toward the inside edge, thinning into the dark wood behind.
-		var d := CLEARING_RADIUS + 7.0 + pow(_rng.randf(), 1.6) * 24.0
-		(per_variant[_rng.randi() % TREE_VARIANTS] as Array).append(Vector3(cos(ang) * d, 0, sin(ang) * d))
-	for v in range(TREE_VARIANTS):
+	# A closed wall of mixed trees around the clearing: a dense first row close to the edge,
+	# then deeper wood. Oak and beech dominate, birches at the bright edge, spruce behind.
+	var weights := [3, 3, 2, 2, 2]
+	for t in range(FOREST_TREES):
+		var ang := TAU * (float(t) + _rng.randf() * 0.8) / FOREST_TREES * 3.0
+		var front := t % 3 != 2
+		var d := CLEARING_RADIUS + (_rng.randf_range(2.0, 6.5) if front else _rng.randf_range(8.0, 24.0))
+		var kind := _weighted(weights)
+		if front and kind == 4 and _rng.randf() < 0.6:
+			kind = 2
+		(per_variant[kind] as Array).append(Vector3(cos(ang) * d, 0, sin(ang) * d))
+	for v in range(KINDS.size()):
 		var spots: Array = per_variant[v]
 		if spots.is_empty():
 			continue
@@ -157,12 +249,25 @@ func _build_distant_trees(seed: int, bark: Material, leaf: Material) -> void:
 		mm.transform_format = MultiMesh.TRANSFORM_3D
 		mm.mesh = variants[v]
 		mm.instance_count = spots.size()
+		var sc: Vector2 = KINDS[v]["scale"]
 		for i in range(spots.size()):
-			var s := _rng.randf_range(1.3, 2.1)
+			var s := _rng.randf_range(sc.x, sc.y)
 			mm.set_instance_transform(i, Transform3D(Basis(Vector3.UP, _rng.randf() * TAU).scaled(Vector3.ONE * s), spots[i]))
 		mmi.multimesh = mm
 		mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		add_child(mmi)
+
+
+func _weighted(weights: Array) -> int:
+	var total := 0
+	for w in weights:
+		total += int(w)
+	var r := _rng.randi() % total
+	for i in range(weights.size()):
+		r -= int(weights[i])
+		if r < 0:
+			return i
+	return 0
 
 
 const BACKDROP_SHADER := """

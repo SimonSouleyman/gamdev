@@ -43,7 +43,7 @@ var marker_distance: float = 1.5
 ## Only the newest markers stay alive, so the crown follows today's sun, not last week's.
 var live_markers: int = 150
 ## Without boosting the sun steers the crown only this much (the boost is the steering).
-var passive_steering: float = 0.4
+var passive_steering: float = 0.2
 ## New markers never go below this height, so a seedling does not creep along the ground.
 const MARKER_MIN_Y: float = 0.25
 var marker_radius: float = 0.8
@@ -137,8 +137,10 @@ func _seed_markers(sun: Vector3, top: float, amount: float, steer: float) -> voi
 	_marker_accum -= crown
 	var limit := mini(live_markers, Budgets.TREE_MARKERS)
 	var flat := Vector3(sun.x, 0.0, sun.z) * steer
-	colonizer.seed_sphere(Vector3(0, top + 0.45, 0) + flat * 0.4, 0.45, leader, limit, MARKER_MIN_Y)
-	colonizer.seed_sphere(marker_center(sun, top, steer), r, crown, limit, MARKER_MIN_Y)
+	# Nothing is seeded above the species' full height: the tree stops growing taller there.
+	var cap := species.max_height
+	colonizer.seed_sphere(Vector3(0, top + 0.45, 0) + flat * 0.4, 0.45, leader, limit, MARKER_MIN_Y, cap)
+	colonizer.seed_sphere(marker_center(sun, top, steer), r, crown, limit, MARKER_MIN_Y, cap)
 
 
 ## Centre of the crown sphere for new markers.
@@ -196,11 +198,9 @@ func repace_rest_of_day() -> void:
 
 ## True when the tree has nothing left to grow with, so the day may be moved on: no water for
 ## a single segment, a needed nutrient used up (soft Liebig: growth would only crawl), or a full tree.
+## (A missing N, P or K only slows the tree, soft Liebig: the HUD marks it, the day is not "spent".)
 func nutrients_spent() -> bool:
-	if _affordable_nodes() <= 0 or graph.is_full():
-		return true
-	# Not while the dawn burst still grows the night's share.
-	return not dawn_burst_active() and nutrient_missing()
+	return _affordable_nodes() <= 0 or graph.is_full()
 
 
 ## A needed nutrient is used up: growth only crawls at the soft Liebig floor.

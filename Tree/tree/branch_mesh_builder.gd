@@ -35,21 +35,23 @@ func build(g: PlantGraph, first_id: int = 1, end_id: int = -1) -> ArrayMesh:
 		return ArrayMesh.new()
 	var last := n if end_id < 0 else mini(end_id, n)
 	var first := maxi(1, first_id)
-	var needed := PackedByteArray()
-	needed.resize(n)
+	# The nodes to mesh plus their ancestors (for the twist-free frames), in id order.
+	# A range build (the growing root) touches only its own chain, not the whole graph.
+	var seen := {}
 	var order := PackedInt32Array()
 	for id in range(first, last):
 		var cur := id
-		while cur >= 0 and needed[cur] == 0:
-			needed[cur] = 1
+		while cur >= 0 and not seen.has(cur):
+			seen[cur] = true
+			order.append(cur)
 			cur = g.parents[cur]
-	for id in range(n):
-		if needed[id] == 1:
-			order.append(id)
+	order.sort()
 	var alive := PackedByteArray()
 	alive.resize(n)
-	for id in range(n):
+	for id in order:
 		alive[id] = 0 if g.get_flag(id, "dead", false) else 1
+		for c in (g.children[id] as Array):
+			alive[c] = 0 if g.get_flag(c, "dead", false) else 1
 	# The main continuation of each node: its thickest living child.
 	var main_child := PackedInt32Array()
 	main_child.resize(n)

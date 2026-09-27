@@ -71,5 +71,9 @@ func _gui_input(event: InputEvent) -> void:
 				best_d = d
 				best = p
 		if best > progress:
-			dragged.emit(best - progress)
+			var step := best - progress
+			# Several drag events can arrive in one frame (phones sample at 120-240 Hz): count
+			# each step once, or a short drag would jump far past where the finger stopped.
+			progress = best
+			dragged.emit(step)
 		accept_event()

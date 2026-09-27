@@ -24,6 +24,7 @@ var _sun_light: DirectionalLight3D
 var _sun_disc: MeshInstance3D
 var _sky_mat: PhysicalSkyMaterial
 var _grass: MultiMeshInstance3D
+var _herbs: MultiMeshInstance3D
 var _noise_tex: NoiseTexture2D
 var _bark_mat: ShaderMaterial
 var _leaf_mat: ShaderMaterial
@@ -55,7 +56,9 @@ var dive_amount: float = 0.0
 # Input
 var _pressing: bool = false
 var _press_pos: Vector2
-var _drag_mode: String = ""  # "", "orbit", "sun", "boost"
+var _drag_mode: String = ""
+var _press_phase: int = -1
+var _press_time: float = 0.0  # "", "orbit", "sun", "boost"
 var _touches: Dictionary = {}
 var _pinch_start: float = 0.0
 var _pinch_zoom: float = 1.0
@@ -192,19 +195,10 @@ func _build_world() -> void:
 	_leaves.material_override = _leaf_mat
 	_leaves.extra_cull_margin = 4.0
 
-	# The meadow: instanced grass blades around the tree.
-	_grass = MultiMeshInstance3D.new()
-	var gmm := MultiMesh.new()
-	gmm.transform_format = MultiMesh.TRANSFORM_3D
-	gmm.use_colors = true
-	gmm.mesh = Foliage.blade_mesh()
-	_grass.multimesh = gmm
-	var grass_mat := ShaderMaterial.new()
-	grass_mat.shader = preload("res://tree/grass.gdshader")
-	_grass.material_override = grass_mat
-	_grass.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	_grass.custom_aabb = AABB(Vector3(-32, -1, -32), Vector3(64, 3, 64))
-	add_child(_grass)
+	# The meadow: dense soft clumps of grass on crossed cards, with herb and wildflower clumps
+	# in between (Simon, play test: single blades did not fit the picture).
+	_grass = _clump_layer(Foliage.clump_texture(false, 11))
+	_herbs = _clump_layer(Foliage.clump_texture(true, 12))
 	add_child(_leaves)
 
 	_twinkles = MultiMeshInstance3D.new()
@@ -261,20 +255,46 @@ func _build_world() -> void:
 	add_child(_sun_disc)
 
 
-const GRASS_BLADES := 24000
+const GRASS_CLUMPS := 7000
+const HERB_CLUMPS := 900
 const GRASS_RADIUS := 20.0
 
 
+func _clump_layer(tex: Texture2D) -> MultiMeshInstance3D:
+	var mmi := MultiMeshInstance3D.new()
+	var mm := MultiMesh.new()
+	mm.transform_format = MultiMesh.TRANSFORM_3D
+	mm.use_colors = true
+	mm.mesh = Foliage.clump_mesh()
+	mmi.multimesh = mm
+	var mat := ShaderMaterial.new()
+	mat.shader = preload("res://tree/grass_card.gdshader")
+	mat.set_shader_parameter("clump_texture", tex)
+	mmi.material_override = mat
+	mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	mmi.custom_aabb = AABB(Vector3(-24, -1, -24), Vector3(48, 3, 48))
+	add_child(mmi)
+	return mmi
+
+
 func _plant_grass(seed: int) -> void:
-	var xf := Foliage.grass_transforms(GRASS_BLADES, GRASS_RADIUS, seed)
-	var mm := _grass.multimesh
-	mm.instance_count = xf.size()
 	var rng := RandomNumberGenerator.new()
-	rng.seed = hash([seed, "grass colour"])
-	for i in range(xf.size()):
-		mm.set_instance_transform(i, xf[i])
-		var v := rng.randf_range(0.8, 1.15)
-		mm.set_instance_color(i, Color(v * rng.randf_range(0.92, 1.05), v, v * rng.randf_range(0.85, 1.0)))
+	rng.seed = hash([seed, "meadow clumps"])
+	for layer in [[_grass, GRASS_CLUMPS, Vector2(0.45, 0.8), Vector2(0.24, 0.42)], [_herbs, HERB_CLUMPS, Vector2(0.35, 0.55), Vector2(0.2, 0.36)]]:
+		var mm: MultiMesh = (layer[0] as MultiMeshInstance3D).multimesh
+		var count: int = layer[1]
+		mm.instance_count = count
+		for i in range(count):
+			var d := GRASS_RADIUS * pow(rng.randf(), 0.7)
+			if d < 0.3:
+				d = 0.3 + rng.randf() * 0.4
+			var a := rng.randf() * TAU
+			var w := rng.randf_range(layer[2].x, layer[2].y)
+			var h := rng.randf_range(layer[3].x, layer[3].y)
+			var basis := Basis(Vector3.UP, rng.randf() * TAU).scaled(Vector3(w, h, w))
+			mm.set_instance_transform(i, Transform3D(basis, Vector3(cos(a) * d, -0.02, sin(a) * d)))
+			var v := rng.randf_range(0.82, 1.12)
+			mm.set_instance_color(i, Color(v * rng.randf_range(0.92, 1.06), v, v * rng.randf_range(0.85, 1.0)))
 
 
 ## A soft four-pointed sparkle, drawn once into a small texture.
@@ -412,8 +432,12 @@ func _process(delta: float) -> void:
 		return
 	# A journal page or a transition took the input: a hold in progress ends here, or the
 	# release would never arrive and the boost would stay on.
-	if not input_enabled and _pressing:
-		_end_press(false)
+	if not input_enabled:
+		# Releases can be swallowed while a page is open: forget every finger then.
+		if _pressing:
+			_end_press(false)
+		_touches.clear()
+		_pinch_start = 0.0
 	_time += delta
 	_rebuild_timer += delta
 	if _rebuild_timer >= REBUILD_INTERVAL and state.sim.graph.size() != _built_size:
@@ -442,7 +466,7 @@ func _rebuild() -> void:
 	var mm := _leaves.multimesh
 	mm.instance_count = spots.size()
 	var rng := RandomNumberGenerator.new()
-	rng.seed = 5
+	rng.seed = hash([state.seed, "leaf clusters"])
 	var grow := 1.0 + state.sim.height() * 0.06
 	for i in range(spots.size()):
 		var id := spots[i]
@@ -593,6 +617,8 @@ func _begin_press(pos: Vector2) -> void:
 		return
 	_pressing = true
 	_press_pos = pos
+	_press_phase = state.phase
+	_press_time = _time
 	_drag_mode = ""
 	if state.phase == GameState.Phase.DAY:
 		if state.can_skip_time() and _near_sun(pos):
@@ -620,7 +646,8 @@ func _end_press(is_release: bool, pos: Vector2 = Vector2.ZERO) -> void:
 		return
 	_pressing = false
 	state.sim.clock.boost_active = false
-	if is_release and _drag_mode != "orbit" and _drag_mode != "sun" and state.phase == GameState.Phase.SUNSET:
+	# Only a short tap that began at sunset dives (not the end of a boost held through sunset).
+	if is_release and _drag_mode != "orbit" and _drag_mode != "sun" and state.phase == GameState.Phase.SUNSET 			and _press_phase == GameState.Phase.SUNSET and _time - _press_time < 0.6:
 		if _hits_ground(pos):
 			ground_tapped.emit()
 	_drag_mode = ""

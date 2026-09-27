@@ -17,7 +17,7 @@ func test_liebig_soft_minimum() -> void:
 	var needs := PackedFloat32Array([1, 1, 1, 1])
 	t.check_near(Resources.growth_factor(PackedFloat32Array([5, 5, 5, 5]), needs), 1.0, 1e-6, "plenty = full")
 	t.check_near(Resources.growth_factor(PackedFloat32Array([5, 0.5, 5, 5]), needs), 0.5, 1e-6, "scarcest limits")
-	t.check_near(Resources.growth_factor(PackedFloat32Array([0, 0, 0, 0]), needs), 0.15, 1e-6, "never zero")
+	t.check_near(Resources.growth_factor(PackedFloat32Array([0, 0, 0, 0]), needs), 0.35, 1e-6, "never zero: a shortage slows to about a third")
 	t.check_near(Resources.growth_factor(PackedFloat32Array([0, 9, 9, 9]), PackedFloat32Array([0, 1, 1, 1])), 1.0, 1e-6, "unneeded kinds ignored")
 
 

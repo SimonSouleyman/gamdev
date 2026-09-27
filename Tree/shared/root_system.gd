@@ -270,7 +270,7 @@ func end_run(ground: Underground, res: Resources) -> void:
 	_fine_budget = mini(Budgets.FINE_ROOTS_MAX_PER_MAIN_ROOT,
 		Budgets.FINE_ROOTS_PER_MAIN_ROOT + int(leftover_spent * fine_nodes_per_life_force))
 	# Leftover life force reaches further: the fine roots gather what lies around the new root.
-	_fine_reach = fine_radius + minf(4.0, leftover_spent * 0.05)
+	_fine_reach = fine_radius + minf(5.0, leftover_spent * 0.08)
 	if run_node_count() > 0:
 		_grow_fine_roots(ground, res)
 		main_root_count += 1

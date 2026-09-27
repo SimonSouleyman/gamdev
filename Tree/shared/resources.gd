@@ -46,7 +46,7 @@ func try_spend_life_force(amount_needed: float) -> bool:
 ## Soft Liebig's law: growth factor 0..1 from the scarcest resource relative to the
 ## species' need. `needs` = per-kind demand for one unit of growth. A shortage slows
 ## growth down but never stops it (floor).
-static func growth_factor(stock_in: PackedFloat32Array, needs: PackedFloat32Array, floor_value: float = 0.15) -> float:
+static func growth_factor(stock_in: PackedFloat32Array, needs: PackedFloat32Array, floor_value: float = 0.35) -> float:
 	var worst := 1.0
 	for k in range(4):
 		if needs[k] <= 0.0:

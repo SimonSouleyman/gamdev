@@ -425,7 +425,8 @@ func _enter_run() -> void:
 	_hover.visible = false
 	_tip.visible = true
 	_show_run_controls(true)
-	_rebuild_all()
+	# The old roots did not change since the last run ended: only the new root is built.
+	_rebuild_all(false)
 	_update_hud()
 
 
@@ -530,6 +531,13 @@ func _outside_rocks(p: Vector3) -> Vector3:
 			p = c + (p - c).normalized() * rr
 	p.y = minf(p.y, -0.1)
 	return p
+
+
+## A page opened: fingers lifted meanwhile would never be seen, so let go of stick and dive.
+func release_controls() -> void:
+	if joystick.is_pressed():
+		joystick.release()
+	dive_button.button_pressed = false
 
 
 ## The player ends the root here: fine roots take the rest of tonight's life force.

@@ -132,6 +132,8 @@ func _morning_after_first_night(seed: int) -> GameState:
 func test_drag_the_sun_once_nutrients_are_spent() -> void:
 	var g := _morning_after_first_night(10)
 	t.check(g.can_skip_time(), "the sun can be moved on at any time of the day")
+	while g.sim.dawn_burst_active():
+		g.tick(0.5)
 	var before_skip := g.sim.graph.size()
 	var t0 := g.sim.clock.time_of_day
 	g.skip_time(0.1)

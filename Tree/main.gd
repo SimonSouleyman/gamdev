@@ -28,7 +28,9 @@ func _ready() -> void:
 	if OS.get_cmdline_user_args().has("--ephemeral"):
 		ephemeral = true
 	_build()
-	var loaded: GameState = null if ephemeral else SaveData.load_game()
+	if ephemeral:
+		return  # tools start their own seeded game
+	var loaded: GameState = SaveData.load_game()
 	start(loaded if loaded != null else GameState.new_game(int(Time.get_unix_time_from_system())))
 
 
@@ -108,7 +110,15 @@ func _show_underground(on: bool) -> void:
 
 # --- the loop ---------------------------------------------------------------
 
+## The simulation runs in fixed steps, so the tree grows the same at 30 fps (battery saver),
+## 60 fps or 120 fps from the same seed.
+const SIM_STEP := 1.0 / 30.0
+var _sim_accum: float = 0.0
+
+
 func _process(delta: float) -> void:
+	if state == null:
+		return
 	# A journal page pauses the game; transitions only block input (the dawn burst runs while the camera rises).
 	var paused := journal.is_open()
 	# No diary over a dive or a sunrise.
@@ -117,7 +127,14 @@ func _process(delta: float) -> void:
 	root_view.input_enabled = not paused and not _transitioning
 	root_view.process_mode = Node.PROCESS_MODE_DISABLED if paused else Node.PROCESS_MODE_INHERIT
 	if not paused:
-		state.tick(delta * time_scale)
+		_sim_accum += delta * time_scale
+		var steps := 0
+		while _sim_accum >= SIM_STEP and steps < 40:
+			state.tick(SIM_STEP)
+			_sim_accum -= SIM_STEP
+			steps += 1
+		if steps == 40:
+			_sim_accum = 0.0  # a long hitch: drop the rest rather than spiral
 	_handle_events()
 	ambience.daylight = state.phase == GameState.Phase.DAY
 	_autosave_timer += delta
@@ -155,8 +172,10 @@ func _handle_events() -> void:
 ## The first time the tree runs out: which nutrient is missing and where to find it tonight.
 ## Never before the first-morning page (it would come before the sapling is introduced).
 func _spent_page() -> void:
-	if not state.seen_pages.has("sapling") or not state.first_time("spent"):
-		state._spent_announced = false  # ask again later
+	if not state.seen_pages.has("sapling"):
+		state._spent_announced = false  # ask again after the first-morning page
+		return
+	if not state.first_time("spent"):
 		return
 	var body := Pages.body("spent")
 	var missing: Array[String] = []
@@ -178,12 +197,14 @@ func _page_once(id: String) -> void:
 
 func _on_page_closed(id: String) -> void:
 	# The first root starts at the seed as soon as its page is read.
-	if id == "first_night" and state.can_start_run():
+	if id == "first_night" and state.can_start_run() and state.roots.graph.size() <= 1:
 		root_view.start_at(0)
 
 
 ## The open book covers the screen: the HUD scraps would only peek over its edge.
 func _on_journal_opened(_open: bool) -> void:
+	if _open:
+		root_view.release_controls()
 	var book := journal.is_book_open()
 	tree_view.hud.visible = not book and not _underground and not journal.settings["no_ui"]
 	root_view.hud.visible = not book and _underground
