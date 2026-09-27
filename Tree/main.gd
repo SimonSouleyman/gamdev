@@ -40,11 +40,14 @@ func _ready() -> void:
 		return  # tools start their own seeded game
 	# A drawn page covers the first frames while the forest grows.
 	shed_menu.show_loading(true)
+	_corner.visible = false
+	journal.set_button_visible(false)
 	await get_tree().process_frame
 	await get_tree().process_frame
 	var loaded: GameState = SaveData.load_game()
 	start(loaded if loaded != null else GameState.new_game(int(Time.get_unix_time_from_system())))
 	enter_shed(false)
+	_corner.visible = true
 	shed_menu.show_loading(false)
 
 
@@ -60,6 +63,8 @@ func _build() -> void:
 	tree_view.page_open = func() -> bool: return journal.current_page() != ""
 	shed = Shed.new()
 	tree_view.add_child(shed)
+	# The shed is only seen from inside, in the shed scene, never in the tree scene (Simon).
+	shed.visible = false
 	shed_menu = ShedMenu.new()
 	add_child(shed_menu)
 	shed_menu.settings = journal.settings
@@ -235,8 +240,8 @@ func _on_journal_opened(_open: bool) -> void:
 	if _open:
 		root_view.release_controls()
 	var book := journal.is_book_open()
-	tree_view.hud.visible = not book and not _underground and not journal.settings["no_ui"]
-	root_view.hud.visible = not book and _underground
+	tree_view.hud.visible = not book and not _underground and not in_shed and not journal.settings["no_ui"]
+	root_view.hud.visible = not book and _underground and not in_shed
 
 
 # --- switching --------------------------------------------------------------
@@ -323,7 +328,7 @@ func _apply_setting(key: String, on: bool) -> void:
 			ambience.set_enabled(on)
 		"no_ui":
 			# The journal button stays (faint), or the setting could never be switched back.
-			tree_view.hud.visible = not on and not _underground
+			tree_view.hud.visible = not on and not _underground and not in_shed
 			journal.set_button_faint(on)
 		"battery_saver":
 			Engine.max_fps = 30 if on else 0
@@ -415,7 +420,7 @@ func enter_shed(animate: bool) -> void:
 	if in_shed:
 		return
 	in_shed = true
-	journal.close_page()
+	journal.hold_pages()
 	journal.close_diary()
 	journal.set_button_visible(false)
 	var switch := func() -> void:
@@ -423,6 +428,7 @@ func enter_shed(animate: bool) -> void:
 		root_view.visible = false
 		root_view.hud.visible = false
 		tree_view.hud.visible = false
+		shed.visible = true
 		shed.frame_tree(state.sim.height(), tree_view.camera.environment)
 		shed.camera.make_current()
 		shed_menu.show_menu(true)
@@ -449,7 +455,11 @@ func leave_shed() -> void:
 	tw.tween_property(_fade, "color:a", 1.0, 0.35)
 	tw.tween_callback(func() -> void:
 		in_shed = false
+		shed.visible = false
+		tree_view.dive_amount = 0.0
 		journal.set_button_visible(true)
+		# Pages that were waiting (the first tutorial page) show now, in the game.
+		journal.release_pages()
 		_show_underground(state.phase == GameState.Phase.NIGHT))
 	tw.tween_property(_fade, "color:a", 0.0, 0.45)
 	tw.tween_callback(func() -> void: _transitioning = false)
@@ -503,6 +513,7 @@ func _unhandled_key_input(event: InputEvent) -> void:
 			journal.set_setting("no_ui", on)
 			_apply_setting("no_ui", on)
 		KEY_F9:
+			Photos.clear()
 			start(GameState.new_game(int(Time.get_unix_time_from_system())))
 			in_shed = false
 			enter_shed(false)
@@ -515,5 +526,7 @@ func _unhandled_key_input(event: InputEvent) -> void:
 			if journal.is_open():
 				journal.close_page()
 				journal.close_diary()
-			elif not in_shed:
+			elif shed_menu.is_busy():
+				shed_menu.close_boards()
+			elif not in_shed and not _transitioning:
 				enter_shed(true)

@@ -244,7 +244,10 @@ func regrow(share: float, day: int) -> int:
 	rng.seed = hash([seed, "regrow", day])
 	var n := 0
 	for i in range(dot_collected.size()):
-		if dot_amounts[i] < dot_capacity[i] and rng.randf() < share * 2.0:
+		# Clover and nettles keep feeding nitrogen back into the soil, so it comes back faster
+		# (QA: without this nitrogen ran out from day 4 and held the tree back for a week).
+		var chance := share * (6.0 if dot_kinds[i] == Resources.Kind.NITROGEN else 2.0)
+		if dot_amounts[i] < dot_capacity[i] and rng.randf() < chance:
 			dot_amounts[i] = minf(dot_capacity[i], dot_amounts[i] + dot_capacity[i] * 0.5)
 			if dot_collected[i] != 0:
 				dot_collected[i] = 0

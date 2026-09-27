@@ -301,3 +301,22 @@ func test_a_tap_boosts_one_game_hour_and_time_runs_on() -> void:
 	g.boost_hour()
 	g.boost_hour()
 	t.check(g.sim.clock.boost_remaining <= hour * 3.0 + 1e-3, "at most three hours ahead")
+
+
+func test_a_boost_ends_with_the_day_and_survives_a_save() -> void:
+	# QA round 1: a late tap must not carry into the next morning, and a save keeps the boost.
+	var g := _morning_after_first_night(23)
+	while g.sim.dawn_burst_active():
+		g.tick(0.5)
+	g.boost_hour()
+	var back := DayCycle.from_dict(g.sim.clock.to_dict())
+	t.check_near(back.boost_remaining, g.sim.clock.boost_remaining, 1e-3, "boost time is saved")
+	t.check(back.boost_active, "and still boosting after a load")
+	g.sim.clock.time_of_day = g.sim.clock.daylight_fraction - 0.001
+	g.boost_hour()
+	var guard := 0
+	while g.phase == GameState.Phase.DAY and guard < 100:
+		g.tick(0.25)
+		guard += 1
+	t.check(g.phase != GameState.Phase.DAY, "the sun set")
+	t.check_near(g.sim.clock.boost_remaining, 0.0, 1e-6, "and the boost ended with it")

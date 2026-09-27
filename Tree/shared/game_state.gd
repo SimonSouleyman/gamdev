@@ -97,6 +97,7 @@ func tick(delta: float) -> void:
 				sim.tick(maxf(0.0, to_sunset))
 				clock.time_of_day = clock.daylight_fraction
 				clock.boost_active = false
+				clock.boost_remaining = 0.0
 				phase = Phase.SUNSET
 				_event("sunset")
 			else:
@@ -220,6 +221,7 @@ func _on_run_done() -> void:
 func _sunrise() -> void:
 	phase = Phase.DAY
 	sim.clock.boost_active = false
+	sim.clock.boost_remaining = 0.0
 	night_done = false
 	night_empty = false
 	_spent_announced = false

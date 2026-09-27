@@ -675,9 +675,6 @@ func _begin_press(pos: Vector2) -> void:
 
 
 func _drag(pos: Vector2, rel: Vector2) -> void:
-	if _drag_mode == "sun":
-		_drag_sun(rel)
-		return
 	if _drag_mode != "orbit" and pos.distance_to(_press_pos) > DRAG_THRESHOLD:
 		_drag_mode = "orbit"
 		state.sim.clock.boost_active = false
@@ -694,36 +691,10 @@ func _end_press(is_release: bool, pos: Vector2 = Vector2.ZERO) -> void:
 	if is_release and _drag_mode != "orbit" and state.phase == GameState.Phase.DAY and _press_phase == GameState.Phase.DAY and _time - _press_time < 0.6:
 		state.boost_hour()
 	# Only a short tap that began at sunset dives (not the end of a boost held through sunset).
-	if is_release and _drag_mode != "orbit" and _drag_mode != "sun" and state.phase == GameState.Phase.SUNSET 			and _press_phase == GameState.Phase.SUNSET and _time - _press_time < 0.6:
+	if is_release and _drag_mode != "orbit" and state.phase == GameState.Phase.SUNSET 			and _press_phase == GameState.Phase.SUNSET and _time - _press_time < 0.6:
 		if _hits_ground(pos):
 			ground_tapped.emit()
 	_drag_mode = ""
-
-
-func _near_sun(pos: Vector2) -> bool:
-	# Only the visible, glowing sun can be grabbed; elsewhere a press is a boost.
-	if not _sun_disc.visible or camera.is_position_behind(_sun_disc.global_position):
-		return false
-	return camera.unproject_position(_sun_disc.global_position).distance_to(pos) < 110.0
-
-
-## Moves time on in proportion to how far the finger moves along the sun's screen path.
-func _drag_sun(rel: Vector2) -> void:
-	var clock := state.sim.clock
-	var step := 0.01
-	var here := clock.sun_direction() * SUN_DISTANCE
-	var saved := clock.time_of_day
-	clock.time_of_day = minf(saved + step, clock.daylight_fraction - 0.0001)
-	var there := clock.sun_direction() * SUN_DISTANCE
-	clock.time_of_day = saved
-	if camera.is_position_behind(here) or camera.is_position_behind(there):
-		return
-	var path := camera.unproject_position(there) - camera.unproject_position(here)
-	if path.length() < 0.5:
-		return
-	var along := rel.dot(path.normalized())
-	if along > 0.0:
-		state.skip_time(along / path.length() * step)
 
 
 func _hits_ground(pos: Vector2) -> bool:

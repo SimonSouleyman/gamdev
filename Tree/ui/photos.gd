@@ -28,8 +28,13 @@ static func list() -> Array[String]:
 	for f in d.get_files():
 		if f.ends_with(".png"):
 			out.append(DIR.path_join(f))
-	out.sort()
+	# In the order taken: the time stamp is the last part of the name.
+	out.sort_custom(func(a: String, b: String) -> bool: return _stamp(a) < _stamp(b))
 	return out
+
+
+static func _stamp(path: String) -> int:
+	return int(path.get_file().get_basename().get_slice("_", path.get_file().get_basename().get_slice_count("_") - 1))
 
 
 static func load_texture(path: String) -> Texture2D:

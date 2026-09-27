@@ -77,6 +77,13 @@ func show_menu(on: bool) -> void:
 		_album.visible = false
 
 
+## Esc on the options board or in the album goes back to the note.
+func close_boards() -> void:
+	_options.visible = false
+	_album.visible = false
+	_note.visible = true
+
+
 func is_busy() -> bool:
 	return _options.visible or _album.visible
 

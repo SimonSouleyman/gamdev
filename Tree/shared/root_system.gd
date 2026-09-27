@@ -409,6 +409,7 @@ func to_dict() -> Dictionary:
 		"rng_state": str(rng.state),
 		"run_totals": run_totals,
 		"tapped": tapped.keys(),
+		"run_touched": _run_touched.keys(),
 		"carry": _carry,
 		"run_active": run_active,
 		"tip_id": tip_id,
@@ -429,6 +430,8 @@ static func from_dict(d: Dictionary, random_seed: int = 1) -> RootSystem:
 	r.run_totals = PackedFloat32Array(d.get("run_totals", [0, 0, 0, 0]))
 	for i in d.get("tapped", []):
 		r.tapped[int(i)] = true
+	for i in d.get("run_touched", []):
+		r._run_touched[int(i)] = true
 	r._carry = float(d.get("carry", 0.0))
 	r.run_active = bool(d.get("run_active", false))
 	r.tip_id = int(d.get("tip_id", -1))

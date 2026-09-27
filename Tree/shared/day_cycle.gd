@@ -78,7 +78,7 @@ func light_level() -> float:
 
 
 func to_dict() -> Dictionary:
-	return {"time_of_day": time_of_day, "day_count": day_count, "seconds_per_day": seconds_per_day}
+	return {"time_of_day": time_of_day, "day_count": day_count, "seconds_per_day": seconds_per_day, "boost_remaining": boost_remaining}
 
 
 static func from_dict(d: Dictionary) -> DayCycle:
@@ -86,4 +86,6 @@ static func from_dict(d: Dictionary) -> DayCycle:
 	c.time_of_day = float(d.get("time_of_day", 0.0))
 	c.day_count = int(d.get("day_count", 0))
 	c.seconds_per_day = 192.0  # the day length is a design value, not part of a save
+	c.boost_remaining = float(d.get("boost_remaining", 0.0))
+	c.boost_active = c.boost_remaining > 0.0
 	return c

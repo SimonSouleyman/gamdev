@@ -15,7 +15,7 @@ const NUTRIENT_DOTS_LOADED: int = 4000
 ## The forest around the clearing (rendering budgets: every tree is instanced from a few variants).
 const FOREST_TREES: int = 140
 const FOREST_VARIANT_NODES: int = 320
-const FOREST_BUSHES: int = 150
+const FOREST_BUSHES: int = 260
 const MEADOW_FLOWERS: int = 1500
 const MEADOW_GRASS_CLUMPS: int = 9500
 const MEADOW_HERB_CLUMPS: int = 900
