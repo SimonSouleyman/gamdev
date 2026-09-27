@@ -38,7 +38,7 @@ func build(seed: int, bark: Material, leaf: Material, noise: Texture2D) -> void:
 	# Depth separation (Simon: the tree must stand out from the forest): the wood is darker,
 	# cooler and without the hero tree's rim light.
 	(bark as ShaderMaterial).set_shader_parameter("tint_mul", Color(0.62, 0.64, 0.66))
-	(leaf as ShaderMaterial).set_shader_parameter("tint_mul", Color(0.6, 0.68, 0.7))
+	(leaf as ShaderMaterial).set_shader_parameter("tint_mul", Color(0.8, 0.86, 0.84))
 	(bark as ShaderMaterial).set_shader_parameter("rim_strength", 0.0)
 	(leaf as ShaderMaterial).set_shader_parameter("rim_strength", 0.0)
 	for c in get_children():
@@ -577,7 +577,7 @@ func update(delta: float, day: bool, h: float, sun_color: Color, tree_height: fl
 		var top := maxf(18.0, camera_pos.y + 14.0)
 		_wall.scale.y = top / 22.0
 		_wall.position.y = top * 0.5 - 2.0
-		(_wall.material_override as ShaderMaterial).set_shader_parameter("tint", Color(0.55, 0.6, 0.55).lerp(sun_color, 0.3) * (0.5 + 0.5 * clampf(h * 3.0, 0.0, 1.0)))
+		(_wall.material_override as ShaderMaterial).set_shader_parameter("tint", Color(0.55, 0.6, 0.55).lerp(sun_color, 0.1) * (0.5 + 0.5 * clampf(h * 3.0, 0.0, 1.0)))
 	# Clouds: drift with the wind, white by day, warm and dim at the low sun.
 	var cloud_col := Color(1.0, 0.72, 0.55).lerp(Color(1, 1, 1), clampf(h * 3.0, 0.0, 1.0))
 	var bright := 0.35 + 0.75 * clampf(h * 2.5, 0.0, 1.0) if day else 0.3

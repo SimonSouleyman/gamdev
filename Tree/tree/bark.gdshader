@@ -25,6 +25,16 @@ float fissure(vec2 uv) {
 	return smoothstep(0.35, 0.75, n * 0.7 + m * 0.3);
 }
 
+uniform float sway_strength = 1.0;
+
+void vertex() {
+	// Slow limb sway, growing with height, so the crown moves as a whole in the wind.
+	vec3 w = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
+	float limb = 0.02 * pow(max(w.y, 0.0), 1.2) * sway_strength;
+	vec2 s = vec2(sin(TIME * 0.6 + w.x * 0.2), cos(TIME * 0.5 + w.z * 0.2)) * limb;
+	VERTEX += inverse(mat3(MODEL_MATRIX)) * vec3(s.x, 0.0, s.y);
+}
+
 void fragment() {
 	if (near_fade > 0.0) {
 		float keep = smoothstep(near_fade * 0.6, near_fade, length(VERTEX));

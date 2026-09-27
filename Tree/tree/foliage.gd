@@ -156,7 +156,7 @@ static func grass_transforms(count: int, radius: float, seed: int) -> Array[Tran
 ## Seeded; the root of the clump is at the bottom centre of the image.
 static func clump_texture(herbs: bool, seed: int, size: int = 256) -> ImageTexture:
 	# Painted once, then kept in the user folder.
-	var cache := "user://cache/clump_%s_%d_%d_v1.png" % ["herbs" if herbs else "grass", seed, size]
+	var cache := "user://cache/clump_%s_%d_%d_v2.png" % ["herbs" if herbs else "grass", seed, size]
 	if FileAccess.file_exists(cache):
 		var cached := Image.load_from_file(ProjectSettings.globalize_path(cache))
 		if cached != null and not cached.is_empty():
@@ -173,8 +173,8 @@ static func clump_texture(herbs: bool, seed: int, size: int = 256) -> ImageTextu
 		var lean := rng.randf_range(-0.35, 0.35)
 		var bend := rng.randf_range(-0.25, 0.25)
 		var dry := rng.randf() < 0.12 and not herbs
-		var base_col := Color(0.1, 0.18, 0.05)
-		var tip_col := Color(0.47, 0.6, 0.22).lerp(Color(0.62, 0.62, 0.3), 0.6 if dry else rng.randf() * 0.2)
+		var base_col := Color(0.18, 0.28, 0.08)
+		var tip_col := Color(0.62, 0.72, 0.3).lerp(Color(0.62, 0.62, 0.3), 0.6 if dry else rng.randf() * 0.2)
 		tip_col = tip_col * rng.randf_range(0.8, 1.1)
 		var width := rng.randf_range(2.2, 3.6)
 		var steps := int(h)

@@ -26,7 +26,7 @@ func build(ground: Underground) -> void:
 		var r: float = h["radius"]
 		match str(h["kind"]):
 			"damp":
-				_wet_patch(p, r * 1.2, Color(0.1, 0.13, 0.07), 0.8)
+				_wet_patch(p, r * 1.2, Color(0.16, 0.22, 0.09), 0.9)
 			"rushes":
 				_scatter(p, r, 18, func(q: Vector3) -> void: _blade(q, _rng.randf_range(0.45, 0.8), 0.012, _mats["rush"]))
 			"clover":

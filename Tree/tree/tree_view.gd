@@ -104,7 +104,7 @@ func _build_world() -> void:
 	_sky_mat = PhysicalSkyMaterial.new()
 	_sky_mat.rayleigh_coefficient = 2.0
 	_sky_mat.mie_coefficient = 0.004
-	_sky_mat.turbidity = 3.0
+	_sky_mat.turbidity = 6.0
 	_sky_mat.sun_disk_scale = 1.4
 	_sky_mat.ground_color = Color(0.22, 0.3, 0.14)
 	_sky_mat.energy_multiplier = 1.0
@@ -126,9 +126,9 @@ func _build_world() -> void:
 	_env.glow_bloom = 0.05
 	_env.fog_enabled = true
 	# Haze lies between the tree and the forest: the wood recedes, the tree stays crisp.
-	_env.fog_density = 0.013
+	_env.fog_density = 0.011
 	_env.fog_light_color = Color(0.45, 0.55, 0.5)
-	_env.fog_aerial_perspective = 0.85
+	_env.fog_aerial_perspective = 0.4
 	_env.fog_sky_affect = 0.05
 	_env.adjustment_enabled = true
 	_env.adjustment_saturation = 1.0
@@ -196,7 +196,7 @@ func _build_world() -> void:
 	Assets.apply_leaf(_leaf_mat)
 	_leaves.material_override = _leaf_mat
 	# The player's tree catches the light at its edges, so it reads against the forest wall.
-	_leaf_mat.set_shader_parameter("rim_strength", 0.25)
+	_leaf_mat.set_shader_parameter("rim_strength", 0.1)
 	_leaves.extra_cull_margin = 4.0
 
 	# The meadow: dense soft clumps of grass on crossed cards, with herb and wildflower clumps
@@ -301,7 +301,7 @@ func _plant_grass(seed: int) -> void:
 			var pos := Vector2(cos(a) * d, sin(a) * d)
 			# Soft patches: dry yellowish, lush and dark green, shade under the forest edge.
 			var dry := clampf(0.5 + 0.5 * sin(pos.x * 0.23 + 1.3) * cos(pos.y * 0.19 - 0.4), 0.0, 1.0)
-			var col := Color(v, v, v).lerp(Color(1.15 * v, 1.05 * v, 0.6 * v), dry * 0.55)
+			var col := Color(v, v, v).lerp(Color(1.15 * v, 1.05 * v, 0.6 * v), dry * 0.8)
 			if d > 16.0:
 				col = col.darkened(clampf((d - 16.0) / 5.0, 0.0, 0.55))
 			mm.set_instance_color(i, col)
@@ -475,19 +475,27 @@ func _rebuild() -> void:
 	# Leaf clusters on every living twig (thin wood), so the crown fills out, not just the tips.
 	var spots := PackedInt32Array()
 	for id in range(2, g.size()):
-		if g.radii[id] < 0.04 and not g.get_flag(id, "dead", false):
+		var bare_below := state.sim.height() * 0.3 if state.sim.height() > 4.0 else 0.0
+	# Leaves on the thin twigs of the crown; the lower trunk of a grown tree stays bare.
+		if g.radii[id] < 0.06 and not g.get_flag(id, "dead", false) and g.positions[id].y >= bare_below:
 			spots.append(id)
 	var mm := _leaves.multimesh
 	mm.instance_count = spots.size()
 	var rng := RandomNumberGenerator.new()
 	rng.seed = hash([state.seed, "leaf clusters"])
-	var grow := 1.0 + state.sim.height() * 0.1
+	# Each card stands for a spray of many leaves: a big crown needs bigger sprays to read as dense.
+	var grow := 1.0 + state.sim.height() * 0.08
+	var centre := state.sim.centroid()
+	var crown_r := maxf(0.5, state.sim.height() * 0.35)
 	for i in range(spots.size()):
 		var id := spots[i]
-		var s := (0.08 + 0.05 * rng.randf()) * grow
+		var s := (0.09 + 0.05 * rng.randf()) * grow
 		var basis := Basis(Vector3.UP, rng.randf() * TAU) * Basis(Vector3.RIGHT, rng.randf_range(-0.4, 0.4))
 		mm.set_instance_transform(i, Transform3D(basis.scaled(Vector3.ONE * s), g.positions[id]))
 		var tint := rng.randf_range(0.85, 1.12)
+		# Leaves deep inside the crown are in shade.
+		var inner := clampf(1.0 - g.positions[id].distance_to(centre) / crown_r, 0.0, 1.0)
+		tint *= lerpf(1.0, 0.55, inner)
 		mm.set_instance_color(i, Color(tint * rng.randf_range(0.9, 1.05), tint, tint * rng.randf_range(0.85, 1.0)))
 
 
@@ -536,13 +544,14 @@ func _update_sun() -> void:
 	_sun_light.shadow_enabled = h > 0.03
 	_sun_light.shadow_blur = 2.5
 	_sun_light.shadow_opacity = 0.8
-	_sun_light.light_color = Color(1.0, 0.68, 0.42).lerp(Color(1.0, 0.96, 0.9), clampf(h * 2.5, 0.0, 1.0))
-	var k := clampf(h * 3.0, 0.0, 1.0)
+	# Warm light and haze spread over the morning and evening, not just the first minutes.
+	_sun_light.light_color = Color(1.0, 0.68, 0.42).lerp(Color(1.0, 0.96, 0.9), smoothstep(0.05, 0.5, h))
+	var k := smoothstep(0.0, 0.6, h)
 	_scenery.update(get_process_delta_time(), h > 0.0, h, _sun_light.light_color, state.sim.height(), camera.global_position)
 	# The sky glows brighter near the horizon hours, and the haze takes the sun's colour.
 	# A low sun: a bright golden sky and haze, the ground in raking light (the reference photos).
-	_sky_mat.energy_multiplier = 1.0 + 2.2 * (1.0 - k) + (0.35 if clock.boost_active else 0.0)
-	_env.fog_light_color = Color(0.45, 0.55, 0.5).lerp(_sun_light.light_color * 0.9, 0.8 * (1.0 - k))
+	_sky_mat.energy_multiplier = 1.5 + 1.7 * (1.0 - k) + (0.35 if clock.boost_active else 0.0)
+	_env.fog_light_color = Color(0.45, 0.55, 0.5).lerp(_sun_light.light_color * 0.9, 0.4 * (1.0 - k))
 	_env.fog_sun_scatter = 0.35 * (1.0 - k)
 	# The eye adapts: a low sun and the dusk are exposed brighter, so the tree stays readable.
 	_env.tonemap_exposure = 1.1 + 0.6 * (1.0 - k)
@@ -567,7 +576,7 @@ func _frame_camera(snap: bool, delta: float = 0.0) -> void:
 	# The camera stays in the clearing; a tall tree is seen from lower down with a wider lens,
 	# and the forest trees right behind the camera dissolve (near_fade in the scenery materials).
 	# Never beyond the bushes at the clearing edge (about 17 m): the forest stays behind the camera.
-	var want_distance := clampf(clampf(height * 1.7 + 2.2, 2.4, 15.0) * _zoom, 1.5, 15.5)
+	var want_distance := clampf(clampf(height * 1.7 + 2.2, 2.4, 16.0) * _zoom, 1.5, 16.5)
 	camera.fov = clampf(55.0 + height * 1.2, 55.0, 85.0)
 	var k := 1.0 if snap else 1.0 - exp(-2.0 * delta)
 	_focus = _focus.lerp(want_focus, k)
