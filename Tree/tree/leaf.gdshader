@@ -1,0 +1,29 @@
+shader_type spatial;
+// Leaf cards of the crown: alpha-cut textured quads, lit softly from outside the cluster,
+// translucent against the sun, moving in the wind.
+render_mode cull_disabled, depth_draw_opaque, diffuse_lambert_wrap;
+
+uniform sampler2D leaf_texture : source_color, filter_linear_mipmap, repeat_disable;
+uniform float wind_strength = 1.0;
+uniform vec3 translucency = vec3(0.45, 0.6, 0.12);
+
+void vertex() {
+	// Normals bend outward from the cluster centre, so a cluster shades like a soft ball of leaves.
+	vec3 outward = normalize(VERTEX + vec3(0.0, 0.15, 0.0));
+	NORMAL = normalize(mix(NORMAL, outward, 0.65));
+	vec3 world = (MODEL_MATRIX * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
+	float gust = sin(TIME * 0.9 + world.x * 0.35 + world.z * 0.27) * 0.5 + 0.5;
+	float sway = sin(TIME * 1.9 + world.x * 1.3 + world.y * 0.7) * 0.04 * (0.4 + gust);
+	float flutter = sin(TIME * 7.0 + VERTEX.x * 9.0 + VERTEX.z * 7.0 + world.y * 3.0) * 0.025 * UV.y;
+	VERTEX += vec3(sway, flutter * 0.5, sway * 0.6 + flutter) * wind_strength;
+}
+
+void fragment() {
+	vec4 tex = texture(leaf_texture, UV);
+	ALBEDO = tex.rgb * COLOR.rgb;
+	ALPHA = tex.a;
+	ALPHA_SCISSOR_THRESHOLD = 0.5;
+	ROUGHNESS = 0.65;
+	SPECULAR = 0.35;
+	BACKLIGHT = translucency * COLOR.rgb * 1.6;
+}

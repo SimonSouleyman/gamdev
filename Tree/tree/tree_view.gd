@@ -7,7 +7,7 @@ extends Node3D
 
 signal ground_tapped
 
-const REBUILD_INTERVAL := 0.25
+const REBUILD_INTERVAL := 0.5
 const TWINKLE_SECONDS := 2.5
 const DRAG_THRESHOLD := 14.0
 const SUN_DISTANCE := 60.0
@@ -22,10 +22,15 @@ var _twinkles: MultiMeshInstance3D
 var _seed: MeshInstance3D
 var _sun_light: DirectionalLight3D
 var _sun_disc: MeshInstance3D
-var _sky_mat: ProceduralSkyMaterial
+var _sky_mat: PhysicalSkyMaterial
+var _grass: MultiMeshInstance3D
+var _noise_tex: NoiseTexture2D
+var _bark_mat: ShaderMaterial
+var _leaf_mat: ShaderMaterial
+var _ground_mat: ShaderMaterial
 var _env: Environment
 var _meadow: Meadow
-var _builder := TreeMeshBuilder.new()
+var _builder := BranchMeshBuilder.new()
 var _rebuild_timer: float = 0.0
 var _built_size: int = -1
 var _births: Dictionary = {}  # node id -> time it appeared
@@ -65,7 +70,7 @@ var sun_arc: SunArc
 
 
 func _ready() -> void:
-	_builder.radius_scale = 1.3
+	_builder.radius_scale = 1.9
 	_build_world()
 	_build_hud()
 	if get_parent() == get_tree().root:
@@ -75,6 +80,7 @@ func _ready() -> void:
 func setup(p_state: GameState) -> void:
 	state = p_state
 	_meadow.build(state.ground)
+	_plant_grass(state.seed)
 	_built_size = -1
 	_births.clear()
 	# Nodes that already exist do not twinkle.
@@ -89,21 +95,36 @@ func _build_world() -> void:
 	camera.fov = 55.0
 	camera.near = 0.05
 	camera.far = 400.0
-	_sky_mat = ProceduralSkyMaterial.new()
-	_sky_mat.ground_bottom_color = Color(0.2, 0.3, 0.15)
-	_sky_mat.ground_horizon_color = Color(0.6, 0.7, 0.55)
+	# A physically based sky lit by the sun light itself: blue by day, warm at the low sun.
+	_sky_mat = PhysicalSkyMaterial.new()
+	_sky_mat.rayleigh_coefficient = 2.0
+	_sky_mat.mie_coefficient = 0.004
+	_sky_mat.turbidity = 3.0
+	_sky_mat.sun_disk_scale = 1.4
+	_sky_mat.ground_color = Color(0.22, 0.3, 0.14)
+	_sky_mat.energy_multiplier = 1.0
 	var sky := Sky.new()
 	sky.sky_material = _sky_mat
+	sky.radiance_size = Sky.RADIANCE_SIZE_64
 	_env = Environment.new()
 	_env.background_mode = Environment.BG_SKY
 	_env.sky = sky
 	_env.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
-	_env.tonemap_mode = Environment.TONE_MAPPER_FILMIC
+	_env.ambient_light_sky_contribution = 1.0
+	_env.reflected_light_source = Environment.REFLECTION_SOURCE_SKY
+	_env.tonemap_mode = Environment.TONE_MAPPER_ACES
+	_env.tonemap_exposure = 1.1
 	_env.glow_enabled = true
-	_env.glow_intensity = 0.5
+	_env.glow_intensity = 0.35
+	_env.glow_bloom = 0.05
 	_env.fog_enabled = true
-	_env.fog_density = 0.004
-	_env.fog_aerial_perspective = 0.6
+	_env.fog_light_color = Color(0.72, 0.8, 0.9)
+	_env.fog_density = 0.0012
+	_env.fog_aerial_perspective = 0.85
+	_env.fog_sky_affect = 0.25
+	_env.adjustment_enabled = true
+	_env.adjustment_saturation = 0.92
+	_env.adjustment_contrast = 1.05
 	camera.environment = _env
 	add_child(camera)
 
@@ -111,10 +132,21 @@ func _build_world() -> void:
 	var plane := PlaneMesh.new()
 	plane.size = Vector2(900, 900)
 	ground.mesh = plane
-	var gmat := StandardMaterial3D.new()
-	gmat.albedo_color = Color(0.34, 0.52, 0.24)
-	gmat.roughness = 1.0
-	ground.material_override = gmat
+	_noise_tex = NoiseTexture2D.new()
+	_noise_tex.width = 512
+	_noise_tex.height = 512
+	_noise_tex.seamless = true
+	_noise_tex.generate_mipmaps = true
+	var fnl := FastNoiseLite.new()
+	fnl.seed = 3
+	fnl.frequency = 0.012
+	fnl.fractal_octaves = 4
+	_noise_tex.noise = fnl
+	_ground_mat = ShaderMaterial.new()
+	_ground_mat.shader = preload("res://tree/ground.gdshader")
+	_ground_mat.set_shader_parameter("noise", _noise_tex)
+	ground.material_override = _ground_mat
+	var gmat := _ground_mat
 	add_child(ground)
 	# Gentle hills on the horizon.
 	for i in range(7):
@@ -133,27 +165,38 @@ func _build_world() -> void:
 	add_child(_meadow)
 
 	_tree_mesh = MeshInstance3D.new()
-	var bark := StandardMaterial3D.new()
-	bark.albedo_color = Color(0.42, 0.31, 0.22)
-	bark.roughness = 0.9
-	_tree_mesh.material_override = bark
+	_bark_mat = ShaderMaterial.new()
+	_bark_mat.shader = preload("res://tree/bark.gdshader")
+	_bark_mat.set_shader_parameter("noise", _noise_tex)
+	_tree_mesh.material_override = _bark_mat
 	add_child(_tree_mesh)
 
+	# Leaf clusters: crossed leaf cards per living tip, alpha-cut, swaying in the wind.
 	_leaves = MultiMeshInstance3D.new()
 	var lmm := MultiMesh.new()
 	lmm.transform_format = MultiMesh.TRANSFORM_3D
 	lmm.use_colors = true
-	var leaf := SphereMesh.new()
-	leaf.radius = 1.0
-	leaf.height = 1.4
-	leaf.radial_segments = 6
-	leaf.rings = 3
-	lmm.mesh = leaf
+	lmm.mesh = Foliage.cluster_mesh(8, 1.0)
 	_leaves.multimesh = lmm
-	var lmat := StandardMaterial3D.new()
-	lmat.vertex_color_use_as_albedo = true
-	lmat.roughness = 0.8
-	_leaves.material_override = lmat
+	_leaf_mat = ShaderMaterial.new()
+	_leaf_mat.shader = preload("res://tree/leaf.gdshader")
+	_leaf_mat.set_shader_parameter("leaf_texture", Foliage.leaf_texture())
+	_leaves.material_override = _leaf_mat
+	_leaves.extra_cull_margin = 4.0
+
+	# The meadow: instanced grass blades around the tree.
+	_grass = MultiMeshInstance3D.new()
+	var gmm := MultiMesh.new()
+	gmm.transform_format = MultiMesh.TRANSFORM_3D
+	gmm.use_colors = true
+	gmm.mesh = Foliage.blade_mesh()
+	_grass.multimesh = gmm
+	var grass_mat := ShaderMaterial.new()
+	grass_mat.shader = preload("res://tree/grass.gdshader")
+	_grass.material_override = grass_mat
+	_grass.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_grass.custom_aabb = AABB(Vector3(-32, -1, -32), Vector3(64, 3, 64))
+	add_child(_grass)
 	add_child(_leaves)
 
 	_twinkles = MultiMeshInstance3D.new()
@@ -208,6 +251,22 @@ func _build_world() -> void:
 	_sun_disc.material_override = dmat
 	_sun_disc.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(_sun_disc)
+
+
+const GRASS_BLADES := 30000
+const GRASS_RADIUS := 24.0
+
+
+func _plant_grass(seed: int) -> void:
+	var xf := Foliage.grass_transforms(GRASS_BLADES, GRASS_RADIUS, seed)
+	var mm := _grass.multimesh
+	mm.instance_count = xf.size()
+	var rng := RandomNumberGenerator.new()
+	rng.seed = hash([seed, "grass colour"])
+	for i in range(xf.size()):
+		mm.set_instance_transform(i, xf[i])
+		var v := rng.randf_range(0.8, 1.15)
+		mm.set_instance_color(i, Color(v * rng.randf_range(0.92, 1.05), v, v * rng.randf_range(0.85, 1.0)))
 
 
 ## A soft four-pointed sparkle, drawn once into a small texture.
@@ -376,22 +435,23 @@ func _rebuild() -> void:
 	_built_size = g.size()
 	_tree_mesh.mesh = _builder.build(g)
 	_seed.visible = state.is_seed()
-	# Leaf clusters on the living tips (leaf cards come with the real assets).
-	var tips := PackedInt32Array()
-	for id in g.tips():
-		if id > 1 and not g.get_flag(id, "dead", false):
-			tips.append(id)
+	# Leaf clusters on every living twig (thin wood), so the crown fills out, not just the tips.
+	var spots := PackedInt32Array()
+	for id in range(2, g.size()):
+		if g.radii[id] < 0.03 and not g.get_flag(id, "dead", false):
+			spots.append(id)
 	var mm := _leaves.multimesh
-	mm.instance_count = tips.size()
+	mm.instance_count = spots.size()
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 5
-	for i in range(tips.size()):
-		var id := tips[i]
-		# Bigger clusters on a bigger tree, until real leaf cards replace these blobs.
-		var s := (0.08 + 0.05 * rng.randf()) * (1.0 + state.sim.height() * 0.06)
-		var basis := Basis(Vector3.UP, rng.randf() * TAU).scaled(Vector3(s, s * 0.7, s))
-		mm.set_instance_transform(i, Transform3D(basis, g.positions[id]))
-		mm.set_instance_color(i, Color(0.25, 0.5, 0.18).lerp(Color(0.45, 0.68, 0.25), rng.randf()))
+	var grow := 1.0 + state.sim.height() * 0.035
+	for i in range(spots.size()):
+		var id := spots[i]
+		var s := (0.13 + 0.07 * rng.randf()) * grow
+		var basis := Basis(Vector3.UP, rng.randf() * TAU) * Basis(Vector3.RIGHT, rng.randf_range(-0.4, 0.4))
+		mm.set_instance_transform(i, Transform3D(basis.scaled(Vector3.ONE * s), g.positions[id]))
+		var tint := rng.randf_range(0.85, 1.12)
+		mm.set_instance_color(i, Color(tint * rng.randf_range(0.9, 1.05), tint, tint * rng.randf_range(0.85, 1.0)))
 
 
 func _update_twinkles() -> void:
@@ -428,21 +488,18 @@ func _update_sun() -> void:
 	_sun_disc.position = dir * SUN_DISTANCE
 	var pulse := 1.0 + (0.35 * sin(_time * 3.0) if skippable else 0.0)
 	_sun_disc.scale = Vector3.ONE * (1.4 if skippable else 1.0) * pulse
-	_sun_disc.visible = dir.y > -0.1
-	if h > 0.0:
-		_sun_light.visible = true
-		_sun_light.look_at_from_position(dir * 20.0, Vector3.ZERO, Vector3.UP if absf(dir.y) < 0.99 else Vector3.FORWARD)
-		_sun_light.light_energy = 0.25 + 1.1 * minf(clock.light_level(), 1.6)
-		_sun_light.light_color = Color(1.0, 0.72, 0.45).lerp(Color(1.0, 0.97, 0.9), clampf(h * 2.0, 0.0, 1.0))
-	else:
-		_sun_light.visible = false
-	# Sky: warm at the low sun, deep blue at the sunset hold and at night.
+	_sun_disc.visible = skippable and dir.y > -0.1
+	# The light stays on at the sunset hold, just under the horizon, so the physical sky glows.
+	var light_dir := dir if h > 0.0 else Vector3(-1, -0.02, 0.1).normalized()
+	_sun_light.visible = true
+	_sun_light.look_at_from_position(light_dir * 20.0, Vector3.ZERO, Vector3.UP if absf(light_dir.y) < 0.99 else Vector3.FORWARD)
+	_sun_light.light_energy = (0.35 + 1.4 * minf(clock.light_level(), 1.6)) if h > 0.0 else 0.08
+	_sun_light.shadow_enabled = h > 0.03
+	_sun_light.light_color = Color(1.0, 0.68, 0.42).lerp(Color(1.0, 0.96, 0.9), clampf(h * 2.5, 0.0, 1.0))
 	var k := clampf(h * 3.0, 0.0, 1.0)
-	_sky_mat.sky_top_color = Color(0.2, 0.22, 0.42).lerp(Color(0.32, 0.52, 0.86), k)
-	_sky_mat.sky_horizon_color = Color(0.95, 0.6, 0.4).lerp(Color(0.75, 0.82, 0.9), k)
-	_sky_mat.sky_energy_multiplier = 0.45 + 0.55 * k + (0.35 if clock.boost_active else 0.0)
+	_sky_mat.energy_multiplier = 0.6 + 0.4 * k + (0.35 if clock.boost_active else 0.0)
 	# Never too dark by day: the dawn burst must be seen.
-	_env.ambient_light_energy = 0.55 + 0.45 * k if state.phase == GameState.Phase.DAY else 0.35 + 0.65 * k
+	_env.ambient_light_energy = 0.55 + 0.45 * k if state.phase == GameState.Phase.DAY else 0.3 + 0.5 * k
 
 
 # --- camera -----------------------------------------------------------------

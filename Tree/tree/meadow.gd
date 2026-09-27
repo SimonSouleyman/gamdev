@@ -14,7 +14,7 @@ func build(ground: Underground) -> void:
 	_rng.seed = hash([ground.seed, "meadow"])
 	_mats = {
 		"rush": _mat(Color(0.3, 0.45, 0.32)),
-		"damp": _mat(Color(0.27, 0.38, 0.2)),
+		"damp": _mat(Color(0.13, 0.19, 0.09)),
 		"clover": _mat(Color(0.3, 0.62, 0.25)),
 		"flower": _mat(Color(0.95, 0.93, 0.9)),
 		"nettle": _mat(Color(0.18, 0.36, 0.16)),
