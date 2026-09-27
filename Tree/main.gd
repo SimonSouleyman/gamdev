@@ -136,7 +136,7 @@ func _handle_events() -> void:
 				else:
 					_page_once("first_sunset")
 			"spent":
-				_page_once("spent")
+				_spent_page()
 			"night_empty":
 				_page_once("empty_night")
 			"run_done":
@@ -150,6 +150,25 @@ func _handle_events() -> void:
 				if e.begins_with("find:"):
 					var kind := e.substr(5)
 					journal.show_page("find", "A find", "I touched %s.\n\nIt is written in the diary now." % Underground.FIND_TEXTS.get(kind, kind))
+
+
+## The first time the tree runs out: which nutrient is missing and where to find it tonight.
+## Never before the first-morning page (it would come before the sapling is introduced).
+func _spent_page() -> void:
+	if not state.seen_pages.has("sapling") or not state.first_time("spent"):
+		state._spent_announced = false  # ask again later
+		return
+	var body := Pages.body("spent")
+	var missing: Array[String] = []
+	var names: Array[String] = ["water (blue dots)", "nitrogen (green dots)", "phosphorus (orange dots)", "potassium (violet dots)"]
+	for k in range(4):
+		if state.sim.resources.stock[k] < state.sim.cost_per_node * state.sim.species.needs[k]:
+			missing.append(names[k])
+	if not missing.is_empty() and state.sim.resources.stock[0] >= state.sim.cost_per_node:
+		body = "The tree is short of %s, so it only grows very slowly now. Tonight, steer the root toward them.
+
+" % " and ".join(missing) + body
+	journal.show_page("spent", Pages.title("spent"), body)
 
 
 func _page_once(id: String) -> void:

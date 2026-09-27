@@ -217,7 +217,8 @@ func _sunrise() -> void:
 
 ## Called by the tree view at the end of the dawn burst, for the morning diary line.
 func write_morning_line() -> void:
-	diary.add(day_number(), "The linden is %.1f m tall with %d leaf clusters." % [sim.height(), sim.tip_count()])
+	var tips := sim.tip_count()
+	diary.add(day_number(), "The linden is %.1f m tall with %d leaf cluster%s." % [sim.height(), tips, "" if tips == 1 else "s"])
 
 
 # --- moving the day on ------------------------------------------------------

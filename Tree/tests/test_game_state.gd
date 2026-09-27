@@ -246,3 +246,23 @@ func test_morning_survives_a_save_right_after_sunrise() -> void:
 		if h.take_events().has("morning"):
 			got_morning = true
 	t.check(got_morning, "the morning (sapling page, diary line) still comes after a load")
+
+
+func test_an_unsteered_first_night_still_brings_all_four_nutrients() -> void:
+	# QA: a first root that the player barely steered could miss phosphorus, and day 1 stalled.
+	var missing: Array = []
+	var weak_days: Array = []
+	for seed in range(30, 40):
+		var g := GameState.new_game(seed)
+		g.dive()
+		_play_night(g, 0, Vector2.ZERO)
+		for k in range(4):
+			if g.sim.resources.amount(k) < 1.0:
+				missing.append("seed %d kind %d" % [seed, k])
+		_until_phase_changes(g, 0.1)
+		var before := g.sim.graph.size()
+		_until_phase_changes(g, 1.0)
+		if g.sim.graph.size() - before < 20:
+			weak_days.append(seed)
+	t.check(missing.is_empty(), "the starter patch feeds every kind: missing %s" % str(missing))
+	t.check(weak_days.is_empty(), "day 1 grows a real sapling (weak seeds %s)" % str(weak_days))

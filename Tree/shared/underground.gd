@@ -64,11 +64,11 @@ func remaining_dots() -> int:
 
 func _generate() -> void:
 	_generate_rocks()
-	# A small mixed starter patch close to the seed, so the very first run always finds food.
-	var a := _rng.randf() * TAU
-	var starter := Vector3(cos(a) * 1.4, -0.9, sin(a) * 1.4)
+	# A small mixed starter patch right where the first root heads (down and north from the seed),
+	# so the very first run finds all four nutrients even if the player barely steers.
+	var starter := Vector3(0.0, -0.8, -1.2)
 	for k in range(4):
-		_add_patch(k, starter, 1.0, [10, 8, 5, 5][k], 1.0)
+		_add_patch(k, starter, 0.9, [10, 8, 7, 7][k], 1.0)
 	# Topsoil: rich N and P patches, moderate water.
 	for _i in range(8):
 		_add_patch(Resources.Kind.NITROGEN, _random_point(0.4, TOPSOIL, 3.0), _rng.randf_range(0.8, 1.4), _rng.randi_range(22, 36), 1.2)
