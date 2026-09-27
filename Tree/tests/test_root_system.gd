@@ -80,11 +80,16 @@ func test_dots_collected_into_matching_resource() -> void:
 	var u: Underground = s[0]
 	var r: RootSystem = s[1]
 	var res: Resources = s[2]
-	var before := u.remaining_dots()
+	var before := 0.0
+	for a in u.dot_amounts:
+		before += a
 	r.start_run(0)
 	_run(r, u, res, Vector2(0.4, 0.0))
-	var collected := before - u.remaining_dots()
-	t.check(collected > 5, "a run drinks dots (%d)" % collected)
+	var after := 0.0
+	for a in u.dot_amounts:
+		after += a
+	t.check(before - after > 3.0, "a run drinks from deposits (%f)" % (before - after))
+	t.check(r.tapped.size() > 5, "and taps them for later nights (%d)" % r.tapped.size())
 	var total := 0.0
 	for k in range(4):
 		t.check_near(res.amount(k), r.run_totals[k], 1e-4, "run totals match stock for kind %d" % k)
@@ -261,3 +266,38 @@ func test_ending_early_spends_everything_on_more_fine_roots() -> void:
 		early.advance(Vector2(0.3, 0), false, 1.0 / 30.0, ground, res)
 	early.finish_early(ground, res)
 	t.check(fine_a > early.count_flagged("fine", 0), "more leftover life force, more fine roots (%d vs %d)" % [fine_a, early.count_flagged("fine", 0)])
+
+
+func test_tapped_deposits_are_drunk_night_after_night() -> void:
+	# Simon, play test 3: a deposit holds a set amount; roots that reached it keep drawing on it.
+	var s := _setup(20.0, 21)
+	var u: Underground = s[0]
+	var r: RootSystem = s[1]
+	var res: Resources = s[2]
+	r.start_run(0)
+	_run(r, u, res, Vector2(0.4, 0.0))
+	var nights: Array = []
+	for _n in range(6):
+		var got := r.drink_tapped(u, res)
+		nights.append(got[0] + got[1] + got[2] + got[3])
+	t.check(float(nights[0]) > 0.5, "the first night after the run draws more (%s)" % str(nights))
+	t.check(float(nights[3]) > 0.1, "and later nights still draw from the same roots (%s)" % str(nights))
+	var d := RootSystem.from_dict(JSON.parse_string(JSON.stringify(r.to_dict())))
+	t.check_eq(d.tapped.size(), r.tapped.size(), "tapped deposits survive a save")
+
+
+func test_a_tip_draws_each_deposit_once_per_run() -> void:
+	var s := _setup(40.0, 9)
+	var u: Underground = s[0]
+	var r: RootSystem = s[1]
+	var res: Resources = s[2]
+	r.start_run(0)
+	# Circle tightly so the tip passes the same dots again and again.
+	var frames := 0
+	while r.advance(Vector2(1.0, 0.0), false, 1.0 / 30.0, u, res) and frames < 600:
+		frames += 1
+	var over := 0
+	for i in r.tapped.keys():
+		if u.dot_amounts[i] < u.dot_capacity[i] * (1.0 - 2.0 / Underground.DEPOSIT_SHARES) - 1e-4:
+			over += 1
+	t.check_eq(over, 0, "no deposit drained by lingering in one run")

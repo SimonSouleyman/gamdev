@@ -199,7 +199,8 @@ func _fill_dots() -> void:
 
 func _set_dot(i: int) -> void:
 	var mm := _dots.multimesh
-	var s := 0.0 if ground.dot_collected[i] != 0 else 0.22 + 0.08 * ground.dot_amounts[i]
+	# The glow shrinks as a deposit is drawn down; tapped deposits keep glowing until empty.
+	var s := 0.0 if ground.dot_collected[i] != 0 else (0.16 + 0.16 * ground.fullness(i)) * (0.8 + 0.2 * ground.dot_capacity[i] / Underground.DEPOSIT_SHARES)
 	mm.set_instance_transform(i, Transform3D(Basis.from_scale(Vector3.ONE * s), ground.dot_positions[i]))
 	mm.set_instance_color(i, Resources.KIND_COLORS[ground.dot_kinds[i]])
 

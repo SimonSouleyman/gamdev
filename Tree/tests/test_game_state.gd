@@ -279,3 +279,25 @@ func test_an_unsteered_first_night_still_brings_all_four_nutrients() -> void:
 			weak_days.append(seed)
 	t.check(missing.is_empty(), "the starter patch feeds every kind: missing %s" % str(missing))
 	t.check(weak_days.is_empty(), "day 1 grows a real sapling (weak seeds %s)" % str(weak_days))
+
+
+func test_a_tap_boosts_one_game_hour_and_time_runs_on() -> void:
+	# Simon, play test 3: tap to boost for about an hour; the clock never stops.
+	var g := _morning_after_first_night(19)
+	while g.sim.dawn_burst_active():
+		g.tick(0.5)
+	var t0 := g.sim.clock.time_of_day
+	g.boost_hour()
+	t.check(g.sim.clock.boost_active, "a tap boosts")
+	var hour := g.sim.clock.hour_seconds()
+	var waited := 0.0
+	while g.sim.clock.boost_active and waited < hour * 3.0:
+		g.tick(0.25)
+		waited += 0.25
+	t.check_near(waited, hour, 0.3, "for one game hour")
+	t.check(g.sim.clock.time_of_day > t0 + 0.9 * hour / g.sim.clock.seconds_per_day, "while the clock ran on")
+	g.boost_hour()
+	g.boost_hour()
+	g.boost_hour()
+	g.boost_hour()
+	t.check(g.sim.clock.boost_remaining <= hour * 3.0 + 1e-3, "at most three hours ahead")

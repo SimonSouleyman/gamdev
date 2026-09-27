@@ -16,10 +16,10 @@ var clock := DayCycle.new()
 ## Nutrient cost of one new segment, scaled by species.needs.
 var cost_per_node: float = 0.08
 ## Life force produced per tip per second at full light.
-var life_force_per_tip: float = 0.008
+var life_force_per_tip: float = 0.02  # scaled with the 2-minute day (play test 3)
 ## Segments the tree may add per second at full light and full nutrients.
 ## Low enough that one night's nutrients last a good part of the day.
-var max_growth_per_second: float = 0.8
+var max_growth_per_second: float = 4.0
 ## Dawn burst: this share of what the nutrients can buy is released in the first seconds after sunrise.
 var dawn_burst_share: float = 0.25
 var dawn_burst_seconds: float = 10.0

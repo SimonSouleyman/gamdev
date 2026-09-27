@@ -84,6 +84,14 @@ func tick(delta: float) -> void:
 	var clock := sim.clock
 	match phase:
 		Phase.DAY:
+			# A tapped boost lasts one game hour; the clock never stops for it.
+			var clk := sim.clock
+			if clk.boost_remaining > 0.0:
+				clk.boost_active = true
+				clk.boost_remaining -= delta
+				if clk.boost_remaining <= 0.0:
+					clk.boost_remaining = 0.0
+					clk.boost_active = false
 			var to_sunset := (clock.daylight_fraction - clock.time_of_day) * clock.seconds_per_day
 			if delta >= to_sunset:
 				sim.tick(maxf(0.0, to_sunset))
@@ -217,6 +225,11 @@ func _sunrise() -> void:
 	_spent_announced = false
 	var was_seed := sim.graph.size() <= 2
 	ground.regrow(REGROW_SHARE, day_number())
+	# The old roots drank from the deposits they reach all night.
+	var drawn := roots.drink_tapped(ground, sim.resources)
+	var total_drawn := drawn[0] + drawn[1] + drawn[2] + drawn[3]
+	if total_drawn > 0.5:
+		diary.add(day_number(), "The old roots drew water %.1f, nitrogen %.1f, phosphorus %.1f, potassium %.1f from the soil overnight." % [drawn[0], drawn[1], drawn[2], drawn[3]])
 	sim.start_dawn_burst()
 	if was_seed and not sim.nutrients_spent():
 		diary.add(day_number(), "The seed sprouted at dawn.")
@@ -234,6 +247,15 @@ func write_morning_line() -> void:
 # --- moving the day on ------------------------------------------------------
 
 ## Once nutrients are spent, the player may drag the sun along its arc to move time on.
+## Tap: the sun shines brighter for one more game hour (up to three hours ahead).
+func boost_hour() -> void:
+	if phase != Phase.DAY:
+		return
+	var clk := sim.clock
+	clk.boost_remaining = minf(clk.boost_remaining + clk.hour_seconds(), clk.hour_seconds() * 3.0)
+	clk.boost_active = true
+
+
 ## The sun can be moved on at any time of the day (Simon, play test 2026-09-27): wait for the
 ## afternoon, then boost to steer the crown west, without waiting in real time.
 func can_skip_time() -> bool:

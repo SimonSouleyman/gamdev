@@ -416,22 +416,24 @@ func _update_hud() -> void:
 	for k in range(4):
 		_res_labels[k].text = "%s %.1f" % [short[k], s.resources.amount(k)]
 	_boost_label.get_parent().get_parent().visible = s.clock.boost_active
-	_boost_label.text = "sun boost"
+	_boost_label.text = "sun boost %d:%02d" % [int(s.clock.boost_remaining / s.clock.hour_seconds() * 60.0) / 60, int(s.clock.boost_remaining / s.clock.hour_seconds() * 60.0) % 60]
 	# The sun's arc is always there by day: drag the sun to move the day on (brighter once
 	# there is nothing left to grow with).
-	sun_arc.visible = state.can_skip_time()
+	# The arc shows the time of day and the boost; it is no longer dragged.
+	sun_arc.visible = state.phase == GameState.Phase.DAY
 	# Faint unless it matters: while dragging, or once the day has nothing left to grow with.
-	sun_arc.modulate.a = 1.0 if state.day_is_spent() or sun_arc.is_dragging() else 0.35
+	sun_arc.modulate.a = 0.75
+	sun_arc.boost_hours = s.clock.boost_remaining / s.clock.hour_seconds()
 	sun_arc.progress = s.clock.time_of_day / s.clock.daylight_fraction
 	match state.phase:
 		GameState.Phase.SUNSET:
 			_hint.text = "The sun has set. Tap the ground to follow the roots down."
 		GameState.Phase.DAY:
 			if state.day_is_spent():
-				_hint.text = ("Almost nothing left to grow with today" if state.sim.nutrient_missing() and not state.sim.graph.is_full() and state.sim.resources.stock[0] >= state.sim.cost_per_node else "Nothing left to grow with today") + ". Drag the sun along its arc to move the day on."
+				_hint.text = ("Almost nothing left to grow with today" if state.sim.nutrient_missing() and not state.sim.graph.is_full() and state.sim.resources.stock[0] >= state.sim.cost_per_node else "Nothing left to grow with today") + ". The leaves still gather life force for tonight."
 			elif state.day_number() <= 3 and not state.is_seed():
 				# The first days: a quiet reminder of what can be done while the tree grows.
-				_hint.text = "Hold anywhere to boost the sun. Drag the sun along its arc to pick the hour."
+				_hint.text = "Tap to let the sun shine brighter for an hour."
 			else:
 				_hint.text = ""
 		_:
@@ -647,13 +649,7 @@ func _begin_press(pos: Vector2) -> void:
 	_press_phase = state.phase
 	_press_time = _time
 	_drag_mode = ""
-	if state.phase == GameState.Phase.DAY:
-		if state.can_skip_time() and _near_sun(pos):
-			_drag_mode = "sun"
-		else:
-			# Hold anywhere: the sun shines brighter while held.
-			_drag_mode = "boost"
-			state.sim.clock.boost_active = true
+	# (Play test 3: no holding and no dragging the sun; a tap boosts, see _end_press.)
 
 
 func _drag(pos: Vector2, rel: Vector2) -> void:
@@ -672,7 +668,9 @@ func _end_press(is_release: bool, pos: Vector2 = Vector2.ZERO) -> void:
 	if not _pressing:
 		return
 	_pressing = false
-	state.sim.clock.boost_active = false
+	# A short tap by day boosts the sun for one game hour; the clock keeps running.
+	if is_release and _drag_mode != "orbit" and state.phase == GameState.Phase.DAY and _press_phase == GameState.Phase.DAY and _time - _press_time < 0.6:
+		state.boost_hour()
 	# Only a short tap that began at sunset dives (not the end of a boost held through sunset).
 	if is_release and _drag_mode != "orbit" and _drag_mode != "sun" and state.phase == GameState.Phase.SUNSET 			and _press_phase == GameState.Phase.SUNSET and _time - _press_time < 0.6:
 		if _hits_ground(pos):

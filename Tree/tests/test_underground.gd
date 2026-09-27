@@ -60,11 +60,16 @@ func test_collect_marks_and_adds() -> void:
 	var res := Resources.new()
 	var id := 0
 	var kind := u.dot_kinds[id]
+	var cap := u.dot_capacity[id]
 	var got := u.collect(PackedInt32Array([id]), res)
-	t.check_eq(got.size(), 1, "collected once")
-	t.check_near(res.amount(kind), u.dot_amounts[id], 1e-6, "added to the matching resource")
-	t.check_eq(u.collect(PackedInt32Array([id]), res).size(), 0, "never twice")
-	t.check(not (u.dots_near(u.dot_positions[id], 0.01) as PackedInt32Array).has(id), "collected dots are not found again")
+	t.check_eq(got.size(), 1, "drawn from")
+	t.check_near(res.amount(kind), cap / Underground.DEPOSIT_SHARES, 1e-5, "one share into the matching resource")
+	t.check_near(u.dot_amounts[id], cap * (1.0 - 1.0 / Underground.DEPOSIT_SHARES), 1e-5, "the deposit keeps the rest")
+	for _k in range(10):
+		u.collect(PackedInt32Array([id]), res)
+	t.check_near(res.amount(kind), cap, 1e-4, "a deposit gives exactly what it held")
+	t.check_eq(u.collect(PackedInt32Array([id]), res).size(), 0, "then it is empty")
+	t.check(not (u.dots_near(u.dot_positions[id], 0.01) as PackedInt32Array).has(id), "empty deposits are not found again")
 
 
 func test_surface_hints_match_below() -> void:
@@ -113,6 +118,7 @@ func test_round_trip() -> void:
 	u.collect(PackedInt32Array([1, 2, 3]), res)
 	u.touch_finds(u.finds[1]["position"])
 	var v := Underground.from_dict(JSON.parse_string(JSON.stringify(u.to_dict())))
-	t.check_eq(v.dot_collected, u.dot_collected, "collected dots kept")
+	t.check_eq(v.dot_collected, u.dot_collected, "empty deposits kept")
+	t.check_eq(v.dot_amounts, u.dot_amounts, "deposit levels kept")
 	t.check_eq(v.finds[1]["found"], true, "found finds kept")
-	t.check_eq(v.remaining_dots(), u.dot_count() - 3, "remaining count")
+	t.check_near(v.dot_amounts[1], v.dot_capacity[1] * (1.0 - 1.0 / Underground.DEPOSIT_SHARES), 1e-5, "a drawn deposit is lower")

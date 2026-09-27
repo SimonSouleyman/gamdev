@@ -173,16 +173,17 @@ func _process(delta: float) -> bool:
 					remove_meta("held")
 				stage_time = 0.0
 				return false
+			# A tap boosts the sun for one game hour.
 			if stage_time > 0.3 and not has_meta("held"):
 				set_meta("held", true)
 				_click(Vector2(360, 640), true)
-			elif stage_time > 3.0:
+				_click(Vector2(360, 640), false)
+			elif stage_time > 2.0:
 				if not s.sim.clock.boost_active:
-					_fail("holding did not boost")
+					_fail("a tap did not boost")
 					return false
 				_shot("08_boosting")
-				_click(Vector2(360, 640), false)
-				_next("boosted for 3 s")
+				_next("boosted by a tap")
 		8:
 			# Orbit by dragging.
 			if stage_time < 0.1:
@@ -212,35 +213,11 @@ func _process(delta: float) -> bool:
 				stage = 11
 				stage_time = 0.0
 		10:
-			# Drag the sun along its arc (the sky chart at the top of the screen).
-			var arc: SunArc = tv.sun_arc
+			# (Play test 3: the sun is no longer dragged; the day runs on by itself.)
 			if _page() != "":
-				_shot("10_page_" + _page())
 				main.journal.close_page()
-				stage_time = -0.3
-				return false
-			if stage_time < 0.0:
-				return false
-			if not has_meta("t0"):
-				if not arc.visible:
-					_fail("the sun arc is not shown once nutrients are spent (phase %d, t %.3f)" % [s.phase, s.sim.clock.time_of_day])
-					return false
-				var p: Vector2 = arc.get_global_rect().position + arc.knob_position()
-				_click(p, true)
-				set_meta("t0", s.sim.clock.time_of_day)
-				set_meta("p0", arc.progress)
-				set_meta("sun_pos", p)
-			elif stage_time < 1.0:
-				# Move the finger a quarter of the way along the arc over one second.
-				var target: Vector2 = arc.get_global_rect().position + arc._arc_point(float(get_meta("p0")) + 0.25 * stage_time)
-				var p: Vector2 = get_meta("sun_pos")
-				_move(target, target - p)
-				set_meta("sun_pos", target)
-			else:
-				_click(get_meta("sun_pos"), false)
-				_log("dragging the sun moved time from %.3f to %.3f" % [get_meta("t0"), s.sim.clock.time_of_day])
-				_shot("11_sun_dragged")
-				_next("sun dragged")
+			_shot("11_day_running")
+			_next("day runs on")
 		11:
 			main.time_scale = 20.0
 			if s.phase == GameState.Phase.SUNSET:
