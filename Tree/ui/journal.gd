@@ -74,6 +74,8 @@ func _next_page() -> void:
 	# Torn from a squared notebook.
 	_page_sheet.add_theme_stylebox_override("panel", Paper.paper_box(320, 260, 40 + _pages_torn % 5, "top", 34.0, Paper.PAPER, "grid"))
 	_page.visible = true
+	# Above the book, when a page is opened from its "pages" tab.
+	move_child(_page, -1)
 	_page_shown_at = Time.get_ticks_msec() / 1000.0
 	# The page flutters in: drops a little, turns into place.
 	_page.modulate.a = 0.0

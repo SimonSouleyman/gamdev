@@ -148,8 +148,11 @@ func _build_world() -> void:
 	_static_roots = MeshInstance3D.new()
 	_static_roots.material_override = root_mat
 	add_child(_static_roots)
+	# Tonight's root glows warmer than the old ones, so it stands out among them.
+	var live_mat := root_mat.duplicate() as ShaderMaterial
+	live_mat.set_shader_parameter("glow", Color(0.95, 0.72, 0.35))
 	_live_roots = MeshInstance3D.new()
-	_live_roots.material_override = root_mat
+	_live_roots.material_override = live_mat
 	add_child(_live_roots)
 
 	# No marker ball at the tip (Simon, play test): the growing root itself shows where you are;
@@ -358,7 +361,8 @@ func _scrap_button(text: String, size: int) -> Button:
 func _show_run_controls(on: bool) -> void:
 	joystick.visible = on
 	dive_button.visible = on
-	end_button.visible = on
+	# Ending only makes sense once the root has started to grow.
+	end_button.visible = on and not _waiting_for_input
 
 
 func set_hud_visible(on: bool) -> void:
@@ -483,6 +487,7 @@ func _process_run(delta: float) -> void:
 		if stick.length() < 0.2 and not dive:
 			return
 		_waiting_for_input = false
+		end_button.visible = true
 	if input_enabled and scripted_stick == null and (Input.is_physical_key_pressed(KEY_E) or Input.is_physical_key_pressed(KEY_ENTER)):
 		end_early()
 		return

@@ -5,13 +5,13 @@ extends Node3D
 ## grass; butterflies around the crown, birds crossing the sky, pollen in the sunlight and
 ## fireflies at dusk. All mood: nothing here touches the simulation. Seeded like everything else.
 
-const FOREST_TREES := 170
+const FOREST_TREES := Budgets.FOREST_TREES
 ## The open middle where the player's tree grows; the underground reaches about as far.
 const CLEARING_RADIUS := 18.0
-const BUSHES := 70
+const BUSHES := Budgets.FOREST_BUSHES
 const TREE_VARIANTS := 4
 const CLOUDS := 16
-const FLOWERS := 1800
+const FLOWERS := Budgets.MEADOW_FLOWERS
 const BUTTERFLIES := 6
 const BIRDS := 5
 
@@ -41,6 +41,7 @@ func build(seed: int, bark: Material, leaf: Material, noise: Texture2D) -> void:
 	_clouds.clear()
 	_cloud_mats.clear()
 	_rng.seed = hash([seed, "scenery"])
+	_noise = noise
 	_build_distant_trees(seed, bark, leaf)
 	_build_bushes(leaf)
 	_build_backdrop()
@@ -58,15 +59,25 @@ func build(seed: int, bark: Material, leaf: Material, noise: Texture2D) -> void:
 ## leaf cards into one mesh with two surfaces. Distant trees are therefore the same species,
 ## grown the same way, as the player's tree.
 func _grow_variant(seed: int, variant: int, bark: Material, leaf: Material) -> ArrayMesh:
+	# Grown once per seed, then kept in the user folder: later starts just load them.
+	var cache := "user://cache/forest_%d_%d_v3.res" % [seed, variant]
+	if ResourceLoader.exists(cache):
+		var cached := load(cache) as ArrayMesh
+		if cached != null and cached.get_surface_count() == 2:
+			cached.surface_set_material(0, bark)
+			cached.surface_set_material(1, leaf)
+			return cached
+	var local := RandomNumberGenerator.new()
+	local.seed = hash([seed, "background tree growth", variant])
 	var sim := GrowthSim.new(hash([seed, "background tree", variant]))
-	sim.graph.max_nodes = 700 + variant * 120
+	sim.graph.max_nodes = Budgets.FOREST_VARIANT_NODES + variant * 60
 	# Grown quickly with small steps (big steps would make bushes): only the shape matters here.
 	sim.max_growth_per_second = 6.0
 	sim.markers_per_second = 30.0
 	for _step in range(1500):
 		for k in range(4):
 			sim.resources.stock[k] = 30.0
-		sim.clock.time_of_day = sim.clock.daylight_fraction * _rng.randf_range(0.3, 0.7)
+		sim.clock.time_of_day = sim.clock.daylight_fraction * local.randf_range(0.3, 0.7)
 		sim.tick(0.45)
 		if sim.graph.is_full():
 			break
@@ -92,10 +103,10 @@ func _grow_variant(seed: int, variant: int, bark: Material, leaf: Material) -> A
 	for id in range(2, g.size()):
 		if g.radii[id] >= 0.03:
 			continue
-		var s := _rng.randf_range(0.26, 0.36)
-		var xf := Transform3D(Basis(Vector3.UP, _rng.randf() * TAU).scaled(Vector3.ONE * s), g.positions[id])
+		var s := local.randf_range(0.26, 0.36)
+		var xf := Transform3D(Basis(Vector3.UP, local.randf() * TAU).scaled(Vector3.ONE * s), g.positions[id])
 		# The forest is older and shadier than the tree in the sun: darker leaves.
-		var tint := _rng.randf_range(0.5, 0.78)
+		var tint := local.randf_range(0.5, 0.78)
 		var base := verts.size()
 		for i in range(cv.size()):
 			verts.append(xf * cv[i])
@@ -114,6 +125,12 @@ func _grow_variant(seed: int, variant: int, bark: Material, leaf: Material) -> A
 		arrays[Mesh.ARRAY_INDEX] = indices
 		mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
 		mesh.surface_set_material(mesh.get_surface_count() - 1, leaf)
+	if mesh.get_surface_count() == 2:
+		DirAccess.make_dir_recursive_absolute("user://cache")
+		var plain := mesh.duplicate() as ArrayMesh
+		plain.surface_set_material(0, null)
+		plain.surface_set_material(1, null)
+		ResourceSaver.save(plain, cache, ResourceSaver.FLAG_COMPRESS)
 	return mesh
 
 
@@ -148,23 +165,44 @@ func _build_distant_trees(seed: int, bark: Material, leaf: Material) -> void:
 		add_child(mmi)
 
 
+const BACKDROP_SHADER := """
+shader_type spatial;
+render_mode cull_front, depth_draw_opaque;
+uniform sampler2D noise : filter_linear_mipmap, repeat_enable;
+void fragment() {
+	vec2 uv = vec2(UV.x * 6.0, UV.y);
+	float crowns = texture(noise, uv * vec2(3.0, 1.5)).r;
+	float line = 0.18 + 0.22 * texture(noise, vec2(uv.x * 2.0, 0.3)).r;
+	if (UV.y < line + crowns * 0.08) { discard; }
+	float trunk = smoothstep(0.55, 0.6, texture(noise, vec2(uv.x * 14.0, 0.7)).r) * smoothstep(0.55, 0.8, UV.y);
+	vec3 leaves = mix(vec3(0.07, 0.11, 0.06), vec3(0.16, 0.24, 0.11), crowns);
+	ALBEDO = mix(leaves, vec3(0.1, 0.08, 0.06), trunk * 0.6) * mix(1.0, 0.55, UV.y);
+	ROUGHNESS = 1.0;
+}
+"""
+var _noise: Texture2D
+
+
 ## The deep wood behind the trees: a dark ring, so no gap between trunks looks out onto open land.
 func _build_backdrop() -> void:
 	var wall := MeshInstance3D.new()
 	var cyl := CylinderMesh.new()
 	cyl.top_radius = 52.0
 	cyl.bottom_radius = 52.0
-	cyl.height = 16.0
-	cyl.radial_segments = 48
+	cyl.height = 24.0
+	cyl.radial_segments = 64
 	cyl.cap_top = false
 	cyl.cap_bottom = false
 	wall.mesh = cyl
-	var mat := StandardMaterial3D.new()
-	mat.albedo_color = Color(0.1, 0.15, 0.09)
-	mat.cull_mode = BaseMaterial3D.CULL_FRONT
-	mat.roughness = 1.0
+	# Painted deep wood: dark foliage masses, faint trunks, and a ragged tree line on top
+	# instead of a hard edge.
+	var sh := Shader.new()
+	sh.code = BACKDROP_SHADER
+	var mat := ShaderMaterial.new()
+	mat.shader = sh
+	mat.set_shader_parameter("noise", _noise)
 	wall.material_override = mat
-	wall.position = Vector3(0, 7.0, 0)
+	wall.position = Vector3(0, 10.0, 0)
 	wall.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(wall)
 

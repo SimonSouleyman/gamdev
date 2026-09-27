@@ -58,9 +58,15 @@ static func paper_texture(w: int, h: int, seed: int, torn: String = "", tint: Co
 	var photo: Image = null
 	var photo_path := "res://assets/paper/paper_%s.png" % kind
 	if ResourceLoader.exists(photo_path):
-		photo = (load(photo_path) as Texture2D).get_image()
-		if photo.is_compressed():
-			photo.decompress()
+		# Read once from the file (not back from the GPU) and kept for every page.
+		if not _cache.has(photo_path):
+			var raw := Image.load_from_file(ProjectSettings.globalize_path(photo_path))
+			if raw == null or raw.is_empty():
+				raw = (load(photo_path) as Texture2D).get_image()
+			if raw.is_compressed():
+				raw.decompress()
+			_cache[photo_path] = raw
+		photo = _cache[photo_path]
 	for y in range(h):
 		for x in range(w):
 			var n := noise.get_noise_2d(x, y) * 0.5 + 0.5

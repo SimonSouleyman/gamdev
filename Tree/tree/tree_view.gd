@@ -624,7 +624,8 @@ func _end_press(is_release: bool, pos: Vector2 = Vector2.ZERO) -> void:
 
 
 func _near_sun(pos: Vector2) -> bool:
-	if camera.is_position_behind(_sun_disc.global_position):
+	# Only the visible, glowing sun can be grabbed; elsewhere a press is a boost.
+	if not _sun_disc.visible or camera.is_position_behind(_sun_disc.global_position):
 		return false
 	return camera.unproject_position(_sun_disc.global_position).distance_to(pos) < 110.0
 

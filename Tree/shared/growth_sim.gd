@@ -30,6 +30,9 @@ var _burst_accum: float = 0.0
 ## Calm growth pace for today (segments per second at full light), set at sunrise so the
 ## night's nutrients last until sunset without boosting. 0 = use max_growth_per_second.
 var day_pace: float = 0.0
+## While the player moves the sun on, the tree rests (leaves still gather life force), so the
+## nutrients wait for the hour the player picked to boost.
+var growth_paused: bool = false
 ## Markers seeded per second on the sun side while the sun is up.
 var markers_per_second: float = 12.0
 ## Fractional growth and markers carried over between ticks (so growth scales with time, not tick count).
@@ -48,7 +51,7 @@ var marker_radius: float = 0.8
 
 func _init(random_seed: int = 1) -> void:
 	seed = random_seed
-	rng.seed = seed
+	rng.seed = hash([seed, "tree"])
 	graph = PlantGraph.new(Vector3.ZERO, Budgets.TREE_MAX_NODES)
 	# A short trunk stub so the seedling has something to grow from.
 	graph.add_node(0, Vector3(0, 0.15, 0))
@@ -87,6 +90,9 @@ func tick(delta: float) -> void:
 	# Seed markers on the sun's side, above the current crown, capped by the species size.
 	var sun := clock.sun_direction()
 	var top := height()
+	if growth_paused:
+		graph.age_all()
+		return
 	if _affordable_nodes() > 0 and not graph.is_full():
 		_seed_markers(sun, top, markers_per_second * maxf(1.0, crown_radius(top)) * delta,
 				1.0 if clock.boost_active else passive_steering)
@@ -179,6 +185,13 @@ func _dawn_burst_budget(delta: float, sun: Vector3, top: float) -> int:
 	if n > 0:
 		_seed_markers(sun, top, n * 2.0, 0.0)
 	return n
+
+
+## After the player moved the sun on: spread what is left over the rest of the day.
+func repace_rest_of_day() -> void:
+	var rest_seconds := maxf(10.0, (clock.daylight_fraction - clock.time_of_day) * clock.seconds_per_day)
+	var factor := maxf(Resources.growth_factor(resources.stock, species.needs), 0.15)
+	day_pace = maxf(0.05, _affordable_nodes() / (rest_seconds * 0.9 * factor))
 
 
 ## True when the tree has nothing left to grow with, so the day may be moved on: no water for
@@ -280,6 +293,8 @@ func to_dict() -> Dictionary:
 		"rng_state": str(rng.state),
 		"burst": [_burst_nodes_left, _burst_rate, _burst_accum],
 		"day_pace": day_pace,
+		# The fractional carry-overs, so a loaded game grows exactly like an uninterrupted one.
+		"accum": [_growth_accum, _marker_accum, _leader_accum],
 		"species": species.id,
 		"graph": graph.to_dict(),
 		"markers": colonizer.markers,
@@ -296,6 +311,10 @@ static func from_dict(d: Dictionary) -> GrowthSim:
 	s._burst_rate = float(burst[1])
 	s._burst_accum = float(burst[2])
 	s.day_pace = float(d.get("day_pace", 0.0))
+	var acc: Array = d.get("accum", [0.0, 0.0, 0.0])
+	s._growth_accum = float(acc[0])
+	s._marker_accum = float(acc[1])
+	s._leader_accum = float(acc[2])
 	s.species = Species.from_id(str(d.get("species", "linden")))
 	s.graph = PlantGraph.from_dict(d["graph"])
 	s.colonizer = SpaceColonization.new(s.rng)

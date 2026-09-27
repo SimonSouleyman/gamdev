@@ -123,8 +123,10 @@ func build(g: PlantGraph, first_id: int = 1, end_id: int = -1) -> ArrayMesh:
 			bottom_side = s.normalized()
 			r_bottom = minf(_r(g.radii[p]), _r(g.radii[id]) * 1.35)
 		var base := verts.size()
-		_ring(g.positions[p], bottom_axis, bottom_side, r_bottom, sides, along[p] * bark_tiling, verts, normals, tangents, uvs)
-		_ring(g.positions[id], axis[id], side[id], r_top, sides, along[id] * bark_tiling, verts, normals, tangents, uvs)
+		# One bark repeat count per segment, so the texture never shears between its two rings.
+		var reps := maxf(1.0, round(r_bottom * 20.0))
+		_ring(g.positions[p], bottom_axis, bottom_side, r_bottom, sides, along[p] * bark_tiling, reps, verts, normals, tangents, uvs)
+		_ring(g.positions[id], axis[id], side[id], r_top, sides, along[id] * bark_tiling, reps, verts, normals, tangents, uvs)
 		var stride := sides + 1
 		for i in range(sides):
 			var a0 := base + i
@@ -146,7 +148,7 @@ func build(g: PlantGraph, first_id: int = 1, end_id: int = -1) -> ArrayMesh:
 	return mesh
 
 
-func _ring(center: Vector3, a: Vector3, s: Vector3, r: float, sides: int, v: float,
+func _ring(center: Vector3, a: Vector3, s: Vector3, r: float, sides: int, v: float, reps: float,
 		verts: PackedVector3Array, normals: PackedVector3Array, tangents: PackedFloat32Array, uvs: PackedVector2Array) -> void:
 	var t := a.cross(s)
 	for i in range(sides + 1):
@@ -156,4 +158,4 @@ func _ring(center: Vector3, a: Vector3, s: Vector3, r: float, sides: int, v: flo
 		normals.append(nrm)
 		var tan := (-s * sin(ang) + t * cos(ang))
 		tangents.append_array([tan.x, tan.y, tan.z, 1.0])
-		uvs.append(Vector2(float(i) / float(sides) * maxf(1.0, round(r * 20.0)), v))
+		uvs.append(Vector2(float(i) / float(sides) * reps, v))

@@ -202,7 +202,7 @@ func _on_run_done() -> void:
 	var t := roots.run_totals
 	diary.add(day_number(), "Night %d: the new root grew %.0f m and drank water %.1f, nitrogen %.1f, phosphorus %.1f, potassium %.1f." % [
 		day_number() + 1, roots.run_length, t[0], t[1], t[2], t[3]])
-	if roots.leftover_spent > 1.0:
+	if roots.leftover_spent > 1.0 and roots.count_flagged("fine", roots.main_root_count - 1) > 0:
 		diary.add(day_number(), "The rest of the night's life force (%.0f) went into fine roots around it." % roots.leftover_spent)
 	_event("run_done")
 
@@ -249,12 +249,20 @@ func skip_time(fraction: float) -> void:
 	if not can_skip_time() or fraction <= 0.0:
 		return
 	var clock := sim.clock
-	var seconds := minf(fraction, clock.daylight_fraction - clock.time_of_day) * clock.seconds_per_day
+	var to_sunset := clock.daylight_fraction - clock.time_of_day
+	var seconds := minf(fraction, to_sunset) * clock.seconds_per_day
+	if fraction >= to_sunset:
+		seconds += 0.01  # land on the sunset itself, not a hair before it
 	sim.clock.boost_active = false
+	# The skipped hours move the sun and fill the life force, but the tree waits: the night's
+	# nutrients stay for the hour the player picked (Simon: wait for the afternoon, then boost).
+	sim.growth_paused = true
 	while seconds > 0.0 and phase == Phase.DAY:
-		var step := minf(seconds, 0.5)
+		var step := minf(seconds, 2.0)
 		tick(step)
 		seconds -= step
+	sim.growth_paused = false
+	sim.repace_rest_of_day()
 
 
 # --- journal pages ------------------------------------------------------------
@@ -288,7 +296,8 @@ func to_dict() -> Dictionary:
 	}
 
 
-static func from_dict(d: Dictionary) -> GameState:
+static func from_dict(d_in: Dictionary) -> GameState:
+	var d := d_in.duplicate(true)
 	var g := GameState.new()
 	g.seed = int(d.get("seed", 1))
 	g.sim = GrowthSim.from_dict(SaveData.restore_sim(d["sim"]))

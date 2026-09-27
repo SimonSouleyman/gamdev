@@ -17,7 +17,7 @@ var dive_speed: float = 1.3
 ## Radians per second at full joystick deflection.
 var turn_rate: float = 1.7
 ## The root drifts down on its own at this speed (m/s); diving also bends the heading down.
-var sink_speed: float = 0.12
+var sink_speed: float = 0.07
 var dive_sink_rate: float = 1.2
 ## Length of one permanent root segment.
 var step_length: float = 0.25
@@ -128,7 +128,7 @@ func advance(stick: Vector2, dive: bool, delta: float, ground: Underground, res:
 	last_finds = ground.touch_finds(tip_position)
 	_unstick(start_of_frame, want, delta)
 	if _stuck_time > STUCK_END_SECONDS:
-		ends = true  # truly wedged: the root ends here; the life force left is kept
+		ends = true  # truly wedged: the root ends here; the life force left feeds fine roots
 	if res.life_force <= 1e-4:
 		ends = true
 	if run_node_count() >= Budgets.ROOT_MAX_NODES_PER_MAIN_ROOT:
@@ -260,11 +260,17 @@ func end_run(ground: Underground, res: Resources) -> void:
 	if not run_active:
 		return
 	run_active = false
+	leftover_spent = 0.0
+	if run_node_count() == 0:
+		# Ended before the root grew at all: nothing to feed, the life force stays for later.
+		graph.update_radii()
+		return
 	leftover_spent = res.life_force
 	res.life_force = 0.0
 	_fine_budget = mini(Budgets.FINE_ROOTS_MAX_PER_MAIN_ROOT,
 		Budgets.FINE_ROOTS_PER_MAIN_ROOT + int(leftover_spent * fine_nodes_per_life_force))
-	_fine_reach = fine_radius + minf(1.4, leftover_spent * 0.04)
+	# Leftover life force reaches further: the fine roots gather what lies around the new root.
+	_fine_reach = fine_radius + minf(4.0, leftover_spent * 0.05)
 	if run_node_count() > 0:
 		_grow_fine_roots(ground, res)
 		main_root_count += 1
@@ -298,7 +304,7 @@ func _grow_fine_roots(ground: Underground, res: Resources) -> void:
 			if not seen.has(d):
 				seen[d] = true
 				marker_ids.append(d)
-	if marker_ids.is_empty():
+	if marker_ids.is_empty() and leftover_spent < 1.0:
 		return
 	var sc := SpaceColonization.new(rng)
 	sc.influence_radius = _fine_reach
@@ -311,7 +317,8 @@ func _grow_fine_roots(ground: Underground, res: Resources) -> void:
 		sc.add_marker(ground.dot_positions[d])
 	var guard := 0
 	# Leftover life force also sends fine roots out into the soil where no dot waits.
-	var extra := int(leftover_spent * 2.0)
+	# Only where there is nothing to drink: then the leftover still shows as more roots.
+	var extra := int(leftover_spent * 2.0) if marker_ids.size() < 10 else 0
 	for i in range(extra):
 		var anchor := graph.positions[path[rng.randi() % path.size()]]
 		var v := Vector3(rng.randf_range(-1, 1), rng.randf_range(-1, 0.4), rng.randf_range(-1, 1)).normalized()

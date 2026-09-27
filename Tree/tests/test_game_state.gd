@@ -136,7 +136,13 @@ func test_drag_the_sun_once_nutrients_are_spent() -> void:
 	var t0 := g.sim.clock.time_of_day
 	g.skip_time(0.1)
 	t.check(g.sim.clock.time_of_day > t0 + 0.09, "skipping moves the sun")
-	t.check(g.sim.graph.size() > before_skip, "and the tree keeps growing through the skipped time")
+	t.check_eq(g.sim.graph.size(), before_skip, "the tree rests while the sun is moved on")
+	t.check(not g.sim.nutrients_spent(), "so the nutrients wait for the hour the player picked")
+	g.sim.clock.boost_active = true
+	for _i in range(20):
+		g.tick(0.5)
+	t.check(g.sim.graph.size() > before_skip, "and boosting later grows the tree")
+	g.sim.clock.boost_active = false
 	for k in range(4):
 		g.sim.resources.stock[k] = 0.0
 	t.check(g.day_is_spent(), "the day counts as spent once nutrients run out")

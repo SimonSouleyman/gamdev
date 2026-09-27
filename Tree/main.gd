@@ -5,7 +5,7 @@ extends Node
 ## Dev keys (PC): T cycles time speed 1x/5x/20x, H hides the UI, F9 starts a new game.
 
 const SETTINGS_PATH := "user://settings.json"
-const AUTOSAVE_SECONDS := 15.0
+const AUTOSAVE_SECONDS := 60.0
 
 var state: GameState
 var tree_view: TreeView
@@ -276,7 +276,8 @@ func _apply_setting(key: String, on: bool) -> void:
 
 
 func _load_settings() -> void:
-	if not FileAccess.file_exists(SETTINGS_PATH):
+	# Tools (ephemeral runs) neither read nor write the player's settings.
+	if ephemeral or not FileAccess.file_exists(SETTINGS_PATH):
 		return
 	var d: Variant = JSON.parse_string(FileAccess.get_file_as_string(SETTINGS_PATH))
 	if d is Dictionary:
