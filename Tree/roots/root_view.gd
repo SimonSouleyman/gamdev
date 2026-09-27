@@ -51,6 +51,7 @@ var _dragged: bool = false
 var hud: CanvasLayer
 var joystick: ThumbStick
 var dive_button: Button
+var end_button: Button
 var _life_label: Label
 var _hint: Label
 var _life_bar: ColorRect
@@ -146,7 +147,9 @@ func _build_world() -> void:
 	_live_roots.material_override = root_mat
 	add_child(_live_roots)
 
-	_tip = _glow_sphere(0.07, Color(1.0, 0.95, 0.8), 3.0)
+	# No marker ball at the tip (Simon, play test): the growing root itself shows where you are;
+	# only a soft light travels with it.
+	_tip = MeshInstance3D.new()
 	add_child(_tip)
 	_tip_light = OmniLight3D.new()
 	_tip_light.light_color = Color(1.0, 0.92, 0.8)
@@ -281,9 +284,7 @@ func _build_hud() -> void:
 	joystick.offset_bottom = -90
 	root.add_child(joystick)
 
-	dive_button = Button.new()
-	dive_button.text = "hold\nto dive"
-	dive_button.add_theme_font_size_override("font_size", 28)
+	dive_button = _scrap_button("hold\nto dive", 30)
 	dive_button.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
 	dive_button.offset_left = -250
 	dive_button.offset_top = -300
@@ -291,6 +292,17 @@ func _build_hud() -> void:
 	dive_button.offset_bottom = -110
 	dive_button.focus_mode = Control.FOCUS_NONE
 	root.add_child(dive_button)
+
+	# End tonight's root here; the rest of the life force goes into fine roots.
+	end_button = _scrap_button("end root here", 26)
+	end_button.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
+	end_button.offset_left = -250
+	end_button.offset_top = -80
+	end_button.offset_right = -60
+	end_button.offset_bottom = -24
+	end_button.focus_mode = Control.FOCUS_NONE
+	end_button.pressed.connect(end_early)
+	root.add_child(end_button)
 	_show_run_controls(false)
 
 	compass = Compass.new()
@@ -306,16 +318,34 @@ func _build_hud() -> void:
 func _label(font_size: int, pos: Vector2) -> Label:
 	var l := Label.new()
 	l.position = pos
-	l.add_theme_font_size_override("font_size", font_size)
+	l.add_theme_font_override("font", Paper.hand_font(true))
+	l.add_theme_font_size_override("font_size", font_size + 2)
 	l.add_theme_color_override("font_color", Color(0.95, 0.93, 0.88))
 	l.add_theme_color_override("font_shadow_color", Color(0, 0, 0, 0.8))
 	l.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	return l
 
 
+## A button written on a scrap of journal paper.
+func _scrap_button(text: String, size: int) -> Button:
+	var b := Button.new()
+	b.text = text
+	b.add_theme_font_override("font", Paper.hand_font(true))
+	b.add_theme_font_size_override("font_size", size)
+	for k in ["font_color", "font_hover_color", "font_pressed_color"]:
+		b.add_theme_color_override(k, Paper.INK)
+	for k in ["normal", "hover", "pressed"]:
+		var sb := Paper.paper_box(96, 64, 30 + size, "all", 12.0)
+		if k == "pressed":
+			sb.modulate_color = Color(0.85, 0.8, 0.7)
+		b.add_theme_stylebox_override(k, sb)
+	return b
+
+
 func _show_run_controls(on: bool) -> void:
 	joystick.visible = on
 	dive_button.visible = on
+	end_button.visible = on
 
 
 func set_hud_visible(on: bool) -> void:
@@ -440,6 +470,9 @@ func _process_run(delta: float) -> void:
 		if stick.length() < 0.2 and not dive:
 			return
 		_waiting_for_input = false
+	if input_enabled and scripted_stick == null and (Input.is_physical_key_pressed(KEY_E) or Input.is_physical_key_pressed(KEY_ENTER)):
+		end_early()
+		return
 	var alive := roots.advance(stick, dive, delta, ground, res)
 	if not roots.last_collected.is_empty():
 		dots_collected.emit(roots.last_collected.size())
@@ -479,6 +512,22 @@ func _outside_rocks(p: Vector3) -> Vector3:
 			p = c + (p - c).normalized() * rr
 	p.y = minf(p.y, -0.1)
 	return p
+
+
+## The player ends the root here: fine roots take the rest of tonight's life force.
+func end_early() -> void:
+	if mode != Mode.RUN or not roots.run_active or not input_enabled:
+		return
+	roots.last_collected = PackedInt32Array()
+	roots.finish_early(ground, res)
+	for i in roots.last_collected:
+		_set_dot(i)
+		_flash(ground.dot_positions[i], Resources.KIND_COLORS[ground.dot_kinds[i]])
+	if not roots.last_collected.is_empty():
+		dots_collected.emit(roots.last_collected.size())
+	_rebuild_all()
+	begin_idle_overview()
+	run_finished.emit(roots.run_totals)
 
 
 func _look_at_safely(target: Vector3) -> void:

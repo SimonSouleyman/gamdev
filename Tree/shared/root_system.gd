@@ -25,6 +25,13 @@ var step_length: float = 0.25
 var collect_radius: float = 0.55
 ## Fine roots reach dots within this distance of the new main root.
 var fine_radius: float = 1.6
+## Ending early: each point of leftover life force buys this many more fine-root nodes,
+## and widens their reach a little (Simon, play test 2026-09-27).
+var fine_nodes_per_life_force: float = 6.0
+var _fine_budget: int = Budgets.FINE_ROOTS_PER_MAIN_ROOT
+var _fine_reach: float = 1.6
+## Life force that went into extra fine roots at the end of the last run.
+var leftover_spent: float = 0.0
 
 var graph: PlantGraph
 var main_root_count: int = 0
@@ -50,7 +57,7 @@ var run_totals: PackedFloat32Array = PackedFloat32Array([0, 0, 0, 0])
 
 func _init(random_seed: int = 1) -> void:
 	rng.seed = hash([random_seed, "roots"])
-	graph = PlantGraph.new(Vector3.ZERO, Budgets.MAX_MAIN_ROOTS * (Budgets.ROOT_MAX_NODES_PER_MAIN_ROOT + Budgets.FINE_ROOTS_PER_MAIN_ROOT) + 1)
+	graph = PlantGraph.new(Vector3.ZERO, Budgets.MAX_MAIN_ROOTS * (Budgets.ROOT_MAX_NODES_PER_MAIN_ROOT + Budgets.FINE_ROOTS_MAX_PER_MAIN_ROOT) + 1)
 
 
 ## Life force for one metre of root at `p`: rises with distance from the trunk and with depth.
@@ -247,14 +254,26 @@ func _collect(p: Vector3, radius: float, ground: Underground, res: Resources) ->
 
 
 ## Ends the run: fine roots sprout along the new path and drink the dots they reach.
+## Ends the run. Whatever life force is left (the player ended early, or the root reached its
+## node budget) is spent too: it buys more and longer fine roots around the new root.
 func end_run(ground: Underground, res: Resources) -> void:
 	if not run_active:
 		return
 	run_active = false
+	leftover_spent = res.life_force
+	res.life_force = 0.0
+	_fine_budget = mini(Budgets.FINE_ROOTS_MAX_PER_MAIN_ROOT,
+		Budgets.FINE_ROOTS_PER_MAIN_ROOT + int(leftover_spent * fine_nodes_per_life_force))
+	_fine_reach = fine_radius + minf(1.4, leftover_spent * 0.04)
 	if run_node_count() > 0:
 		_grow_fine_roots(ground, res)
 		main_root_count += 1
 	graph.update_radii()
+
+
+## The player ends tonight's root here.
+func finish_early(ground: Underground, res: Resources) -> void:
+	end_run(ground, res)
 
 
 func _grow_fine_roots(ground: Underground, res: Resources) -> void:
@@ -263,7 +282,7 @@ func _grow_fine_roots(ground: Underground, res: Resources) -> void:
 	var path := PackedInt32Array()
 	for id in range(run_first_new_id, graph.size()):
 		path.append(id)
-	var temp := PlantGraph.new(graph.positions[run_start_id], path.size() + 1 + Budgets.FINE_ROOTS_PER_MAIN_ROOT)
+	var temp := PlantGraph.new(graph.positions[run_start_id], path.size() + 1 + _fine_budget)
 	var to_real := {0: run_start_id}
 	var to_temp := {run_start_id: 0}
 	for id in path:
@@ -275,14 +294,14 @@ func _grow_fine_roots(ground: Underground, res: Resources) -> void:
 	var marker_ids := PackedInt32Array()
 	var seen := {}
 	for id in path:
-		for d in ground.dots_near(graph.positions[id], fine_radius):
+		for d in ground.dots_near(graph.positions[id], _fine_reach):
 			if not seen.has(d):
 				seen[d] = true
 				marker_ids.append(d)
 	if marker_ids.is_empty():
 		return
 	var sc := SpaceColonization.new(rng)
-	sc.influence_radius = fine_radius
+	sc.influence_radius = _fine_reach
 	sc.kill_distance = 0.22
 	sc.step_length = 0.14
 	sc.bias_direction = Vector3.DOWN
@@ -291,7 +310,16 @@ func _grow_fine_roots(ground: Underground, res: Resources) -> void:
 	for d in marker_ids:
 		sc.add_marker(ground.dot_positions[d])
 	var guard := 0
-	while not sc.markers.is_empty() and not temp.is_full() and guard < 60:
+	# Leftover life force also sends fine roots out into the soil where no dot waits.
+	var extra := int(leftover_spent * 2.0)
+	for i in range(extra):
+		var anchor := graph.positions[path[rng.randi() % path.size()]]
+		var v := Vector3(rng.randf_range(-1, 1), rng.randf_range(-1, 0.4), rng.randf_range(-1, 1)).normalized()
+		var m := anchor + v * rng.randf_range(0.5, _fine_reach)
+		m.y = minf(m.y, -0.1)
+		if not ground.is_inside_rock(m, 0.05):
+			sc.add_marker(m)
+	while not sc.markers.is_empty() and not temp.is_full() and guard < 120:
 		if sc.step(temp) == 0:
 			break
 		guard += 1

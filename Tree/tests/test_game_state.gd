@@ -131,10 +131,15 @@ func _morning_after_first_night(seed: int) -> GameState:
 
 func test_drag_the_sun_once_nutrients_are_spent() -> void:
 	var g := _morning_after_first_night(10)
-	t.check(not g.can_skip_time() or g.sim.nutrients_spent(), "no skipping while there is food")
+	t.check(g.can_skip_time(), "the sun can be moved on at any time of the day")
+	var before_skip := g.sim.graph.size()
+	var t0 := g.sim.clock.time_of_day
+	g.skip_time(0.1)
+	t.check(g.sim.clock.time_of_day > t0 + 0.09, "skipping moves the sun")
+	t.check(g.sim.graph.size() > before_skip, "and the tree keeps growing through the skipped time")
 	for k in range(4):
 		g.sim.resources.stock[k] = 0.0
-	t.check(g.can_skip_time(), "skipping allowed once nutrients are spent")
+	t.check(g.day_is_spent(), "the day counts as spent once nutrients run out")
 	var before := g.sim.clock.time_of_day
 	var life_before := g.sim.resources.life_force
 	g.skip_time(0.1)
@@ -232,7 +237,7 @@ func test_rng_state_survives_a_save_exactly() -> void:
 func test_a_full_tree_counts_as_spent() -> void:
 	var g := _morning_after_first_night(17)
 	g.sim.graph.max_nodes = g.sim.graph.size()
-	t.check(g.can_skip_time(), "a tree at its node budget lets the day move on")
+	t.check(g.day_is_spent(), "a tree at its node budget counts as spent")
 
 
 func test_morning_survives_a_save_right_after_sunrise() -> void:

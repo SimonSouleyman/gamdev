@@ -200,7 +200,7 @@ func _process(delta: float) -> bool:
 				_log("nutrients left at 0.35 of the day; emptying the stock to try the sun drag")
 				for k in range(4):
 					s.sim.resources.stock[k] = 0.0
-			if _page() == "spent" or s.can_skip_time():
+			if _page() == "spent" or s.day_is_spent():
 				main.time_scale = 1.0
 				if _page() == "spent":
 					_shot("10_spent_page")

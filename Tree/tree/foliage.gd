@@ -58,7 +58,13 @@ static func _leaf_inside(u: float, v: float) -> float:
 
 ## One leaf cluster: `count` cards around the origin, each with its stem pointing inward.
 ## UV.y runs from stem (0) to tip (1) so the shader can flutter the tips.
-static func cluster_mesh(count: int = 7, card: float = 1.0) -> ArrayMesh:
+## Where each of the six leaves of the LeafSet004 atlas sits (u0, v0, u1, v1), stems at the bottom.
+const ATLAS_CELLS: Array[Rect2] = [
+	Rect2(0.18, 0.16, 0.19, 0.34), Rect2(0.37, 0.15, 0.23, 0.35), Rect2(0.6, 0.17, 0.2, 0.33),
+	Rect2(0.19, 0.5, 0.18, 0.34), Rect2(0.4, 0.5, 0.2, 0.34), Rect2(0.62, 0.5, 0.19, 0.33)]
+
+
+static func cluster_mesh(count: int = 7, card: float = 1.0, atlas: bool = false) -> ArrayMesh:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 77
 	var verts := PackedVector3Array()
@@ -83,7 +89,11 @@ static func cluster_mesh(count: int = 7, card: float = 1.0) -> ArrayMesh:
 		verts.append_array([base - hw, base + hw, tip + hw, tip - hw])
 		for _k in range(4):
 			normals.append(n)
-		uvs.append_array([Vector2(0, 1), Vector2(1, 1), Vector2(1, 0), Vector2(0, 0)])
+		if atlas:
+			var r: Rect2 = ATLAS_CELLS[(i + rng.randi()) % ATLAS_CELLS.size()]
+			uvs.append_array([Vector2(r.position.x, r.end.y), r.end, Vector2(r.end.x, r.position.y), r.position])
+		else:
+			uvs.append_array([Vector2(0, 1), Vector2(1, 1), Vector2(1, 0), Vector2(0, 0)])
 		indices.append_array([b, b + 1, b + 2, b, b + 2, b + 3])
 	var arrays := []
 	arrays.resize(Mesh.ARRAY_MAX)

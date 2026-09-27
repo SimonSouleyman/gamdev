@@ -14,7 +14,8 @@ var _time: float = 0.0
 
 
 func _ready() -> void:
-	mouse_filter = Control.MOUSE_FILTER_STOP
+	# Only a press on the sun itself is taken; anything else passes on (hold to boost, orbit).
+	mouse_filter = Control.MOUSE_FILTER_PASS
 
 
 func _process(delta: float) -> void:
@@ -50,8 +51,10 @@ func _draw() -> void:
 func _gui_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton and (event as InputEventMouseButton).button_index == MOUSE_BUTTON_LEFT:
 		var m := event as InputEventMouseButton
+		var was := _dragging
 		_dragging = m.pressed and m.position.distance_to(knob_position()) < 70.0
-		accept_event()
+		if _dragging or was:
+			accept_event()
 	elif event is InputEventMouseMotion and _dragging:
 		var pos := (event as InputEventMouseMotion).position
 		# The nearest point of the arc to the finger, but only forward in time.

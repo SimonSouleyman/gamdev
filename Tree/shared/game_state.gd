@@ -53,7 +53,7 @@ static func new_game(random_seed: int) -> GameState:
 	g.sim.clock.time_of_day = g.sim.clock.daylight_fraction
 	g.sim.resources.life_force = SEED_LIFE_FORCE
 	g.phase = Phase.SUNSET
-	g.diary.add(0, "I planted a linden seed in the meadow as the sun went down.")
+	g.diary.add(0, "I planted a linden seed in the clearing as the sun went down.")
 	g._events.append("sunset")
 	return g
 
@@ -174,6 +174,13 @@ func steer(stick: Vector2, dive_held: bool, delta: float) -> bool:
 	return alive
 
 
+## The player ends tonight's root early; the rest of the life force feeds fine roots.
+func finish_run_early() -> void:
+	if roots.run_active:
+		roots.finish_early(ground, sim.resources)
+		_on_run_done()
+
+
 ## The view grew the root itself (RootView drives RootSystem directly): record the end of the run.
 func notify_run_done() -> void:
 	if phase == Phase.NIGHT and run_used and not night_done:
@@ -195,8 +202,8 @@ func _on_run_done() -> void:
 	var t := roots.run_totals
 	diary.add(day_number(), "Night %d: the new root grew %.0f m and drank water %.1f, nitrogen %.1f, phosphorus %.1f, potassium %.1f." % [
 		day_number() + 1, roots.run_length, t[0], t[1], t[2], t[3]])
-	if sim.resources.life_force > 1.0:
-		diary.add(day_number(), "The root reached as far as one root can; %.0f life force is saved for tomorrow night." % sim.resources.life_force)
+	if roots.leftover_spent > 1.0:
+		diary.add(day_number(), "The rest of the night's life force (%.0f) went into fine roots around it." % roots.leftover_spent)
 	_event("run_done")
 
 
@@ -224,18 +231,30 @@ func write_morning_line() -> void:
 # --- moving the day on ------------------------------------------------------
 
 ## Once nutrients are spent, the player may drag the sun along its arc to move time on.
+## The sun can be moved on at any time of the day (Simon, play test 2026-09-27): wait for the
+## afternoon, then boost to steer the crown west, without waiting in real time.
 func can_skip_time() -> bool:
+	return phase == Phase.DAY
+
+
+## Nothing left to grow with today: the arc glows and the hint says so.
+func day_is_spent() -> bool:
 	return phase == Phase.DAY and sim.nutrients_spent()
 
 
 ## Moves the day forward by `fraction` of a whole day (never backward, never past sunset).
+## The skipped time is simulated in small steps, so the tree grows (calmly) and the leaves
+## gather life force as if the player had waited.
 func skip_time(fraction: float) -> void:
 	if not can_skip_time() or fraction <= 0.0:
 		return
 	var clock := sim.clock
 	var seconds := minf(fraction, clock.daylight_fraction - clock.time_of_day) * clock.seconds_per_day
-	# Life force keeps accruing for the skipped time, as if the player had waited.
-	tick(seconds)
+	sim.clock.boost_active = false
+	while seconds > 0.0 and phase == Phase.DAY:
+		var step := minf(seconds, 0.5)
+		tick(step)
+		seconds -= step
 
 
 # --- journal pages ------------------------------------------------------------

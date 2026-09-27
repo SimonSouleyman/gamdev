@@ -122,8 +122,8 @@ func _build_world() -> void:
 	_env.glow_intensity = 0.35
 	_env.glow_bloom = 0.05
 	_env.fog_enabled = true
-	_env.fog_light_color = Color(0.72, 0.8, 0.9)
-	_env.fog_density = 0.0012
+	_env.fog_density = 0.007
+	_env.fog_light_color = Color(0.45, 0.55, 0.5)
 	_env.fog_aerial_perspective = 0.85
 	_env.fog_sky_affect = 0.25
 	_env.adjustment_enabled = true
@@ -134,7 +134,7 @@ func _build_world() -> void:
 
 	var ground := MeshInstance3D.new()
 	var plane := PlaneMesh.new()
-	plane.size = Vector2(900, 900)
+	plane.size = Vector2(160, 160)
 	ground.mesh = plane
 	_noise_tex = NoiseTexture2D.new()
 	_noise_tex.width = 512
@@ -149,11 +149,12 @@ func _build_world() -> void:
 	_ground_mat = ShaderMaterial.new()
 	_ground_mat.shader = preload("res://tree/ground.gdshader")
 	_ground_mat.set_shader_parameter("noise", _noise_tex)
+	Assets.apply_ground(_ground_mat)
 	ground.material_override = _ground_mat
 	var gmat := _ground_mat
 	add_child(ground)
-	# Gentle hills on the horizon.
-	for i in range(7):
+	# (The open meadow had hills on the horizon; the clearing is closed in by forest instead.)
+	for i in range(0):
 		var hill := MeshInstance3D.new()
 		var s := SphereMesh.new()
 		s.radius = 1.0
@@ -174,6 +175,7 @@ func _build_world() -> void:
 	_bark_mat = ShaderMaterial.new()
 	_bark_mat.shader = preload("res://tree/bark.gdshader")
 	_bark_mat.set_shader_parameter("noise", _noise_tex)
+	Assets.apply_bark(_bark_mat)
 	_tree_mesh.material_override = _bark_mat
 	add_child(_tree_mesh)
 
@@ -182,11 +184,11 @@ func _build_world() -> void:
 	var lmm := MultiMesh.new()
 	lmm.transform_format = MultiMesh.TRANSFORM_3D
 	lmm.use_colors = true
-	lmm.mesh = Foliage.cluster_mesh(8, 1.0)
+	lmm.mesh = Foliage.cluster_mesh(8, 1.0, Assets.has_leaf_atlas())
 	_leaves.multimesh = lmm
 	_leaf_mat = ShaderMaterial.new()
 	_leaf_mat.shader = preload("res://tree/leaf.gdshader")
-	_leaf_mat.set_shader_parameter("leaf_texture", Foliage.leaf_texture())
+	Assets.apply_leaf(_leaf_mat)
 	_leaves.material_override = _leaf_mat
 	_leaves.extra_cull_margin = 4.0
 
@@ -259,8 +261,8 @@ func _build_world() -> void:
 	add_child(_sun_disc)
 
 
-const GRASS_BLADES := 30000
-const GRASS_RADIUS := 24.0
+const GRASS_BLADES := 24000
+const GRASS_RADIUS := 20.0
 
 
 func _plant_grass(seed: int) -> void:
@@ -346,7 +348,8 @@ func _build_hud() -> void:
 	_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_hint.vertical_alignment = VERTICAL_ALIGNMENT_BOTTOM
 	_hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_hint.add_theme_font_size_override("font_size", 28)
+	_hint.add_theme_font_override("font", Paper.hand_font(true))
+	_hint.add_theme_font_size_override("font_size", 30)
 	_hint.add_theme_color_override("font_color", Color(1, 1, 0.97))
 	_hint.add_theme_color_override("font_shadow_color", Color(0, 0, 0, 0.7))
 	_hint.add_theme_constant_override("shadow_offset_x", 2)
@@ -355,16 +358,14 @@ func _build_hud() -> void:
 	hud.add_child(_hint)
 
 
+## A readout on a scrap of journal paper, handwritten, with an ink dot in the resource's colour.
 func _pill(parent: Control, dot: Color) -> Label:
 	var panel := PanelContainer.new()
-	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(0.98, 0.96, 0.9, 0.82)
-	sb.set_corner_radius_all(18)
-	sb.content_margin_left = 14
-	sb.content_margin_right = 14
+	var sb := Paper.paper_box(96, 48, 20 + parent.get_child_count(), "all", 12.0)
 	sb.content_margin_top = 4
 	sb.content_margin_bottom = 4
 	panel.add_theme_stylebox_override("panel", sb)
+	panel.rotation_degrees = [-1.5, 1.0, -0.5, 1.8, -1.0][parent.get_child_count() % 5]
 	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 6)
@@ -376,10 +377,7 @@ func _pill(parent: Control, dot: Color) -> Label:
 		d.add_theme_color_override("font_color", dot.darkened(0.15))
 		d.add_theme_font_size_override("font_size", 22)
 		row.add_child(d)
-	var l := Label.new()
-	l.add_theme_font_size_override("font_size", 22)
-	l.add_theme_color_override("font_color", Color(0.25, 0.2, 0.15))
-	l.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var l := Paper.ink_label("", 25, Paper.INK, true)
 	row.add_child(l)
 	parent.add_child(panel)
 	return l
@@ -398,13 +396,16 @@ func _update_hud() -> void:
 		_res_labels[k].text = "%s %.1f" % [short[k], s.resources.amount(k)]
 	_boost_label.get_parent().get_parent().visible = s.clock.boost_active
 	_boost_label.text = "sun boost"
+	# The sun's arc is always there by day: drag the sun to move the day on (brighter once
+	# there is nothing left to grow with).
 	sun_arc.visible = state.can_skip_time()
+	sun_arc.modulate.a = 1.0 if state.day_is_spent() else 0.6
 	sun_arc.progress = s.clock.time_of_day / s.clock.daylight_fraction
 	match state.phase:
 		GameState.Phase.SUNSET:
 			_hint.text = "The sun has set. Tap the ground to follow the roots down."
 		GameState.Phase.DAY:
-			if state.can_skip_time():
+			if state.day_is_spent():
 				_hint.text = ("Almost nothing left to grow with today" if state.sim.nutrient_missing() and not state.sim.graph.is_full() else "Nothing left to grow with today") + ". Drag the sun along its arc to move the day on."
 			else:
 				_hint.text = ""
@@ -487,7 +488,7 @@ func _update_sun() -> void:
 	var clock := state.sim.clock
 	var dir := clock.sun_direction()
 	var h := clock.sun_height()
-	var skippable := state.can_skip_time()
+	var skippable := state.day_is_spent()
 	if dir == Vector3.ZERO:
 		# Sunset hold or night: the sun rests just below the western horizon.
 		dir = Vector3(-1, -0.05, 0).normalized()
@@ -509,7 +510,8 @@ func _update_sun() -> void:
 	# The eye adapts: a low sun and the dusk are exposed brighter, so the tree stays readable.
 	_env.tonemap_exposure = 1.1 + 1.1 * (1.0 - k)
 	# Never too dark by day: the dawn burst must be seen.
-	_env.ambient_light_energy = 0.8 + 0.4 * k if state.phase == GameState.Phase.DAY else 0.45
+	# Brighter dusk (Simon: the start at sunset was too dark).
+	_env.ambient_light_energy = 0.8 + 0.4 * k if state.phase == GameState.Phase.DAY else 0.8
 
 
 # --- camera -----------------------------------------------------------------
@@ -524,7 +526,9 @@ func _frame_camera(snap: bool, delta: float = 0.0) -> void:
 		_framed_day = state.day_number()
 	var height := _framed_height
 	var want_focus := Vector3(0, clampf(height * 0.5, 0.25, 30.0), 0)
-	var want_distance := clampf(height * 1.9 + 2.2, 2.4, 70.0) * _zoom
+	# The camera stays inside the clearing; a tall tree is seen with a wider lens instead.
+	var want_distance := clampf(clampf(height * 1.9 + 2.2, 2.4, 16.0) * _zoom, 1.5, 17.0)
+	camera.fov = clampf(55.0 + height * 1.0, 55.0, 82.0)
 	var k := 1.0 if snap else 1.0 - exp(-2.0 * delta)
 	_focus = _focus.lerp(want_focus, k)
 	_distance = lerpf(_distance, want_distance, k)

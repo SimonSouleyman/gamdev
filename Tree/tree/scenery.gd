@@ -5,7 +5,10 @@ extends Node3D
 ## grass; butterflies around the crown, birds crossing the sky, pollen in the sunlight and
 ## fireflies at dusk. All mood: nothing here touches the simulation. Seeded like everything else.
 
-const DISTANT_TREES := 34
+const FOREST_TREES := 170
+## The open middle where the player's tree grows; the underground reaches about as far.
+const CLEARING_RADIUS := 18.0
+const BUSHES := 70
 const TREE_VARIANTS := 4
 const CLOUDS := 16
 const FLOWERS := 1800
@@ -34,6 +37,8 @@ func build(seed: int, bark: Material, leaf: Material, noise: Texture2D) -> void:
 	_cloud_mats.clear()
 	_rng.seed = hash([seed, "scenery"])
 	_build_distant_trees(seed, bark, leaf)
+	_build_bushes(leaf)
+	_build_backdrop()
 	_build_clouds(noise)
 	_build_flowers()
 	_build_butterflies()
@@ -68,7 +73,7 @@ func _grow_variant(seed: int, variant: int, bark: Material, leaf: Material) -> A
 		mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, wood.surface_get_arrays(0))
 		mesh.surface_set_material(0, bark)
 	# Leaf cards, baked: one cluster per twig, bigger than on the hero tree (seen from afar).
-	var cluster := Foliage.cluster_mesh(5, 1.0).surface_get_arrays(0)
+	var cluster := Foliage.cluster_mesh(5, 1.0, Assets.has_leaf_atlas()).surface_get_arrays(0)
 	var cv: PackedVector3Array = cluster[Mesh.ARRAY_VERTEX]
 	var cn: PackedVector3Array = cluster[Mesh.ARRAY_NORMAL]
 	var cu: PackedVector2Array = cluster[Mesh.ARRAY_TEX_UV]
@@ -84,7 +89,8 @@ func _grow_variant(seed: int, variant: int, bark: Material, leaf: Material) -> A
 			continue
 		var s := _rng.randf_range(0.35, 0.5)
 		var xf := Transform3D(Basis(Vector3.UP, _rng.randf() * TAU).scaled(Vector3.ONE * s), g.positions[id])
-		var tint := _rng.randf_range(0.8, 1.1)
+		# The forest is older and shadier than the tree in the sun: darker leaves.
+		var tint := _rng.randf_range(0.5, 0.78)
 		var base := verts.size()
 		for i in range(cv.size()):
 			verts.append(xf * cv[i])
@@ -113,24 +119,13 @@ func _build_distant_trees(seed: int, bark: Material, leaf: Material) -> void:
 	var per_variant: Array = []
 	for _v in range(TREE_VARIANTS):
 		per_variant.append([])
-	# A few groves and hedgerow lines on the far meadow, some single trees in between.
-	var groves := 7
-	for gi in range(groves):
-		var a := TAU * gi / groves + _rng.randf_range(-0.4, 0.4)
-		var d := _rng.randf_range(60.0, 140.0)
-		var center := Vector3(cos(a) * d, 0, sin(a) * d)
-		for _t in range(DISTANT_TREES / groves):
-			var p := center + Vector3(_rng.randf_range(-14, 14), 0, _rng.randf_range(-14, 14))
-			(per_variant[_rng.randi() % TREE_VARIANTS] as Array).append(p)
-	# A few lone trees nearer by, and a loose tree line along the far horizon.
-	for _t in range(8):
-		var a := _rng.randf() * TAU
-		var d := _rng.randf_range(35.0, 70.0)
-		(per_variant[_rng.randi() % TREE_VARIANTS] as Array).append(Vector3(cos(a) * d, 0, sin(a) * d))
-	for _t in range(70):
-		var a := _rng.randf() * TAU
-		var d := _rng.randf_range(170.0, 280.0)
-		(per_variant[_rng.randi() % TREE_VARIANTS] as Array).append(Vector3(cos(a) * d, 0, sin(a) * d))
+	# A forest clearing (Simon, play test 2026-09-27): the tree grows in the open middle, the
+	# forest closes in all around, so the world stays small and the view ends at the trees.
+	for _t in range(FOREST_TREES):
+		var ang := _rng.randf() * TAU
+		# Denser toward the inside edge, thinning into the dark wood behind.
+		var d := CLEARING_RADIUS + 3.0 + pow(_rng.randf(), 1.6) * 26.0
+		(per_variant[_rng.randi() % TREE_VARIANTS] as Array).append(Vector3(cos(ang) * d, 0, sin(ang) * d))
 	for v in range(TREE_VARIANTS):
 		var spots: Array = per_variant[v]
 		if spots.is_empty():
@@ -141,8 +136,82 @@ func _build_distant_trees(seed: int, bark: Material, leaf: Material) -> void:
 		mm.mesh = variants[v]
 		mm.instance_count = spots.size()
 		for i in range(spots.size()):
-			var s := _rng.randf_range(0.8, 1.35)
+			var s := _rng.randf_range(1.3, 2.1)
 			mm.set_instance_transform(i, Transform3D(Basis(Vector3.UP, _rng.randf() * TAU).scaled(Vector3.ONE * s), spots[i]))
+		mmi.multimesh = mm
+		mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		add_child(mmi)
+
+
+## The deep wood behind the trees: a dark ring, so no gap between trunks looks out onto open land.
+func _build_backdrop() -> void:
+	var wall := MeshInstance3D.new()
+	var cyl := CylinderMesh.new()
+	cyl.top_radius = 52.0
+	cyl.bottom_radius = 52.0
+	cyl.height = 16.0
+	cyl.radial_segments = 48
+	cyl.cap_top = false
+	cyl.cap_bottom = false
+	wall.mesh = cyl
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = Color(0.1, 0.15, 0.09)
+	mat.cull_mode = BaseMaterial3D.CULL_FRONT
+	mat.roughness = 1.0
+	wall.material_override = mat
+	wall.position = Vector3(0, 7.0, 0)
+	wall.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_child(wall)
+
+
+## Bushes along the edge of the clearing: leaf clusters heaped into rounded shrubs.
+func _build_bushes(leaf: Material) -> void:
+	var cluster := Foliage.cluster_mesh(6, 1.0, Assets.has_leaf_atlas()).surface_get_arrays(0)
+	var cv: PackedVector3Array = cluster[Mesh.ARRAY_VERTEX]
+	var cn: PackedVector3Array = cluster[Mesh.ARRAY_NORMAL]
+	var cu: PackedVector2Array = cluster[Mesh.ARRAY_TEX_UV]
+	var ci: PackedInt32Array = cluster[Mesh.ARRAY_INDEX]
+	for variant in range(3):
+		var verts := PackedVector3Array()
+		var normals := PackedVector3Array()
+		var uvs := PackedVector2Array()
+		var colors := PackedColorArray()
+		var indices := PackedInt32Array()
+		var size := Vector3(1.2, 0.9, 1.1) * (1.0 + variant * 0.35)
+		for _c in range(60 + variant * 25):
+			var v := Vector3(_rng.randf_range(-1, 1), _rng.randf_range(0, 1), _rng.randf_range(-1, 1))
+			if v.length() > 1.0:
+				continue
+			var xf := Transform3D(Basis(Vector3.UP, _rng.randf() * TAU).scaled(Vector3.ONE * _rng.randf_range(0.25, 0.4)), v * size)
+			var tint := _rng.randf_range(0.7, 1.0)
+			var base := verts.size()
+			for i in range(cv.size()):
+				verts.append(xf * cv[i])
+				normals.append(((xf.basis * cn[i]).normalized() + v.normalized()).normalized())
+				uvs.append(cu[i])
+				colors.append(Color(tint * 0.9, tint, tint * 0.8))
+			for i in ci:
+				indices.append(base + i)
+		var arrays := []
+		arrays.resize(Mesh.ARRAY_MAX)
+		arrays[Mesh.ARRAY_VERTEX] = verts
+		arrays[Mesh.ARRAY_NORMAL] = normals
+		arrays[Mesh.ARRAY_TEX_UV] = uvs
+		arrays[Mesh.ARRAY_COLOR] = colors
+		arrays[Mesh.ARRAY_INDEX] = indices
+		var mesh := ArrayMesh.new()
+		mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+		mesh.surface_set_material(0, leaf)
+		var mmi := MultiMeshInstance3D.new()
+		var mm := MultiMesh.new()
+		mm.transform_format = MultiMesh.TRANSFORM_3D
+		mm.mesh = mesh
+		mm.instance_count = BUSHES / 3
+		for i in range(mm.instance_count):
+			var ang := _rng.randf() * TAU
+			var d := CLEARING_RADIUS + _rng.randf_range(-1.0, 4.0)
+			var s := _rng.randf_range(0.8, 1.5)
+			mm.set_instance_transform(i, Transform3D(Basis(Vector3.UP, _rng.randf() * TAU).scaled(Vector3(s, s * _rng.randf_range(0.8, 1.2), s)), Vector3(cos(ang) * d, -0.1, sin(ang) * d)))
 		mmi.multimesh = mm
 		mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		add_child(mmi)
@@ -371,11 +440,11 @@ func _update_birds(delta: float, day: bool) -> void:
 		if _bird_wait <= 0.0 and day:
 			var a := _rng.randf() * TAU
 			var h := _rng.randf_range(22.0, 40.0)
-			_bird_from = Vector3(cos(a) * 160.0, h, sin(a) * 160.0)
-			_bird_to = Vector3(-cos(a + 0.5) * 160.0, h + _rng.randf_range(-5, 5), -sin(a + 0.5) * 160.0)
+			_bird_from = Vector3(cos(a) * 70.0, h, sin(a) * 70.0)
+			_bird_to = Vector3(-cos(a + 0.5) * 70.0, h + _rng.randf_range(-5, 5), -sin(a + 0.5) * 70.0)
 			_bird_t = 0.0
 		return
-	_bird_t += delta / 28.0
+	_bird_t += delta / 14.0
 	if _bird_t >= 1.0:
 		_bird_t = -1.0
 		_bird_wait = _rng.randf_range(25.0, 60.0)

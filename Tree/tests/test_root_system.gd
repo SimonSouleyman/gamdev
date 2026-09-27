@@ -232,3 +232,32 @@ func test_a_wedged_root_ends_instead_of_hanging() -> void:
 	while r.advance(Vector2(-1.0, -1.0), true, 1.0 / 30.0, u, res) and frames < 30 * 120:
 		frames += 1
 	t.check(not r.run_active, "the run ends or escapes within two minutes (%d frames)" % frames)
+
+
+func test_ending_early_spends_everything_on_more_fine_roots() -> void:
+	# Simon, play test: a run can end early; the leftover life force is still spent, on fine roots.
+	var a := _setup(60.0, 11)
+	var b := _setup(60.0, 11)
+	var ra: RootSystem = a[1]
+	var rb: RootSystem = b[1]
+	ra.start_run(0)
+	rb.start_run(0)
+	for _i in range(90):
+		ra.advance(Vector2(0.3, 0), false, 1.0 / 30.0, a[0], a[2])
+		rb.advance(Vector2(0.3, 0), false, 1.0 / 30.0, b[0], b[2])
+	# a ends now with lots of life force left; b grows the same path to the end.
+	ra.finish_early(a[0], a[2])
+	t.check_near((a[2] as Resources).life_force, 0.0, 1e-6, "ending early still spends all life force")
+	t.check(not ra.run_active, "the run is over")
+	var fine_a := ra.count_flagged("fine", 0)
+	t.check(fine_a > 0, "fine roots grew (%d)" % fine_a)
+	t.check(fine_a <= Budgets.FINE_ROOTS_MAX_PER_MAIN_ROOT, "within the fine-root budget")
+	var early := RootSystem.new(11)
+	var ground := Underground.new(11)
+	var res := Resources.new()
+	res.life_force = 3.0
+	early.start_run(0)
+	for _i in range(90):
+		early.advance(Vector2(0.3, 0), false, 1.0 / 30.0, ground, res)
+	early.finish_early(ground, res)
+	t.check(fine_a > early.count_flagged("fine", 0), "more leftover life force, more fine roots (%d vs %d)" % [fine_a, early.count_flagged("fine", 0)])

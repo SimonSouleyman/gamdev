@@ -4,8 +4,12 @@ shader_type spatial;
 render_mode cull_disabled, depth_draw_opaque, diffuse_lambert_wrap;
 
 uniform sampler2D leaf_texture : source_color, filter_linear_mipmap, repeat_disable;
+// With the photo atlas (ambientCG LeafSet004, CC0): colour + separate opacity + normal map.
+uniform bool use_atlas = false;
+uniform sampler2D leaf_opacity : hint_default_white, filter_linear_mipmap, repeat_disable;
+uniform sampler2D leaf_normal : hint_normal, filter_linear_mipmap, repeat_disable;
 uniform float wind_strength = 1.0;
-uniform vec3 translucency = vec3(0.45, 0.6, 0.12);
+uniform vec3 translucency = vec3(0.22, 0.32, 0.06);
 
 void vertex() {
 	// Normals bend outward from the cluster centre, so a cluster shades like a soft ball of leaves.
@@ -21,9 +25,13 @@ void vertex() {
 void fragment() {
 	vec4 tex = texture(leaf_texture, UV);
 	ALBEDO = tex.rgb * COLOR.rgb;
-	ALPHA = tex.a;
+	ALPHA = use_atlas ? texture(leaf_opacity, UV).r : tex.a;
+	if (use_atlas) {
+		NORMAL_MAP = texture(leaf_normal, UV).rgb;
+		NORMAL_MAP_DEPTH = 0.6;
+	}
 	ALPHA_SCISSOR_THRESHOLD = 0.5;
-	ROUGHNESS = 0.65;
-	SPECULAR = 0.35;
-	BACKLIGHT = translucency * COLOR.rgb * 1.6;
+	ROUGHNESS = 0.8;
+	SPECULAR = 0.12;
+	BACKLIGHT = translucency * COLOR.rgb;
 }

@@ -5,7 +5,7 @@ Working title: **Tree**. UI language: English. Status: planning complete, Protot
 This version consolidates every decision from the interviews (2026-09-26), the two surveys and the feel review (2026-09-27) into one text. Older drafts kept the decisions as dated tables; here each topic is stated once. Companion files: research-tree-growth.md (algorithm and sources), asset-research-2026-09-27.md (free assets and licences), game-feel-review-2026-09-27.md (feel review and play-test plan), review-2026-09-26.md (historical plan review), concepts/ (UI and style mockups).
 
 ## 1. Vision
-A calm idle game about one realistic tree on a peaceful meadow. It grows through sunlight and nutrients. Two linked worlds:
+A calm idle game about one realistic tree in a small forest clearing. It grows through sunlight and nutrients. Two linked worlds:
 - **Tree (above ground, by day):** the tree grows procedurally, steered by the timing of the sun, and produces **life force**.
 - **Roots (underground, by night):** the player steers a root through a space-like void to collect **nutrients**, paying with life force.
 
@@ -14,14 +14,14 @@ Each world feeds the other. One in-game day is one session of at most ten minute
 ## 2. Look and feel
 - **Visual style:** realistic 3D, photorealistic is the goal. One hero tree, a mostly fixed camera, portrait orientation. Four style mockups were compared (concepts/styles/); realism won.
 - **Growth is always algorithmic:** the tree grows from a plant graph, never by swapping pre-made models. See research-tree-growth.md and section 4.
-- **Journal UI:** every menu, card and hint is a page of one notebook. Torn-out pages for small menus, full pages for the diary, grove, species and settings. Handwritten text (fonts Caveat, Patrick Hand, Kalam, all OFL, self-hosted) with small drawings and scribbles; buttons are circled words or sketched boxes. The HUD in tree mode is a few small pills (day, life force, four resources), paper or glass, to be tried. A "no UI" toggle shows pure scenery for testing, screenshots and the wallpaper.
+- **Journal UI:** every menu, card and hint is a page of one notebook. Torn-out pages (from a squared notebook) for small menus and hints; the big menus open the book itself, a leather-bound notebook with ribbon bookmarks (diary, pages to read again, settings; later grove and species). The HUD readouts (life force, nutrients, day) are handwritten on paper scraps in the same style. Handwritten text (fonts Caveat, Patrick Hand, Kalam, all OFL, self-hosted) with small drawings and scribbles; buttons are circled words or sketched boxes. The HUD in tree mode is a few small pills (day, life force, four resources), paper or glass, to be tried. A "no UI" toggle shows pure scenery for testing, screenshots and the wallpaper.
 - **A living, cohesive world:** butterflies, wildflowers and bushes on the meadow; wind in leaves and grass, drifting clouds, occasional rain, snow in a later winter. All of it is mood and follows the same seed and clock. Gameplay effects of weather come later, only if cheap.
 - **Growth feedback:** parts that are growing right now twinkle a little.
 - **Sound:** very important from day one and peaceful. Ambience only, no music: wind, birds and insects above, a deep calm hum below, crossfaded on the dive.
 - **Language:** English.
 
 ## 3. The day: tree mode
-- **Scene:** a single tree on a meadow with rolling hills and sky. Camera fixed on the tree, slow orbit by dragging, pinch to zoom. Looking at the tree from all sides is part of the day.
+- **Scene:** a single tree in a small forest clearing. Trees and bushes close in all around, so the view never reaches far: the world stays small, and that small part is richly animated (wind, butterflies, pollen, fireflies, drifting clouds overhead). The trees around are grown by the same algorithm. Camera fixed on the tree, slow orbit by dragging, pinch to zoom. Looking at the tree from all sides is part of the day.
 - **The sun** follows its real arc for Germany: it rises in the east, stands in the south and high at noon, sets in the west. Later, seasons tilt the arc.
 - **Boost:** hold anywhere on the screen and the sun shines brighter and growth speeds up. Boosting is the only tree action while held. Once pruning exists, a small tool switch chooses boost or prune.
 - **Sun steering in three dimensions:** the timing of the boost shapes the tree. Morning grows the crown east, noon grows it south and taller, evening grows it west. A low sun grows sideways, a high sun grows up. The north side stays sparser by nature.
@@ -31,7 +31,7 @@ Each world feeds the other. One in-game day is one session of at most ten minute
 - **Pruning:** tap a branch and confirm. Free; the cut wood is gone and its resources go to the rest of the crown. Dying or shaded branches are marked so the reason is visible. A journal page explains it the first time, later only a scissors mark.
 - **Soft failure only:** drought makes leaves droop and fall, shaded branches die back slowly. Both come from the growth model. Nothing kills the tree.
 - **Read the meadow:** the surface hints at what lies below, placed by the same seeded generator as the underground. Rushes and a damp patch over water, clover and nettles over nitrogen, a scatter of stones over rock, moss on the north side of the trunk. The player studies the meadow by day to plan the night's root run.
-- **Day length:** up to five minutes. Once nutrients are spent the sun glows softly, and dragging the sun along its arc moves time on, so a day can be two to five minutes. Dragging elsewhere orbits the camera.
+- **Day length:** up to five minutes. The sun can be dragged along its arc at any time to move the day on (the skipped time still grows the tree calmly and gathers life force), so the player can pick the hour to boost, for example wait for the afternoon to grow the crown west. Once nutrients are spent the sun glows and the hint says so. Dragging elsewhere orbits the camera.
 - **Dawn burst:** part of the growth bought by last night's nutrients is held back and released in the first ten seconds after sunrise, with the twinkle, while the camera rises. The daily total is unchanged.
 
 ## 4. Growth model (summary, details in research-tree-growth.md)
@@ -40,7 +40,7 @@ Palubicki's self-organizing tree model with space-colonization markers seeded on
 ## 5. The night: root mode
 - **Scene:** a black void with glowing coloured nutrient dots. Nearby dots glow, distant ones fade like a soft fog. Third-person camera behind the root tip.
 - **The dive:** only at sunset. The day ends, the player taps the ground, the camera dives down and the sound changes. Sunrise brings the camera back up.
-- **One run per night:** pick any point on an existing root (not only a tip), then steer a new main root with a virtual joystick. The root sinks slowly on its own; hold to dive faster. The run ends only when life force is used up. No stop button; each night spends everything.
+- **One run per night:** pick any point on an existing root (not only a tip), then steer a new main root with a virtual joystick. The root sinks slowly on its own; hold to dive faster. The run ends when life force is used up, or earlier when the player ends it ("end root here"). Each night still spends everything: whatever life force is left goes into more and longer fine roots around the new root, in proportion to the leftover. There is no marker at the tip; the growing root itself shows where you are.
 - **Cost:** life force per metre, rising with distance from the trunk and with depth.
 - **Rocks:** hard walls, steer around them. Deeper down there are more rocks.
 - **Result:** the steered path becomes a permanent main root. Fine side roots then sprout on their own along the path (space colonization within a short radius and a node budget per root) and collect the small dots nearby. Collected nutrients feed the tree the next day.
@@ -121,6 +121,7 @@ Later milestones, in rough order: realistic assets (bark, leaf atlases, grass, s
 Realistic assets, the full light model, seasons, live wallpaper, extra species, mobile export, sound beyond placeholders, visitor and find art, the 3D grove.
 
 ## Decision log
+- 2026-09-27 play test 1 (Simon): the sun can be moved on at any time of the day; a root can end early and the leftover life force feeds more fine roots (replaces "leftover carries over"); no ball at the root tip; brighter start at dusk; the scene is a small forest clearing, not an open meadow; the journal is a book (big menus) and torn pages (small), with the HUD in the same handwritten paper style; CC0 photo textures (bark, leaves, ground, paper) and OFL handwriting fonts (Caveat, Patrick Hand) approved.
 - 2026-09-26 interviews: vision, realism, algorithm, sun steering, roots, resources, pacing, soft failure, notifications, portrait, wallpaper wish, linden first.
 - 2026-09-26 review: contradictions fixed (branch anywhere), soft failure, budgets, seed, agentic rules.
 - 2026-09-27 survey 1: HUD, hold-to-boost, run ends when empty, journal explanation for pruning, camera, local save, free.

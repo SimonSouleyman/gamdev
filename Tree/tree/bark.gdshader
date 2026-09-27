@@ -6,6 +6,8 @@ uniform sampler2D bark_albedo : source_color, filter_linear_mipmap, repeat_enabl
 uniform sampler2D bark_normal : hint_normal, filter_linear_mipmap, repeat_enable;
 uniform sampler2D bark_roughness : hint_default_white, filter_linear_mipmap, repeat_enable;
 uniform bool use_textures = false;
+// The photo bark is a pale grey; linden bark is darker and browner.
+uniform vec3 texture_tint : source_color = vec3(0.62, 0.52, 0.42);
 uniform sampler2D noise : filter_linear_mipmap, repeat_enable;
 uniform vec3 light_bark : source_color = vec3(0.58, 0.53, 0.47);
 uniform vec3 dark_bark : source_color = vec3(0.24, 0.2, 0.16);
@@ -20,7 +22,7 @@ float fissure(vec2 uv) {
 
 void fragment() {
 	if (use_textures) {
-		ALBEDO = texture(bark_albedo, UV).rgb;
+		ALBEDO = texture(bark_albedo, UV).rgb * texture_tint;
 		NORMAL_MAP = texture(bark_normal, UV).rgb;
 		ROUGHNESS = texture(bark_roughness, UV).r;
 	} else {
