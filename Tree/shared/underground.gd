@@ -240,7 +240,8 @@ func surface_hints() -> Array:
 	var clover_turn := true
 	for patch in patches:
 		var c: Vector3 = patch["center"]
-		if -c.y > HINT_MAX_DEPTH:
+		# Not the starter patch right under the seed: the meadow at the trunk stays plain.
+		if -c.y > HINT_MAX_DEPTH or Vector2(c.x, c.z).length() < 2.0:
 			continue
 		var ground := Vector3(c.x, 0.0, c.z)
 		var r: float = patch["radius"]

@@ -28,6 +28,7 @@ var _noise_tex: NoiseTexture2D
 var _bark_mat: ShaderMaterial
 var _leaf_mat: ShaderMaterial
 var _ground_mat: ShaderMaterial
+var _scenery: Scenery
 var _env: Environment
 var _meadow: Meadow
 var _builder := BranchMeshBuilder.new()
@@ -81,6 +82,7 @@ func setup(p_state: GameState) -> void:
 	state = p_state
 	_meadow.build(state.ground)
 	_plant_grass(state.seed)
+	_scenery.build(state.seed, _bark_mat, _leaf_mat, _noise_tex)
 	_built_size = -1
 	_births.clear()
 	# Nodes that already exist do not twinkle.
@@ -110,7 +112,9 @@ func _build_world() -> void:
 	_env.background_mode = Environment.BG_SKY
 	_env.sky = sky
 	_env.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
-	_env.ambient_light_sky_contribution = 1.0
+	# Half sky, half a soft fill colour: the physical sky alone is too dark at a low sun.
+	_env.ambient_light_sky_contribution = 0.45
+	_env.ambient_light_color = Color(0.58, 0.64, 0.72)
 	_env.reflected_light_source = Environment.REFLECTION_SOURCE_SKY
 	_env.tonemap_mode = Environment.TONE_MAPPER_ACES
 	_env.tonemap_exposure = 1.1
@@ -163,6 +167,8 @@ func _build_world() -> void:
 
 	_meadow = Meadow.new()
 	add_child(_meadow)
+	_scenery = Scenery.new()
+	add_child(_scenery)
 
 	_tree_mesh = MeshInstance3D.new()
 	_bark_mat = ShaderMaterial.new()
@@ -490,16 +496,20 @@ func _update_sun() -> void:
 	_sun_disc.scale = Vector3.ONE * (1.4 if skippable else 1.0) * pulse
 	_sun_disc.visible = skippable and dir.y > -0.1
 	# The light stays on at the sunset hold, just under the horizon, so the physical sky glows.
-	var light_dir := dir if h > 0.0 else Vector3(-1, -0.02, 0.1).normalized()
+	# At the sunset hold the sun rests right on the western horizon: the sky keeps its afterglow.
+	var light_dir := dir if h > 0.0 else Vector3(-1, 0.012, 0.1).normalized()
 	_sun_light.visible = true
 	_sun_light.look_at_from_position(light_dir * 20.0, Vector3.ZERO, Vector3.UP if absf(light_dir.y) < 0.99 else Vector3.FORWARD)
-	_sun_light.light_energy = (0.35 + 1.4 * minf(clock.light_level(), 1.6)) if h > 0.0 else 0.08
+	_sun_light.light_energy = (0.35 + 1.4 * minf(clock.light_level(), 1.6)) if h > 0.0 else 0.12
 	_sun_light.shadow_enabled = h > 0.03
 	_sun_light.light_color = Color(1.0, 0.68, 0.42).lerp(Color(1.0, 0.96, 0.9), clampf(h * 2.5, 0.0, 1.0))
 	var k := clampf(h * 3.0, 0.0, 1.0)
-	_sky_mat.energy_multiplier = 0.6 + 0.4 * k + (0.35 if clock.boost_active else 0.0)
+	_scenery.update(get_process_delta_time(), h > 0.0, h, _sun_light.light_color, state.sim.height())
+	_sky_mat.energy_multiplier = 1.0 + (0.35 if clock.boost_active else 0.0)
+	# The eye adapts: a low sun and the dusk are exposed brighter, so the tree stays readable.
+	_env.tonemap_exposure = 1.1 + 1.1 * (1.0 - k)
 	# Never too dark by day: the dawn burst must be seen.
-	_env.ambient_light_energy = 0.55 + 0.45 * k if state.phase == GameState.Phase.DAY else 0.3 + 0.5 * k
+	_env.ambient_light_energy = 0.8 + 0.4 * k if state.phase == GameState.Phase.DAY else 0.45
 
 
 # --- camera -----------------------------------------------------------------

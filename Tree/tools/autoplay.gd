@@ -165,7 +165,14 @@ func _process(delta: float) -> bool:
 				main.journal.close_page()
 				_next("sapling page read")
 		7:
-			# Hold anywhere to boost.
+			# Hold anywhere to boost (a page that pops up meanwhile ends the hold: read it, hold again).
+			if _page() != "":
+				_shot("07b_page_" + _page())
+				main.journal.close_page()
+				if has_meta("held"):
+					remove_meta("held")
+				stage_time = 0.0
+				return false
 			if stage_time > 0.3 and not has_meta("held"):
 				set_meta("held", true)
 				_click(Vector2(360, 640), true)
