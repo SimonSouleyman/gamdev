@@ -13,6 +13,9 @@ func test_sun_rises_east_sets_west() -> void:
 	t.check(c.sun_direction().x > 0.0, "morning sun in the east")
 	c.time_of_day = c.daylight_fraction * 0.5
 	t.check_near(c.sun_height(), 1.0, 1e-6, "noon at full height")
+	t.check(c.sun_direction().z < -0.3, "noon sun stands in the south")
+	t.check(c.sun_direction().y > 0.5, "noon sun stands high")
+	t.check(absf(c.sun_direction().x) < 1e-6, "noon sun neither east nor west")
 	c.time_of_day = c.daylight_fraction * 0.9
 	t.check(c.sun_direction().x < 0.0, "evening sun in the west")
 	c.time_of_day = c.daylight_fraction + 0.5 * (1.0 - c.daylight_fraction)
@@ -40,3 +43,12 @@ func test_boost_multiplies_light() -> void:
 	var base := c.light_level()
 	c.boost_active = true
 	t.check_near(c.light_level(), base * c.boost_multiplier, 1e-6, "boost multiplies")
+
+
+func test_boost_lowers_life_force_yield() -> void:
+	var c := DayCycle.new()
+	c.time_of_day = c.daylight_fraction * 0.5
+	var calm := c.life_force_light()
+	c.boost_active = true
+	t.check(c.life_force_light() < calm, "boosting turns light into less life force")
+	t.check(c.light_level() > calm, "but into more growth")

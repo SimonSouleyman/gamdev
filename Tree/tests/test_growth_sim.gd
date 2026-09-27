@@ -50,6 +50,33 @@ func test_morning_boost_leans_east() -> void:
 	t.check(s.centroid().x > 0.1, "crown leans east (x=%f)" % s.centroid().x)
 
 
+func test_noon_boost_leans_south_and_up() -> void:
+	# Sun steering in all three dimensions: at noon the sun stands in the south (-Z) and high.
+	var s := _fed_sim(11)
+	var noon := s.clock.daylight_fraction * 0.5
+	s.clock.time_of_day = noon
+	s.clock.boost_active = true
+	for _i in range(60):
+		s.tick(0.5)
+		if absf(s.clock.time_of_day - noon) > 0.05:
+			s.clock.time_of_day = noon
+	t.check(s.centroid().z < -0.1, "crown leans south (z=%f)" % s.centroid().z)
+	t.check(absf(s.centroid().x) < 0.3, "crown neither east nor west (x=%f)" % s.centroid().x)
+
+
+func test_boosted_day_grows_more_but_yields_less_life_force() -> void:
+	var calm := _fed_sim(5)
+	var boosted := _fed_sim(5)
+	boosted.clock.boost_active = true
+	for _i in range(40):
+		calm.clock.time_of_day = 0.2
+		boosted.clock.time_of_day = 0.2
+		calm.tick(0.5)
+		boosted.tick(0.5)
+	t.check(boosted.graph.size() > calm.graph.size(), "boost grows more nodes")
+	t.check(boosted.resources.life_force < calm.resources.life_force, "boost yields less life force")
+
+
 func test_evening_boost_leans_west() -> void:
 	var s := _fed_sim(11)
 	s.clock.time_of_day = 0.45

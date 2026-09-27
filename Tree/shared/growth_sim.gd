@@ -64,7 +64,7 @@ func tick(delta: float) -> void:
 
 	# Life force from leaves: every tip counts as a leaf cluster.
 	var tip_count := graph.tips().size()
-	resources.life_force += tip_count * life_force_per_tip * light * delta
+	resources.life_force += tip_count * life_force_per_tip * clock.life_force_light() * delta
 
 	# Seed markers on the sun's side, above the current crown, capped by the species size.
 	var sun := clock.sun_direction()

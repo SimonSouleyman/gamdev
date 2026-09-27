@@ -16,7 +16,8 @@ Each criterion has a test in `tests/` unless marked (visual), which Simon judges
 ## Step 4: sun — done
 - A full in-game day is at most 10 real minutes; the start values are five minutes of daylight and three of night (survey 2, to tune).
 - The sun rises in the east and sets in the west; no growth at night.
-- Boost in the morning leans the crown east; boost in the evening leans it west.
+- Boost in the morning leans the crown east; at noon south and upward; in the evening west (sun steering in three dimensions).
+- Boosting grows more but yields less life force (the boost trade).
 - Growth spends nutrients and produces life force; an empty stock gives no growth.
 
 ## Step 9: save/load — done
@@ -35,3 +36,13 @@ Each criterion has a test in `tests/` unless marked (visual), which Simon judges
 
 ## Step 7: tutorial — open
 - A new game starts with a seed, then one root run, then the sapling appears.
+
+## Step 10: day/night loop — open
+- The dive happens only at sunset; sunrise brings the camera back up.
+- A night without life force is a short visit plus a diary line.
+- Dawn burst: part of the night's growth is released in the first ten seconds after sunrise.
+- Once nutrients are spent, dragging the sun shortens the day; night length is unchanged.
+
+## Step 11: read the meadow — open
+- Surface hints (rushes, clover, stones, moss) come from the underground generator and match what is below at that spot (same seed).
+- (visual) The player can orbit and see the hints from every side.
