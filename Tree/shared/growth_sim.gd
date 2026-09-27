@@ -21,9 +21,9 @@ var life_force_per_tip: float = 0.008
 ## Low enough that one night's nutrients last a good part of the day.
 var max_growth_per_second: float = 0.8
 ## Dawn burst: this share of what the nutrients can buy is released in the first seconds after sunrise.
-var dawn_burst_share: float = 0.3
+var dawn_burst_share: float = 0.25
 var dawn_burst_seconds: float = 10.0
-var dawn_burst_max_nodes: int = 150
+var dawn_burst_max_nodes: int = 60
 var _burst_nodes_left: int = 0
 var _burst_rate: float = 0.0
 var _burst_accum: float = 0.0
@@ -100,6 +100,9 @@ func tick(delta: float) -> void:
 	_growth_accum -= budget
 	budget += _dawn_burst_budget(delta, sun, top)
 	colonizer.bias_direction = (Vector3.UP * (1.0 - species.phototropism) + sun * species.phototropism).normalized()
+	# Longer shoots on a bigger tree, so the node budget reaches the species size.
+	colonizer.step_length = 0.15 + top * 0.008
+	colonizer.kill_distance = colonizer.step_length * 1.6
 	# Buds sense space further away in a bigger crown, so side branches can reach its edge.
 	colonizer.influence_radius = clampf(crown_radius(top) * 0.5, 1.2, 4.0)
 	var affordable := _affordable_nodes()
@@ -155,8 +158,9 @@ func start_dawn_burst() -> void:
 	# Spread the rest over the day: without boosting it lasts until about sunset, so a boost
 	# at any hour, evening included, still has something to grow with.
 	var day_seconds := clock.seconds_per_day * clock.daylight_fraction
-	var rest := maxf(0.0, _affordable_nodes() * factor - _burst_nodes_left)
-	day_pace = maxf(0.05, rest / (day_seconds * 0.9))
+	# tick() grows at pace x light x factor, so the factor divides out here.
+	var rest := maxf(0.0, _affordable_nodes() - _burst_nodes_left)
+	day_pace = maxf(0.05, rest / (day_seconds * 0.9 * maxf(factor, 0.15)))
 
 
 func dawn_burst_active() -> bool:
@@ -182,6 +186,12 @@ func _dawn_burst_budget(delta: float, sun: Vector3, top: float) -> int:
 func nutrients_spent() -> bool:
 	if _affordable_nodes() <= 0 or graph.is_full():
 		return true
+	# Not while the dawn burst still grows the night's share.
+	return not dawn_burst_active() and nutrient_missing()
+
+
+## A needed nutrient is used up: growth only crawls at the soft Liebig floor.
+func nutrient_missing() -> bool:
 	for k in range(4):
 		if species.needs[k] > 0.0 and resources.stock[k] < cost_per_node * species.needs[k]:
 			return true

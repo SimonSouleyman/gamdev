@@ -340,7 +340,7 @@ func _update_hud() -> void:
 			_hint.text = "The sun has set. Tap the ground to follow the roots down."
 		GameState.Phase.DAY:
 			if state.can_skip_time():
-				_hint.text = "Nothing left to grow with today. Drag the sun along its arc to move the day on."
+				_hint.text = ("Almost nothing left to grow with today" if state.sim.nutrient_missing() and not state.sim.graph.is_full() else "Nothing left to grow with today") + ". Drag the sun along its arc to move the day on."
 			else:
 				_hint.text = ""
 		_:
@@ -449,7 +449,10 @@ func _update_sun() -> void:
 
 func _frame_camera(snap: bool, delta: float = 0.0) -> void:
 	var real_height := maxf(state.sim.height(), 0.2)
-	if snap or state.day_number() != _framed_day or real_height > _framed_height * 1.35:
+	# Re-framed at snap, when the tree outgrows the frame, and once the day is over (sunset),
+	# so the night's growth shows at dawn as a bigger tree in the same frame.
+	var day_over := state.phase != GameState.Phase.DAY and state.day_number() != _framed_day
+	if snap or day_over or real_height > _framed_height * 1.35:
 		_framed_height = real_height
 		_framed_day = state.day_number()
 	var height := _framed_height

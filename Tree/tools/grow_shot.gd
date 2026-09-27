@@ -54,7 +54,7 @@ func _process(_delta: float) -> bool:
 		# After the view's own _ready, which runs once the tree starts.
 		view.setup(get_meta("game"))
 		view.set_hud_visible(false)
-	var names := ["south", "east", "north"]
+	var names := ["from_north", "from_east", "from_south"]
 	var yaws := [PI, PI * 0.5, 0.0]
 	var i := frame / 20
 	if frame % 20 == 0 and i - 1 < names.size():
