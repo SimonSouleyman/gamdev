@@ -58,7 +58,7 @@ Four underground resources, each a colour of dot.
 | Potassium (K) | Violet | Water regulation, wood strength, hardiness | Thicker, sturdier wood; later winter and drought hardiness |
 
 - **Soft Liebig rule:** growth is limited by the scarcest resource relative to the species' needs, softened so a shortage slows the tree but never stops it.
-- **Species profiles:** a need multiplier per resource. Linden wants much water and N. Birch is frugal. Willow wants very much water. Pine needs little N. Oak is in between.
+- **Species profiles:** a need multiplier per resource, one profile per species. The full roster with needs, shapes and quirks is in section 15.
 - **Underground layout:** topsoil holds most N and P in rich patches with sparse ground between, and moderate water. Deeper there is less nutrient, more reliable water, K near the rocks, and more rock.
 
 ## 7. Pacing and the month
@@ -69,7 +69,7 @@ Four underground resources, each a colour of dot.
 - **A tree is finished** when it reaches its species size. It moves to the grove.
 - **Seed hand-off:** the last diary page shows the finished tree dropping a seed. That seed is the next tree, planted beside the old one.
 - **Grove:** the finished trees stand on the meadow around the new one and the player can walk along them in 3D (later milestone; a list is the fallback).
-- **Species unlock:** finishing one tree unlocks one species. Order: linden, birch, willow, oak, pine. That is the whole prestige system; there is no forced end to playing.
+- **Species unlock:** finishing one tree unlocks one species. Six broadleaf species, order proposed in section 15 (the older order linden, birch, willow, oak, pine is replaced; conifers are out for now). That is the whole prestige system; there is no forced end to playing.
 - **Notification:** at most one per day, local only, one calm line about the tree ("your linden grew a new branch", "the roots are ready"). Can be switched off.
 
 ## 8. The journal
@@ -120,6 +120,39 @@ Later milestones, in rough order: realistic assets (bark, leaf atlases, grass, s
 ## 14. Not in Prototype 1
 Realistic assets, the full light model, seasons, live wallpaper, extra species, mobile export, sound beyond placeholders, visitor and find art, the 3D grove.
 
+## 15. Tree species (proposal 2026-09-27, open until Simon's survey answers)
+Six broadleaf trees from the most common species in German forests and towns (Bundeswaldinventur 2022: beech and oak lead the broadleaves, then birch, ash, maple, alder, hornbeam; linden is the classic village and avenue tree). No conifers for now. Ash is left out on purpose: ash dieback is killing it across Germany, which is a sad fit for a calm game.
+
+**Rule for gameplay differences:** the loop stays identical for every species (day with sun and boost, night with one root run, about a month per tree). A species differs in three small ways only:
+1. **Needs:** its own multiplier per resource (water, N, P, K), so the player hunts different dots underground and reads the clearing differently.
+2. **Shape:** its own growth parameters in `shared/species.gd` (apical dominance, phototropism, gravitropism, size cap, branching), so it looks right and reacts to the sun a little differently.
+3. **One quirk:** a single tweak to one mechanic the game already has (boost, pruning, root cost, deposits, dieback, life force). No new buttons, no new modes. The journal's species page explains the quirk in one handwritten line.
+
+### The roster (recommended six, in the recommended unlock order)
+
+| # | Species | Look | Size | Needs W / N / P / K | Growth shape | Quirk (one mechanic) |
+|---|---|---|---|---|---|---|
+| 1 | **Linden** (Tilia cordata/platyphyllos) | Broad dense dome, heart-shaped leaves, grey bark fissuring with age, pale yellow fragrant blossom with winged bracts | 30 m, crown 12 m | 1.0 / 0.8 / 0.3 / 0.4 | Balanced, low apical dominance, broadens into a dome | **Blossom week:** around days 18 to 22 bees arrive and the leaves give about 20 % more life force. The forgiving teacher tree. |
+| 2 | **Silver birch** (Betula pendula) | Slender and airy, white bark with black diamonds, hanging twig tips, small serrated triangular leaves, catkins | 25 m, crown 6 m | 0.7 / 0.4 / 0.2 / 0.3 | Fast start, light and open crown, tips droop (negative gravitropism on fine twigs) | **Pioneer:** roots in the topsoil cost about 30 % less, but shaded branches die back twice as fast and the thin crown gives a little less life force. Quick to finish (about 25 days). |
+| 3 | **European beech** (Fagus sylvatica) | Smooth silver-grey "elephant skin" bark, dense layered crown with near-horizontal branches, glossy oval leaves, beechnuts | 35 m, crown 12 m | 0.9 / 0.7 / 0.4 / 0.6 | Slow for the first ten days, then strong; low phototropism, branches spread in flat layers | **Patient:** shaded inner branches do not die back, and calm (unboosted) hours give about 25 % more life force while boost gives less; drought bites earlier (water upkeep x1.3). |
+| 4 | **Sycamore maple** (Acer pseudoplatanus) | Big five-lobed leaves, opposite branching, rounded crown, bark flaking in plates, helicopter seeds | 30 m, crown 10 m | 1.0 / 1.0 / 0.4 / 0.6 | Fast youth growth, paired side shoots, strong response to the sun | **Twin buds:** pruning a shoot tip makes it fork into two, so the scissors become a shaping tool for a denser crown. Hungry for nitrogen. |
+| 5 | **Black alder** (Alnus glutinosa) | Narrow cone with one straight leader, round dark leaves with a notched tip, dark fissured bark, small woody cones | 25 m, crown 6 m | 1.4 / 0.1 / 0.5 / 0.3 | High apical dominance, conical, grows straight up | **Nitrogen maker:** root nodules make a little nitrogen every night (per metre of root), so it barely needs green dots; it is the thirstiest tree and drains water deposits faster. Real biology: Frankia bacteria, and they need phosphorus. |
+| 6 | **Pedunculate oak** (Quercus robur) | Massive short trunk, gnarled zigzag branches, wide irregular crown, lobed leaves, acorns, deeply furrowed bark | 30 m, crown 14 m | 0.8 / 0.6 / 0.5 / 0.7 | Slowest, lowest apical dominance, crooked branching (extra kink per segment), very wide | **Taproot:** root runs pointing downward cost about half the depth surcharge, so deep water and potassium near the rocks are in reach; drought-hardy; the most visitors (jay, stag beetle, woodpecker). The long, grand finale (about 35 days). |
+
+Values are first guesses to tune while playing, like everything in section 13. Linden and birch already exist in `shared/species.gd`; the others are new profiles plus one small hook per quirk.
+
+### Alternatives if Simon wants to swap one
+- **Hornbeam** (Carpinus betulus): muscly grey fluted trunk, very common in oak-hornbeam forest. Quirk idea: "hedge tree", every pruning cut regrows extra-dense.
+- **White willow** (Salix alba), from the older plan: silver leaves, grows by water, very fast. Quirk idea: very cheap roots through water, very thirsty. Close to alder.
+- **Wild cherry** (Prunus avium): white spring blossom, shiny red-banded bark. Quirk idea: a blossom week like linden but early, with birds eating the cherries.
+- **Horse chestnut** (Aesculus hippocastanum): huge candles of blossom, conkers; very common in towns but not native.
+
+### Open questions (survey sent to Simon 2026-09-27)
+1. Which six (recommended: linden, birch, beech, maple, alder, oak).
+2. Unlock order (recommended: as in the table, easy to grand; oak last).
+3. How much species differ (recommended: needs + shape + one quirk each).
+4. Month length per species (recommended: about a month each, birch a little shorter, oak a little longer).
+
 ## Decision log
 - 2026-09-27 play test 2 and QA rounds (Simon): the meadow is dense soft grass with herbs and wildflowers (no single blades); the clearing is closed in by a dense wall of mixed trees (oak, beech, birch, linden, spruce) and undergrowth; reference photos in docs/references/clearing. Moving the sun on rests the tree (life force still gathers) so the nutrients wait for the hour the player picks; a missing N, P or K slows growth to about a third instead of stopping it (soft Liebig floor 0.35); the simulation runs in fixed steps.
 - 2026-09-27 play test 1 (Simon): the sun can be moved on at any time of the day; a root can end early and the leftover life force feeds more fine roots (replaces "leftover carries over"); no ball at the root tip; brighter start at dusk; the scene is a small forest clearing, not an open meadow; the journal is a book (big menus) and torn pages (small), with the HUD in the same handwritten paper style; CC0 photo textures (bark, leaves, ground, paper) and OFL handwriting fonts (Caveat, Patrick Hand) approved.
@@ -129,3 +162,4 @@ Realistic assets, the full light model, seasons, live wallpaper, extra species, 
 - 2026-09-27: journal UI, weather as mood, style mockups.
 - 2026-09-27 survey 2: realistic 3D, dive only at sunset, night without life force, 5/3 split, no boost cap, offline life force, one run per night, auto-sink, rocks as walls, fog, water upkeep, finished at species size, species order, notification text, pruning free, ambience only, journal pages, Android only, minimum phone.
 - 2026-09-27 feel review: all eight additions accepted, shorter day, orbit as part of the day, sun steering in three dimensions, boost as a trade.
+- 2026-09-27 species roster (Simon asked for at least six common German broadleaf trees, each with its own look, needs, growth and a small gameplay difference): proposal in section 15, six species (linden, birch, beech, maple, alder, oak), conifers dropped for now, each species differs by needs, shape and one quirk on an existing mechanic. Awaiting Simon's survey answers.
