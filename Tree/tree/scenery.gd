@@ -253,7 +253,7 @@ func _build_distant_trees(seed: int, bark: Material, leaf: Material) -> void:
 		var kind := _weighted(weights)
 		if front and kind == 4 and _rng.randf() < 0.6:
 			kind = 2
-		(per_variant[kind] as Array).append(Vector3(cos(ang) * d, 0, sin(ang) * d))
+		(per_variant[kind] as Array).append(Terrain.at(Vector3(cos(ang) * d, 0, sin(ang) * d)) + Vector3(0, -0.3, 0))
 	for v in range(KINDS.size()):
 		var spots: Array = per_variant[v]
 		if spots.is_empty():
@@ -376,9 +376,10 @@ func _build_bushes(leaf: Material) -> void:
 		mm.instance_count = BUSHES / 3
 		for i in range(mm.instance_count):
 			var ang := _rng.randf() * TAU
-			var d := CLEARING_RADIUS + _rng.randf_range(-1.0, 4.0)
+			# Half along the edge of the clearing, half as undergrowth between the trees.
+			var d := CLEARING_RADIUS + (_rng.randf_range(-1.0, 4.0) if i % 2 == 0 else _rng.randf_range(4.0, 16.0))
 			var s := _rng.randf_range(0.8, 1.5)
-			mm.set_instance_transform(i, Transform3D(Basis(Vector3.UP, _rng.randf() * TAU).scaled(Vector3(s, s * _rng.randf_range(0.8, 1.2), s)), Vector3(cos(ang) * d, -0.1, sin(ang) * d)))
+			mm.set_instance_transform(i, Transform3D(Basis(Vector3.UP, _rng.randf() * TAU).scaled(Vector3(s, s * _rng.randf_range(0.8, 1.2), s)), Terrain.at(Vector3(cos(ang) * d, 0, sin(ang) * d)) + Vector3(0, -0.15, 0)))
 		mmi.multimesh = mm
 		mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		add_child(mmi)
@@ -436,7 +437,7 @@ func _build_flowers() -> void:
 		var center := Vector3(cos(a) * r, 0, sin(a) * r)
 		var col := palette[_rng.randi() % palette.size()]
 		for _f in range(FLOWERS / 60):
-			var p := center + Vector3(_rng.randf_range(-1.2, 1.2), _rng.randf_range(0.04, 0.14), _rng.randf_range(-1.2, 1.2))
+			var p := Terrain.at(center + Vector3(_rng.randf_range(-1.2, 1.2), 0.0, _rng.randf_range(-1.2, 1.2))) + Vector3(0, _rng.randf_range(0.04, 0.14), 0)
 			spots.append(Transform3D(Basis(Vector3.RIGHT, _rng.randf_range(-0.3, 0.3)).scaled(Vector3.ONE * _rng.randf_range(0.7, 1.3)), p))
 			colors.append(col * _rng.randf_range(0.9, 1.05))
 	mm.instance_count = spots.size()

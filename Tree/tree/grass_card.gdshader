@@ -6,8 +6,8 @@ render_mode cull_disabled, diffuse_lambert_wrap;
 
 uniform sampler2D clump_texture : source_color, filter_linear_mipmap, repeat_disable;
 uniform float wind_strength = 1.0;
-uniform float fade_start = 14.0;
-uniform float fade_end = 30.0;
+uniform float fade_start = 24.0;
+uniform float fade_end = 42.0;
 
 void vertex() {
 	vec3 world = (MODEL_MATRIX * vec4(0.0, 0.0, 0.0, 1.0)).xyz;

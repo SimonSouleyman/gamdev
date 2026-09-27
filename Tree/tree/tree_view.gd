@@ -137,9 +137,8 @@ func _build_world() -> void:
 	add_child(camera)
 
 	var ground := MeshInstance3D.new()
-	var plane := PlaneMesh.new()
-	plane.size = Vector2(160, 160)
-	ground.mesh = plane
+	# Uneven ground: a level spot at the trunk, swells and hollows, rising toward the forest.
+	ground.mesh = Terrain.ground_mesh(160.0, 110)
 	_noise_tex = NoiseTexture2D.new()
 	_noise_tex.width = 512
 	_noise_tex.height = 512
@@ -296,7 +295,7 @@ func _plant_grass(seed: int) -> void:
 			var w := rng.randf_range(layer[2].x, layer[2].y)
 			var h := rng.randf_range(layer[3].x, layer[3].y)
 			var basis := Basis(Vector3.UP, rng.randf() * TAU).scaled(Vector3(w, h, w))
-			mm.set_instance_transform(i, Transform3D(basis, Vector3(cos(a) * d, -0.02, sin(a) * d)))
+			mm.set_instance_transform(i, Transform3D(basis, Terrain.at(Vector3(cos(a) * d, 0.0, sin(a) * d)) + Vector3(0, -0.02, 0)))
 			var v := rng.randf_range(0.82, 1.12)
 			var pos := Vector2(cos(a) * d, sin(a) * d)
 			# Soft patches: dry yellowish, lush and dark green, shade under the forest edge.
@@ -477,7 +476,7 @@ func _rebuild() -> void:
 	# Leaf clusters on every living twig (thin wood), so the crown fills out, not just the tips.
 	var spots := PackedInt32Array()
 	for id in range(2, g.size()):
-		var bare_below := state.sim.height() * 0.3 if state.sim.height() > 4.0 else 0.0
+		var bare_below := state.sim.height() * 0.18 if state.sim.height() > 10.0 else 0.0
 	# Leaves on the thin twigs of the crown; the lower trunk of a grown tree stays bare.
 		if g.radii[id] < 0.06 and not g.get_flag(id, "dead", false) and g.positions[id].y >= bare_below:
 			spots.append(id)

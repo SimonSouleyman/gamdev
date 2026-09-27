@@ -22,7 +22,7 @@ func build(ground: Underground) -> void:
 		"moss": _mat(Color(0.28, 0.5, 0.15)),
 	}
 	for h in ground.surface_hints():
-		var p: Vector3 = h["position"]
+		var p: Vector3 = Terrain.at(h["position"])
 		var r: float = h["radius"]
 		match str(h["kind"]):
 			"damp":
@@ -79,7 +79,7 @@ func _scatter(center: Vector3, radius: float, count: int, make: Callable) -> voi
 	for _i in range(count):
 		var a := _rng.randf() * TAU
 		var d := radius * sqrt(_rng.randf())
-		make.call(center + Vector3(cos(a) * d, 0.0, sin(a) * d))
+		make.call(Terrain.at(center + Vector3(cos(a) * d, 0.0, sin(a) * d)))
 
 
 func _add(mesh: Mesh, mat: Material, at: Vector3, basis: Basis = Basis.IDENTITY) -> MeshInstance3D:
