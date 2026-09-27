@@ -32,11 +32,17 @@ var _births: Dictionary = {}  # node id -> time it appeared
 var _time: float = 0.0
 
 # Camera
-var _yaw: float = 0.0
+## PI: the camera stands north of the tree and looks south, toward the sun's arc,
+## so sunrise (east) is on the left as on the sun arc chart.
+var _yaw: float = PI
 var _pitch: float = 0.18
 var _zoom: float = 1.0
 var _focus: Vector3 = Vector3(0, 0.6, 0)
 var _distance: float = 4.0
+## The height the camera frames. It only follows the tree in steps (and each morning), so a
+## day's growth shows as a bigger tree on screen instead of being zoomed away.
+var _framed_height: float = 0.2
+var _framed_day: int = -1
 ## 0 = orbit view, 1 = at the dive point below the ground (for the dive and sunrise).
 var dive_amount: float = 0.0
 
@@ -257,6 +263,15 @@ func _build_hud() -> void:
 		state.skip_time(f * state.sim.clock.daylight_fraction))
 	hud.add_child(sun_arc)
 
+	var compass := Compass.new()
+	compass.camera = camera
+	compass.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+	compass.offset_left = -130
+	compass.offset_right = -20
+	compass.offset_top = 80
+	compass.offset_bottom = 190
+	hud.add_child(compass)
+
 	_hint = Label.new()
 	_hint.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
 	_hint.offset_left = 40
@@ -337,6 +352,10 @@ func _update_hud() -> void:
 func _process(delta: float) -> void:
 	if state == null:
 		return
+	# A journal page or a transition took the input: a hold in progress ends here, or the
+	# release would never arrive and the boost would stay on.
+	if not input_enabled and _pressing:
+		_end_press(false)
 	_time += delta
 	_rebuild_timer += delta
 	if _rebuild_timer >= REBUILD_INTERVAL and state.sim.graph.size() != _built_size:
@@ -422,13 +441,18 @@ func _update_sun() -> void:
 	_sky_mat.sky_top_color = Color(0.2, 0.22, 0.42).lerp(Color(0.32, 0.52, 0.86), k)
 	_sky_mat.sky_horizon_color = Color(0.95, 0.6, 0.4).lerp(Color(0.75, 0.82, 0.9), k)
 	_sky_mat.sky_energy_multiplier = 0.45 + 0.55 * k + (0.35 if clock.boost_active else 0.0)
-	_env.ambient_light_energy = 0.35 + 0.65 * k
+	# Never too dark by day: the dawn burst must be seen.
+	_env.ambient_light_energy = 0.55 + 0.45 * k if state.phase == GameState.Phase.DAY else 0.35 + 0.65 * k
 
 
 # --- camera -----------------------------------------------------------------
 
 func _frame_camera(snap: bool, delta: float = 0.0) -> void:
-	var height := maxf(state.sim.height(), 0.2)
+	var real_height := maxf(state.sim.height(), 0.2)
+	if snap or state.day_number() != _framed_day or real_height > _framed_height * 1.35:
+		_framed_height = real_height
+		_framed_day = state.day_number()
+	var height := _framed_height
 	var want_focus := Vector3(0, clampf(height * 0.5, 0.25, 30.0), 0)
 	var want_distance := clampf(height * 1.9 + 2.2, 2.4, 70.0) * _zoom
 	var k := 1.0 if snap else 1.0 - exp(-2.0 * delta)
@@ -436,8 +460,8 @@ func _frame_camera(snap: bool, delta: float = 0.0) -> void:
 	_distance = lerpf(_distance, want_distance, k)
 	var orbit := _focus + Vector3(sin(_yaw) * cos(_pitch), sin(_pitch), cos(_yaw) * cos(_pitch)) * _distance
 	orbit.y = maxf(orbit.y, 0.25)
-	# The dive ends with the nose in the soil beside the trunk; sunrise starts there and rises.
-	var dive_point := Vector3(0.15, 0.06, 0.45)
+	# The dive ends low beside the trunk looking into the soil; sunrise starts there and rises.
+	var dive_point := Vector3(sin(_yaw), 0.0, cos(_yaw)) * 0.7 + Vector3(0, 0.3, 0)
 	camera.position = orbit.lerp(dive_point, dive_amount)
 	var look := _focus.lerp(Vector3(0, -1.0, 0), dive_amount)
 	var d := look - camera.position
@@ -466,17 +490,17 @@ func _unhandled_input(event: InputEvent) -> void:
 		if _touches.size() == 2 and _pinch_start > 0.0:
 			var pts: Array = _touches.values()
 			var dist := (pts[0] as Vector2).distance_to(pts[1])
-			_zoom = clampf(_pinch_zoom * _pinch_start / maxf(dist, 1.0), 0.35, 3.0)
+			_zoom = clampf(_pinch_zoom * _pinch_start / maxf(dist, 1.0), 0.35, 6.0)
 		return
 	if event is InputEventMagnifyGesture:
-		_zoom = clampf(_zoom / (event as InputEventMagnifyGesture).factor, 0.35, 3.0)
+		_zoom = clampf(_zoom / (event as InputEventMagnifyGesture).factor, 0.35, 6.0)
 		return
 	if event is InputEventMouseButton:
 		var m := event as InputEventMouseButton
 		if m.button_index == MOUSE_BUTTON_WHEEL_UP and m.pressed:
-			_zoom = clampf(_zoom * 0.9, 0.35, 3.0)
+			_zoom = clampf(_zoom * 0.9, 0.35, 6.0)
 		elif m.button_index == MOUSE_BUTTON_WHEEL_DOWN and m.pressed:
-			_zoom = clampf(_zoom * 1.1, 0.35, 3.0)
+			_zoom = clampf(_zoom * 1.1, 0.35, 6.0)
 		elif m.button_index == MOUSE_BUTTON_LEFT:
 			if m.pressed:
 				_begin_press(m.position)

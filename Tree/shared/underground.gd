@@ -2,7 +2,7 @@ class_name Underground
 extends RefCounted
 ## The seeded underground: nutrient dots, rocks and finds, plus the surface hints that
 ## reveal them on the meadow. One generator, one seed (design doc sections 5, 6, 3).
-## Coordinates: +X east, -Z south, +Z north, y < 0 below the meadow. Pure data.
+## Coordinates: +X east, +Z south, -Z north, y < 0 below the meadow. Pure data.
 
 ## Horizontal radius of the generated volume, metres around the trunk.
 const EXTENT: float = 14.0
@@ -255,14 +255,14 @@ func surface_hints() -> Array:
 		var top := -rock_centers[i].y - rock_radii[i]
 		if top < 1.2:
 			out.append({"kind": "stones", "position": Vector3(rock_centers[i].x, 0.0, rock_centers[i].z), "radius": rock_radii[i]})
-	# Moss grows on the shady north side (+Z) of the trunk.
-	out.append({"kind": "moss", "position": Vector3(0, 0, 0.12), "radius": 0.15})
+	# Moss grows on the shady north side (-Z) of the trunk.
+	out.append({"kind": "moss", "position": Vector3(0, 0, -0.12), "radius": 0.15})
 	return out
 
 
 ## Direction word ("north", "south-east", ...) from the trunk to a ground point.
 static func compass(p: Vector3) -> String:
-	var ns := "north" if p.z > 0.0 else "south"
+	var ns := "north" if p.z < 0.0 else "south"
 	var ew := "east" if p.x > 0.0 else "west"
 	if absf(p.z) > 2.0 * absf(p.x):
 		return ns

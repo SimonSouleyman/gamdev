@@ -18,6 +18,9 @@ var _above: bool = true
 ## Birds sing by day only; the tree view sets this.
 var daylight: bool = true
 var _tween: Tween
+var _collect: AudioStreamPlayer
+var _streak: int = 0
+var _streak_timer: float = 0.0
 
 
 func _ready() -> void:
@@ -30,6 +33,11 @@ func _ready() -> void:
 	_bird = AudioStreamPlayer.new()
 	_bird.volume_db = ABOVE_DB - 4.0
 	add_child(_bird)
+	_collect = AudioStreamPlayer.new()
+	_collect.stream = AmbienceSynth.pling()
+	_collect.volume_db = -14.0
+	_collect.max_polyphony = 4
+	add_child(_collect)
 	for p in [_wind, _insects, _hum]:
 		(p as AudioStreamPlayer).play()
 
@@ -57,11 +65,24 @@ func is_above() -> bool:
 	return _above
 
 
+## A soft glassy note when the root drinks dots; a little higher for each in a row.
+func play_collect(count: int) -> void:
+	if _collect == null:
+		return
+	_collect.pitch_scale = clampf(0.9 + 0.08 * _streak + _rng.randf_range(-0.03, 0.03), 0.8, 1.8)
+	_streak = mini(_streak + count, 8)
+	_streak_timer = 1.2
+	_collect.play()
+
+
 func set_enabled(on: bool) -> void:
 	AudioServer.set_bus_mute(AudioServer.get_bus_index("Master"), not on)
 
 
 func _process(delta: float) -> void:
+	_streak_timer -= delta
+	if _streak_timer <= 0.0:
+		_streak = 0
 	if not _above or not daylight:
 		return
 	_bird_timer -= delta

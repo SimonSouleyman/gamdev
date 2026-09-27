@@ -7,7 +7,7 @@ Design doc: `docs/design-doc.md` (the source of truth for gameplay decisions).
 - Growth is always **algorithmic** (self-organizing tree model: space colonization + light + Borchert-Honda + pipe model). Never swap in pre-made tree models to fake growth.
 - **No Google services** (no Play Games, Firebase, AdMob). Local notifications only.
 - **Simulation is separate from rendering.** Everything in `shared/` is plain `RefCounted` code with no scene dependency and no `Node` access. Scenes and meshes only *read* the plant graph.
-- **All randomness comes from one seed** (`GrowthSim.rng`). No `randf()`/`randi()` outside `shared/rng.gd`-fed generators.
+- **All randomness comes from the save seed.** Each system has its own `RandomNumberGenerator` seeded from `hash([seed, "<name>"])` (tree: `GrowthSim.rng`, underground, roots, wishes, meadow). Never the global `randf()`/`randi()`. RNG states are saved as strings (JSON numbers lose 64-bit precision).
 - **Budgets** live in `shared/budgets.gd` and are enforced in code, not in comments.
 - Portrait orientation (720×1280 reference). UI language: English.
 

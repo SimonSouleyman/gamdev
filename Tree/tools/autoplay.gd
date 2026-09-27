@@ -36,8 +36,7 @@ func _initialize() -> void:
 	main = load("res://main.tscn").instantiate()
 	main.ephemeral = true
 	root.add_child(main)
-	main.start(GameState.new_game(seed))
-	_log("started with seed %d" % seed)
+	_log("seed %d" % seed)
 
 
 func _log(s: String) -> void:
@@ -99,6 +98,11 @@ func _page() -> String:
 
 
 func _process(delta: float) -> bool:
+	if not has_meta("started"):
+		# After main's own _ready (which runs once the tree starts): the seeded game.
+		set_meta("started", true)
+		main.start(GameState.new_game(seed))
+		return false
 	stage_time += delta
 	total_time += delta
 	if stage_time > 240.0:
@@ -245,8 +249,6 @@ func _process(delta: float) -> bool:
 				_click(Vector2(360, 1050), false)
 				_next("tapped the ground again")
 		13:
-			if int(stage_time * 4) != int((stage_time - delta) * 4):
-				_log("stage13 t=%.2f mode %d run_used %s night_done %s run_active %s page '%s' trans %s" % [stage_time, rv.mode, s.run_used, s.night_done, s.roots.run_active, _page(), main._transitioning])
 			if stage_time > 1.0 and not main._transitioning:
 				if s.night_empty:
 					_log("empty night")
@@ -265,7 +267,7 @@ func _process(delta: float) -> bool:
 					var p := rv.camera.unproject_position(s.roots.graph.positions[id])
 					_click(p, true)
 					_click(p, false)
-					_log("tapped root node %d at %s (view mode %d, pick finds %d, can start %s, input %s)" % [id, p, rv.mode, rv.pick_node_at(p), s.can_start_run(), rv.input_enabled])
+					_log("tapped root node %d at %s" % [id, p])
 					_next("picked a start point")
 		14:
 			if stage_time > 0.5 and not s.roots.run_active and not s.night_done:

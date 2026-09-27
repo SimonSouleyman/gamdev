@@ -36,7 +36,7 @@ func build(ground: Underground) -> void:
 			"stones":
 				_scatter(p, r, 7, _stone)
 			"moss":
-				_disc(p + Vector3(0, 0.0, 0.1), 0.16, _mats["moss"], 0.012)
+				_disc(p + Vector3(0, 0.0, -0.1), 0.16, _mats["moss"], 0.012)
 
 
 func _mat(c: Color) -> StandardMaterial3D:

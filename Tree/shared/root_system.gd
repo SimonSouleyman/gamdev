@@ -13,7 +13,7 @@ var distance_cost: float = 0.06
 var depth_cost: float = 0.12
 ## Tip speed in metres per second, and while diving.
 var speed: float = 0.9
-var dive_speed: float = 1.8
+var dive_speed: float = 1.3
 ## Radians per second at full joystick deflection.
 var turn_rate: float = 1.7
 ## The root drifts down on its own at this speed (m/s); diving also bends the heading down.
@@ -98,22 +98,31 @@ func advance(stick: Vector2, dive: bool, delta: float, ground: Underground, res:
 	if not run_active:
 		return false
 	_steer(stick, dive, delta)
-	var distance := (dive_speed if dive else speed) * delta
-	var cost := distance * cost_per_metre(tip_position)
+	var want := (dive_speed if dive else speed) * delta
+	var drift := Vector3.DOWN * sink_speed * delta
+	# Small substeps, so a long frame cannot tunnel into a rock or skip the dots it passed.
+	# Life force pays for the distance the tip really moved, never for pushing against a wall.
+	var steps := maxi(1, ceili(want / 0.1))
 	var ends := false
-	if res.life_force < cost:
-		# Spend what is left on the last bit of root.
-		distance *= res.life_force / cost
-		res.life_force = 0.0
-		ends = true
-	else:
-		res.life_force -= cost
-	_move(distance, Vector3.DOWN * sink_speed * delta * (distance / maxf((dive_speed if dive else speed) * delta, 1e-6)), ground)
-	_collect(tip_position, collect_radius, ground, res)
+	for _i in range(steps):
+		var before := tip_position
+		var cost_rate := cost_per_metre(tip_position)
+		var step := want / steps
+		if res.life_force < step * cost_rate:
+			step = res.life_force / cost_rate
+			ends = true
+		_move(step, drift / steps * (step / maxf(want / steps, 1e-6)), ground)
+		res.life_force = maxf(0.0, res.life_force - before.distance_to(tip_position) * cost_rate)
+		_collect(tip_position, collect_radius, ground, res)
+		if ends or not run_active:
+			break
 	last_finds = ground.touch_finds(tip_position)
+	if res.life_force <= 1e-4:
+		ends = true
 	if run_node_count() >= Budgets.ROOT_MAX_NODES_PER_MAIN_ROOT:
 		ends = true
-	if ends:
+	if ends or not run_active:
+		run_active = true  # end_run() finishes the run properly (fine roots) even at the node budget
 		end_run(ground, res)
 		return false
 	return true
@@ -125,6 +134,12 @@ func _update_right() -> void:
 		_right = r.normalized()
 
 
+## The steepest the root may point down or up, so turning left and right always works
+## (a straight-down heading would only spin around itself).
+const MAX_DOWN: float = -0.92
+const MAX_UP: float = 0.4
+
+
 func _steer(stick: Vector2, dive: bool, delta: float) -> void:
 	stick = stick.limit_length(1.0)
 	heading = heading.rotated(Vector3.UP, -stick.x * turn_rate * delta)
@@ -132,40 +147,59 @@ func _steer(stick: Vector2, dive: bool, delta: float) -> void:
 	heading = heading.rotated(_right, stick.y * turn_rate * delta)
 	if dive:
 		heading = (heading + Vector3.DOWN * dive_sink_rate * delta).normalized()
-	# Roots do not grow back out of the soil or climb steeply.
-	if heading.y > 0.4:
-		heading = Vector3(heading.x, 0.4, heading.z).normalized()
+	heading = _clamp_pitch(heading)
 	_update_right()
+
+
+func _clamp_pitch(h: Vector3) -> Vector3:
+	var flat := Vector2(h.x, h.z)
+	if flat.length_squared() < 1e-6:
+		flat = Vector2(_right.z, -_right.x)
+	var y := clampf(h.y, MAX_DOWN, MAX_UP)
+	flat = flat.normalized() * sqrt(1.0 - y * y)
+	return Vector3(flat.x, y, flat.y)
 
 
 func _move(distance: float, drift: Vector3, ground: Underground) -> void:
 	if distance <= 0.0:
 		return
 	var p := tip_position + heading * distance + drift
-	# Rocks are hard walls: push out to the surface and slide along it.
-	var r := ground.rock_at(p, 0.08)
-	if r >= 0:
-		var c := ground.rock_centers[r]
-		var n := (p - c).normalized()
-		p = c + n * (ground.rock_radii[r] + 0.08)
-		var slid := heading - n * heading.dot(n)
-		heading = slid.normalized() if slid.length_squared() > 1e-4 else _right
-		_update_right()
-	# The floor, the surface and the edge of the world slide the heading along them too.
-	if p.y <= -Underground.DEPTH and heading.y < 0.0 or p.y >= -0.05 and heading.y > 0.0:
-		heading = _flattened(Vector3(heading.x, 0.0, heading.z))
-	p.y = clampf(p.y, -Underground.DEPTH, -0.05)
-	var flat := Vector2(p.x, p.z)
-	if flat.length() > Underground.EXTENT:
-		var n := Vector3(flat.x, 0.0, flat.y).normalized()
-		heading = _flattened(heading - n * maxf(0.0, heading.dot(n)))
-		flat = flat.normalized() * Underground.EXTENT
-		p = Vector3(flat.x, p.y, flat.y)
+	# Walls: rocks, the floor, the surface and the edge of the world. Resolve them together a few
+	# times, since pushing out of one rock can push into its neighbour or through the floor.
+	for _pass in range(4):
+		var moved := false
+		for r in range(ground.rock_centers.size()):
+			var c := ground.rock_centers[r]
+			var rr := ground.rock_radii[r] + 0.08
+			if p.distance_squared_to(c) < rr * rr:
+				var n := (p - c).normalized()
+				p = c + n * rr
+				var slid := heading - n * minf(0.0, heading.dot(n))
+				heading = slid.normalized() if slid.length_squared() > 1e-4 else _right
+				moved = true
+		if p.y < -Underground.DEPTH or p.y > -0.05:
+			p.y = clampf(p.y, -Underground.DEPTH, -0.05)
+			heading = _flattened(Vector3(heading.x, 0.0, heading.z))
+			moved = true
+		var flat := Vector2(p.x, p.z)
+		if flat.length() > Underground.EXTENT:
+			var n := Vector3(flat.x, 0.0, flat.y).normalized()
+			# Turn back inward a little, so the corner of floor and edge cannot trap the root.
+			heading = _flattened(heading - n * maxf(0.0, heading.dot(n)) - n * 0.3)
+			flat = flat.normalized() * Underground.EXTENT
+			p = Vector3(flat.x, p.y, flat.y)
+			moved = true
+		if not moved:
+			break
+	heading = _clamp_pitch(heading)
+	_update_right()
+	if ground.is_inside_rock(p, 0.0):
+		return  # boxed in: stay put this step (and pay nothing)
 	_carry += p.distance_to(tip_position)
 	run_length += p.distance_to(tip_position)
 	tip_position = p
-	if _carry >= step_length:
-		_carry = 0.0
+	while _carry >= step_length:
+		_carry -= step_length
 		var id := graph.add_node(tip_id, tip_position)
 		if id < 0:
 			run_active = false
@@ -287,7 +321,9 @@ func to_dict() -> Dictionary:
 	return {
 		"graph": graph.to_json_dict(),
 		"main_root_count": main_root_count,
-		"rng_state": rng.state,
+		"rng_state": str(rng.state),
+		"run_totals": run_totals,
+		"carry": _carry,
 		"run_active": run_active,
 		"tip_id": tip_id,
 		"tip_position": [tip_position.x, tip_position.y, tip_position.z],
@@ -303,7 +339,9 @@ static func from_dict(d: Dictionary, random_seed: int = 1) -> RootSystem:
 	if d.has("graph"):
 		r.graph = PlantGraph.from_json_dict(d["graph"])
 	r.main_root_count = int(d.get("main_root_count", 0))
-	r.rng.state = int(d.get("rng_state", r.rng.state))
+	r.rng.state = int(str(d.get("rng_state", r.rng.state)))
+	r.run_totals = PackedFloat32Array(d.get("run_totals", [0, 0, 0, 0]))
+	r._carry = float(d.get("carry", 0.0))
 	r.run_active = bool(d.get("run_active", false))
 	r.tip_id = int(d.get("tip_id", -1))
 	var tp: Array = d.get("tip_position", [0, 0, 0])

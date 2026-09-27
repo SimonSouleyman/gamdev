@@ -16,6 +16,9 @@ const NIGHT_FAST_FORWARD: float = 30.0
 const EMPTY_NIGHT_VISIT: float = 5.0
 ## Seconds kept in hand before sunrise while the run is not finished.
 const NIGHT_HOLD_MARGIN: float = 0.5
+## Game seconds after sunrise until the morning (diary line, first-morning page or wish).
+## Just after the dawn burst, so the diary can say what the night bought.
+const MORNING_DELAY: float = 11.0
 
 var seed: int = 1
 var sim: GrowthSim
@@ -36,6 +39,8 @@ var seen_pages: Dictionary = {}
 ## "run_done", "night_empty", "find:<kind>", "spent". Scenes pop them with take_events().
 var _events: Array[String] = []
 var _spent_announced: bool = false
+## Seconds since sunrise until the morning event; -1 when it already happened.
+var morning_timer: float = -1.0
 
 
 ## A new game: a seed is planted at sunset; the first night is the first root run.
@@ -86,6 +91,12 @@ func tick(delta: float) -> void:
 				_event("sunset")
 			else:
 				sim.tick(delta)
+				if morning_timer >= 0.0:
+					morning_timer += delta
+					if morning_timer >= MORNING_DELAY:
+						morning_timer = -1.0
+						write_morning_line()
+						_event("morning")
 				if not _spent_announced and sim.nutrients_spent():
 					_spent_announced = true
 					_event("spent")
@@ -118,9 +129,16 @@ func dive() -> bool:
 	run_used = false
 	night_done = false
 	_empty_timer = 0.0
-	night_empty = sim.resources.life_force < roots.cost_per_metre(Vector3.DOWN) * roots.step_length
+	roots.run_totals = PackedFloat32Array([0, 0, 0, 0])
+	# Less than a metre of root is no run: a quiet night instead of a free fine-root harvest.
+	night_empty = sim.resources.life_force < roots.cost_per_metre(Vector3.DOWN)
+	var roots_full := not roots.can_start_run()
 	_event("dive")
-	if night_empty:
+	if roots_full:
+		night_empty = true
+		diary.add(day_number(), "Night %d: the roots fill the soil now; I only looked around below." % (day_number() + 1))
+		_event("night_empty")
+	elif night_empty:
 		diary.add(day_number(), "Night %d: no life force was left for a root. I only looked around below." % (day_number() + 1))
 		_event("night_empty")
 	return true
@@ -177,6 +195,8 @@ func _on_run_done() -> void:
 	var t := roots.run_totals
 	diary.add(day_number(), "Night %d: the new root grew %.0f m and drank water %.1f, nitrogen %.1f, phosphorus %.1f, potassium %.1f." % [
 		day_number() + 1, roots.run_length, t[0], t[1], t[2], t[3]])
+	if sim.resources.life_force > 1.0:
+		diary.add(day_number(), "The root reached as far as one root can; %.0f life force is saved for tomorrow night." % sim.resources.life_force)
 	_event("run_done")
 
 
@@ -189,14 +209,15 @@ func _sunrise() -> void:
 	var was_seed := sim.graph.size() <= 2
 	sim.start_dawn_burst()
 	if was_seed and not sim.nutrients_spent():
-		diary.add(day_number(), "Day %d: the seed sprouted at dawn." % day_number())
+		diary.add(day_number(), "The seed sprouted at dawn.")
 	diary.wish = Diary.make_wish(ground, day_number(), seed)
+	morning_timer = 0.0
 	_event("sunrise")
 
 
 ## Called by the tree view at the end of the dawn burst, for the morning diary line.
 func write_morning_line() -> void:
-	diary.add(day_number(), "Day %d: the linden is %.1f m tall with %d leaf clusters." % [day_number(), sim.height(), sim.tip_count()])
+	diary.add(day_number(), "The linden is %.1f m tall with %d leaf clusters." % [sim.height(), sim.tip_count()])
 
 
 # --- moving the day on ------------------------------------------------------
@@ -241,6 +262,9 @@ func to_dict() -> Dictionary:
 		"night_done": night_done,
 		"night_empty": night_empty,
 		"seen_pages": seen_pages.keys(),
+		"empty_timer": _empty_timer,
+		"morning_timer": morning_timer,
+		"spent_announced": _spent_announced,
 	}
 
 
@@ -251,7 +275,10 @@ static func from_dict(d: Dictionary) -> GameState:
 	g.ground = Underground.from_dict(d.get("underground", {"seed": g.seed}))
 	g.roots = RootSystem.from_dict(d.get("roots", {}), g.seed)
 	g.diary = Diary.from_dict(d.get("diary", {}))
-	g.phase = int(d.get("phase", Phase.DAY)) as Phase
+	g.phase = clampi(int(d.get("phase", Phase.DAY)), Phase.DAY, Phase.NIGHT) as Phase
+	g._empty_timer = float(d.get("empty_timer", 0.0))
+	g.morning_timer = float(d.get("morning_timer", -1.0))
+	g._spent_announced = bool(d.get("spent_announced", false))
 	g.run_used = bool(d.get("run_used", false))
 	g.night_done = bool(d.get("night_done", false))
 	g.night_empty = bool(d.get("night_empty", false))

@@ -26,6 +26,11 @@ var _diary_text: RichTextLabel
 var _note: LineEdit
 var _toggles: Dictionary = {}
 var _open_button: Button
+var _pages_row: HFlowContainer
+## A page can only be turned after a short moment, so a tap meant for the game does not
+## throw away a page nobody has read.
+const MIN_PAGE_SECONDS := 0.6
+var _page_shown_at: float = 0.0
 
 
 func _ready() -> void:
@@ -59,9 +64,18 @@ func _next_page() -> void:
 	_page_title.text = p["title"]
 	_page_body.text = p["body"]
 	_page.visible = true
+	_page_shown_at = Time.get_ticks_msec() / 1000.0
 	_page.modulate.a = 0.0
 	create_tween().tween_property(_page, "modulate:a", 1.0, 0.35)
 	opened_changed.emit(true)
+
+
+## Drops every open or queued page (a new game or a load starts clean).
+func clear_pages() -> void:
+	_queue.clear()
+	_page.visible = false
+	_page_id = ""
+	_diary.visible = false
 
 
 func current_page() -> String:
@@ -82,7 +96,7 @@ func _build_page() -> void:
 	_page.set_anchors_preset(Control.PRESET_FULL_RECT)
 	_page.mouse_filter = Control.MOUSE_FILTER_STOP
 	_page.gui_input.connect(func(e: InputEvent) -> void:
-		if e is InputEventMouseButton and not e.pressed and (e as InputEventMouseButton).button_index == MOUSE_BUTTON_LEFT:
+		if e is InputEventMouseButton and not e.pressed and (e as InputEventMouseButton).button_index == MOUSE_BUTTON_LEFT 				and Time.get_ticks_msec() / 1000.0 - _page_shown_at >= MIN_PAGE_SECONDS:
 			close_page())
 	add_child(_page)
 	var dim := ColorRect.new()
@@ -173,6 +187,15 @@ func set_button_visible(on: bool) -> void:
 	_open_button.visible = on
 
 
+func set_button_enabled(on: bool) -> void:
+	_open_button.disabled = not on
+
+
+## In "no UI" mode the button stays, faint, so the setting can always be switched back.
+func set_button_faint(on: bool) -> void:
+	_open_button.modulate.a = 0.25 if on else 1.0
+
+
 func _build_diary() -> void:
 	_diary = Control.new()
 	_diary.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -211,6 +234,13 @@ func _build_diary() -> void:
 	_diary_text.add_theme_font_size_override("bold_font_size", 24)
 	_diary_text.add_theme_font_size_override("italics_font_size", 23)
 	box.add_child(_diary_text)
+
+	var pages_title := _ink_label(22)
+	pages_title.text = "Pages to read again"
+	pages_title.add_theme_color_override("font_color", FAINT_INK)
+	box.add_child(pages_title)
+	_pages_row = HFlowContainer.new()
+	box.add_child(_pages_row)
 
 	var note_row := HBoxContainer.new()
 	box.add_child(note_row)
@@ -292,7 +322,7 @@ func _refresh_diary() -> void:
 		return
 	var out := ""
 	if state.diary.wish != "":
-		out += "[i]Wish for today: %s[/i]\n\n" % state.diary.wish
+		out += "[i]A wish: %s[/i]\n\n" % state.diary.wish
 	var last_day := -1
 	for e in state.diary.entries:
 		var day := int(e["day"])
@@ -301,6 +331,14 @@ func _refresh_diary() -> void:
 			last_day = day
 		out += ("[i]%s[/i]\n" if e["by"] == "player" else "%s\n") % str(e["text"]).replace("[", "[lb]")
 	_diary_text.text = out
+	for c in _pages_row.get_children():
+		c.queue_free()
+	for id in Pages.TEXTS:
+		if state.seen_pages.has(id):
+			var b := _ink_button(Pages.title(id))
+			b.add_theme_font_size_override("font_size", 20)
+			b.pressed.connect(func() -> void: show_page(id, Pages.title(id), Pages.body(id)))
+			_pages_row.add_child(b)
 
 
 func set_setting(key: String, on: bool) -> void:

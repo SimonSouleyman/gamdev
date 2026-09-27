@@ -42,19 +42,23 @@ static func load(path: String = SAVE_PATH, now_unix: float = -1.0) -> GrowthSim:
 ## The whole game (tree, roots, underground, diary, loop). Offline growth is applied on load.
 static func save_game(state: GameState, path: String = GAME_PATH) -> Error:
 	var data := {"saved_at_unix": Time.get_unix_time_from_system(), "game": state.to_dict()}
-	var f := FileAccess.open(path, FileAccess.WRITE)
+	# Write a temporary file and swap it in, so a crash mid-write never loses the tree.
+	var tmp := path + ".tmp"
+	var f := FileAccess.open(tmp, FileAccess.WRITE)
 	if f == null:
 		return FileAccess.get_open_error()
 	f.store_string(JSON.stringify(data, "", false, true))
 	f.close()
-	return OK
+	return DirAccess.rename_absolute(ProjectSettings.globalize_path(tmp), ProjectSettings.globalize_path(path))
 
 
 static func load_game(path: String = GAME_PATH, now_unix: float = -1.0) -> GameState:
 	if not FileAccess.file_exists(path):
 		return null
 	var parsed: Variant = JSON.parse_string(FileAccess.get_file_as_string(path))
-	if parsed == null or not (parsed is Dictionary) or not (parsed as Dictionary).has("game"):
+	if parsed == null or not (parsed is Dictionary) or not (parsed as Dictionary).has("game") 			or not ((parsed as Dictionary)["game"] as Dictionary).has("sim"):
+		# Keep the broken file aside instead of letting the next autosave overwrite it.
+		DirAccess.rename_absolute(ProjectSettings.globalize_path(path), ProjectSettings.globalize_path(path + ".broken"))
 		return null
 	var data := parsed as Dictionary
 	var state := GameState.from_dict(data["game"])

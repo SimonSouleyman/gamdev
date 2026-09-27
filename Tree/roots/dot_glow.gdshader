@@ -5,6 +5,8 @@ render_mode unshaded, blend_add, depth_draw_never, cull_disabled, fog_disabled, 
 uniform float fog_near = 4.0;
 uniform float fog_far = 15.0;
 uniform float pulse = 0.12;
+// Multiplies the instance colour; single flashes use it for their colour and fade.
+uniform vec4 tint : source_color = vec4(1.0);
 
 varying float v_fade;
 varying vec4 v_color;
@@ -19,7 +21,7 @@ void vertex() {
 	POSITION = PROJECTION_MATRIX * VIEW_MATRIX * vec4(p, 1.0);
 	float d = length((VIEW_MATRIX * vec4(world_pos, 1.0)).xyz);
 	v_fade = 1.0 - smoothstep(fog_near, fog_far, d);
-	v_color = COLOR;
+	v_color = COLOR * tint;
 	// Each dot breathes a little, out of phase with its neighbours.
 	v_fade *= 1.0 - pulse + pulse * sin(TIME * 1.7 + world_pos.x * 3.1 + world_pos.z * 2.3);
 }

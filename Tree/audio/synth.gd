@@ -109,3 +109,15 @@ static func chirp(variant: int = 0) -> AudioStreamWAV:
 		for _i in range(int(rng.randf_range(0.03, 0.09) * RATE)):
 			out.append(0.0)
 	return _to_wav(out, false)
+
+
+## A short soft bell-like note for drinking a dot.
+static func pling() -> AudioStreamWAV:
+	var n := int(0.5 * RATE)
+	var out := PackedFloat32Array()
+	out.resize(n)
+	for i in range(n):
+		var t := float(i) / RATE
+		var env := minf(1.0, t * 200.0) * exp(-t * 7.0)
+		out[i] = (sin(TAU * 880.0 * t) * 0.6 + sin(TAU * 1320.0 * t) * 0.25 + sin(TAU * 2200.0 * t) * 0.1 * exp(-t * 20.0)) * env * 0.4
+	return _to_wav(out, false)

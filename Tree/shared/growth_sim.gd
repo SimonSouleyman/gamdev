@@ -16,7 +16,7 @@ var clock := DayCycle.new()
 ## Nutrient cost of one new segment, scaled by species.needs.
 var cost_per_node: float = 0.08
 ## Life force produced per tip per second at full light.
-var life_force_per_tip: float = 0.004
+var life_force_per_tip: float = 0.008
 ## Segments the tree may add per second at full light and full nutrients.
 ## Low enough that one night's nutrients last a good part of the day.
 var max_growth_per_second: float = 0.8
@@ -27,6 +27,9 @@ var dawn_burst_max_nodes: int = 150
 var _burst_nodes_left: int = 0
 var _burst_rate: float = 0.0
 var _burst_accum: float = 0.0
+## Calm growth pace for today (segments per second at full light), set at sunrise so the
+## night's nutrients last until sunset without boosting. 0 = use max_growth_per_second.
+var day_pace: float = 0.0
 ## Markers seeded per second on the sun side while the sun is up.
 var markers_per_second: float = 12.0
 ## Fractional growth and markers carried over between ticks (so growth scales with time, not tick count).
@@ -36,6 +39,10 @@ var _leader_accum: float = 0.0
 var marker_distance: float = 1.5
 ## Only the newest markers stay alive, so the crown follows today's sun, not last week's.
 var live_markers: int = 150
+## Without boosting the sun steers the crown only this much (the boost is the steering).
+var passive_steering: float = 0.4
+## New markers never go below this height, so a seedling does not creep along the ground.
+const MARKER_MIN_Y: float = 0.25
 var marker_radius: float = 0.8
 
 
@@ -80,30 +87,15 @@ func tick(delta: float) -> void:
 	# Seed markers on the sun's side, above the current crown, capped by the species size.
 	var sun := clock.sun_direction()
 	var top := height()
-	if not nutrients_spent():
-		var center := marker_center(sun, top)
-		var r := crown_radius(top)
-		# Apical dominance: part of the markers sit just above the leader, so the tree keeps
-		# getting taller while the rest fill out the crown on the sun's side.
-		# A high sun feeds the leader (grow up), a low sun the sides (grow sideways).
-		var rate := markers_per_second * maxf(1.0, r) * delta
-		var leader_share := species.apical_dominance * clampf(0.2 + 1.3 * sun.y, 0.0, 1.3)
-		if top >= species.max_height:
-			leader_share = 0.0
-		# Separate accumulators, so small ticks (60 fps) seed the leader as well as big ones.
-		_leader_accum += rate * leader_share
-		_marker_accum += rate * (1.0 - leader_share)
-		var leader := int(_leader_accum)
-		_leader_accum -= leader
-		var to_seed := int(_marker_accum)
-		_marker_accum -= to_seed
-		var leader_center := Vector3(0, top + 0.45, 0) + Vector3(sun.x, 0.0, sun.z) * 0.4
-		colonizer.seed_sphere(leader_center, 0.45, leader, mini(live_markers, Budgets.TREE_MARKERS))
-		colonizer.seed_sphere(center, r, to_seed, mini(live_markers, Budgets.TREE_MARKERS))
+	if _affordable_nodes() > 0 and not graph.is_full():
+		_seed_markers(sun, top, markers_per_second * maxf(1.0, crown_radius(top)) * delta,
+				1.0 if clock.boost_active else passive_steering)
 
 	# Growth budget: light x nutrient factor x species need.
 	var factor := Resources.growth_factor(resources.stock, species.needs)
-	_growth_accum += max_growth_per_second * minf(light, 1.0) * factor * delta
+	# Light is not capped at 1: the boosted sun (up to 3x) speeds growth at any hour.
+	var pace := max_growth_per_second if day_pace <= 0.0 else minf(day_pace, max_growth_per_second)
+	_growth_accum += pace * light * factor * delta
 	var budget := int(_growth_accum)
 	_growth_accum -= budget
 	budget += _dawn_burst_budget(delta, sun, top)
@@ -118,27 +110,53 @@ func tick(delta: float) -> void:
 	graph.age_all()
 
 
-## Where new markers go: a sphere around the upper crown, shifted toward the sun.
+## Seeds `amount` markers (fractions carry over): part just above the leader (apical
+## dominance), the rest in a sphere around the upper crown, shifted toward the sun by `steer`.
 ## A low sun shifts it sideways, a high sun lifts it (sun steering in three dimensions).
-## The sphere grows with the tree, so the crown fills out instead of shooting up as a pole.
-func marker_center(sun: Vector3, top: float) -> Vector3:
+func _seed_markers(sun: Vector3, top: float, amount: float, steer: float) -> void:
 	var r := crown_radius(top)
-	var flat := Vector3(sun.x, 0.0, sun.z)
-	var c := Vector3(0, maxf(top, 0.15) * 0.7 + 0.3 + 0.7 * r * maxf(sun.y, 0.0), 0) + flat * r
+	# A high sun feeds the leader (grow up), a low sun the sides (grow sideways).
+	var leader_share := species.apical_dominance * clampf(0.2 + 1.3 * sun.y, 0.0, 1.3)
+	if top >= species.max_height:
+		leader_share = 0.0
+	# Separate accumulators, so small ticks (60 fps) seed the leader as well as big ones.
+	_leader_accum += amount * leader_share
+	_marker_accum += amount * (1.0 - leader_share)
+	var leader := int(_leader_accum)
+	_leader_accum -= leader
+	var crown := int(_marker_accum)
+	_marker_accum -= crown
+	var limit := mini(live_markers, Budgets.TREE_MARKERS)
+	var flat := Vector3(sun.x, 0.0, sun.z) * steer
+	colonizer.seed_sphere(Vector3(0, top + 0.45, 0) + flat * 0.4, 0.45, leader, limit, MARKER_MIN_Y)
+	colonizer.seed_sphere(marker_center(sun, top, steer), r, crown, limit, MARKER_MIN_Y)
+
+
+## Centre of the crown sphere for new markers.
+func marker_center(sun: Vector3, top: float, steer: float = 1.0) -> Vector3:
+	var r := crown_radius(top)
+	var flat := Vector3(sun.x, 0.0, sun.z) * steer
+	var c := Vector3(0, maxf(top, 0.15) * 0.7 + 0.3 + 0.7 * r * maxf(sun.y, 0.0) * steer, 0) + flat * r
 	c.y = maxf(c.y, r * 0.5 + 0.1)
 	return c
 
 
 func crown_radius(top: float) -> float:
-	return clampf(0.3 + top * 0.4, marker_radius, species.max_crown_radius)
+	return clampf(0.3 + top * 0.5, 0.4, species.max_crown_radius)
 
 
 ## Starts the dawn burst: part of what last night's nutrients buy is grown in the first
 ## seconds of the day. It only changes when the growth happens, not how much: nutrients cap it.
 func start_dawn_burst() -> void:
-	_burst_nodes_left = mini(dawn_burst_max_nodes, int(_affordable_nodes() * dawn_burst_share))
+	var factor := Resources.growth_factor(resources.stock, species.needs)
+	_burst_nodes_left = mini(dawn_burst_max_nodes, int(_affordable_nodes() * dawn_burst_share * factor))
 	_burst_rate = _burst_nodes_left / dawn_burst_seconds
 	_burst_accum = 0.0
+	# Spread the rest over the day: without boosting it lasts until about sunset, so a boost
+	# at any hour, evening included, still has something to grow with.
+	var day_seconds := clock.seconds_per_day * clock.daylight_fraction
+	var rest := maxf(0.0, _affordable_nodes() * factor - _burst_nodes_left)
+	day_pace = maxf(0.05, rest / (day_seconds * 0.9))
 
 
 func dawn_burst_active() -> bool:
@@ -152,15 +170,22 @@ func _dawn_burst_budget(delta: float, sun: Vector3, top: float) -> int:
 	var n := mini(int(_burst_accum), _burst_nodes_left)
 	_burst_accum -= n
 	_burst_nodes_left -= n
-	# The burst needs room to grow into: extra markers on the sun's side.
-	if n > 0 and top < species.max_height:
-		colonizer.seed_sphere(marker_center(sun, top), crown_radius(top), n * 2, mini(live_markers, Budgets.TREE_MARKERS))
+	# The burst needs room to grow into: extra markers, not steered (it is the night's growth,
+	# not the morning's), so the low dawn sun does not pull every tree east.
+	if n > 0:
+		_seed_markers(sun, top, n * 2.0, 0.0)
 	return n
 
 
-## True when the stock cannot pay for a single new segment: the day may be moved on.
+## True when the tree has nothing left to grow with, so the day may be moved on: no water for
+## a single segment, a needed nutrient used up (soft Liebig: growth would only crawl), or a full tree.
 func nutrients_spent() -> bool:
-	return _affordable_nodes() <= 0
+	if _affordable_nodes() <= 0 or graph.is_full():
+		return true
+	for k in range(4):
+		if species.needs[k] > 0.0 and resources.stock[k] < cost_per_node * species.needs[k]:
+			return true
+	return false
 
 
 ## Leaf clusters, for life force and the HUD.
@@ -233,13 +258,18 @@ func apply_offline(real_seconds: float, active_seconds_per_real_day: float = 20.
 	clock.time_of_day = saved_time
 	clock.day_count = saved_day
 	clock.boost_active = saved_boost
+	# The player always returns with a little life force, even to a tiny seedling.
+	resources.life_force += minf(real_seconds / 86400.0 * 4.0, 8.0)
 
 
 func to_dict() -> Dictionary:
 	return {
 		"version": 1,
 		"seed": seed,
-		"rng_state": rng.state,
+		# As a string: JSON numbers are doubles and would lose the low bits of the 64-bit state.
+		"rng_state": str(rng.state),
+		"burst": [_burst_nodes_left, _burst_rate, _burst_accum],
+		"day_pace": day_pace,
 		"species": species.id,
 		"graph": graph.to_dict(),
 		"markers": colonizer.markers,
@@ -250,7 +280,12 @@ func to_dict() -> Dictionary:
 
 static func from_dict(d: Dictionary) -> GrowthSim:
 	var s := GrowthSim.new(int(d.get("seed", 1)))
-	s.rng.state = int(d.get("rng_state", s.rng.state))
+	s.rng.state = int(str(d.get("rng_state", s.rng.state)))
+	var burst: Array = d.get("burst", [0, 0.0, 0.0])
+	s._burst_nodes_left = int(burst[0])
+	s._burst_rate = float(burst[1])
+	s._burst_accum = float(burst[2])
+	s.day_pace = float(d.get("day_pace", 0.0))
 	s.species = Species.from_id(str(d.get("species", "linden")))
 	s.graph = PlantGraph.from_dict(d["graph"])
 	s.colonizer = SpaceColonization.new(s.rng)

@@ -6,7 +6,6 @@ extends Node
 
 const SETTINGS_PATH := "user://settings.json"
 const AUTOSAVE_SECONDS := 15.0
-const MORNING_LINE_DELAY := 11.0
 
 var state: GameState
 var tree_view: TreeView
@@ -21,7 +20,7 @@ var _fade: ColorRect
 var _dev_label: Label
 var _transitioning: bool = false
 var _autosave_timer: float = 0.0
-var _morning_timer: float = -1.0
+var _tween: Tween
 var _underground: bool = false
 
 
@@ -63,6 +62,7 @@ func _build() -> void:
 	root_view.run_started.connect(func(_id: int) -> void: state.mark_run_started())
 	root_view.run_finished.connect(func(_t: PackedFloat32Array) -> void: state.notify_run_done())
 	root_view.find_touched.connect(func(f: Dictionary) -> void: state.notify_find(f))
+	root_view.dots_collected.connect(func(n: int) -> void: ambience.play_collect(n))
 	journal.page_closed.connect(_on_page_closed)
 	journal.opened_changed.connect(_on_journal_opened)
 	journal.setting_changed.connect(_apply_setting)
@@ -72,10 +72,16 @@ func _build() -> void:
 ## Shows a game state: used on start, on load and by the new-game dev key.
 func start(p_state: GameState) -> void:
 	state = p_state
+	journal.clear_pages()
 	journal.state = state
 	tree_view.setup(state)
 	root_view.setup(state.ground, state.roots, state.sim.resources)
-	_morning_timer = -1.0
+	# A new game or a load in the middle of a dive or sunrise: stop that transition.
+	if _tween:
+		_tween.kill()
+	_transitioning = false
+	_fade.color.a = 0.0
+	tree_view.dive_amount = 0.0
 	if state.phase == GameState.Phase.NIGHT:
 		_show_underground(true)
 		_enter_night_view()
@@ -90,7 +96,8 @@ func _show_underground(on: bool) -> void:
 	tree_view.visible = not on
 	tree_view.hud.visible = not on and not journal.settings["no_ui"]
 	root_view.visible = on
-	root_view.hud.visible = on and not journal.settings["no_ui"]
+	# The night needs its stick and dive button, so "no UI" only clears the day.
+	root_view.hud.visible = on
 	if on:
 		root_view.camera.make_current()
 	else:
@@ -104,16 +111,13 @@ func _show_underground(on: bool) -> void:
 func _process(delta: float) -> void:
 	# A journal page pauses the game; transitions only block input (the dawn burst runs while the camera rises).
 	var paused := journal.is_open()
+	# No diary over a dive or a sunrise.
+	journal.set_button_enabled(not _transitioning)
 	tree_view.input_enabled = not paused and not _transitioning
 	root_view.input_enabled = not paused and not _transitioning
 	root_view.process_mode = Node.PROCESS_MODE_DISABLED if paused else Node.PROCESS_MODE_INHERIT
 	if not paused:
 		state.tick(delta * time_scale)
-		if _morning_timer >= 0.0:
-			_morning_timer += delta * time_scale
-			if _morning_timer >= MORNING_LINE_DELAY:
-				_morning_timer = -1.0
-				_morning()
 	_handle_events()
 	ambience.daylight = state.phase == GameState.Phase.DAY
 	_autosave_timer += delta
@@ -140,6 +144,8 @@ func _handle_events() -> void:
 				save()
 			"sunrise":
 				_rise()
+			"morning":
+				_morning()
 			_:
 				if e.begins_with("find:"):
 					var kind := e.substr(5)
@@ -173,7 +179,7 @@ func _dive() -> void:
 	_transitioning = true
 	tree_view.hud.visible = false
 	ambience.set_world(false, 2.2)
-	var tw := create_tween()
+	var tw := _new_tween()
 	tw.tween_property(tree_view, "dive_amount", 1.0, 1.6).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
 	tw.parallel().tween_property(_fade, "color:a", 1.0, 0.7).set_delay(0.9)
 	tw.tween_callback(func() -> void:
@@ -191,6 +197,7 @@ func _enter_night_view() -> void:
 	if state.roots.run_active:
 		root_view.resume_run()
 	elif state.night_empty or state.run_used:
+		root_view.quiet_night = state.night_empty
 		root_view.begin_idle_overview()
 	else:
 		root_view.begin_pick()
@@ -206,7 +213,7 @@ func _enter_night_view() -> void:
 
 func _rise() -> void:
 	_transitioning = true
-	var tw := create_tween()
+	var tw := _new_tween()
 	tw.tween_property(_fade, "color:a", 1.0, 0.6)
 	tw.tween_callback(func() -> void:
 		_show_underground(false)
@@ -217,12 +224,17 @@ func _rise() -> void:
 	tw.tween_callback(func() -> void:
 		_transitioning = false
 		save())
-	_morning_timer = 0.0
 
 
-## After the dawn burst: the diary's morning line, then the first-morning page or the daily wish.
+func _new_tween() -> Tween:
+	if _tween:
+		_tween.kill()
+	_tween = create_tween()
+	return _tween
+
+
+## After the dawn burst (GameState wrote the diary line): the first-morning page or the daily wish.
 func _morning() -> void:
-	state.write_morning_line()
 	if state.day_number() == 1:
 		_page_once("sapling")
 	elif state.diary.wish != "":
@@ -236,9 +248,9 @@ func _apply_setting(key: String, on: bool) -> void:
 		"sound":
 			ambience.set_enabled(on)
 		"no_ui":
+			# The journal button stays (faint), or the setting could never be switched back.
 			tree_view.hud.visible = not on and not _underground
-			root_view.hud.visible = not on and _underground
-			journal.set_button_visible(not on)
+			journal.set_button_faint(on)
 		"battery_saver":
 			Engine.max_fps = 30 if on else 0
 	_save_settings()
@@ -256,6 +268,8 @@ func _load_settings() -> void:
 
 
 func _save_settings() -> void:
+	if ephemeral:
+		return
 	var f := FileAccess.open(SETTINGS_PATH, FileAccess.WRITE)
 	if f:
 		f.store_string(JSON.stringify(journal.settings))
@@ -287,5 +301,8 @@ func _unhandled_key_input(event: InputEvent) -> void:
 		KEY_J:
 			if journal.is_open():
 				journal.close_diary()
-			else:
+			elif not _transitioning:
 				journal.open_diary()
+		KEY_ESCAPE:
+			journal.close_page()
+			journal.close_diary()

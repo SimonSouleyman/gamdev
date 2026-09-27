@@ -147,3 +147,71 @@ func test_deterministic() -> void:
 	_run(a[1], a[0], a[2], Vector2(0.5, 0))
 	_run(b[1], b[0], b[2], Vector2(0.5, 0))
 	t.check_eq((a[1] as RootSystem).graph.positions, (b[1] as RootSystem).graph.positions, "same seed and input, same roots")
+
+
+func test_pushing_against_a_wall_costs_nothing() -> void:
+	# QA found the tip stuck in the corner of floor and world edge, draining life force.
+	var s := _setup(50.0, 42)
+	var u: Underground = s[0]
+	var r: RootSystem = s[1]
+	var res: Resources = s[2]
+	r.start_run(0)
+	r.tip_position = Vector3(10.3, -9.95, 9.5)
+	r.heading = Vector3(0.6, -0.9, 0.5).normalized()
+	var before := res.life_force
+	var start := r.tip_position
+	for _i in range(300):
+		if not r.advance(Vector2.ZERO, true, 1.0 / 30.0, u, res):
+			break
+	var spent := before - res.life_force
+	var moved := r.run_length
+	t.check(moved > 1.0, "the root got out of the corner (%f m)" % moved)
+	t.check(spent <= moved * r.cost_per_metre(Vector3(14, -10, 0)) + 0.01, "paid only for metres grown (%f for %f m)" % [spent, moved])
+
+
+func test_overlapping_rocks_are_still_walls() -> void:
+	var u := Underground.new(42)
+	# Two overlapping rocks right in the root's way.
+	u.rock_centers.append(Vector3(0, -3, -2))
+	u.rock_radii.append(1.0)
+	u.rock_centers.append(Vector3(0.8, -3, -2.6))
+	u.rock_radii.append(1.0)
+	var r := RootSystem.new(1)
+	var res := Resources.new()
+	res.life_force = 60.0
+	r.start_run(0)
+	var inside := 0
+	var guard := 0
+	while r.advance(Vector2(0.05, -0.2), true, 1.0 / 20.0, u, res) and guard < 3000:
+		guard += 1
+		if u.is_inside_rock(r.tip_position):
+			inside += 1
+	t.check_eq(inside, 0, "never inside overlapping rocks")
+
+
+func test_diving_does_not_lock_the_steering() -> void:
+	var s := _setup(100.0)
+	var u: Underground = s[0]
+	var r: RootSystem = s[1]
+	var res: Resources = s[2]
+	r.start_run(0)
+	for _i in range(150):
+		r.advance(Vector2.ZERO, true, 1.0 / 30.0, u, res)
+	var before := Vector2(r.heading.x, r.heading.z).normalized()
+	for _i in range(30):
+		r.advance(Vector2(1, 0), true, 1.0 / 30.0, u, res)
+	var after := Vector2(r.heading.x, r.heading.z).normalized()
+	t.check(absf(before.angle_to(after)) > 0.5, "turning still works while diving (%f rad)" % absf(before.angle_to(after)))
+
+
+func test_run_is_about_the_same_at_any_frame_rate() -> void:
+	var lengths: Array = []
+	for dt in [1.0 / 120.0, 1.0 / 30.0, 0.25]:
+		var s := _setup(15.0, 3)
+		var r: RootSystem = s[1]
+		r.start_run(0)
+		var guard := 0
+		while r.advance(Vector2(0.4, 0.0), false, dt, s[0], s[2]) and guard < 50000:
+			guard += 1
+		lengths.append(r.run_length)
+	t.check(absf(lengths[0] - lengths[2]) < 1.0, "run length does not depend on the frame rate (%s)" % str(lengths))

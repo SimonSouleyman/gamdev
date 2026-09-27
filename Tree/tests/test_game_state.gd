@@ -105,7 +105,8 @@ func test_dawn_burst_front_loads_growth_but_not_the_total() -> void:
 	# Acceptance: part of the night's growth is released in the first ten seconds after sunrise.
 	var a := _morning_after_first_night(9)
 	var b := _morning_after_first_night(9)
-	b.sim._burst_nodes_left = 0  # same morning without the burst
+	b.sim.dawn_burst_share = 0.0  # same morning without the burst
+	b.sim.start_dawn_burst()
 	var start := a.sim.graph.size()
 	for _i in range(20):
 		a.tick(0.5)
@@ -207,3 +208,41 @@ func test_thirty_days_each_show_growth() -> void:
 			no_growth_days.append(day + 1)
 	t.check(no_growth_days.is_empty(), "every day grew at least five segments (flat days: %s)" % str(no_growth_days))
 	t.check(g.sim.graph.size() <= Budgets.TREE_MAX_NODES, "tree budget holds (%d)" % g.sim.graph.size())
+
+
+func test_a_night_after_the_last_possible_root_still_ends() -> void:
+	var g := GameState.new_game(15)
+	g.roots.main_root_count = Budgets.MAX_MAIN_ROOTS
+	g.sim.resources.life_force = 50.0
+	g.dive()
+	t.check(g.night_empty, "no root possible: a quiet night")
+	var waited := _until_phase_changes(g, 0.1)
+	t.check_eq(g.phase, GameState.Phase.DAY, "and morning comes (%f s)" % waited)
+
+
+func test_rng_state_survives_a_save_exactly() -> void:
+	var g := GameState.new_game(16)
+	g.sim.rng.randi()
+	g.roots.rng.randi()
+	var h := GameState.from_dict(JSON.parse_string(JSON.stringify(g.to_dict())))
+	t.check_eq(h.sim.rng.state, g.sim.rng.state, "tree rng state kept to the last bit")
+	t.check_eq(h.roots.rng.state, g.roots.rng.state, "roots rng state kept to the last bit")
+
+
+func test_a_full_tree_counts_as_spent() -> void:
+	var g := _morning_after_first_night(17)
+	g.sim.graph.max_nodes = g.sim.graph.size()
+	t.check(g.can_skip_time(), "a tree at its node budget lets the day move on")
+
+
+func test_morning_survives_a_save_right_after_sunrise() -> void:
+	var g := _morning_after_first_night(18)
+	g.tick(3.0)
+	var h := GameState.from_dict(JSON.parse_string(JSON.stringify(g.to_dict())))
+	h.take_events()
+	var got_morning := false
+	for _i in range(40):
+		h.tick(0.5)
+		if h.take_events().has("morning"):
+			got_morning = true
+	t.check(got_morning, "the morning (sapling page, diary line) still comes after a load")

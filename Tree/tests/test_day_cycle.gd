@@ -13,7 +13,7 @@ func test_sun_rises_east_sets_west() -> void:
 	t.check(c.sun_direction().x > 0.0, "morning sun in the east")
 	c.time_of_day = c.daylight_fraction * 0.5
 	t.check_near(c.sun_height(), 1.0, 1e-6, "noon at full height")
-	t.check(c.sun_direction().z < -0.3, "noon sun stands in the south")
+	t.check(c.sun_direction().z > 0.3, "noon sun stands in the south (+Z)")
 	t.check(c.sun_direction().y > 0.5, "noon sun stands high")
 	t.check(absf(c.sun_direction().x) < 1e-6, "noon sun neither east nor west")
 	c.time_of_day = c.daylight_fraction * 0.9

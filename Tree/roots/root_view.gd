@@ -8,6 +8,7 @@ extends Node3D
 signal run_started(from_id: int)
 signal run_finished(totals: PackedFloat32Array)
 signal find_touched(find: Dictionary)
+signal dots_collected(count: int)
 
 enum Mode { IDLE, PICK, RUN, DONE }
 
@@ -56,11 +57,16 @@ var _life_bar: ColorRect
 var _life_bar_bg: ColorRect
 var _counts: Label
 var _life_at_start: float = 1.0
+## Tonight no root grows (no life force, or the roots fill the soil): the overview says so.
+var quiet_night: bool = false
+## A new run waits for the player's first move, so nobody loses the root while reading.
+var _waiting_for_input: bool = false
+var compass: Compass
 
 
 func _ready() -> void:
 	_builder.radius_scale = 0.7
-	_builder.min_radius = 0.022
+	_builder.min_radius = 0.03
 	_builder.sides_thick = 5
 	_builder.sides_thin = 3
 	_build_world()
@@ -218,9 +224,11 @@ func _build_finds() -> void:
 		_find_nodes.append(m)
 
 
-func _rebuild_all() -> void:
+## The old roots only change between runs; during a run only the new root is rebuilt.
+func _rebuild_all(static_too: bool = true) -> void:
 	var split := roots.run_first_new_id if roots.run_active else roots.graph.size()
-	_static_roots.mesh = _builder.build(roots.graph, 1, split)
+	if static_too:
+		_static_roots.mesh = _builder.build(roots.graph, 1, split)
 	_live_roots.mesh = _builder.build(roots.graph, split) if roots.run_active else null
 
 
@@ -285,6 +293,15 @@ func _build_hud() -> void:
 	root.add_child(dive_button)
 	_show_run_controls(false)
 
+	compass = Compass.new()
+	compass.camera = camera
+	compass.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+	compass.offset_left = -130
+	compass.offset_right = -20
+	compass.offset_top = 80
+	compass.offset_bottom = 190
+	root.add_child(compass)
+
 
 func _label(font_size: int, pos: Vector2) -> Label:
 	var l := Label.new()
@@ -312,14 +329,15 @@ func _update_hud() -> void:
 	_life_bar.size = Vector2(_life_bar_bg.size.x * frac, _life_bar_bg.size.y)
 	_life_label.text = "life force %.1f" % res.life_force
 	var t := roots.run_totals
+	_counts.visible = mode == Mode.RUN or mode == Mode.DONE and not quiet_night
 	_counts.text = "tonight:  water %.1f   N %.1f   P %.1f   K %.1f" % [t[0], t[1], t[2], t[3]]
 	match mode:
 		Mode.PICK:
 			_hint.text = "Tap a point on a root to start tonight's root." if roots.graph.size() > 1 else ""
 		Mode.RUN:
-			_hint.text = ""
+			_hint.text = "Move the stick (or WASD) to grow the root." if _waiting_for_input else ""
 		Mode.DONE:
-			_hint.text = "The new root settles. Fine roots reach for what is near."
+			_hint.text = "A quiet night below. Morning comes soon." if quiet_night else "The new root settles. Fine roots reach for what is near."
 		_:
 			_hint.text = ""
 
@@ -328,11 +346,13 @@ func _update_hud() -> void:
 
 func begin_pick() -> void:
 	mode = Mode.PICK
+	quiet_night = false
 	_life_at_start = maxf(res.life_force, 0.001)
 	_show_run_controls(false)
 	_tip.visible = false
 	_frame_overview()
 	_snap_camera()
+	_update_hud()
 
 
 ## Starts the run from a root node (the tutorial starts from the seed, node 0).
@@ -352,11 +372,14 @@ func resume_run() -> void:
 
 func _enter_run() -> void:
 	mode = Mode.RUN
+	quiet_night = false
+	_waiting_for_input = true
 	_life_at_start = maxf(res.life_force, 0.001)
 	_hover.visible = false
 	_tip.visible = true
 	_show_run_controls(true)
 	_rebuild_all()
+	_update_hud()
 
 
 ## A night without life force, or after the run: the camera just looks around.
@@ -365,6 +388,7 @@ func begin_idle_overview() -> void:
 	_show_run_controls(false)
 	_tip.visible = false
 	_frame_overview()
+	_update_hud()
 
 
 func _frame_overview() -> void:
@@ -406,7 +430,16 @@ func _process(delta: float) -> void:
 func _process_run(delta: float) -> void:
 	var stick := _stick()
 	var dive := _dive_held()
+	if _waiting_for_input:
+		_tip.position = roots.tip_position
+		camera.position = camera.position.lerp(roots.tip_position - roots.heading * 2.4 + Vector3.UP * 0.8, 1.0 - exp(-4.0 * delta))
+		_look_at_safely(roots.tip_position + roots.heading * 1.2)
+		if stick.length() < 0.2 and not dive:
+			return
+		_waiting_for_input = false
 	var alive := roots.advance(stick, dive, delta, ground, res)
+	if not roots.last_collected.is_empty():
+		dots_collected.emit(roots.last_collected.size())
 	for i in roots.last_collected:
 		_set_dot(i)
 		_flash(ground.dot_positions[i], Resources.KIND_COLORS[ground.dot_kinds[i]])
@@ -416,13 +449,13 @@ func _process_run(delta: float) -> void:
 	_rebuild_timer += delta
 	if _rebuild_timer >= REBUILD_INTERVAL:
 		_rebuild_timer = 0.0
-		_rebuild_all()
+		_rebuild_all(false)
 	# Third-person camera behind and a little above the tip.
 	var h := roots.heading
 	var flat := Vector3(h.x, 0.0, h.z)
 	var back := (h * 0.5 + (flat.normalized() if flat.length_squared() > 1e-4 else -camera.global_basis.z) * 0.5).normalized()
-	var want := roots.tip_position - back * 2.4 + Vector3.UP * 0.8
-	camera.position = camera.position.lerp(want, 1.0 - exp(-4.0 * delta))
+	var want := _outside_rocks(roots.tip_position - back * 2.4 + Vector3.UP * 0.8)
+	camera.position = _outside_rocks(camera.position.lerp(want, 1.0 - exp(-4.0 * delta)))
 	_look_at_safely(roots.tip_position + h * 1.2)
 	if not alive:
 		# end_run() already grew the fine roots and collected their dots.
@@ -432,6 +465,17 @@ func _process_run(delta: float) -> void:
 		_rebuild_all()
 		begin_idle_overview()
 		run_finished.emit(roots.run_totals)
+
+
+## Keeps the camera out of rocks (and below the meadow), so it never fills the screen with stone.
+func _outside_rocks(p: Vector3) -> Vector3:
+	for r in range(ground.rock_centers.size()):
+		var rr := ground.rock_radii[r] * 1.2 + 0.35
+		var c := ground.rock_centers[r]
+		if p.distance_squared_to(c) < rr * rr:
+			p = c + (p - c).normalized() * rr
+	p.y = minf(p.y, -0.1)
+	return p
 
 
 func _look_at_safely(target: Vector3) -> void:
@@ -479,14 +523,24 @@ func _on_find(f: Dictionary) -> void:
 
 
 func _flash(p: Vector3, color: Color, size: float = 0.5) -> void:
-	var m := _glow_sphere(0.1, color, 4.0)
+	# A soft glow puff (the same glow as the dots) that swells and fades.
+	var m := MeshInstance3D.new()
+	var quad := QuadMesh.new()
+	quad.size = Vector2.ONE
+	m.mesh = quad
+	var mat := ShaderMaterial.new()
+	mat.shader = preload("res://roots/dot_glow.gdshader")
+	mat.set_shader_parameter("tint", Color(color, 1.0))
+	mat.set_shader_parameter("pulse", 0.0)
+	m.material_override = mat
+	m.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	m.position = p
+	m.scale = Vector3.ONE * 0.3
 	add_child(m)
 	var tw := create_tween()
 	tw.set_parallel(true)
-	tw.tween_property(m, "scale", Vector3.ONE * size * 3.0, 0.4)
-	tw.tween_property(m.material_override, "albedo_color:a", 0.0, 0.45)
-	(m.material_override as StandardMaterial3D).transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	tw.tween_property(m, "scale", Vector3.ONE * size * 2.5, 0.45)
+	tw.tween_method(func(a: float) -> void: mat.set_shader_parameter("tint", Color(color, a)), 1.0, 0.0, 0.45)
 	tw.chain().tween_callback(m.queue_free)
 
 
@@ -540,10 +594,10 @@ func _unhandled_input(event: InputEvent) -> void:
 				start_at(id)
 
 
-## Nearest root node to a screen point, within 60 px. -1 if none.
+## Nearest root node to a screen point, within 90 px. -1 if none.
 func pick_node_at(screen: Vector2) -> int:
 	var best := -1
-	var best_d := 60.0
+	var best_d := 90.0
 	for id in range(roots.graph.size()):
 		var p := roots.graph.positions[id]
 		if camera.is_position_behind(p):

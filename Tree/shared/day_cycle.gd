@@ -15,7 +15,7 @@ var daylight_fraction: float = 0.625  # 5 min day, 3 min night (survey 2, to tun
 var boost_active: bool = false
 var boost_multiplier: float = 3.0
 ## Boosting is a trade: growth speeds up, but leaves turn light into less life force.
-var boost_life_force_factor: float = 0.6
+var boost_life_force_factor: float = 0.4
 ## Height of the sun at noon. Germany in summer is about 60 degrees; seasons will tilt this later.
 var noon_elevation: float = deg_to_rad(55.0)
 
@@ -39,14 +39,15 @@ func sun_height() -> float:
 
 
 ## Unit vector pointing from the tree toward the sun, on its real arc:
-## rises in the east (+X), stands in the south (-Z) and high at noon, sets in the west (-X).
+## rises in the east (+X), stands in the south (+Z) and high at noon, sets in the west (-X).
+## North is -Z (Godot's forward), so a camera looking south sees east on its left, as in reality.
 ## So a morning boost grows east, a noon boost south and upward, an evening boost west.
 func sun_direction() -> Vector3:
 	if not is_day():
 		return Vector3.ZERO
 	var angle := PI * time_of_day / daylight_fraction  # 0 = east horizon, PI = west horizon
 	var arc := sin(angle)
-	return Vector3(cos(angle), arc * sin(noon_elevation), -arc * cos(noon_elevation)).normalized()
+	return Vector3(cos(angle), arc * sin(noon_elevation), arc * cos(noon_elevation)).normalized()
 
 
 ## Light that leaves turn into life force. Boosting lowers the yield (the trade).

@@ -83,13 +83,13 @@ func test_morning_boost_leans_east() -> void:
 
 
 func test_noon_boost_leans_south_and_up() -> void:
-	# Sun steering in all three dimensions: at noon the sun stands in the south (-Z) and high.
+	# Sun steering in all three dimensions: at noon the sun stands in the south (+Z) and high.
 	var noon := DayCycle.new().daylight_fraction * 0.5
 	var c := _boosted_growth_centroid(noon)
 	var up_at_noon := _last_direction.y
 	_boosted_growth_centroid(0.03)
 	var up_in_morning := _last_direction.y
-	t.check(c.z < -0.1, "noon growth leans south (z=%f)" % c.z)
+	t.check(c.z > 0.1, "noon growth leans south (z=%f)" % c.z)
 	t.check(absf(c.x) < 0.3, "neither east nor west (x=%f)" % c.x)
 	t.check(up_at_noon > up_in_morning, "a high sun grows up, a low sun sideways (%f vs %f)" % [up_at_noon, up_in_morning])
 
@@ -156,3 +156,48 @@ func test_budget_never_exceeded() -> void:
 		s.tick(0.5)
 		s.clock.time_of_day = 0.2
 	t.check(s.graph.size() <= 40, "node budget respected (%d)" % s.graph.size())
+
+
+## Three whole days with food each morning, boosting only in the given part of the day.
+func _days_boosting(from_t: float, to_t: float, seed: int) -> GrowthSim:
+	var s := GrowthSim.new(seed)
+	for _day in range(3):
+		for k in range(4):
+			s.resources.add(k, 25.0)
+		s.clock.time_of_day = 0.0
+		s.start_dawn_burst()
+		while s.clock.time_of_day < s.clock.daylight_fraction - 0.01:
+			s.clock.boost_active = s.clock.time_of_day >= from_t and s.clock.time_of_day < to_t
+			s.tick(0.5)
+	return s
+
+
+func test_morning_and_evening_boost_shape_opposite_sides_over_days() -> void:
+	# The feel review found every tree leaning east whatever the player did. Over whole days,
+	# boosting mornings must give a crown further east than boosting evenings.
+	var east := 0.0
+	var west := 0.0
+	for seed in [21, 22, 23]:
+		east += _days_boosting(0.0, 0.15, seed).centroid().x
+		west += _days_boosting(0.47, 0.625, seed).centroid().x
+	t.check(east > 0.0 and west < 0.0, "morning boost east, evening boost west (x %f vs %f)" % [east / 3.0, west / 3.0])
+
+
+func test_seedling_grows_up_not_along_the_ground() -> void:
+	# The first dawn: the sun is on the eastern horizon, yet the seedling must stand up.
+	var s := GrowthSim.new(31)
+	for k in range(4):
+		s.resources.add(k, 20.0)
+	s.start_dawn_burst()
+	for _i in range(40):
+		s.tick(0.25)
+	var low := 0
+	for id in range(2, s.graph.size()):
+		if s.graph.positions[id].y < 0.12:
+			low += 1
+	t.check_eq(low, 0, "no segment creeps along the ground")
+	var top := s.graph.positions[0]
+	for p in s.graph.positions:
+		if p.y > top.y:
+			top = p
+	t.check(Vector2(top.x, top.z).length() < top.y, "the top stands more up than sideways (%s)" % top)
