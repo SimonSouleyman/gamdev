@@ -409,6 +409,10 @@ func _pill(parent: Control, dot: Color) -> Label:
 	return l
 
 
+func set_shed_open(on: bool) -> void:
+	_scenery.set_shed_open(on)
+
+
 func set_hud_visible(on: bool) -> void:
 	hud.visible = on
 
@@ -574,11 +578,11 @@ func _update_sun() -> void:
 	# A low sun: a bright golden sky and haze, the ground in raking light (the reference photos).
 	_sky_mat.energy_multiplier = 1.5 + 1.7 * (1.0 - k) + (0.35 if clock.boost_active else 0.0)
 	# After sunset the haze stays cool blue-grey; only while the sun is up does it warm.
-	var warm := 0.4 * (1.0 - k) if h > 0.0 else 0.0
+	var warm := 0.25 * (1.0 - k) if h > 0.0 else 0.0
 	_env.fog_light_color = (Color(0.45, 0.55, 0.5) if h > 0.0 else Color(0.32, 0.38, 0.48)).lerp(_sun_light.light_color * 0.9, warm)
-	_env.fog_sun_scatter = 0.35 * (1.0 - k)
+	_env.fog_sun_scatter = 0.08 * (1.0 - k)
 	# The eye adapts: a low sun and the dusk are exposed brighter, so the tree stays readable.
-	_env.tonemap_exposure = 1.1 + 0.6 * (1.0 - k)
+	_env.tonemap_exposure = 1.1 + 0.3 * (1.0 - k)
 	# Never too dark by day: the dawn burst must be seen.
 	# Brighter dusk (Simon: the start at sunset was too dark).
 	_env.ambient_light_energy = (1.2 + 0.3 * k) if state.phase == GameState.Phase.DAY else 1.2

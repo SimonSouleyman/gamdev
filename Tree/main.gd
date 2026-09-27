@@ -429,6 +429,7 @@ func enter_shed(animate: bool) -> void:
 		root_view.hud.visible = false
 		tree_view.hud.visible = false
 		shed.visible = true
+		tree_view.set_shed_open(true)
 		shed.frame_tree(state.sim.height(), tree_view.camera.environment)
 		shed.camera.make_current()
 		shed_menu.show_menu(true)
@@ -456,6 +457,7 @@ func leave_shed() -> void:
 	tw.tween_callback(func() -> void:
 		in_shed = false
 		shed.visible = false
+		tree_view.set_shed_open(false)
 		tree_view.dive_amount = 0.0
 		journal.set_button_visible(true)
 		# Pages that were waiting (the first tutorial page) show now, in the game.

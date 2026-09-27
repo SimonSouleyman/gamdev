@@ -38,7 +38,7 @@ func build(seed: int, bark: Material, leaf: Material, noise: Texture2D) -> void:
 	# Depth separation (Simon: the tree must stand out from the forest): the wood is darker,
 	# cooler and without the hero tree's rim light.
 	(bark as ShaderMaterial).set_shader_parameter("tint_mul", Color(0.62, 0.64, 0.66))
-	(leaf as ShaderMaterial).set_shader_parameter("tint_mul", Color(0.8, 0.86, 0.84))
+	(leaf as ShaderMaterial).set_shader_parameter("tint_mul", Color(0.66, 0.76, 0.78))
 	(bark as ShaderMaterial).set_shader_parameter("rim_strength", 0.0)
 	(leaf as ShaderMaterial).set_shader_parameter("rim_strength", 0.0)
 	for c in get_children():
@@ -48,6 +48,7 @@ func build(seed: int, bark: Material, leaf: Material, noise: Texture2D) -> void:
 	_rng.seed = hash([seed, "scenery"])
 	_noise = noise
 	_build_distant_trees(seed, bark, leaf)
+	_near_shed.clear()
 	_build_bushes(leaf)
 	_build_backdrop()
 	_build_clouds(noise)
@@ -64,14 +65,14 @@ func build(seed: int, bark: Material, leaf: Material, noise: Texture2D) -> void:
 ## species, different heights and greens). Broadleaves are grown by the real growth model with
 ## their own shape; the spruce is built directly. Each kind has its own bark and leaf colour.
 const KINDS: Array[Dictionary] = [
-	{"name": "oak", "apical": 0.12, "crown": 12.0, "photo": 0.3, "nodes": 380, "bark": Color(0.42, 0.37, 0.32), "leaf": Color(0.5, 0.62, 0.36), "card": 0.15, "scale": Vector2(2.6, 3.4)},
-	{"name": "beech", "apical": 0.2, "crown": 9.0, "photo": 0.4, "nodes": 340, "bark": Color(0.75, 0.74, 0.7), "leaf": Color(0.66, 0.8, 0.42), "card": 0.14, "scale": Vector2(2.7, 3.6)},
-	{"name": "birch", "apical": 0.22, "crown": 4.5, "photo": 0.45, "nodes": 280, "bark": Color(1.45, 1.42, 1.35), "leaf": Color(0.8, 0.92, 0.5), "card": 0.12, "scale": Vector2(2.6, 3.4)},
-	{"name": "linden", "apical": 0.1, "crown": 12.0, "photo": 0.5, "nodes": 330, "bark": Color(0.55, 0.47, 0.38), "leaf": Color(0.58, 0.72, 0.4), "card": 0.14, "scale": Vector2(2.5, 3.3)},
+	{"name": "oak", "apical": 0.12, "crown": 12.0, "photo": 0.3, "nodes": 380, "bark": Color(0.42, 0.37, 0.32), "leaf": Color(0.5, 0.62, 0.36), "card": 0.24, "scale": Vector2(2.6, 3.4)},
+	{"name": "beech", "apical": 0.2, "crown": 9.0, "photo": 0.4, "nodes": 340, "bark": Color(0.75, 0.74, 0.7), "leaf": Color(0.66, 0.8, 0.42), "card": 0.22, "scale": Vector2(2.7, 3.6)},
+	{"name": "birch", "apical": 0.22, "crown": 4.5, "photo": 0.45, "nodes": 280, "bark": Color(1.45, 1.42, 1.35), "leaf": Color(0.8, 0.92, 0.5), "card": 0.19, "scale": Vector2(2.6, 3.4)},
+	{"name": "linden", "apical": 0.1, "crown": 12.0, "photo": 0.5, "nodes": 330, "bark": Color(0.55, 0.47, 0.38), "leaf": Color(0.58, 0.72, 0.4), "card": 0.22, "scale": Vector2(2.5, 3.3)},
 	{"name": "spruce", "spruce": true, "bark": Color(0.4, 0.33, 0.28), "leaf": Color(0.36, 0.5, 0.36), "card": 0.45, "scale": Vector2(1.5, 2.1)},
 ]
 ## Bump when the forest generator changes, so cached meshes are regrown.
-const FOREST_CACHE_VERSION := 9
+const FOREST_CACHE_VERSION := 10
 
 
 func _grow_variant(seed: int, variant: int, bark: Material, leaf: Material) -> ArrayMesh:
@@ -350,7 +351,10 @@ const EDGE_FLOWERS := 500
 const EDGE_FLOWER_COLORS: Array[Color] = [Color(0.78, 0.4, 0.66), Color(0.86, 0.3, 0.42), Color(0.95, 0.93, 0.86), Color(0.95, 0.82, 0.25)]
 
 
-func _build_bushes(leaf: Material) -> void:
+func _build_bushes(forest_leaf: Material) -> void:
+	# The shrubs stand in front of the wood and catch more light than its shaded crowns.
+	var leaf := forest_leaf.duplicate() as ShaderMaterial
+	leaf.set_shader_parameter("tint_mul", Color(1.0, 1.05, 0.95))
 	var cluster := Foliage.cluster_mesh(6, 1.0, Assets.has_leaf_atlas()).surface_get_arrays(0)
 	var cv: PackedVector3Array = cluster[Mesh.ARRAY_VERTEX]
 	var cn: PackedVector3Array = cluster[Mesh.ARRAY_NORMAL]
@@ -433,6 +437,7 @@ func _build_bushes(leaf: Material) -> void:
 		mmi.multimesh = mm
 		mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		add_child(mmi)
+		_split_near_shed(mmi, 3.4)
 	_build_edge_herbs()
 
 
@@ -465,6 +470,7 @@ func _build_edge_herbs() -> void:
 		mmi.material_override = mat
 		mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		add_child(mmi)
+		_split_near_shed(mmi, 3.0)
 	# Flower heads on thin stems, standing a little above the herbs.
 	var head := SphereMesh.new()
 	head.radius = 0.06
@@ -493,6 +499,53 @@ func _build_edge_herbs() -> void:
 	fmi.multimesh = fm
 	fmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(fmi)
+	_split_near_shed(fmi, 3.0)
+
+
+## Edge plants standing where the (hidden) shed is: moved into their own node, hidden while the
+## shed scene shows, so nothing grows through the shed's floor and walls.
+var _near_shed: Array[MultiMeshInstance3D] = []
+
+
+func _split_near_shed(mmi: MultiMeshInstance3D, radius: float) -> void:
+	var mm := mmi.multimesh
+	var near: Array[int] = []
+	var far: Array[int] = []
+	for i in range(mm.instance_count):
+		var o := mm.get_instance_transform(i).origin
+		if Vector2(o.x - Shed.ORIGIN.x, o.z - Shed.ORIGIN.z).length() < radius:
+			near.append(i)
+		else:
+			far.append(i)
+	if near.is_empty():
+		return
+	var parts: Array[MultiMesh] = []
+	for ids in [far, near]:
+		var m := MultiMesh.new()
+		m.transform_format = MultiMesh.TRANSFORM_3D
+		m.use_colors = mm.use_colors
+		m.mesh = mm.mesh
+		m.instance_count = (ids as Array).size()
+		for j in range((ids as Array).size()):
+			m.set_instance_transform(j, mm.get_instance_transform(ids[j]))
+			if mm.use_colors:
+				m.set_instance_color(j, mm.get_instance_color(ids[j]))
+		parts.append(m)
+	mmi.multimesh = parts[0]
+	var n := mmi.duplicate() as MultiMeshInstance3D
+	n.multimesh = parts[1]
+	n.visible = not _shed_open
+	add_child(n)
+	_near_shed.append(n)
+
+
+var _shed_open := false
+
+
+func set_shed_open(on: bool) -> void:
+	_shed_open = on
+	for n in _near_shed:
+		n.visible = not on
 
 
 # --- sky ------------------------------------------------------------------------
