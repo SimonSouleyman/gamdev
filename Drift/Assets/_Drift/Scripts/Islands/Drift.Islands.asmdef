@@ -1,0 +1,19 @@
+{
+    "name": "Drift.Islands",
+    "rootNamespace": "Drift.Islands",
+    "references": [
+        "Drift.Core",
+        "Drift.Tectonics",
+        "Drift.Life",
+        "Unity.InputSystem"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

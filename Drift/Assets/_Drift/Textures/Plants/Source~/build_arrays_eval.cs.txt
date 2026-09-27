@@ -1,0 +1,45 @@
+string dir = "Assets/_Drift/Textures/Plants/";
+string src = dir + "Source~/";
+string mode = "__MODE__";
+string[] sets = { "pine_bark", "palm_bark", "leafy_grass", "thatch_roof_angled" };
+int N = 1024, S = sets.Length, H = N * S;
+var atlas = new Color32[N * H];
+var lut = new float[256];
+for (int i = 0; i < 256; i++) lut[i] = Mathf.GammaToLinearSpace(i / 255f);
+var sb = new System.Text.StringBuilder();
+for (int s = 0; s < S; s++)
+{
+    string file = mode == "albedo" ? sets[s] + "_diff_1k.jpg" : sets[s] + "_nor_gl_1k.jpg";
+    var t = new Texture2D(2, 2, TextureFormat.RGBA32, false, true);
+    t.LoadImage(System.IO.File.ReadAllBytes(src + file));
+    if (t.width != N || t.height != N) { sb.Append("BAD SIZE " + file + " "); }
+    var px = t.GetPixels32();
+    int y0 = H - (s + 1) * N;
+    if (mode == "albedo")
+    {
+        double ar = 0, ag = 0, ab = 0;
+        for (int i = 0; i < px.Length; i++) { ar += lut[px[i].r]; ag += lut[px[i].g]; ab += lut[px[i].b]; }
+        float mr = (float)(ar / px.Length), mg = (float)(ag / px.Length), mb = (float)(ab / px.Length);
+        float kr = 0.3f / mr, kg = 0.3f / mg, kb = 0.3f / mb;
+        int clipped = 0;
+        for (int i = 0; i < px.Length; i++)
+        {
+            float r = lut[px[i].r] * kr, g = lut[px[i].g] * kg, b = lut[px[i].b] * kb;
+            if (r > 1f || g > 1f || b > 1f) clipped++;
+            atlas[(y0 + i / N) * N + (i % N)] = new Color32((byte)Mathf.Min(255, (int)(r * 255f + 0.5f)), (byte)Mathf.Min(255, (int)(g * 255f + 0.5f)), (byte)Mathf.Min(255, (int)(b * 255f + 0.5f)), 255);
+        }
+        sb.Append(sets[s] + " avgLin=(" + mr.ToString("F3") + "," + mg.ToString("F3") + "," + mb.ToString("F3") + ") clip%=" + (100f * clipped / px.Length).ToString("F2") + "\n");
+    }
+    else
+    {
+        for (int i = 0; i < px.Length; i++) atlas[(y0 + i / N) * N + (i % N)] = px[i];
+    }
+    UnityEngine.Object.DestroyImmediate(t);
+}
+var outTex = new Texture2D(N, H, TextureFormat.RGBA32, false, true);
+outTex.SetPixels32(atlas);
+outTex.Apply(false);
+string outPath = dir + (mode == "albedo" ? "VegetationDetail_Array.jpg" : "VegetationNormal_Array.jpg");
+System.IO.File.WriteAllBytes(outPath, outTex.EncodeToJPG(95));
+UnityEngine.Object.DestroyImmediate(outTex);
+return sb.ToString() + " wrote " + outPath;

@@ -1,0 +1,3503 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!29 &1
+OcclusionCullingSettings:
+  m_ObjectHideFlags: 0
+  serializedVersion: 2
+  m_OcclusionBakeSettings:
+    smallestOccluder: 5
+    smallestHole: 0.25
+    backfaceThreshold: 100
+  m_SceneGUID: 00000000000000000000000000000000
+  m_OcclusionCullingData: {fileID: 0}
+--- !u!104 &2
+RenderSettings:
+  m_ObjectHideFlags: 0
+  serializedVersion: 10
+  m_Fog: 0
+  m_FogColor: {r: 0.5, g: 0.5, b: 0.5, a: 1}
+  m_FogMode: 3
+  m_FogDensity: 0.01
+  m_LinearFogStart: 0
+  m_LinearFogEnd: 300
+  m_AmbientSkyColor: {r: 0.5590088, g: 0.56594753, b: 0.62991256, a: 1}
+  m_AmbientEquatorColor: {r: 0.114, g: 0.125, b: 0.133, a: 1}
+  m_AmbientGroundColor: {r: 0.047, g: 0.043, b: 0.035, a: 1}
+  m_AmbientIntensity: 1
+  m_AmbientMode: 3
+  m_SubtractiveShadowColor: {r: 0.42, g: 0.478, b: 0.627, a: 1}
+  m_SkyboxMaterial: {fileID: 10304, guid: 0000000000000000f000000000000000, type: 0}
+  m_HaloStrength: 0.5
+  m_FlareStrength: 1
+  m_FlareFadeSpeed: 3
+  m_HaloTexture: {fileID: 0}
+  m_SpotCookie: {fileID: 10001, guid: 0000000000000000e000000000000000, type: 0}
+  m_DefaultReflectionMode: 0
+  m_DefaultReflectionResolution: 128
+  m_ReflectionBounces: 1
+  m_ReflectionIntensity: 1
+  m_CustomReflection: {fileID: 0}
+  m_Sun: {fileID: 0}
+  m_UseRadianceAmbientProbe: 0
+--- !u!157 &3
+LightmapSettings:
+  m_ObjectHideFlags: 0
+  serializedVersion: 13
+  m_BakeOnSceneLoad: 0
+  m_GISettings:
+    serializedVersion: 2
+    m_BounceScale: 1
+    m_IndirectOutputScale: 1
+    m_AlbedoBoost: 1
+    m_EnvironmentLightingMode: 0
+    m_EnableBakedLightmaps: 1
+    m_EnableRealtimeLightmaps: 0
+  m_LightmapEditorSettings:
+    serializedVersion: 12
+    m_Resolution: 2
+    m_BakeResolution: 40
+    m_AtlasSize: 1024
+    m_AO: 0
+    m_AOMaxDistance: 1
+    m_CompAOExponent: 1
+    m_CompAOExponentDirect: 0
+    m_ExtractAmbientOcclusion: 0
+    m_Padding: 2
+    m_LightmapParameters: {fileID: 0}
+    m_LightmapsBakeMode: 1
+    m_TextureCompression: 1
+    m_ReflectionCompression: 2
+    m_MixedBakeMode: 2
+    m_BakeBackend: 2
+    m_PVRSampling: 1
+    m_PVRDirectSampleCount: 32
+    m_PVRSampleCount: 512
+    m_PVRBounces: 2
+    m_PVREnvironmentSampleCount: 256
+    m_PVREnvironmentReferencePointCount: 2048
+    m_PVRFilteringMode: 1
+    m_PVRDenoiserTypeDirect: 2
+    m_PVRDenoiserTypeIndirect: 2
+    m_PVRDenoiserTypeAO: 2
+    m_PVRFilterTypeDirect: 0
+    m_PVRFilterTypeIndirect: 0
+    m_PVRFilterTypeAO: 0
+    m_PVREnvironmentMIS: 1
+    m_PVRCulling: 1
+    m_PVRFilteringGaussRadiusDirect: 1
+    m_PVRFilteringGaussRadiusIndirect: 1
+    m_PVRFilteringGaussRadiusAO: 1
+    m_PVRFilteringAtrousPositionSigmaDirect: 0.5
+    m_PVRFilteringAtrousPositionSigmaIndirect: 2
+    m_PVRFilteringAtrousPositionSigmaAO: 1
+    m_ExportTrainingData: 0
+    m_TrainingDataDestination: TrainingData
+    m_LightProbeSampleCountMultiplier: 4
+  m_LightingDataAsset: {fileID: 20201, guid: 0000000000000000f000000000000000, type: 0}
+  m_LightingSettings: {fileID: 0}
+--- !u!196 &4
+NavMeshSettings:
+  serializedVersion: 2
+  m_ObjectHideFlags: 0
+  m_BuildSettings:
+    serializedVersion: 3
+    agentTypeID: 0
+    agentRadius: 0.5
+    agentHeight: 2
+    agentSlope: 45
+    agentClimb: 0.4
+    ledgeDropHeight: 0
+    maxJumpAcrossDistance: 0
+    minRegionArea: 2
+    manualCellSize: 0
+    cellSize: 0.16666667
+    manualTileSize: 0
+    tileSize: 256
+    buildHeightMesh: 0
+    maxJobWorkers: 0
+    preserveTilesOutsideBounds: 0
+    debug:
+      m_Flags: 0
+  m_NavMeshData: {fileID: 0}
+--- !u!1 &4924037
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 4924038}
+  m_Layer: 0
+  m_Name: Isle2
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 0
+--- !u!4 &4924038
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 4924037}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!1 &107623831
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 107623832}
+  - component: {fileID: 107623833}
+  m_Layer: 0
+  m_Name: GameSession
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &107623832
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 107623831}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &107623833
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 107623831}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: b4d3400f9090a4348a9c4a855d697dde, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Drift.SaveSystem::Drift.SaveSystem.GameSession
+  player: {fileID: 1204434040}
+  streamer: {fileID: 2114831829}
+  saveManager: {fileID: 1783518343}
+  chaseCamera: {fileID: 431397836}
+  restartDelay: 4
+  autosaveInterval: 20
+  titleAfterGameOver: 0
+  randomSeedOnFirstTitle: 1
+  adventureIntroSeconds: 2.8
+--- !u!1 &431397831
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 431397832}
+  - component: {fileID: 431397833}
+  - component: {fileID: 431397835}
+  - component: {fileID: 431397836}
+  - component: {fileID: 431397837}
+  - component: {fileID: 431397838}
+  m_Layer: 0
+  m_Name: Main Camera
+  m_TagString: MainCamera
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &431397832
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 431397831}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0.43116212, y: 0, z: 0, w: 0.9022745}
+  m_LocalPosition: {x: 0, y: 10.90335, z: -8.480384}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!20 &431397833
+Camera:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 431397831}
+  m_Enabled: 1
+  serializedVersion: 2
+  m_ClearFlags: 1
+  m_BackGroundColor: {r: 0.19215687, g: 0.3019608, b: 0.4745098, a: 0}
+  m_projectionMatrixMode: 1
+  m_GateFitMode: 2
+  m_FOVAxisMode: 0
+  m_Iso: 200
+  m_ShutterSpeed: 0.005
+  m_Aperture: 16
+  m_FocusDistance: 10
+  m_FocalLength: 50
+  m_BladeCount: 5
+  m_Curvature: {x: 2, y: 11}
+  m_BarrelClipping: 0.25
+  m_Anamorphism: 0
+  m_SensorSize: {x: 36, y: 24}
+  m_LensShift: {x: 0, y: 0}
+  m_NormalizedViewPortRect:
+    serializedVersion: 2
+    x: 0
+    y: 0
+    width: 1
+    height: 1
+  near clip plane: 0.3
+  far clip plane: 1000
+  field of view: 60
+  orthographic: 0
+  orthographic size: 5
+  m_Depth: 0
+  m_CullingMask:
+    serializedVersion: 2
+    m_Bits: 4294967295
+  m_RenderingPath: -1
+  m_TargetTexture: {fileID: 0}
+  m_TargetDisplay: 0
+  m_TargetEye: 3
+  m_HDR: 1
+  m_AllowMSAA: 1
+  m_AllowDynamicResolution: 0
+  m_ForceIntoRT: 0
+  m_OcclusionCulling: 1
+  m_StereoConvergence: 10
+  m_StereoSeparation: 0.022
+--- !u!114 &431397835
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 431397831}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: a79441f348de89743a2939f4d699eac1, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Unity.RenderPipelines.Universal.Runtime::UnityEngine.Rendering.Universal.UniversalAdditionalCameraData
+  m_RenderShadows: 1
+  m_RequiresDepthTextureOption: 1
+  m_RequiresOpaqueTextureOption: 2
+  m_CameraType: 0
+  m_Cameras: []
+  m_RendererIndex: -1
+  m_VolumeLayerMask:
+    serializedVersion: 2
+    m_Bits: 1
+  m_VolumeTrigger: {fileID: 0}
+  m_VolumeFrameworkUpdateModeOption: 2
+  m_RenderPostProcessing: 0
+  m_Antialiasing: 0
+  m_AntialiasingQuality: 2
+  m_StopNaN: 0
+  m_Dithering: 0
+  m_ClearDepth: 1
+  m_AllowXRRendering: 1
+  m_AllowHDROutput: 1
+  m_UseScreenCoordOverride: 0
+  m_ScreenSizeOverride: {x: 0, y: 0, z: 0, w: 0}
+  m_ScreenCoordScaleBias: {x: 0, y: 0, z: 0, w: 0}
+  m_RequiresDepthTexture: 0
+  m_RequiresColorTexture: 0
+  m_TaaSettings:
+    m_Quality: 3
+    m_FrameInfluence: 0.1
+    m_JitterScale: 1
+    m_MipBias: 0
+    m_VarianceClampScale: 0.9
+    m_ContrastAdaptiveSharpening: 0
+  m_Version: 2
+--- !u!114 &431397836
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 431397831}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 69639ec1211359f46b8b47e784203f0b, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Drift.Islands::Drift.Islands.IslandChaseCamera
+  target: {fileID: 1204434040}
+  distanceBehind: 7
+  height: 9
+  fixedOrientation: 1
+  viewYawDeg: 0
+  courseFollow: 1
+  courseTurnMax: 90
+  courseMinSpeed: 1.2
+  ringPitchUp: 7
+  ringAlongBias: 0.7
+  ringWallMargin: 3
+  followLerp: 6
+  ringLateralFollow: 28
+  lookLerp: 8
+  referenceRadius: 3
+  zoomExponent: 0.85
+  shakeAmount: 0.07
+  shakeDecay: 3
+  zoomMin: 0.08
+  zoomMax: 3
+  groundClearance: 0.9
+  closeGroundClearance: 0.22
+  nearClipFar: 0.3
+  nearClipClose: 0.05
+  scrollZoomSpeed: 0.0012
+  keyZoomSpeed: 1.2
+  zoomSmooth: 8
+  speedFeelEnabled: 1
+  baseFieldOfView: 60
+  speedFovGain: 4
+  speedPullBack: 0.14
+  speedFeelResponse: 3.5
+  speedShake: 0.018
+  speedShakeStart: 0.75
+  turnRoll: 1.2
+  ringSpeedFovGain: 4.5
+  ringSpeedDolly: 0.12
+  ringMomentumFov: 3
+  ringLagSpeed: 24
+  ringGhostLift: 5
+  ringRaiseDeg: 4
+  ringLookUpDeg: 4
+  ringFastLookUpDeg: 6
+  ringIntroDistance: 1.7
+  ringIntroRaiseDeg: 12
+  boostFovGain: 4
+  boostReference: 1.65
+  boostFovKick: 3.5
+  boostKickSeconds: 0.4
+  cozyBoostScale: 0.5
+  dodgeFovKick: 2.5
+  dodgeSway: 0.3
+  dodgeKickSeconds: 0.35
+  framingKneeRadius: 10
+  framingSoftExponent: 0.5
+  idleCloseIn: 0.7
+  idleDelay: 4
+  idleInSeconds: 2.5
+  idleOutSeconds: 0.6
+  idleSpeed: 1.2
+  idleMinRadius: 6
+  mergeFovKick: 6
+  mergeZoomIn: 0.12
+  mergeShake: 0.8
+  mergeKickSeconds: 0.35
+--- !u!81 &431397837
+AudioListener:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 431397831}
+  m_Enabled: 1
+--- !u!114 &431397838
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 431397831}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 78486ef3985339d44844a868deeec952, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Drift.Visuals::Drift.Visuals.SpeedStreaks
+  streaksEnabled: 1
+  material: {fileID: 2100000, guid: 3c0a3b943f0c0f74eb1629621951f5f5, type: 2}
+  count: 26
+  opacity: 0.4
+  boostStrength: 1
+  pickupStrength: 0.6
+  topSpeedStrength: 0.2
+  momentumStrength: 0.3
+  innerRadius: 0.55
+  length: 0.3
+  width: 0.006
+  rate: 1.6
+  response: 6
+--- !u!1 &479351216
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 479351217}
+  - component: {fileID: 479351218}
+  - component: {fileID: 479351219}
+  - component: {fileID: 479351220}
+  - component: {fileID: 479351222}
+  - component: {fileID: 479351221}
+  - component: {fileID: 479351225}
+  - component: {fileID: 479351224}
+  - component: {fileID: 479351223}
+  - component: {fileID: 479351226}
+  - component: {fileID: 479351227}
+  - component: {fileID: 479351229}
+  - component: {fileID: 479351228}
+  m_Layer: 0
+  m_Name: Visuals
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &479351217
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 479351216}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &479351218
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 479351216}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 0a2913f54ac2c6f4aa6420394d84bb68, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Drift.Visuals::Drift.Visuals.WaterFeedback
+  waterRenderer: {fileID: 860727915}
+  player: {fileID: 1204434040}
+  waterObjectName: Ground
+  currentStreakStrength: 0.6
+  currentPlayerEmphasis: 0.6
+  currentFieldSize: 320
+  currentFieldResolution: 64
+  currentFieldRate: 4
+  currentFieldRowsPerFrame: 16
+  currentEdgeWidth: 10
+  currentFieldMaxSpeed: 8
+  currentSmoothing: 4
+  wakeRelativeToCurrent: 1
+  stormSmoothing: 1.5
+  stormOverride: -1
+  globalWindSpeed: 0.6
+  globalWindPeriod: 240
+  windCurrentWeight: 0.6
+  windGustWeight: 0.4
+  windSmoothing: 1.5
+  splashLife: 0.8
+  wakeMinSpeed: 0.05
+  wakeEdgeSmoothing: 8
+  reachRefreshInterval: 0.5
+  reachMinInterval: 0.1
+  coastField: 1
+  coastEmphasisRange: 12
+  coastRebuildInterval: 2
+  wakeSoftReach: 16
+  wakeBigIslandDamping: 0.45
+  cloudShadowResolution: 256
+  cloudShadowRowsPerFrame: 4
+  speedFeelEnabled: 1
+  speedWakeBoost: 0.8
+  speedLineStrength: 0.45
+  flowFoamBoost: 1
+  surfFoamStrength: 1
+  mergeSprayStrength: 0.9
+  sprayLife: 0.9
+--- !u!114 &479351219
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 479351216}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: e34248ebaee5cdf41be360a65651ca63, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Drift.Visuals::Drift.Visuals.ImpactFeedback
+  water: {fileID: 479351218}
+  ringLife: 2.5
+  minRingStrength: 0.35
+  ringStrength: 0.5
+  slowMoScale: 0.35
+  slowMoDuration: 0.22
+  slowMoEnabled: 0
+--- !u!114 &479351220
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 479351216}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c7df6305e0e1b204bad75c129e1ad2aa, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Drift.Visuals::Drift.Visuals.DayNightCycle
+  sun: {fileID: 1457403848}
+  water: {fileID: 479351218}
+  sunObjectName: Directional Light
+  dayLength: 360
+  timeOfDay: 0.3
+  advanceInEditMode: 0
+  axisTilt: 35
+  azimuth: 40
+  minSunElevation: 14
+  noonColor: {r: 1, g: 0.97, b: 0.9, a: 1}
+  horizonColor: {r: 1, g: 0.6, b: 0.35, a: 1}
+  nightColor: {r: 0.62, g: 0.74, b: 1, a: 1}
+  dayIntensity: 1.2
+  nightIntensity: 0.55
+  moonTilt: 52
+  moonAzimuthOffset: 25
+  moonLead: 0.3
+  moonLight: 1
+  moonPhase: 0.62
+  moonCycleDays: 8
+  moonInView: 1
+  moonViewOffset: 8
+  moonViewFollow: 30
+  moonKeyElevation: 50
+  moonKeyYaw: 0
+  moonPhaseMin: 0.3
+  moonPhaseMax: 0.7
+  nightAmbientFloor: {r: 0.4, g: 0.45, b: 0.6, a: 1}
+  moonFitTop: 15
+  moonFitMargin: 9
+  viewCamera: {fileID: 0}
+  palette:
+    keys:
+    - time: 0
+      zenith: {r: 0.035, g: 0.05, b: 0.14, a: 1}
+      horizon: {r: 0.1, g: 0.14, b: 0.29, a: 1}
+      sunGlow: {r: 0.35, g: 0.3, b: 0.55, a: 0}
+      antiGlow: {r: 0.25, g: 0.22, b: 0.45, a: 0}
+      sunDisc: {r: 0.9, g: 0.2, b: 0.1, a: 1}
+      cloudLit: {r: 0.17, g: 0.21, b: 0.36, a: 1}
+      cloudDark: {r: 0.04, g: 0.05, b: 0.12, a: 1}
+      ambient: {r: 0.3, g: 0.34, b: 0.48, a: 1}
+      waterDeep: {r: 0.04, g: 0.1, b: 0.22, a: 1}
+    - time: 0.17
+      zenith: {r: 0.035, g: 0.05, b: 0.14, a: 1}
+      horizon: {r: 0.1, g: 0.14, b: 0.29, a: 1}
+      sunGlow: {r: 0.35, g: 0.3, b: 0.55, a: 0}
+      antiGlow: {r: 0.25, g: 0.22, b: 0.45, a: 0}
+      sunDisc: {r: 0.9, g: 0.2, b: 0.1, a: 1}
+      cloudLit: {r: 0.17, g: 0.21, b: 0.36, a: 1}
+      cloudDark: {r: 0.04, g: 0.05, b: 0.12, a: 1}
+      ambient: {r: 0.3, g: 0.34, b: 0.48, a: 1}
+      waterDeep: {r: 0.04, g: 0.1, b: 0.22, a: 1}
+    - time: 0.215
+      zenith: {r: 0.06, g: 0.08, b: 0.22, a: 1}
+      horizon: {r: 0.36, g: 0.28, b: 0.46, a: 1}
+      sunGlow: {r: 0.95, g: 0.45, b: 0.4, a: 0.6}
+      antiGlow: {r: 0.35, g: 0.3, b: 0.55, a: 0.2}
+      sunDisc: {r: 1, g: 0.3, b: 0.15, a: 1}
+      cloudLit: {r: 0.75, g: 0.45, b: 0.5, a: 1}
+      cloudDark: {r: 0.07, g: 0.07, b: 0.17, a: 1}
+      ambient: {r: 0.36, g: 0.35, b: 0.5, a: 1}
+      waterDeep: {r: 0.05, g: 0.1, b: 0.24, a: 1}
+    - time: 0.25
+      zenith: {r: 0.2, g: 0.3, b: 0.6, a: 1}
+      horizon: {r: 0.98, g: 0.68, b: 0.58, a: 1}
+      sunGlow: {r: 1, g: 0.55, b: 0.3, a: 1}
+      antiGlow: {r: 0.7, g: 0.48, b: 0.74, a: 0.8}
+      sunDisc: {r: 1, g: 0.62, b: 0.3, a: 1}
+      cloudLit: {r: 1, g: 0.7, b: 0.62, a: 1}
+      cloudDark: {r: 0.34, g: 0.27, b: 0.45, a: 1}
+      ambient: {r: 0.55, g: 0.44, b: 0.46, a: 1}
+      waterDeep: {r: 0.09, g: 0.2, b: 0.4, a: 1}
+    - time: 0.29
+      zenith: {r: 0.22, g: 0.44, b: 0.82, a: 1}
+      horizon: {r: 0.92, g: 0.84, b: 0.76, a: 1}
+      sunGlow: {r: 1, g: 0.8, b: 0.5, a: 0.6}
+      antiGlow: {r: 0.8, g: 0.7, b: 0.85, a: 0.3}
+      sunDisc: {r: 1, g: 0.93, b: 0.7, a: 1}
+      cloudLit: {r: 1, g: 0.93, b: 0.85, a: 1}
+      cloudDark: {r: 0.55, g: 0.58, b: 0.72, a: 1}
+      ambient: {r: 0.56, g: 0.56, b: 0.62, a: 1}
+      waterDeep: {r: 0.06, g: 0.23, b: 0.44, a: 1}
+    - time: 0.36
+      zenith: {r: 0.09, g: 0.37, b: 0.83, a: 1}
+      horizon: {r: 0.64, g: 0.82, b: 0.98, a: 1}
+      sunGlow: {r: 1, g: 0.96, b: 0.85, a: 0.35}
+      antiGlow: {r: 0.8, g: 0.85, b: 1, a: 0}
+      sunDisc: {r: 1, g: 0.98, b: 0.9, a: 1}
+      cloudLit: {r: 1, g: 1, b: 1, a: 1}
+      cloudDark: {r: 0.62, g: 0.69, b: 0.82, a: 1}
+      ambient: {r: 0.55, g: 0.62, b: 0.72, a: 1}
+      waterDeep: {r: 0.05, g: 0.24, b: 0.45, a: 1}
+    - time: 0.5
+      zenith: {r: 0.06, g: 0.34, b: 0.82, a: 1}
+      horizon: {r: 0.62, g: 0.81, b: 0.98, a: 1}
+      sunGlow: {r: 1, g: 0.96, b: 0.85, a: 0.35}
+      antiGlow: {r: 0.8, g: 0.85, b: 1, a: 0}
+      sunDisc: {r: 1, g: 0.98, b: 0.9, a: 1}
+      cloudLit: {r: 1, g: 1, b: 1, a: 1}
+      cloudDark: {r: 0.62, g: 0.69, b: 0.82, a: 1}
+      ambient: {r: 0.55, g: 0.62, b: 0.72, a: 1}
+      waterDeep: {r: 0.05, g: 0.24, b: 0.45, a: 1}
+    - time: 0.64
+      zenith: {r: 0.09, g: 0.37, b: 0.83, a: 1}
+      horizon: {r: 0.64, g: 0.82, b: 0.98, a: 1}
+      sunGlow: {r: 1, g: 0.96, b: 0.85, a: 0.35}
+      antiGlow: {r: 0.8, g: 0.85, b: 1, a: 0}
+      sunDisc: {r: 1, g: 0.98, b: 0.9, a: 1}
+      cloudLit: {r: 1, g: 1, b: 1, a: 1}
+      cloudDark: {r: 0.62, g: 0.69, b: 0.82, a: 1}
+      ambient: {r: 0.55, g: 0.62, b: 0.72, a: 1}
+      waterDeep: {r: 0.05, g: 0.24, b: 0.45, a: 1}
+    - time: 0.71
+      zenith: {r: 0.22, g: 0.4, b: 0.78, a: 1}
+      horizon: {r: 1, g: 0.8, b: 0.58, a: 1}
+      sunGlow: {r: 1, g: 0.65, b: 0.3, a: 0.7}
+      antiGlow: {r: 0.85, g: 0.65, b: 0.8, a: 0.35}
+      sunDisc: {r: 1, g: 0.88, b: 0.6, a: 1}
+      cloudLit: {r: 1, g: 0.86, b: 0.68, a: 1}
+      cloudDark: {r: 0.5, g: 0.47, b: 0.62, a: 1}
+      ambient: {r: 0.58, g: 0.52, b: 0.52, a: 1}
+      waterDeep: {r: 0.07, g: 0.22, b: 0.43, a: 1}
+    - time: 0.75
+      zenith: {r: 0.17, g: 0.22, b: 0.52, a: 1}
+      horizon: {r: 1, g: 0.58, b: 0.36, a: 1}
+      sunGlow: {r: 1, g: 0.4, b: 0.12, a: 1}
+      antiGlow: {r: 0.66, g: 0.4, b: 0.7, a: 0.9}
+      sunDisc: {r: 1, g: 0.5, b: 0.2, a: 1}
+      cloudLit: {r: 1, g: 0.55, b: 0.45, a: 1}
+      cloudDark: {r: 0.28, g: 0.2, b: 0.4, a: 1}
+      ambient: {r: 0.55, g: 0.42, b: 0.42, a: 1}
+      waterDeep: {r: 0.1, g: 0.2, b: 0.4, a: 1}
+    - time: 0.785
+      zenith: {r: 0.08, g: 0.1, b: 0.28, a: 1}
+      horizon: {r: 0.55, g: 0.33, b: 0.47, a: 1}
+      sunGlow: {r: 0.95, g: 0.35, b: 0.25, a: 0.8}
+      antiGlow: {r: 0.3, g: 0.25, b: 0.5, a: 0.3}
+      sunDisc: {r: 0.9, g: 0.2, b: 0.1, a: 1}
+      cloudLit: {r: 0.7, g: 0.35, b: 0.45, a: 1}
+      cloudDark: {r: 0.08, g: 0.07, b: 0.18, a: 1}
+      ambient: {r: 0.4, g: 0.35, b: 0.48, a: 1}
+      waterDeep: {r: 0.06, g: 0.13, b: 0.3, a: 1}
+    - time: 0.83
+      zenith: {r: 0.045, g: 0.06, b: 0.17, a: 1}
+      horizon: {r: 0.17, g: 0.19, b: 0.4, a: 1}
+      sunGlow: {r: 0.5, g: 0.3, b: 0.55, a: 0.4}
+      antiGlow: {r: 0.25, g: 0.22, b: 0.45, a: 0}
+      sunDisc: {r: 0.9, g: 0.2, b: 0.1, a: 1}
+      cloudLit: {r: 0.32, g: 0.34, b: 0.55, a: 1}
+      cloudDark: {r: 0.035, g: 0.045, b: 0.12, a: 1}
+      ambient: {r: 0.32, g: 0.34, b: 0.48, a: 1}
+      waterDeep: {r: 0.04, g: 0.1, b: 0.23, a: 1}
+    - time: 0.88
+      zenith: {r: 0.035, g: 0.05, b: 0.14, a: 1}
+      horizon: {r: 0.1, g: 0.14, b: 0.29, a: 1}
+      sunGlow: {r: 0.35, g: 0.3, b: 0.55, a: 0}
+      antiGlow: {r: 0.25, g: 0.22, b: 0.45, a: 0}
+      sunDisc: {r: 0.9, g: 0.2, b: 0.1, a: 1}
+      cloudLit: {r: 0.17, g: 0.21, b: 0.36, a: 1}
+      cloudDark: {r: 0.04, g: 0.05, b: 0.12, a: 1}
+      ambient: {r: 0.3, g: 0.34, b: 0.48, a: 1}
+      waterDeep: {r: 0.04, g: 0.1, b: 0.22, a: 1}
+    easing: 0.5
+  driveAmbient: 1
+  driveWater: 1
+  dimWaterAtNight: 1
+  stormDim: 0.35
+  flashSunBoost: 1.2
+  flashAmbient: {r: 0.55, g: 0.6, b: 0.75, a: 1}
+  stormDesaturate: 0.4
+  stormAmbientTint: {r: 0.72, g: 0.75, b: 0.82, a: 1}
+  stormSkyTint: {r: 0.6, g: 0.62, b: 0.68, a: 1}
+  stormSkyDesaturate: 0.75
+  adventureShoreRim: 1
+  cozyShoreRim: 0
+  shoreRimColor: {r: 0.26, g: 0.33, b: 0.48, a: 1}
+--- !u!114 &479351221
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 479351216}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 6848e8c43e91c584d9180ed1597f844e, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Drift.Visuals::Drift.Visuals.FishSystem
+  cozyAmbientSchools: 20
+  cozyAmbientAreaPerSchool: 90
+  cozyAmbientMin: 8
+  cozyAmbientViewTop: 0.85
+  cozyViewRefDistance: 14
+  cozyViewScaleExponent: 0.6
+  cozyViewScaleMax: 2.4
+  cozyAmbientVertexBudget: 9000
+  cozyAmbientLifetime: {x: 70, y: 150}
+  cozyAmbientFade: 2
+  water: {fileID: 479351218}
+  maxSchools: 10
+  minFish: 8
+  maxFish: 20
+  spawnRadius: 45
+  recycleRadius: 58
+  cellSize: 12.75
+  worldPeriod: 306
+  density: 0.7
+  openWaterChance: 0.55
+  maxSchoolsPerIsland: 3
+  islandSearchRadius: 20
+  swimDepth: -0.15
+  fishLength: 0.28
+  schoolSpeed: 0.9
+  shoreHeight: -0.5
+  shoreBand: 0.12
+  turnRate: 2.5
+  scatterRadius: 3
+  scatterDuration: 3
+  scatterSpeed: 3
+  playerMoveThreshold: 0.4
+  jumpIntervalMin: 6
+  jumpIntervalMax: 16
+  jumpDuration: 0.75
+  jumpHeight: 0.45
+  rebuildRate: 15
+  closeUpSpeed: 1.5
+  seed: 7
+  silverColor: {r: 0.78, g: 0.86, b: 0.94, a: 1}
+  goldColor: {r: 1, g: 0.68, b: 0.32, a: 1}
+  goldChance: 0.25
+  blueColor: {r: 0.36, g: 0.56, b: 0.78, a: 1}
+  bigFishChance: 0.2
+  bigFishScale: 1.9
+  bigFishMin: 3
+  bigFishMax: 7
+  maxBaitBalls: 1
+  baitBallFish: 44
+  baitBallChance: 0.3
+  baitBallRadius: 1.7
+  baitBallSpin: 1.3
+  maxEscortSchools: 1
+  maxPickupSchools: 1
+  escortSeconds: 22
+  escortGap: 2.5
+  pickupGrab: 2.5
+  cozyCoastSchools: 2
+  cozyCoastJumpInterval: {x: 3.5, y: 9}
+  cozyDoubleJumpChance: 0.3
+--- !u!114 &479351222
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 479351216}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 500e727eafc26214aa075ad5d82a41af, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Drift.Visuals::Drift.Visuals.CloudShadows
+  water: {fileID: 479351218}
+  baseCover: 0.28
+  coverVariation: 0.16
+  variationPeriod: 170
+  stormCover: 0.55
+  shadowStrength: 0.3
+  driftSpeed: 1.2
+  minDrift: 0.25
+  coverSmoothing: 0.6
+  coverOverride: -1
+  cloudMaterial: {fileID: 2100000, guid: 55c5f08edd7352b4daffd5ff5643022b, type: 2}
+  clumpSpacing: 18
+  heightFactor: 0.42
+  heightRange: {x: 3.5, y: 14}
+  sunShift: 1
+  ringClearHalfWidth: 11
+  ringClearFade: 7
+  ringClearAhead: 75
+  ringClearFadeLength: 45
+  ringShadowStrength: 0.08
+--- !u!114 &479351223
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 479351216}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 5cbc34e9bf6179643b14404fa8d290f4, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Drift.Visuals::Drift.Visuals.ShipSystem
+  beaconMaterial: {fileID: 0}
+  beaconStrength: 1
+  beaconDayShare: 0.5
+  beaconCozyShare: 0.6
+  beaconColor: {r: 1, g: 0.76, b: 0.34, a: 1}
+  beaconHalo: 0.9
+  beaconMinAngle: 0.014
+  beaconRing: 1.7
+  beaconBeam: 4.5
+  flotsamRingStrength: 1
+  flotsamRingInCozy: 0
+  flotsamRingColor: {r: 1, g: 0.87, b: 0.64, a: 0.9}
+  flotsamRingRadius: 1.2
+  flotsamRingMinAngle: 0.017
+  flotsamRingAspect: 0.62
+  flotsamRingShadow: 0.35
+  flotsamSeed: 59
+  flotsamCell: 21.86
+  flotsamSpawnRadius: 70
+  flotsamRecycleRadius: 84
+  flotsamDensity: 0.55
+  maxFlotsam: 12
+  adventureMaxFlotsam: 28
+  flotsamDrift: 0.05
+  maxBuoys: 3
+  collectFlotsam: 1
+  collectSeconds: 0.6
+  routeGlintInterval: 1.6
+  adventureRouteScale: 1.35
+  routeBob: 0.07
+  water: {fileID: 479351218}
+  fish: {fileID: 479351221}
+  seaLife: {fileID: 479351224}
+  seed: 41
+  cellSize: 61.2
+  worldPeriod: 306
+  spawnRadius: 100
+  fadeBand: 15
+  recycleRadius: 120
+  density: 0.8
+  maxShips: 6
+  maxSailBoats: 3
+  maxFishingBoats: 2
+  maxCogs: 1
+  maxRowBoats: 2
+  cogMinDistance: 45
+  respawnSeconds: 90
+  respawnMinRange: 0.5
+  rebuildRate: 15
+  detailDistance: 70
+  maxVerts: 2400
+  sailSpeed: 1.8
+  fishingSpeed: 1.3
+  cogSpeed: 1.6
+  rowSpeed: 0.7
+  stormSpeedFactor: 0.3
+  playerMargin: 3
+  islandMargin: 2.5
+  hullDraft: -0.5
+  anchorDepth: -0.7
+  mooredSecondsMin: 15
+  mooredSecondsMax: 32
+  fishingSecondsMin: 25
+  fishingSecondsMax: 45
+  wakeLife: 2.6
+  lanternColor: {r: 3.2, g: 2.3, b: 0.9, a: 1}
+  maxBeachedPerIsland: 4
+  maxRideVerts: 800
+  wakeBobRange: 16
+  earlyTackLead: 1.5
+  playerDockMaxSpeed: 0.4
+  shipHitCooldown: 1.5
+  shipHitPush: 6
+--- !u!114 &479351224
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 479351216}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 83227f978ecfa144486e1f15c96f55ce, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Drift.Visuals::Drift.Visuals.SeaLifeSystem
+  cozyInViewPace: 2.2
+  cozyBreachScale: 0.6
+  cozyDolphinRange: 60
+  cozyFlyingFishInterval: {x: 8, y: 16}
+  cozyTurtleToPlayer: 0.35
+  cozyVisitInterval: {x: 20, y: 35}
+  visitMaxSpeed: 2
+  maxSeals: 1
+  sealLength: 1.3
+  sealStay: {x: 60, y: 100}
+  sealLookSeconds: {x: 3.5, y: 5.5}
+  sealDiveSeconds: {x: 3, y: 6}
+  sealRestSeconds: {x: 14, y: 26}
+  sealHaulOutChance: 0.4
+  sealKeepUp: 3.5
+  sealColor: {r: 0.5, g: 0.48, b: 0.45, a: 1}
+  showTurtleStay: {x: 45, y: 75}
+  showTurtleBreathRate: 0.45
+  turtleCoastDepth: -0.7
+  rayLeapInterval: {x: 25, y: 50}
+  rayLeapHeight: 1.2
+  rayLeapSeconds: 1.5
+  showCooldowns:
+  - 30
+  - 35
+  - 10
+  - 35
+  - 20
+  - 60
+  - 8
+  water: {fileID: 479351218}
+  fish: {fileID: 479351221}
+  ships: {fileID: 479351223}
+  seed: 23
+  cellSize: 30.6
+  worldPeriod: 306
+  spawnRadius: 90
+  fadeBand: 15
+  recycleRadius: 108
+  density: 0.62
+  maxGroups: 14
+  maxDolphinPods: 2
+  maxWhales: 2
+  maxWhalePods: 2
+  maxTurtles: 4
+  maxJellySwarms: 3
+  maxRays: 4
+  maxGullRafts: 2
+  maxSeaweed: 4
+  respawnSeconds: 90
+  respawnMinRange: 0.5
+  rebuildRate: 15
+  closeUpSpeed: 2
+  detailDistance: 70
+  splashDistance: 75
+  maxUnderVerts: 2000
+  maxAboveVerts: 2000
+  dolphinLength: 1.5
+  dolphinCruise: 2.2
+  dolphinSprint: 12
+  dolphinJumpHeight: 1.05
+  dolphinJumpDuration: 1.05
+  bowRideRange: 40
+  bowRideSeconds: 20
+  whaleLength: 6.5
+  whaleSpeed: 1.1
+  whaleKeepAway: 10
+  whaleBullScale: 1.25
+  whaleCalfScale: 0.5
+  whaleHomeRange: 55
+  whaleDeepSecondsMin: 22
+  whaleDeepSecondsMax: 40
+  breachIntervalMin: 100
+  breachIntervalMax: 220
+  turtleLength: 0.8
+  turtleSpeed: 0.9
+  jellySize: 0.3
+  raySpan: 1.7
+  raySpeed: 1.6
+  flyingFishIntervalMin: 10
+  flyingFishIntervalMax: 22
+  dolphinColor: {r: 0.31, g: 0.46, b: 0.64, a: 1}
+  whaleColor: {r: 0.2, g: 0.27, b: 0.36, a: 1}
+  seaweedColor: {r: 0.16, g: 0.42, b: 0.2, a: 1}
+  whaleMigrationSpeed: 1.8
+  whaleMigrationDive: {x: 7, y: 15}
+  maxCompanions: 2
+  maxPickups: 2
+  companionSeconds: 22
+  companionGap: 3.5
+  companionLead: 0.55
+  companionCatchUp: 16
+  pickupGrab: 2.5
+  pickupDrift: 0.5
+  whaleBoostGap: 0.8
+  whaleBoostLead: 1.1
+  whaleBoostCrossSeconds: 0.5
+--- !u!114 &479351225
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 479351216}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: ec08b55e113efa947931ba92ea132625, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Drift.Visuals::Drift.Visuals.CurvedWorld
+  maxRadius: 900
+  minRadius: 260
+  strength: 1
+  flatten: 0
+  viewNear: 12
+  viewFar: 120
+  closeFlatten: 1.5
+  bendSceneView: 0
+  haze: 0.8
+  hazeStart: 0.35
+  flatHazeEnd: 700
+  hazeFull: 0.85
+  lowHazeStart: 0.1
+  lowHazeFull: 0.55
+  lowLimbAngle: 4
+  highLimbAngle: 20
+  hazeClearView: 0.7
+  hazeMinBand: 0.25
+  extendFarClip: 1
+  drawSky: 1
+  skyMaterial: {fileID: 2100000, guid: 817580ca37b14034b8fe1aa8c09fa156, type: 2}
+  driveSkybox: 1
+  skyboxInEditMode: 0
+  skyboxMaterial: {fileID: 2100000, guid: b189a0ee10f4b7b4f9f57a99d66f05ea, type: 2}
+  dayNight: {fileID: 479351220}
+  fallbackTimeOfDay: 0.4
+  skyGradient: 4
+  sunSize: 2
+  sunHorizonScale: 1.35
+  sunHalo: 1
+  moonSize: 2.4
+  moonHalo: 1
+  moonColor: {r: 0.93, g: 0.95, b: 1, a: 1}
+  dayMoon: 0.3
+  starDensity: 64
+  starSize: 0.11
+  starBrightness: 1
+  starTwinkle: 2.2
+  milkyWay: 0.8
+  shootingStarPeriod: 7
+  shootingStarChance: 0.6
+  shootingStarDuration: 0.9
+  shootingStarLength: 9
+  skyClouds: 0
+  cloudAmount: 1.15
+  cloudHeight: 150
+  cloudFadeLimbAngle: {x: 36, y: 48}
+  cloudHorizonSoftening: 0.22
+  cloudShading: 1.1
+  cullTop: 14
+  cullBottom: -4
+  ringHaze: 0.6
+  ringHazeStart: 60
+  ringHazeEnd: 620
+  ringRims: 1
+  rimMaterial: {fileID: 0}
+  rimSegment: 8
+  rimFoamWidth: 4
+  ringSpace: 1
+  ringSpaceColor: {r: 0.016, g: 0.021, b: 0.047, a: 1}
+  ringSpaceStars: 1
+  ringSpaceDiscs: 1
+  ringSpaceMilkyWay: 0.3
+  ringSpaceEdge: 0.6
+--- !u!114 &479351226
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 479351216}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 1e1861402caff6d4ab18cc3ed8f29756, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Drift.Visuals::Drift.Visuals.StormVisuals
+  stormMaterial: {fileID: 2100000, guid: 30de4b7d546498e4c80df80108c7bbb8, type: 2}
+  boltMaterial: {fileID: 2100000, guid: 760cadcc130aeca4eb22b50a8d884aca, type: 2}
+  cloudHeight: 13
+  cloudRadius: 1.05
+  cloudColor: {r: 0.24, g: 0.26, b: 0.31, a: 1}
+  cloudAlpha: 0.88
+  cloudSpin: 0.06
+  clumpsPerStorm: 14
+  clumpSize: 0.22
+  rainColor: {r: 0.62, g: 0.68, b: 0.78, a: 1}
+  rainAlpha: 0.55
+  rainShare: 0.7
+  cozyRainFade: {x: 12, y: 38}
+  cozyRainNearShare: 0.2
+  cozyRainFullAt: 70
+  adventureRainFade: {x: 6, y: 18}
+  nightReadability: 1
+  boltGlowWidth: 5
+  boltGlow: 0.22
+  liteMode: 0
+  liteClumpsPerStorm: 9
+  eyeMargin: 8
+  lightningRate: 0.7
+  boltLife: 0.5
+  boltWidth: 0.35
+  boltColor: {r: 0.8, g: 0.87, b: 1, a: 1}
+  flashStrength: 0.8
+  flashRange: 160
+  playerStrikeShare: 0.55
+  strikeSlowSeconds: 1.2
+  strikeSlowFactor: 0.75
+  strikeBuoyancyLoss: 0.03
+  strikeCooldown: 5
+--- !u!114 &479351227
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 479351216}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: a3545408b957fb3458000258676bf22d, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Drift.Visuals::Drift.Visuals.Encounters
+  water: {fileID: 479351218}
+  seaLife: {fileID: 479351224}
+  ships: {fileID: 479351223}
+  fish: {fileID: 479351221}
+  seed: 7
+  minGap: 20
+  maxGap: 40
+  driveSpeed: 1.6
+  dolphinSpeed: 2.4
+  openWaterMargin: 18
+  nightFactor: 0.6
+  whaleMinGap: 150
+  dolphinRideSeconds: 24
+  whaleLeadSeconds: 9
+  whaleLateral: 6
+  flotsamLeadSeconds: 6
+  trackLookahead: 62
+  trackGapLines: 0.45
+  trackSeamLines: 0.3
+  trackLineStep: 7
+  trackScatter: 2.5
+  animalSpacing: 110
+  animalWhaleShare: 0.3
+  animalTurtleShare: 0.3
+  whaleBoostSeconds: 3
+  whaleBoostFactor: 2
+  whaleMomentumPieces: 2
+  companionBoost: 0.06
+  maxCompanionStack: 3
+  shipStaggerSeconds: 1.1
+  shipStaggerFactor: 0.45
+  announceBottleNotes: 1
+  flotsamBoostFactor: 1.65
+--- !u!114 &479351228
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 479351216}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: e53ba164fd5798d4382e6f6acb59e4ca, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Drift.Visuals::Drift.Visuals.WorldEvents
+  water: {fileID: 479351218}
+  seaLife: {fileID: 479351224}
+  dayNight: {fileID: 479351220}
+  rainbowMaterial: {fileID: 2100000, guid: fd8721201ddc19d4dbcb6452d4d3a856, type: 2}
+  seed: 41
+  chancePerMinute: 0.4
+  cooldownSeconds: 210
+  sameKindCooldown: 480
+  firstWait: {x: 25, y: 90}
+  rainbowSeconds: 80
+  migrationSeconds: 95
+  auroraSeconds: 120
+  meteorSeconds: 70
+  fadeSeconds: 6
+  rainbowWeight: 1
+  whaleWeight: 1
+  auroraWeight: 1
+  meteorWeight: 0.75
+  rainbowStormBias: 0.35
+  rainbowStormRange: 220
+  rainbowAfterStorm: 70
+  rainbowBrightness: 1
+  rainbowSecondary: 0.42
+  migrationGroups: 4
+  migrationSpacing: 22
+  migrationLateral: 32
+  auroraBrightness: 1
+  auroraHeight: 0.04
+  auroraThickness: 0.26
+  auroraDrift: 0.28
+  auroraLow: {r: 0.32, g: 1, b: 0.62, a: 1}
+  auroraHigh: {r: 0.58, g: 0.36, b: 0.95, a: 1}
+  auroraAmbient: 0.1
+  meteorsPerMinute: 45
+  meteorBrightness: 1.15
+  meteorLength: 13
+--- !u!114 &479351229
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 479351216}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 36740802fdf4c6543b513e9f0ae3950e, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Drift.Visuals::Drift.Visuals.DriveFeel
+  player: {fileID: 0}
+  rewardsEnabled: 1
+  surfCatchThreshold: 0.35
+  surfKickFactor: 1.18
+  surfKickSeconds: 0.9
+  surfKickCooldown: 2.5
+  flowFactor: 1.1
+  flowThreshold: 0.5
+--- !u!1 &604075724
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 604075727}
+  - component: {fileID: 604075726}
+  - component: {fileID: 604075725}
+  m_Layer: 0
+  m_Name: RingWorld
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &604075725
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 604075724}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 7af4d56b8f61cee49b3388d731063d81, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Drift.Islands::Drift.Islands.RingWorld
+  circumference: 640
+  bandWidth: 56
+  islandWallMargin: 0.9
+  playerWallMargin: 1
+  edgeWarnWidth: 10
+  edgePush: 3
+  difficultyRampSeconds: 300
+  levelDistance: 340
+  levelSeconds: 45
+  extraIslandsPerLevel: 2
+  extraIslandsAtMax: 14
+  volcanoFirstLevel: 2
+  volcanoesPerLevel: 1
+  maxVolcanoes: 8
+  driftShareStart: 0
+  driftShareMax: 0.45
+  driftSpeedStart: 1.4
+  driftSpeedMax: 3.4
+  flotsamSpacingStart: 72
+  flotsamSpacingMax: 120
+  sinkSpeed: 1.15
+  sinkGainPerKm: 0.5
+  dodgeGap: 6
+  cruiseStart: 0.62
+  cruisePerLevel: 0.03
+  cruiseMax: 0.88
+  speedScaleStart: 1.45
+  speedPerLevel: 0.18
+  speedScaleMax: 3
+  momentumSpeedGain: 1
+  momentumPerBoost: 0.13
+  momentumSurfRate: 0.03
+  momentumSurfStart: 0.35
+  momentumHalfLife: 10
+  momentumHitLoss: 0.5
+  adjustCamera: 1
+  cameraHeight: 1.6
+  cameraDistance: 11
+  player: {fileID: 1204434040}
+  streamer: {fileID: 2114831829}
+--- !u!114 &604075726
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 604075724}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 7c36683341633f34dafee1cb9ce8a2a5, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Drift.Islands::Drift.Islands.RingIslandSpawner
+  islandMaterial: {fileID: 2100000, guid: b53ef27159e4e194792507f11ce960a1, type: 2}
+  seed: 9001
+  mainIslands: 12
+  islets: 5
+  largeShare: 0.05
+  bigShare: 0.15
+  mediumShare: 0.45
+  startExclusion: 24
+  respawnMinDistance: 0.3
+  emergeDuration: 8
+  wallMargin: 2
+  life: 1
+  settlements: 0
+  lifeHideDistance: 90
+  spawnsPerFrame: 1
+  volcanoMinRadius: 2.5
+  volcanoMaxRadius: 4.8
+  volcanoAheadMin: 95
+  volcanoAheadMax: 150
+  volcanoRiseDoneGap: 40
+  volcanoRiseSeconds: {x: 2.5, y: 6}
+  volcanoFreeLane: 14
+--- !u!4 &604075727
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 604075724}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!1 &628067327
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 628067328}
+  - component: {fileID: 628067329}
+  m_Layer: 0
+  m_Name: Planet
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 0
+--- !u!4 &628067328
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 628067327}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &628067329
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 628067327}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: a7e958d5be0562044b82c52361a26de4, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Drift.World::Drift.World.PlanetSphere
+  topology: {fileID: 11400000, guid: cbf2091cdccd73f47a63b01d241c49e5, type: 2}
+  planetRadius: 50
+  elevationScale: 2
+  chunkMaterial: {fileID: 2100000, guid: 60d3fae36eaa2c44086556c6f0a42d1c, type: 2}
+  buildCollider: 1
+--- !u!1 &640898809
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 640898810}
+  m_Layer: 0
+  m_Name: Isle2
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 0
+--- !u!4 &640898810
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 640898809}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!1 &647107047
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 647107048}
+  - component: {fileID: 647107049}
+  - component: {fileID: 647107050}
+  m_Layer: 0
+  m_Name: EventSystem
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &647107048
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 647107047}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &647107049
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 647107047}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 76c392e42b5098c458856cdf6ecaaaa1, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: UnityEngine.UI::UnityEngine.EventSystems.EventSystem
+  m_FirstSelected: {fileID: 0}
+  m_sendNavigationEvents: 1
+  m_DragThreshold: 10
+--- !u!114 &647107050
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 647107047}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 01614664b831546d2ae94a42149d80ac, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Unity.InputSystem::UnityEngine.InputSystem.UI.InputSystemUIInputModule
+  m_SendPointerHoverToParent: 1
+  m_MoveRepeatDelay: 0.5
+  m_MoveRepeatRate: 0.1
+  m_XRTrackingOrigin: {fileID: 0}
+  m_ActionsAsset: {fileID: -944628639613478452, guid: ca9f5fa95ffab41fb9a615ab714db018, type: 3}
+  m_PointAction: {fileID: -1654692200621890270, guid: ca9f5fa95ffab41fb9a615ab714db018, type: 3}
+  m_MoveAction: {fileID: -8784545083839296357, guid: ca9f5fa95ffab41fb9a615ab714db018, type: 3}
+  m_SubmitAction: {fileID: 392368643174621059, guid: ca9f5fa95ffab41fb9a615ab714db018, type: 3}
+  m_CancelAction: {fileID: 7727032971491509709, guid: ca9f5fa95ffab41fb9a615ab714db018, type: 3}
+  m_LeftClickAction: {fileID: 3001919216989983466, guid: ca9f5fa95ffab41fb9a615ab714db018, type: 3}
+  m_MiddleClickAction: {fileID: -2185481485913320682, guid: ca9f5fa95ffab41fb9a615ab714db018, type: 3}
+  m_RightClickAction: {fileID: -4090225696740746782, guid: ca9f5fa95ffab41fb9a615ab714db018, type: 3}
+  m_ScrollWheelAction: {fileID: 6240969308177333660, guid: ca9f5fa95ffab41fb9a615ab714db018, type: 3}
+  m_TrackedDevicePositionAction: {fileID: 6564999863303420839, guid: ca9f5fa95ffab41fb9a615ab714db018, type: 3}
+  m_TrackedDeviceOrientationAction: {fileID: 7970375526676320489, guid: ca9f5fa95ffab41fb9a615ab714db018, type: 3}
+  m_DeselectOnBackgroundClick: 1
+  m_PointerBehavior: 0
+  m_CursorLockBehavior: 0
+  m_ScrollDeltaPerTick: 6
+--- !u!1 &860727914
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 860727918}
+  - component: {fileID: 860727917}
+  - component: {fileID: 860727916}
+  - component: {fileID: 860727915}
+  - component: {fileID: 860727919}
+  m_Layer: 0
+  m_Name: Ground
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!23 &860727915
+MeshRenderer:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 860727914}
+  m_Enabled: 1
+  m_CastShadows: 1
+  m_ReceiveShadows: 1
+  m_DynamicOccludee: 1
+  m_StaticShadowCaster: 0
+  m_MotionVectors: 1
+  m_LightProbeUsage: 1
+  m_ReflectionProbeUsage: 1
+  m_RayTracingMode: 2
+  m_RayTraceProcedural: 0
+  m_RayTracingAccelStructBuildFlagsOverride: 0
+  m_RayTracingAccelStructBuildFlags: 1
+  m_SmallMeshCulling: 1
+  m_ForceMeshLod: -1
+  m_MeshLodSelectionBias: 0
+  m_RenderingLayerMask: 1
+  m_RendererPriority: 0
+  m_Materials:
+  - {fileID: 2100000, guid: a1b8a301f7a3bcb41a2fe39bf47f600a, type: 2}
+  m_StaticBatchInfo:
+    firstSubMesh: 0
+    subMeshCount: 0
+  m_StaticBatchRoot: {fileID: 0}
+  m_ProbeAnchor: {fileID: 0}
+  m_LightProbeVolumeOverride: {fileID: 0}
+  m_ScaleInLightmap: 1
+  m_ReceiveGI: 1
+  m_PreserveUVs: 1
+  m_IgnoreNormalsForChartDetection: 0
+  m_ImportantGI: 0
+  m_StitchLightmapSeams: 1
+  m_SelectedEditorRenderState: 3
+  m_MinimumChartSize: 4
+  m_AutoUVMaxDistance: 0.5
+  m_AutoUVMaxAngle: 89
+  m_LightmapParameters: {fileID: 0}
+  m_GlobalIlluminationMeshLod: 0
+  m_SortingLayerID: 0
+  m_SortingLayer: 0
+  m_SortingOrder: 0
+  m_MaskInteraction: 0
+  m_AdditionalVertexStreams: {fileID: 0}
+--- !u!64 &860727916
+MeshCollider:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 860727914}
+  m_Material: {fileID: 0}
+  m_IncludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_ExcludeLayers:
+    serializedVersion: 2
+    m_Bits: 0
+  m_LayerOverridePriority: 0
+  m_IsTrigger: 0
+  m_ProvidesContacts: 0
+  m_Enabled: 1
+  serializedVersion: 5
+  m_Convex: 0
+  m_CookingOptions: 30
+  m_Mesh: {fileID: 10209, guid: 0000000000000000e000000000000000, type: 0}
+--- !u!33 &860727917
+MeshFilter:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 860727914}
+  m_Mesh: {fileID: 0}
+--- !u!4 &860727918
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 860727914}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 100, y: 1, z: 100}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &860727919
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 860727914}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: cc8f3e7ac594f044f9e5d3d83fa17aca, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Drift.Islands::Drift.Islands.WaterFollower
+  follow: {fileID: 0}
+  buildMesh: 1
+  cellSize: 3
+  innerCells: 48
+  levels: 5
+  ringRowSpacing: 3.2
+  ringColumnSpacing: 1.5
+  ringNearRows: 12
+  ringNearSubdiv: 4
+--- !u!1 &935930037
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 935930038}
+  - component: {fileID: 935930039}
+  - component: {fileID: 935930040}
+  m_Layer: 0
+  m_Name: Audio
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &935930038
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 935930037}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &935930039
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 935930037}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 0682eba82bb026d489b54ec11e2e9485, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Drift.Audio::Drift.Audio.AudioDirector
+  musicVolume: 0.6
+  sfxVolume: 0.8
+  lifeVolume: 0.5
+  musicEnabled: 1
+  sfxEnabled: 1
+  lifeEnabled: 1
+  lifeUpdateInterval: 0.5
+  lifeRange: 40
+  lifeDuckDepth: 0.5
+  lifeDuckTension: 0.7
+  lifeDuckImpactSeconds: 3
+  impactHearingRange: 70
+  oneShotHearingRange: 45
+  thunderRange: 260
+  thunderSpeed: 90
+  grindFromContact: 1
+  grindPollInterval: 0.1
+  grumbleDuckDepth: 0.15
+  voiceDuckSeconds: 0.25
+  useClipStreaming: 0
+  filterWatchdogSeconds: 2
+  sinkWarningBuoyancy: 0.35
+  windBase: 0.25
+  windFromSpeed: 0.5
+  windLfoPeriod: 23
+  windLfoDepth: 0.15
+  tensionHorizonSeconds: 8
+  tensionOverride: -1
+  speedFeelEnabled: 1
+  flowVolume: 0.5
+  surfVolume: 0.45
+  speedWaterBoost: 0.35
+  mergeSplash: 0.7
+  adventureBedGain: 0.7
+  adventureEventGain: 0.85
+  adventureMusicEnabled: 1
+  musicCrossfadeSeconds: 2.5
+  adventureMusicGain: 1
+--- !u!114 &935930040
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 935930037}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 28d6c48c80d7ded4090057f7b899c09d, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Drift.Bridge::Drift.Bridge.SeaAudioBridge
+  seaLife: {fileID: 0}
+  pollInterval: 0.25
+  session: {fileID: 0}
+--- !u!1 &1204434036
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1204434037}
+  - component: {fileID: 1204434040}
+  - component: {fileID: 1204434039}
+  - component: {fileID: 1204434038}
+  - component: {fileID: 1204434041}
+  - component: {fileID: 1204434042}
+  - component: {fileID: 1204434043}
+  - component: {fileID: 1204434044}
+  m_Layer: 0
+  m_Name: Island
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &1204434037
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1204434036}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!23 &1204434038
+MeshRenderer:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1204434036}
+  m_Enabled: 1
+  m_CastShadows: 1
+  m_ReceiveShadows: 1
+  m_DynamicOccludee: 1
+  m_StaticShadowCaster: 0
+  m_MotionVectors: 1
+  m_LightProbeUsage: 1
+  m_ReflectionProbeUsage: 1
+  m_RayTracingMode: 2
+  m_RayTraceProcedural: 0
+  m_RayTracingAccelStructBuildFlagsOverride: 0
+  m_RayTracingAccelStructBuildFlags: 1
+  m_SmallMeshCulling: 1
+  m_ForceMeshLod: -1
+  m_MeshLodSelectionBias: 0
+  m_RenderingLayerMask: 1
+  m_RendererPriority: 0
+  m_Materials:
+  - {fileID: 2100000, guid: b53ef27159e4e194792507f11ce960a1, type: 2}
+  m_StaticBatchInfo:
+    firstSubMesh: 0
+    subMeshCount: 0
+  m_StaticBatchRoot: {fileID: 0}
+  m_ProbeAnchor: {fileID: 0}
+  m_LightProbeVolumeOverride: {fileID: 0}
+  m_ScaleInLightmap: 1
+  m_ReceiveGI: 1
+  m_PreserveUVs: 0
+  m_IgnoreNormalsForChartDetection: 0
+  m_ImportantGI: 0
+  m_StitchLightmapSeams: 1
+  m_SelectedEditorRenderState: 3
+  m_MinimumChartSize: 4
+  m_AutoUVMaxDistance: 0.5
+  m_AutoUVMaxAngle: 89
+  m_LightmapParameters: {fileID: 0}
+  m_GlobalIlluminationMeshLod: 0
+  m_SortingLayerID: 0
+  m_SortingLayer: 0
+  m_SortingOrder: 0
+  m_MaskInteraction: 0
+  m_AdditionalVertexStreams: {fileID: 0}
+--- !u!33 &1204434039
+MeshFilter:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1204434036}
+  m_Mesh: {fileID: 0}
+--- !u!114 &1204434040
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1204434036}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 1000a846615a5a748b18dbfcac57e4cb, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Drift.Islands::Drift.Islands.Island
+  landRadius: 3
+  cellSize: 0.5
+  moveSpeed: 9.5
+  acceleration: 9
+  accelAgilityExponent: 0.35
+  dragBase: 0.45
+  turnRateDegPerSec: 90
+  turnResponse: 3
+  turnEaseIn: 0.35
+  velocityAlign: 1.5
+  directionHeadingFollow: 0
+  directionMinSpeedShare: 0.35
+  leanIntoTurns: 3.5
+  leanResponse: 3
+  driftRotation: 3
+  driftPeriod: 40
+  bodyTurnTime: 5
+  bodyTurnTimeHuge: 10
+  bodyTurnMaxRate: 35
+  bodyTurnMaxRateHuge: 17.5
+  bodyTurnAmount: 0.33333334
+  bodyTurnRefArea: 24
+  bodyTurnHugeArea: 2000
+  bodyTurnCooldown: 8
+  bodyTurnRapidAngle: 25
+  bodyTurnMaxQueued: 40
+  agilityArea: 40
+  useKeyboardInput: 1
+  shapeSeed: 12346
+  heightOffset: 0
+  bobAmplitude: 0.05
+  carryResponse: 2.5
+  surfResponse: 2
+  isVolcano: 0
+  kind: 0
+  archetype: 0
+  impactRetention: 0.8
+  impactDrag: 0.5
+  sinkEnabled: 1
+  sinkSecondsSmall: 95
+  sinkSecondsHuge: 18
+  sinkHalfArea: 500
+  sinkLandExponent: 0.4
+  refloatExponent: 0.55
+  maxLandLossPerSecond: 0.05
+  sunkArea: 0.2
+  startPlanarPosition: {x: 0, y: 0}
+  stormSinkMultiplier: 1.6
+  elongatedSinkMultiplier: 1.6
+  barrenHeightScale: 0.55
+  barrenRadiusScale: 0.8
+  startleDuration: 3
+  cozySinkSpeed: 0.6
+  cozyKeepShareStart: 0.5
+  cozyKeepShareEnd: 0.9
+  cozyEaseShare: 0.12
+  cozyRiseSeconds: 20
+  adventureSinking: 1
+  adventureBrakeMin: 0.45
+  adventureBrakeForce: 2.2
+  adventureSteerShare: 0.9
+  hitBuoyancyLoss: 0.18
+  hitSpeedKeep: 0.35
+  hitBounce: 0.7
+  hitMinBounce: 5
+  hitCooldown: 1.2
+  hitStun: 0.6
+  hitSinkRate: 0.15
+  hitGrace: 2.2
+  hitSidestep: 7
+  upliftDuration: 7
+  mountainHeight: 1
+  upliftSpread: 2.5
+  maxSlope: 30
+  volcanoMaxSlope: 45
+--- !u!114 &1204434041
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1204434036}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: dbb0440015d8a384abb68c28f40f53ec, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Drift.Life::Drift.Life.IslandLifeSystem
+  timeScale: 6
+  tickInterval: 0.5
+  cellSize: 1.2
+  growthRate: 0.012
+  lightningRate: 0.035
+  strikeDuration: 0.25
+  fireDuration: 20
+  firePatchShare: 0.1
+  firePatchCells: {x: 2, y: 40}
+  fireSpreadRate: 0.05
+  fireRainDamping: 0.45
+  fireWindStretch: 0.6
+  grassFire: {x: 0.45, y: 1.6}
+  simDistance: 110
+  hideDistance: 260
+  detailDistance: 45
+  meshInterval: 0.15
+  tintInterval: 0.5
+  farTickFactor: 8
+  maxPlants: 3000
+  seed: 1
+  plantScale: 0.55
+  volcanicFertility: 1.2
+  volcanicInitStage: 0.2
+  ancientInitStage: 1.15
+  barrenFertility: 0.4
+  barrenInitStage: 0.35
+  maxPalms: 24
+  maxReeds: 40
+  palmMinHeight: 0.05
+  palmMaxHeight: 0.35
+  reedMaxHeight: 0.12
+  burnFadeRate: 0.00125
+  treeGrowTime: 240
+  saplingScale: 0.3
+  growthRebuildStep: 0.05
+  bloomPeriod: 240
+  bloomInterval: 1
+  bloomRebuildStep: 0.08
+  seasonPeriod: 1200
+  seasonAmplitude: 1
+  seasonRebuildStep: 0.02
+  maxVegetationVerts: 60000
+  fullCellVerts: 190
+  windFar: 26
+  windNear: 4
+  windCalmAmplitude: 0.45
+  windCalmFlutter: 0.22
+  windCalmSpeed: 0.35
+  foreignReseedChance: 0.5
+  foreignSpreadInterval: 60
+  foreignStand: 12
+  maxSavedForeign: 600
+--- !u!114 &1204434042
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1204434036}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 5865cd2216fca0b48a4943899655ac30, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Drift.Life::Drift.Life.IslandHerdSystem
+  idleRate: 1
+  idlePauseMin: 0.6
+  idlePauseMax: 3.5
+  meetRate: 0.5
+  meetRange: 8
+  meetSeekRange: 14
+  meetDriftChance: 0.25
+  meetDriftLeg: 5
+  meetDirectorRange: 6
+  meetCooldown: {x: 20, y: 40}
+  meetGap: {x: 10, y: 20}
+  maxMeetings: 2
+  meetApproachPace: 1.5
+  meetApproachTime: 12
+  seed: 1
+  simDistance: 100
+  hideDistance: 260
+  detailDistance: 45
+  meshInterval: 0.06666667
+  hiddenMeshInterval: 1
+  smoothMotion: 1
+  slideStretch: 1.25
+  midStepInterval: 0.1
+  farStepInterval: 0.5
+  animalMaterial: {fileID: 0}
+  huddleThreshold: 0.3
+  fleeSpeed: 2.6
+  fleeDistance: 7
+  ancientHerdSize: 1.5
+  barrenHerdSize: 0.6
+  animalScale: 0.175
+  areaPerHerd: 7
+  minHerdArea: 4
+  maxHerds: 60
+  maxAnimals: 200
+  maxHerdsPerSpecies: 3
+  animalsPerArea: 0
+  maxAnimalsLimit: 240
+  herdSpawnGap: 4
+  herdSpacing: 1.6
+  formationSpacing: 2.2
+  shoreMargin: 0.2
+  growthInterval: 45
+  growthChance: 0.5
+  youngScale: 0.45
+  youngIndependence: 0.7
+  growthRebuildStep: 0.04
+  youngPlayRate: 3
+  youngTintAmount: 0.45
+  youngTint: {r: 1, g: 0.98, b: 0.94, a: 1}
+  sleepThreshold: 0.6
+  wakeThreshold: 0.45
+  dawnStaggerMax: 60
+  transitionTime: 0.8
+  watchersPerHerd: 1
+  playRate: 1
+  playSpeed: 1.8
+  playDurationMin: 4
+  playDurationMax: 8
+  detailNear: 9
+  detailFar: 12
+  maxDetailed: 40
+  maxDetailVertices: 10400
+  detailCheckInterval: 0.25
+  youngModelGrowth: 0.6
+  behaviourRate: 1
+  strollRate: 0.012
+  visitRate: 0.012
+  spreadRate: 0.02
+  visitRange: 10
+  signatureRate: 0.02
+  refugeStart: 0.45
+  refugeLead: 30
+  refugeSpread: 3
+  refugeSpeed: 2.2
+  strollLeg: 2.4
+  thinkInterval: 1
+  shoreSearch: 7
+  shoreWalk: 3
+  rainThreshold: 0.1
+  noonWindow: 0.07
+  shadeRange: 6
+  watchRange: 15
+  lookoutRange: 5
+  lookoutMinRise: 0.12
+  burrowReach: 5
+  burrowScale: 0.11
+  maxBurrows: 6
+  lineSpacing: 0.9
+  Agitation: 0
+  duskThreshold: 0.3
+--- !u!114 &1204434043
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1204434036}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 40ef492e6f29e4d42aa14781eab05fcd, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Drift.Life::Drift.Life.IslandCrittersSystem
+  seed: 1
+  simDistance: 100
+  hideDistance: 260
+  detailDistance: 45
+  meshInterval: 0.083333336
+  closeUpSpeed: 0.6
+  midStepInterval: 0.2
+  shoreMin: 0.02
+  shoreMax: 0.25
+  maxCrabs: 12
+  crabShoreSpacing: 4
+  crabSpeed: 0.35
+  crabRange: 1.5
+  crabScale: 0.06
+  diveSpeed: 1.5
+  hiddenMin: 3
+  hiddenMax: 6
+  maxTurtles: 3
+  turtleMinArea: 20
+  turtleSpeed: 0.08
+  turtleInland: 0.55
+  turtleRestMin: 20
+  turtleRestMax: 60
+  turtleScale: 0.09
+  maxButterflies: 16
+  butterflyFlowers: 3
+  butterflySpeed: 0.5
+  butterflyRange: 3
+  butterflyHeight: 0.12
+  butterflyScale: 0.07
+  dayThreshold: 0.5
+  maxFireflies: 110
+  minFireflies: 24
+  areaPerFirefly: 1
+  fireflySpeed: 0.25
+  fireflyRange: 1.5
+  fireflyHeight: 0.35
+  fireflyHeightSpread: 1.1
+  nightThreshold: 0.6
+  fireflyDusk: 0.35
+  fireflyStormCut: 0.7
+  farFireflies: 20
+  fireflyHalo: 0.14
+  fireflyMinAngle: 0.011
+  fireflyDrift: 0.45
+  fireflyClusterRadius: 1.7
+  fireflyColor: {r: 0.85, g: 1.3, b: 0.4, a: 1}
+  maxGlowBlobs: 8
+  areaPerGlowBlob: 14
+  glowBlobRadius: 1.9
+  glowBlobLift: 0.05
+  groundGlowColor: {r: 0.115, g: 0.15, b: 0.05, a: 1}
+  fireflyStageMin: 0.3
+  fireflyStageMax: 0.95
+  fadeTime: 1.5
+  spawnInterval: 1.5
+  spawnsPerInterval: 2
+  crabWaveChance: 0.12
+  crabWaveMin: 3
+  crabWaveMax: 6
+  turtleNestChance: 0.2
+  turtleNestDig: 10
+  nestMoundTime: 150
+  maxNests: 3
+  butterflySpiralChance: 0.2
+  butterflySpiralTime: 5
+  spiralPartnerRange: 1.5
+  spiralRadius: 0.16
+  spiralRise: 0.55
+  fireflyWavesPerMinute: 1.2
+  fireflyWaveTime: 7
+  visitSwarm: 10
+  visitRadius: 1.1
+  critterMaterial: {fileID: 0}
+  glowMaterial: {fileID: 0}
+--- !u!114 &1204434044
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1204434036}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: dcce4c04afa60074bb68289b96b22fa0, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Drift.Life::Drift.Life.IslandSettlementSystem
+  seed: 12346
+  simDistance: 100
+  hideDistance: 260
+  detailDistance: 45
+  folkMeshInterval: 0.1
+  folkCloseUpSpeed: 0.3
+  staticMeshInterval: 0.25
+  midStepInterval: 0.25
+  growthInterval: 0.5
+  farStepInterval: 2
+  farMeshInterval: 10
+  foundingArea: 35
+  hamletArea: 45
+  villageArea: 70
+  townArea: 110
+  matureFraction: 0.3
+  foundingDelay: 90
+  hamletAge: 240
+  villageAge: 480
+  townAge: 720
+  planDoneFraction: 0.7
+  buildTimeScale: 0.8
+  rebuildDelay: 120
+  retryInterval: 120
+  siteMinHeight: 0.3
+  siteMaxHeight: 1.5
+  maxSlope: 0.35
+  beachMargin: 0.35
+  beachHeight: 0.25
+  drownHeight: 0.05
+  moveUpMargin: 0.2
+  regroupRest: 25
+  moveUpRange: 20
+  sinkTime: 5
+  dissolveArea: 8
+  clearReach: 1
+  clearMargin: 0.12
+  buildingScale: 0.55
+  settlerScale: 0.75
+  lighthouseScale: 1.4
+  dockScale: 1.25
+  siteGap: 0.06
+  villageSpread: 1.35
+  windowHalo: 0.85
+  windowMinAngle: 0.0026
+  lampMinAngle: 0.0055
+  maxStructures: 32
+  maxPlots: 6
+  maxVillages: 3
+  maxSettlers: 24
+  settlerSpeed: 0.06
+  waveDistance: 3
+  gatherNight: 0.5
+  sleepNight: 0.85
+  shelterStorm: 0.35
+  celebrateTime: 30
+  partyRunTime: 10
+  festivals: 0
+  festivalStartNight: 0.45
+  festivalEndNight: 0.96
+  lanternPoles: 8
+  lanternMargin: 0.28
+  harbourReserve: 0.32
+  hutlessPenalty: 2.5
+  hutTurn: 8
+  hutDryHeight: 0.06
+  landmarkBuildScale: 0.12
+  prehistory: 0
+  prehistoryMax: 5400
+--- !u!1 &1436074942
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1436074943}
+  - component: {fileID: 1436074944}
+  m_Layer: 0
+  m_Name: PlateSystem
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &1436074943
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1436074942}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &1436074944
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1436074942}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 129acc18639424d42ab053da2287a3c7, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Drift.Tectonics::Drift.Tectonics.PlateSystem
+  enableEvents: 1
+  eventRate: 3
+  upliftRate: 0.03
+  earthquakeRate: 0.015
+  riftRate: 0.03
+  slipRate: 0.02
+  eventKick: 5
+  eventInfluence: 16
+  maxActiveEvents: 48
+  showEventCues: 1
+  ringSeamFadeDistance: 85
+  ringSeamFadeStart: 0.45
+  cellSize: 102
+  gridPeriod: 3
+  jitter: 0.25
+  seed: 4242
+  ringLanes: 3
+  ringPlateLength: 160
+  ringJitter: 0.35
+  ringLaneShift: 0.3
+  ringLaneShiftPeriod: 34
+  ringRowDrift: 0.12
+  ringRowPeriod: 70
+  ringFlowSpeed: 2.2
+  ringFlowPeriod: 45
+  ringSlideFull: 2.5
+  ringSurfWidth: 13
+  ringSurfBoost: 1.7
+  waveAmplitude: 22
+  waveSpeed: 0.3
+  timeScale: 1
+  plateMass: 1000
+  riderPush: 75
+  maxRiderPlateSpeed: 3
+  pushDamping: 1.5
+  springBack: 0.15
+  transformThreshold: 0.25
+  convergenceInfluence: 14
+  surfSpeed: 6
+  surfPlateGain: 1
+  surfWidth: 8
+  surfRadiusShare: 0.35
+  surfMinAlign: 0.35
+  surfPull: 0.5
+  surfOtherKinds: 0.75
+  cozySurfBoost: 1.6
+  interiorCurrentShare: 0.55
+  interiorCurrentCap: 0.4
+  focus: {fileID: 1204434037}
+  viewRadius: 130
+  showBorders: 1
+  seamWidth: 6.5
+  seamOpacity: 0.85
+  seamFadeDistance: 120
+  seamFlowGain: 1.5
+  seamMeander: 0.12
+  seamMeanderMax: 6
+  seamSegment: 6
+  seamWidthVariation: 0.25
+  borderHeight: 0.05
+  borderMaterial: {fileID: 2100000, guid: 5e7e7b37dd1d38047b1431a95c66b9d8, type: 2}
+  borderRefreshInterval: 0.033333335
+--- !u!1 &1457403846
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1457403847}
+  - component: {fileID: 1457403848}
+  - component: {fileID: 1457403849}
+  m_Layer: 0
+  m_Name: Directional Light
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &1457403847
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1457403846}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0.11020147, y: -0.5000807, z: 0.06434095, w: 0.85652506}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!108 &1457403848
+Light:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1457403846}
+  m_Enabled: 1
+  serializedVersion: 13
+  m_Type: 1
+  m_Color: {r: 1, g: 0.7539339, b: 0.5788206, a: 1}
+  m_Intensity: 1.0248113
+  m_Range: 10
+  m_SpotAngle: 30
+  m_InnerSpotAngle: 21.80208
+  m_CookieSize2D: {x: 0.5, y: 0.5}
+  m_Shadows:
+    m_Type: 0
+    m_Resolution: -1
+    m_CustomResolution: -1
+    m_Strength: 1
+    m_Bias: 0.05
+    m_NormalBias: 0.4
+    m_NearPlane: 0.2
+    m_CullingMatrixOverride:
+      e00: 1
+      e01: 0
+      e02: 0
+      e03: 0
+      e10: 0
+      e11: 1
+      e12: 0
+      e13: 0
+      e20: 0
+      e21: 0
+      e22: 1
+      e23: 0
+      e30: 0
+      e31: 0
+      e32: 0
+      e33: 1
+    m_UseCullingMatrixOverride: 0
+  m_Cookie: {fileID: 0}
+  m_DrawHalo: 0
+  m_Flare: {fileID: 0}
+  m_RenderMode: 0
+  m_CullingMask:
+    serializedVersion: 2
+    m_Bits: 4294967295
+  m_RenderingLayerMask: 1
+  m_Lightmapping: 4
+  m_LightShadowCasterMode: 0
+  m_AreaSize: {x: 1, y: 1}
+  m_BounceIntensity: 1
+  m_ColorTemperature: 6570
+  m_UseColorTemperature: 0
+  m_BoundingSphereOverride: {x: 0, y: 0, z: 0, w: 0}
+  m_UseBoundingSphereOverride: 0
+  m_UseViewFrustumForShadowCasterCull: 1
+  m_ForceVisible: 0
+  m_ShapeRadius: 0.025
+  m_ShadowAngle: 0
+  m_LightUnit: 1
+  m_LuxAtDistance: 1
+  m_EnableSpotReflector: 1
+--- !u!114 &1457403849
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1457403846}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 474bcb49853aa07438625e644c072ee6, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Unity.RenderPipelines.Universal.Runtime::UnityEngine.Rendering.Universal.UniversalAdditionalLightData
+  m_UsePipelineSettings: 1
+  m_AdditionalLightsShadowResolutionTier: 2
+  m_CustomShadowLayers: 0
+  m_LightCookieSize: {x: 1, y: 1}
+  m_LightCookieOffset: {x: 0, y: 0}
+  m_SoftShadowQuality: 0
+  m_RenderingLayersMask:
+    serializedVersion: 0
+    m_Bits: 1
+  m_ShadowRenderingLayersMask:
+    serializedVersion: 0
+    m_Bits: 1
+  m_Version: 4
+  m_LightLayerMask: 1
+  m_ShadowLayerMask: 1
+  m_RenderingLayers: 1
+  m_ShadowRenderingLayers: 1
+--- !u!1 &1478232969
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1478232970}
+  - component: {fileID: 1478232971}
+  m_Layer: 0
+  m_Name: FlockSystem
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &1478232970
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1478232969}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &1478232971
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1478232969}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: f96ea007709925f4ab7a3130dd4cde2d, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Drift.Islands::Drift.Islands.FlockSystem
+  player: {fileID: 1204434040}
+  flockCount: 6
+  minBirds: 4
+  maxBirds: 9
+  cruiseSpeed: 7
+  altitude: 5
+  spawnMin: 90
+  spawnMax: 170
+  leashDistance: 240
+  landingMinArea: 60
+  landChance: 0.6
+  perchMin: 5
+  perchMax: 10
+  descentRate: 2.5
+  climbRate: 3
+  stormAvoidance: 0.3
+  seed: 99
+  nearDistance: 60
+  meshInterval: 0.06666667
+  farMeshInterval: 0.2
+  seabirdFlocks: 2
+  seabirdMinBirds: 2
+  seabirdMaxBirds: 3
+  seabirdSpeed: 5
+  seabirdAltitude: 2.5
+  seabirdOrbitMargin: 1.5
+  seabirdOrbitMin: 20
+  seabirdOrbitMax: 40
+  cliffHeight: 1.7
+  seabirdDivesPerMinute: 2
+  diveTime: 2.8
+  murmurChance: 0.35
+  murmurTime: 12
+  murmurSize: 3
+  seabirdChainSpacing: 26
+  smoothDistance: 30
+  flapPerSecond: 2.5
+  flapAmplitude: 0.13
+  viewer: {fileID: 0}
+  smoothFarFlocks: 1
+  homeSeabirdFlocks: 0
+  homeOrbitRadius: 0.5
+--- !u!1 &1602446008
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1602446009}
+  - component: {fileID: 1602446010}
+  m_Layer: 0
+  m_Name: IslandWorld
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &1602446009
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1602446008}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &1602446010
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1602446008}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 50dc1ec7ab2ebba4db35d61e40c2d5f6, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Drift.Islands::Drift.Islands.IslandWorld
+  minClosingSpeed: 0.6
+  mergeOverlap: 0.1
+  pushRatio: 0.35
+  maxContactTime: 2
+  obstacleSeparation: 2.5
+--- !u!1 &1783518341
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1783518342}
+  - component: {fileID: 1783518343}
+  m_Layer: 0
+  m_Name: SaveManager
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &1783518342
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1783518341}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &1783518343
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1783518341}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 04299b31539c83d49b4e34976a879e96, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Drift.SaveSystem::Drift.SaveSystem.SaveManager
+  player: {fileID: 1204434040}
+  streamer: {fileID: 2114831829}
+  session: {fileID: 107623833}
+  volcanoSpawner: {fileID: 1898799847}
+  loadOnStart: 0
+  autosaveInterval: 20
+  maxOfflineLifeSeconds: 1800
+  fileName: drift_save.json
+--- !u!1 &1784626099
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1784626100}
+  - component: {fileID: 1784626101}
+  - component: {fileID: 1784626102}
+  m_Layer: 0
+  m_Name: Storms
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &1784626100
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1784626099}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &1784626101
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1784626099}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 0e3930824f050c54c927a3306da20a5f, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Drift.Tectonics::Drift.Tectonics.StormSystem
+  radius: 35
+  lifetime: 25
+  fadeTime: 4
+  maxActive: 3
+  cooldown: 90
+  gustStrength: 2.5
+  gustRotation: 0.35
+  plateauFraction: 0.55
+  spawnRange: 160
+  drawGizmos: 1
+--- !u!114 &1784626102
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1784626099}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: dcb3524232635f448af663140becd67c, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Drift.Visuals::Drift.Visuals.RingStorms
+  onTrack: 1
+  stormsAtFirstLevel: 1
+  stormsPerLevel: 0.5
+  maxStorms: 3
+  stormRadius: 16
+  freeLane: 16
+  strength: 0.85
+  swirl: 1
+  spawnDistance: 0.3
+  onlyRingStorms: 1
+  seed: 5231
+--- !u!1 &1831959654
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1831959655}
+  - component: {fileID: 1831959656}
+  m_Layer: 0
+  m_Name: WorldHud
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &1831959655
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1831959654}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &1831959656
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1831959654}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 162554a510d7e7d45b986fd2ecc333d6, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Drift.Bridge::Drift.Bridge.WorldHud
+  player: {fileID: 1204434040}
+  streamer: {fileID: 2114831829}
+  session: {fileID: 107623833}
+  chaseCamera: {fileID: 431397836}
+  mapPixels: 128
+  refresh: 0.3
+  editorMode: 0
+  editorExplain: 0
+  explainSeconds: 10
+  editorStartLine: 0
+--- !u!1 &1898799845
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1898799846}
+  - component: {fileID: 1898799847}
+  m_Layer: 0
+  m_Name: VolcanoSpawner
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &1898799846
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1898799845}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &1898799847
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1898799845}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 10e64a346f2c75840895a82cc1c19174, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Drift.Islands::Drift.Islands.VolcanoSpawner
+  player: {fileID: 1204434040}
+  islandMaterial: {fileID: 2100000, guid: b53ef27159e4e194792507f11ce960a1, type: 2}
+  streamer: {fileID: 0}
+  maxLive: 5
+  cooldown: 25
+  minPlayerDistance: 30
+  maxPlayerDistance: 200
+  minIslandDistance: 25
+  unloadDistance: 260
+  minRadius: 2.2
+  maxRadius: 5.5
+  emergeDuration: 12
+  chainChance: 0.35
+  chainMax: 3
+  chainStagger: 5
+  seamSnapDistance: 4
+  seamReturnSpeed: 6
+  holdAfterEmergence: 1
+  seed: 31337
+  volcanoMaxSlope: 45
+--- !u!1 &2011694575
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 2011694576}
+  - component: {fileID: 2011694578}
+  - component: {fileID: 2011694577}
+  - component: {fileID: 2011694579}
+  - component: {fileID: 2011694580}
+  - component: {fileID: 2011694584}
+  - component: {fileID: 2011694583}
+  - component: {fileID: 2011694582}
+  - component: {fileID: 2011694581}
+  - component: {fileID: 2011694586}
+  - component: {fileID: 2011694585}
+  - component: {fileID: 2011694587}
+  - component: {fileID: 2011694588}
+  m_Layer: 0
+  m_Name: SessionUI
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &2011694576
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2011694575}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &2011694577
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2011694575}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: fc99475d0cd0f4543a8c0f86d8761967, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Drift.Bridge::Drift.Bridge.SessionScreens
+  session: {fileID: 107623833}
+  player: {fileID: 1204434040}
+  chaseCamera: {fileID: 431397836}
+  touch: {fileID: 2011694578}
+  tilt: {fileID: 2011694585}
+  directSteering: 1
+  watch: {fileID: 2011694579}
+  tutorial: {fileID: 2011694580}
+  editorPreview: 0
+  editorHelpPage: 0
+  editorHelpTouchFirst: 0
+  sortingOrder: 10
+  tagline: Sammle Inseln, bevor deine versinkt.
+  previewSize: 512
+  previewFps: 4
+  presenterTitle: 0.6
+  presenterPause: 0.42
+  presenterGameOver: 0.5
+  presenterHelp: 0.56
+  idleRemarkSeconds: 28
+--- !u!114 &2011694578
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2011694575}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 4797658b58d4a2d4d8e7ef6ff51ddc88, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Drift.UI::Drift.UI.TouchControls
+  forceShowTouch: 0
+  inputEnabled: 1
+  stickEnabled: 1
+  editorPreview: 0
+  stickRadius: 150
+  knobRadius: 70
+  deadZone: 0.15
+  stickZoneWidth: 0.5
+  pinchSensitivity: 1
+  sortingOrder: 20
+  baseColor: {r: 0.99, g: 0.96, b: 0.88, a: 0.16}
+  knobColor: {r: 0.99, g: 0.96, b: 0.88, a: 0.62}
+  lookEnabled: 0
+  gesturesEnabled: 0
+--- !u!114 &2011694579
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2011694575}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 1969d31c5a5425d43a5437321f9f892f, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Drift.Bridge::Drift.Bridge.WatchTools
+  session: {fileID: 107623833}
+  player: {fileID: 1204434040}
+  chaseCamera: {fileID: 431397836}
+  touch: {fileID: 2011694578}
+  saveManager: {fileID: 1783518343}
+  flocks: {fileID: 1478232971}
+  fish: {fileID: 479351221}
+  seaLife: {fileID: 0}
+  ships: {fileID: 0}
+  lifeBook: 1
+  editorPreview: 0
+  sortingOrder: 15
+  debugTaps: 0
+  pickRadius: 64
+  tapSlop: 30
+  tapHoldSeconds: 0.6
+  tapRange: 60
+  popupShowSeconds: 7
+  popupFadeSeconds: 0.6
+  popupSteady: 1
+  popupDeadZone: {x: 110, y: 80}
+  popupFollowTime: 0.35
+  followZoomLevel: 0.2
+  discoverRange: 25
+  discoverInterval: 1
+  journalRefresh: 0.5
+  orbitDegPerPixel: 0.2
+  photoMinDistance: 1.5
+  photoMinHeight: 0.4
+  photoGroundClearance: 0.6
+  panRadiusFactor: 1.5
+  returnEaseSeconds: 0.6
+  watchPitch: 55
+  watchFill: 0.55
+  watchMinBodyPixels: 44
+  watchCenterBelowHud: 1
+  watchClearView: 1
+  watchFocusFollow: 3
+  watchTurnWithIsland: 1
+  watchSubjectEase: 8
+  airPitchLow: 50
+  airPitchHigh: 30
+  airFullHeight: 4
+  airFill: 0.6
+  airMinDistance: 4
+  airHeightFollow: 2.5
+  airFramingFollow: 1.2
+  stillPitch: 28
+  stillFill: 0.4
+  stillOrbitDegPerSecond: 5
+  stillOrbitDelay: 1.5
+  newsStrongSeconds: 7
+  newsSubtleSeconds: 5.6
+  noticeSeconds: 5.6
+  photoHintSeconds: 7
+  keepJournal: 1
+  photoTasks: 1
+  photoTaskMinSize: 0.015
+  photoTaskMargin: 0.04
+  photoTaskHintRange: 30
+  photoTaskHintInterval: 180
+  cueSize: 96
+  cueTapRadius: 64
+--- !u!114 &2011694580
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2011694575}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: d72b079c7ee468e4ab00d88079184f2c, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Drift.Bridge::Drift.Bridge.TutorialGuide
+  session: {fileID: 107623833}
+  player: {fileID: 1204434040}
+  chaseCamera: {fileID: 431397836}
+  watch: {fileID: 2011694579}
+  hud: {fileID: 1831959656}
+  touch: {fileID: 2011694578}
+  editorPreview: 0
+  sortingOrder: 12
+  charsPerSecond: 45
+  wideLayoutWidth: 1850
+  targetRefresh: 0.5
+--- !u!114 &2011694581
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2011694575}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 04f33ca3c3d6e5c4aa61ff87bd705157, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Drift.Bridge::Drift.Bridge.IslandHints
+  player: {fileID: 1204434040}
+  session: {fileID: 107623833}
+  saveManager: {fileID: 1783518343}
+  watch: {fileID: 2011694579}
+  tutorial: {fileID: 2011694580}
+  scansPerSecond: 2.5
+  scanRange: 170
+  plantRefresh: 2.5
+  plantRefreshPerScan: 4
+  showHold: 14
+  maxBubbles: 4
+  maxEdge: 3
+  bubbleRange: 150
+  edgeRange: 120
+  lift: 2.2
+  edgeMargins: {x: 110, y: 420, z: 330}
+  fadeSeconds: 0.35
+  sortingOrder: 2
+  editorPreview: 0
+--- !u!114 &2011694582
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2011694575}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 446e7c517f9e32742965bace7cb7d318, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Drift.Bridge::Drift.Bridge.AdventureTutorialGuide
+  session: {fileID: 107623833}
+  player: {fileID: 1204434040}
+  watch: {fileID: 2011694579}
+  hud: {fileID: 1831959656}
+  ships: {fileID: 479351223}
+  editorPreview: 0
+  sortingOrder: 12
+  charsPerSecond: 50
+  wideLayoutWidth: 1850
+  targetRefresh: 0.5
+--- !u!114 &2011694583
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2011694575}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 34167f6b6916e4547b301a7f1562f752, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Drift.Bridge::Drift.Bridge.RunJournalPanel
+  sortingOrder: 40
+  editorPreview: 0
+--- !u!114 &2011694584
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2011694575}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 026ca0b49f6a00640b8a3342c92582f0, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Drift.Bridge::Drift.Bridge.PangaeaFinale
+  session: {fileID: 0}
+  streamer: {fileID: 0}
+  screens: {fileID: 0}
+  chaseCamera: {fileID: 0}
+  curvedWorld: {fileID: 0}
+  dayNight: {fileID: 0}
+  saveManager: {fileID: 0}
+  player: {fileID: 0}
+  confirmSeconds: 1.5
+  checkInterval: 0.25
+  bannerTitle: "Pang\xE4a vollendet!"
+  bannerBody: Schau dich in Ruhe um.
+  bannerButton: Weiter
+  bannerTop: 520
+  editorBanner: 0
+  flyOverEnabled: 1
+  mapView:
+    minPitch: 25
+    maxPitch: 80
+    minDistance: 5
+    maxDistance: 90
+    reach: 1.25
+    reachMargin: 30
+    clearance: 2
+    flingDecay: 3.5
+    flingMax: 3
+    tiltPerScreen: 120
+    zoomResponse: 12
+    keySpeed: 0.9
+    keyResponse: 6
+    idleDelay: 4
+    orbitDegPerSecond: 4
+    orbitRamp: 1.2
+    flySecondsMin: 1
+    flySecondsMax: 1.5
+    flyFill: 0.5
+    flyMinDistance: 6
+    flyBodyPixels: 40
+    flyPitch: 50
+    trackResponse: 2.5
+    groundFollow: 2.5
+  sightsBar: 1
+  sightsLift: 404
+  sightsRefresh: 2.5
+  flyReturnSeconds: 0.7
+  liftSeconds: 6
+  orbitSeconds: 4
+  captureAfter: 1.5
+  orbitDegreesPerSecond: 6
+  globeScale: 1.9
+  minGlobeRadius: 60
+  maxGlobeRadius: 260
+  globeFill: 1.15
+  finalTilt: 9
+  fieldOfView: 50
+  spaceColor: {r: 0.02, g: 0.03, b: 0.07, a: 1}
+  spaceStars: 1.3
+  spaceHaze: 0.55
+  spaceSkyGradient: 90
+  brightenDay: 1
+  finaleTimeOfDay: 0.45
+  spaceCloudCover: 0.1
+  spaceCloudHeight: 4
+  pictureWidth: 1024
+  pictureFill: 0.95
+  sortingOrder: 20
+  editorPreview: 0
+--- !u!114 &2011694585
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2011694575}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: aeb10b50ff749be47a42f645d3d459d1, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Drift.UI::Drift.UI.TiltSteering
+  settings:
+    sensitivity: 0.5
+    deadZone: 0.18
+    smoothing: 0.12
+    neutralFollow: 0.04
+    response: 1.3
+  inputEnabled: 1
+  previewing: 0
+  editorFakeTilt: 0
+  fakeRampSeconds: 0.35
+  accelerometerTau: 0.35
+--- !u!114 &2011694586
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2011694575}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 2694e831c164abe4c8383f759a1f7904, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Drift.Bridge::Drift.Bridge.MilestoneToasts
+  session: {fileID: 0}
+  saveManager: {fileID: 0}
+  player: {fileID: 0}
+  flocks: {fileID: 0}
+  watch: {fileID: 0}
+  sortingOrder: 14
+  toastShowSeconds: 8.5
+  retrySeconds: 8
+  homeSeabirdFlocks: 2
+--- !u!114 &2011694587
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2011694575}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 903ee0841aeda9f4fb95236dfead6ee3, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Drift.Bridge::Drift.Bridge.LifeDirector
+  session: {fileID: 0}
+  watch: {fileID: 0}
+  finale: {fileID: 0}
+  flocks: {fileID: 0}
+  fish: {fileID: 0}
+  seaLife: {fileID: 0}
+  seed: 53
+  nudgeMin: 5
+  nudgeMax: 6.8
+  retrySeconds: 1
+  graceSeconds: 2.5
+  lastResortGap: 7.5
+  lastResortCooldown: 4
+  noticePx: 20
+  pickPx: 26
+  pickMargin: 0.1
+  watchHerdBoost: 2
+  farViewPx: 18
+  farPickPx: 22
+  farBigBoost: 2
+  flockCallInterval: 15
+  farFireflyCooldown: 10
+  nightFrom: 0.5
+  nightFireflyBoost: 2
+  nightSeaBoost: 1.5
+  resolveInterval: 2
+  signatureWeight: 3
+  playWeight: 2.5
+  speciesWeight: 2
+  wanderWeight: 0.7
+  flockWeight: 1.5
+  critterWeight: 1
+  fireflyWeight: 2
+  fishWeight: 1
+  dolphinWeight: 1.5
+  whaleWeight: 1.5
+  seaShowWeight: 2
+  sleepStirWeight: 1.5
+  meetingWeight: 2.5
+  signatureCooldown: 20
+  playCooldown: 12
+  speciesCooldown: 25
+  wanderCooldown: 15
+  flockCooldown: 20
+  critterCooldown: 8
+  fireflyCooldown: 16
+  fishCooldown: 5
+  dolphinCooldown: 12
+  whaleCooldown: 30
+  seaShowCooldown: 20
+  sleepStirCooldown: 8
+  meetingCooldown: 20
+--- !u!114 &2011694588
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2011694575}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 3bbb8794de574694b9e1e92c0e7456bd, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Drift.Bridge::Drift.Bridge.TapSparkles
+  watch: {fileID: 0}
+  session: {fileID: 0}
+  finale: {fileID: 0}
+  sortingOrder: 1
+  seed: 71
+  interval: 3.5
+  intervalJitter: 0.35
+  subjectCooldown: 12
+  sparkleSeconds: 0.9
+  starSize: 110
+  screenMargin: 0.07
+  topMargin: 0.18
+  sparkleWatched: 0
+  debugLog: 0
+  whaleSparkleEvery: 0.14
+  whaleSparkleScale: 0.85
+  whaleSparkleSeconds: 0.6
+--- !u!1 &2114831827
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 2114831828}
+  - component: {fileID: 2114831829}
+  m_Layer: 0
+  m_Name: WorldStreamer
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &2114831828
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2114831827}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &2114831829
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2114831827}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 640026cac4b9dcc4dbea1128e6ca46bd, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Drift.Islands::Drift.Islands.WorldStreamer
+  player: {fileID: 1204434040}
+  islandMaterial: {fileID: 2100000, guid: b53ef27159e4e194792507f11ce960a1, type: 2}
+  seed: 777
+  chunkSize: 76.5
+  worldChunks: 4
+  loadRadius: 1
+  unloadMargin: 1
+  worldIslands: 20
+  worldIslets: 3
+  worldLarge: 2
+  worldBig: 4
+  worldMedium: 6
+  smallIslandAreaScale: 2
+  worldSpacing: 0.7
+  minPerChunk: 2
+  maxPerChunk: 4
+  minIslets: 1
+  maxIslets: 2
+  satelliteChance: 0.5
+  largeShare: 0.05
+  bigShare: 0.12
+  mediumShare: 0.43
+  startExclusion: 18
+  spawnsPerFrame: 1
+  dirtyDistance: 2
+  dirtyAreaFraction: 0.2
+  dirtyHeight: 0.1
+--- !u!1660057539 &9223372036854775807
+SceneRoots:
+  m_ObjectHideFlags: 0
+  m_Roots:
+  - {fileID: 1457403847}
+  - {fileID: 431397832}
+  - {fileID: 628067328}
+  - {fileID: 1204434037}
+  - {fileID: 860727918}
+  - {fileID: 1436074943}
+  - {fileID: 1602446009}
+  - {fileID: 2114831828}
+  - {fileID: 1783518342}
+  - {fileID: 1478232970}
+  - {fileID: 107623832}
+  - {fileID: 1831959655}
+  - {fileID: 1898799846}
+  - {fileID: 935930038}
+  - {fileID: 479351217}
+  - {fileID: 1784626100}
+  - {fileID: 647107048}
+  - {fileID: 2011694576}
+  - {fileID: 640898810}
+  - {fileID: 4924038}
+  - {fileID: 604075727}

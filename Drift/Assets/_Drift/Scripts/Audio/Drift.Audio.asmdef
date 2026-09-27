@@ -1,0 +1,19 @@
+{
+    "name": "Drift.Audio",
+    "rootNamespace": "Drift.Audio",
+    "references": [
+        "Drift.Core",
+        "Drift.Islands",
+        "Drift.Tectonics",
+        "Drift.Life"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

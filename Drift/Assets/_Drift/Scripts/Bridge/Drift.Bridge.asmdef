@@ -1,0 +1,25 @@
+{
+    "name": "Drift.Bridge",
+    "rootNamespace": "Drift.Bridge",
+    "references": [
+        "Drift.Core",
+        "Drift.UI",
+        "Drift.Islands",
+        "Drift.Life",
+        "Drift.SaveSystem",
+        "Drift.Visuals",
+        "Drift.Audio",
+        "UnityEngine.UI",
+        "Unity.InputSystem",
+        "Unity.RenderPipelines.Universal.Runtime"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}
