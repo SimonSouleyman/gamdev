@@ -33,3 +33,11 @@ static func _apply_light_and_grade(view: TreeView) -> void:
 	# Less milky haze over the hero tree; the forest wall still recedes.
 	env.fog_density = 0.007
 	env.fog_aerial_perspective = 0.25
+	if view.get_node_or_null("LookDevTuner") == null:
+		var tuner := LookDevTuner.new()
+		tuner.name = "LookDevTuner"
+		tuner.view = view
+		view.add_child(tuner)
+	if not view.has_meta("lookdev_forest"):
+		view.set_meta("lookdev_forest", true)
+		ForestSprays.apply(view._scenery)
