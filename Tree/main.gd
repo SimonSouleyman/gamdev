@@ -57,6 +57,7 @@ func _build() -> void:
 	add_child(ambience)
 	journal = Journal.new()
 	add_child(journal)
+	tree_view.page_open = func() -> bool: return journal.current_page() != ""
 	shed = Shed.new()
 	tree_view.add_child(shed)
 	shed_menu = ShedMenu.new()

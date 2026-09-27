@@ -33,7 +33,7 @@ void fragment() {
 	vec3 col = mix(vec3(0.22, 0.15, 0.09), vec3(0.42, 0.31, 0.2), 0.35 + tone + grain * 0.35);
 	col *= mix(0.35, 1.0, gap);
 	// Moss low on the outside.
-	float moss = smoothstep(0.55, 0.9, noise(p * 3.0)) * smoothstep(0.6, 0.1, wpos.y - 0.0) * 0.5;
+	float moss = abs(wnrm.y) > 0.7 ? 0.0 : smoothstep(0.55, 0.9, noise(p * 3.0)) * smoothstep(0.6, 0.1, wpos.y - 0.0) * 0.5;
 	col = mix(col, vec3(0.2, 0.3, 0.12), moss);
 	ALBEDO = col * 0.6;
 	ROUGHNESS = 0.9;

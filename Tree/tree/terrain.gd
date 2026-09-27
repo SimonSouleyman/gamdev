@@ -17,7 +17,7 @@ static func _n() -> FastNoiseLite:
 	if _noise == null:
 		_noise = FastNoiseLite.new()
 		_noise.seed = 17
-		_noise.frequency = 0.045
+		_noise.frequency = 0.07
 		_noise.fractal_octaves = 3
 	return _noise
 
@@ -25,7 +25,7 @@ static func _n() -> FastNoiseLite:
 static func height(x: float, z: float) -> float:
 	var d := Vector2(x, z).length()
 	var open := smoothstep(FLAT_RADIUS, FLAT_RADIUS + 6.0, d)
-	var swell := _n().get_noise_2d(x, z) * 0.9
+	var swell := _n().get_noise_2d(x, z) * 1.4
 	var ripple := _n().get_noise_2d(x * 3.1 + 40.0, z * 3.1) * 0.12
 	# The ground rises gently toward the trees.
 	var rim := smoothstep(EDGE * 0.6, EDGE + 12.0, d) * 1.6

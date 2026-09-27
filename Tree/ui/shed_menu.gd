@@ -37,11 +37,11 @@ func _ready() -> void:
 func _build_note() -> void:
 	_note = PanelContainer.new()
 	_note.add_theme_stylebox_override("panel", Paper.paper_box(256, 320, 71, "top", 26.0))
-	_note.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
+	_note.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
 	# Pinned low on the left, beside the doorway.
-	_note.offset_left = 22
+	_note.offset_left = -300
 	_note.offset_top = -440
-	_note.offset_right = 300
+	_note.offset_right = -22
 	_note.offset_bottom = -30
 	_note.rotation_degrees = -2.5
 	add_child(_note)
@@ -94,21 +94,14 @@ func _build_options() -> void:
 	_options.add_child(dim)
 	# A cork board with notes pinned on it.
 	var board := Panel.new()
-	var cork := StyleBoxFlat.new()
-	cork.bg_color = Color(0.6, 0.45, 0.3)
-	cork.border_color = Color(0.36, 0.25, 0.16)
-	cork.set_border_width_all(14)
-	cork.set_corner_radius_all(6)
-	cork.shadow_color = Color(0, 0, 0, 0.5)
-	cork.shadow_size = 16
-	board.add_theme_stylebox_override("panel", cork)
+	board.add_theme_stylebox_override("panel", _cork_box())
 	board.set_anchors_preset(Control.PRESET_FULL_RECT)
 	board.offset_left = 30
 	board.offset_right = -30
 	board.offset_top = 150
-	board.offset_bottom = -170
+	board.offset_bottom = -560
 	_options.add_child(board)
-	var names := {"sound": "sound", "no_ui": "no UI (pure scenery)", "battery_saver": "battery saver", "notifications": "a daily note (later)"}
+	var names := {"sound": "sound", "no_ui": "no UI (pure scenery)", "battery_saver": "battery saver", "notifications": "a note each day"}
 	var i := 0
 	for key in names:
 		var note := PanelContainer.new()
@@ -145,15 +138,39 @@ func _build_options() -> void:
 	back.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
 	back.offset_left = -60
 	back.offset_right = 60
-	back.offset_top = -150
-	back.offset_bottom = -100
+	back.offset_top = -540
+	back.offset_bottom = -490
 	back.add_theme_stylebox_override("normal", Paper.paper_box(96, 48, 90, "all", 14.0))
-	back.pressed.connect(func() -> void: _options.visible = false)
+	back.pressed.connect(func() -> void:
+		_options.visible = false
+		_note.visible = true)
 	_options.add_child(back)
 	_options.visible = false
 
 
+## Cork in a wooden frame: speckled noise, generated once.
+func _cork_box() -> StyleBoxTexture:
+	var img := Image.create(128, 128, false, Image.FORMAT_RGBA8)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 5
+	for y in range(128):
+		for x in range(128):
+			var frame := x < 10 or y < 10 or x > 117 or y > 117
+			var c := Color(0.36, 0.25, 0.16) if frame else Color(0.66, 0.5, 0.33).darkened(rng.randf() * 0.25).lightened(rng.randf() * 0.08)
+			img.set_pixel(x, y, c)
+	var sb := StyleBoxTexture.new()
+	sb.texture = ImageTexture.create_from_image(img)
+	sb.texture_margin_left = 12
+	sb.texture_margin_right = 12
+	sb.texture_margin_top = 12
+	sb.texture_margin_bottom = 12
+	sb.axis_stretch_horizontal = StyleBoxTexture.AXIS_STRETCH_MODE_TILE_FIT
+	sb.axis_stretch_vertical = StyleBoxTexture.AXIS_STRETCH_MODE_TILE_FIT
+	return sb
+
+
 func open_options() -> void:
+	_note.visible = false
 	for k in _toggles:
 		(_toggles[k] as CheckBox).set_pressed_no_signal(bool(settings.get(k, false)))
 	_options.visible = true
@@ -187,7 +204,7 @@ func _build_album() -> void:
 	cover.offset_bottom = -40
 	_album.add_child(cover)
 	var page := PanelContainer.new()
-	page.add_theme_stylebox_override("panel", Paper.paper_box(360, 640, 95, "", 30.0, Color(0.93, 0.9, 0.82), "beige"))
+	page.add_theme_stylebox_override("panel", Paper.paper_box(360, 640, 95, "", 30.0, Color(0.8, 0.72, 0.6), "beige"))
 	page.set_anchors_preset(Control.PRESET_FULL_RECT)
 	page.offset_left = 34
 	page.offset_right = -34
@@ -203,7 +220,9 @@ func _build_album() -> void:
 	_album_title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	head.add_child(_album_title)
 	var close := Paper.ink_button("close", 26)
-	close.pressed.connect(func() -> void: _album.visible = false)
+	close.pressed.connect(func() -> void:
+		_album.visible = false
+		_note.visible = true)
 	head.add_child(close)
 	for side in [0, 1]:
 		var holder := CenterContainer.new()
@@ -219,7 +238,16 @@ func _build_album() -> void:
 		white.shadow_color = Color(0, 0, 0, 0.3)
 		white.shadow_size = 6
 		polaroid.add_theme_stylebox_override("panel", white)
-		polaroid.rotation_degrees = -2.0 if side == 0 else 2.5
+		polaroid.rotation_degrees = -5.0 if side == 0 else 4.0
+		# A strip of tape over the top edge.
+		var tape := ColorRect.new()
+		tape.color = Color(0.95, 0.92, 0.8, 0.75)
+		tape.custom_minimum_size = Vector2(90, 24)
+		tape.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		tape.position = Vector2(110, -10)
+		tape.rotation_degrees = 3.0
+		polaroid.add_child(tape)
+		tape.top_level = false
 		holder.add_child(polaroid)
 		var v := VBoxContainer.new()
 		polaroid.add_child(v)
@@ -253,6 +281,7 @@ func _build_album() -> void:
 
 
 func open_album() -> void:
+	_note.visible = false
 	_photos = Photos.list()
 	_album_index = maxi(0, _photos.size() - 2)
 	if _album_index % 2 == 1:

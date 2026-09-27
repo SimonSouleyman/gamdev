@@ -64,14 +64,14 @@ func build(seed: int, bark: Material, leaf: Material, noise: Texture2D) -> void:
 ## species, different heights and greens). Broadleaves are grown by the real growth model with
 ## their own shape; the spruce is built directly. Each kind has its own bark and leaf colour.
 const KINDS: Array[Dictionary] = [
-	{"name": "oak", "apical": 0.03, "crown": 12.0, "photo": 0.3, "nodes": 380, "bark": Color(0.42, 0.37, 0.32), "leaf": Color(0.5, 0.62, 0.36), "card": 0.26, "scale": Vector2(2.6, 3.4)},
-	{"name": "beech", "apical": 0.07, "crown": 9.0, "photo": 0.4, "nodes": 340, "bark": Color(0.75, 0.74, 0.7), "leaf": Color(0.66, 0.8, 0.42), "card": 0.24, "scale": Vector2(2.7, 3.6)},
-	{"name": "birch", "apical": 0.22, "crown": 4.5, "photo": 0.45, "nodes": 280, "bark": Color(1.45, 1.42, 1.35), "leaf": Color(0.8, 0.92, 0.5), "card": 0.2, "scale": Vector2(2.6, 3.4)},
-	{"name": "linden", "apical": 0.1, "crown": 12.0, "photo": 0.5, "nodes": 330, "bark": Color(0.55, 0.47, 0.38), "leaf": Color(0.58, 0.72, 0.4), "card": 0.24, "scale": Vector2(2.5, 3.3)},
+	{"name": "oak", "apical": 0.12, "crown": 12.0, "photo": 0.3, "nodes": 380, "bark": Color(0.42, 0.37, 0.32), "leaf": Color(0.5, 0.62, 0.36), "card": 0.15, "scale": Vector2(2.6, 3.4)},
+	{"name": "beech", "apical": 0.2, "crown": 9.0, "photo": 0.4, "nodes": 340, "bark": Color(0.75, 0.74, 0.7), "leaf": Color(0.66, 0.8, 0.42), "card": 0.14, "scale": Vector2(2.7, 3.6)},
+	{"name": "birch", "apical": 0.22, "crown": 4.5, "photo": 0.45, "nodes": 280, "bark": Color(1.45, 1.42, 1.35), "leaf": Color(0.8, 0.92, 0.5), "card": 0.12, "scale": Vector2(2.6, 3.4)},
+	{"name": "linden", "apical": 0.1, "crown": 12.0, "photo": 0.5, "nodes": 330, "bark": Color(0.55, 0.47, 0.38), "leaf": Color(0.58, 0.72, 0.4), "card": 0.14, "scale": Vector2(2.5, 3.3)},
 	{"name": "spruce", "spruce": true, "bark": Color(0.4, 0.33, 0.28), "leaf": Color(0.36, 0.5, 0.36), "card": 0.45, "scale": Vector2(1.5, 2.1)},
 ]
 ## Bump when the forest generator changes, so cached meshes are regrown.
-const FOREST_CACHE_VERSION := 8
+const FOREST_CACHE_VERSION := 9
 
 
 func _grow_variant(seed: int, variant: int, bark: Material, leaf: Material) -> ArrayMesh:
@@ -154,10 +154,12 @@ func _build_broadleaf(seed: int, variant: int, local: RandomNumberGenerator, kin
 	var g := sim.graph
 	for id in range(2, g.size()):
 		# Bare lower trunks: leaves only in the upper crown, so the wood has depth and trunks.
-		if g.radii[id] >= 0.05 or g.positions[id].y < 0.35 * sim.height():
+		if g.radii[id] >= 0.05 or g.positions[id].y < 0.4 * sim.height():
 			continue
-		var s: float = kind["card"] * local.randf_range(0.85, 1.2)
-		spots.append(Transform3D(Basis(Vector3.UP, local.randf() * TAU).scaled(Vector3.ONE * s), g.positions[id]))
+		for k in range(2):
+			var s: float = kind["card"] * local.randf_range(0.85, 1.2)
+			var off := Vector3(local.randf_range(-1, 1), local.randf_range(-0.5, 0.8), local.randf_range(-1, 1)) * s * 1.5 * float(k)
+			spots.append(Transform3D(Basis(Vector3.UP, local.randf() * TAU).scaled(Vector3.ONE * s), g.positions[id] + off))
 	_add_leaf_surface(mesh, spots, kind["leaf"], local)
 	return mesh
 
@@ -245,7 +247,7 @@ func _build_distant_trees(seed: int, bark: Material, leaf: Material) -> void:
 		per_variant.append([])
 	# A closed wall of mixed trees around the clearing: a dense first row close to the edge,
 	# then deeper wood. Oak and beech dominate, birches at the bright edge, spruce behind.
-	var weights := [3, 3, 2, 2, 2]
+	var weights := [3, 3, 3, 2, 3]
 	for t in range(FOREST_TREES):
 		var ang := TAU * (float(t) + _rng.randf() * 0.8) / FOREST_TREES * 3.0
 		var front := t % 3 != 2

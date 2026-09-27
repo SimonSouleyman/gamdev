@@ -71,6 +71,8 @@ var _res_labels: Array[Label] = []
 var _hint: PaperNote
 var _boost_label: Label
 var sun_arc: SunArc
+## True while a journal page is open (set by main): hints then stay quiet, the page says it.
+var page_open: Callable = func() -> bool: return false
 
 
 func _ready() -> void:
@@ -288,7 +290,8 @@ func _plant_grass(seed: int) -> void:
 		var count: int = layer[1]
 		mm.instance_count = count
 		for i in range(count):
-			var d := GRASS_RADIUS * pow(rng.randf(), 0.7)
+			# Denser in the open meadow a few metres out, where the camera looks.
+			var d := GRASS_RADIUS * pow(rng.randf(), 0.55)
 			if d < 0.3:
 				d = 0.3 + rng.randf() * 0.4
 			var a := rng.randf() * TAU
@@ -440,6 +443,8 @@ func _update_hud() -> void:
 				_hint.text = ""
 		_:
 			_hint.text = ""
+	if page_open.call():
+		_hint.text = ""
 
 
 # --- frame ------------------------------------------------------------------
@@ -476,31 +481,44 @@ func _rebuild() -> void:
 	_built_size = g.size()
 	_tree_mesh.mesh = _builder.build(g)
 	_seed.visible = state.is_seed()
-	# Leaf clusters on every living twig (thin wood), so the crown fills out, not just the tips.
+	# Leaves gather toward the branch ends (within a few nodes of a living tip), as sprays of
+	# several smaller clusters, so the crown reads as masses of foliage rather than beads.
+	var near_tip := {}
+	for tip in g.tips():
+		if tip <= 1 or g.get_flag(tip, "dead", false):
+			continue
+		var cur := tip
+		for _k in range(4):
+			if cur <= 1:
+				break
+			near_tip[cur] = true
+			cur = g.parents[cur]
 	var spots := PackedInt32Array()
-	for id in range(2, g.size()):
-		var bare_below := state.sim.height() * 0.18 if state.sim.height() > 10.0 else 0.0
-	# Leaves on the thin twigs of the crown; the lower trunk of a grown tree stays bare.
-		if g.radii[id] < 0.06 and not g.get_flag(id, "dead", false) and g.positions[id].y >= bare_below:
-			spots.append(id)
+	for id in near_tip.keys():
+		spots.append(id)
+	spots.sort()
+	var per := 1 if state.sim.height() < 3.0 else (2 if state.sim.height() < 10.0 else 3)
 	var mm := _leaves.multimesh
-	mm.instance_count = spots.size()
+	mm.instance_count = spots.size() * per
 	var rng := RandomNumberGenerator.new()
 	rng.seed = hash([state.seed, "leaf clusters"])
-	# Each card stands for a spray of many leaves: a big crown needs bigger sprays to read as dense.
-	var grow := 1.0 + state.sim.height() * 0.08
+	var grow := 1.0 + state.sim.height() * 0.03
 	var centre := state.sim.centroid()
 	var crown_r := maxf(0.5, state.sim.height() * 0.35)
-	for i in range(spots.size()):
-		var id := spots[i]
-		var s := (0.09 + 0.05 * rng.randf()) * grow
-		var basis := Basis(Vector3.UP, rng.randf() * TAU) * Basis(Vector3.RIGHT, rng.randf_range(-0.4, 0.4))
-		mm.set_instance_transform(i, Transform3D(basis.scaled(Vector3.ONE * s), g.positions[id]))
-		var tint := rng.randf_range(0.85, 1.12)
-		# Leaves deep inside the crown are in shade.
-		var inner := clampf(1.0 - g.positions[id].distance_to(centre) / crown_r, 0.0, 1.0)
-		tint *= lerpf(1.0, 0.55, inner)
-		mm.set_instance_color(i, Color(tint * rng.randf_range(0.9, 1.05), tint, tint * rng.randf_range(0.85, 1.0)))
+	var n := 0
+	for id in spots:
+		for k in range(per):
+			var s := (0.09 + 0.05 * rng.randf()) * grow
+			var off := Vector3(rng.randf_range(-1, 1), rng.randf_range(-0.6, 0.8), rng.randf_range(-1, 1)) * s * 1.4 * float(k > 0)
+			var basis := Basis(Vector3.UP, rng.randf() * TAU) * Basis(Vector3.RIGHT, rng.randf_range(-0.4, 0.4))
+			var p := g.positions[id] + off
+			mm.set_instance_transform(n, Transform3D(basis.scaled(Vector3.ONE * s), p))
+			var tint := rng.randf_range(0.85, 1.12)
+			# Leaves deep inside the crown are in shade.
+			var inner := clampf(1.0 - p.distance_to(centre) / crown_r, 0.0, 1.0)
+			tint *= lerpf(1.0, 0.55, inner)
+			mm.set_instance_color(n, Color(tint * rng.randf_range(0.9, 1.05), tint, tint * rng.randf_range(0.85, 1.0)))
+			n += 1
 
 
 func _update_twinkles() -> void:
@@ -555,7 +573,9 @@ func _update_sun() -> void:
 	# The sky glows brighter near the horizon hours, and the haze takes the sun's colour.
 	# A low sun: a bright golden sky and haze, the ground in raking light (the reference photos).
 	_sky_mat.energy_multiplier = 1.5 + 1.7 * (1.0 - k) + (0.35 if clock.boost_active else 0.0)
-	_env.fog_light_color = Color(0.45, 0.55, 0.5).lerp(_sun_light.light_color * 0.9, 0.4 * (1.0 - k))
+	# After sunset the haze stays cool blue-grey; only while the sun is up does it warm.
+	var warm := 0.4 * (1.0 - k) if h > 0.0 else 0.0
+	_env.fog_light_color = (Color(0.45, 0.55, 0.5) if h > 0.0 else Color(0.32, 0.38, 0.48)).lerp(_sun_light.light_color * 0.9, warm)
 	_env.fog_sun_scatter = 0.35 * (1.0 - k)
 	# The eye adapts: a low sun and the dusk are exposed brighter, so the tree stays readable.
 	_env.tonemap_exposure = 1.1 + 0.6 * (1.0 - k)
