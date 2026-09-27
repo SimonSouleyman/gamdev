@@ -1,184 +1,129 @@
-# Tree: Design Doc (draft v1.3, 2026-09-27)
+# Tree: Design Doc (v2.0, 2026-09-27)
 
-Working title: **Tree**. UI language: English. Status: planning. Engine: Godot 4. Target: Android only for now (APK, F-Droid style stores), minimum a Fairphone 6 class phone (2022 or newer, Vulkan). Developed and prototyped on PC.
+Working title: **Tree**. UI language: English. Status: planning complete, Prototype 1 in progress. Engine: Godot 4.5, GDScript. Target: Android only for now (APK and F-Droid style stores, no Google services), minimum a Fairphone 6 class phone (2022 or newer, Vulkan). Developed and prototyped on PC.
 
-## Vision
-A calm idle game about one realistic tree on a peaceful meadow. It grows through sunlight and nutrients. Two linked modes:
-- **Tree (upper world):** the tree grows procedurally and produces **life force**.
-- **Roots (underground):** the player steers a root through a space-like void to collect **nutrients**, which cost life force.
+This version consolidates every decision from the interviews (2026-09-26), the two surveys and the feel review (2026-09-27) into one text. Older drafts kept the decisions as dated tables; here each topic is stated once. Companion files: research-tree-growth.md (algorithm and sources), asset-research-2026-09-27.md (free assets and licences), game-feel-review-2026-09-27.md (feel review and play-test plan), review-2026-09-26.md (historical plan review), concepts/ (UI and style mockups).
 
-The two modes feed each other. The in-game day drives them: daytime is tree mode, night is root mode (see Pacing). The dive happens only at sunset; sunrise brings the player back up.
+## 1. Vision
+A calm idle game about one realistic tree on a peaceful meadow. It grows through sunlight and nutrients. Two linked worlds:
+- **Tree (above ground, by day):** the tree grows procedurally, steered by the timing of the sun, and produces **life force**.
+- **Roots (underground, by night):** the player steers a root through a space-like void to collect **nutrients**, paying with life force.
 
-## Decisions so far
-| Topic | Decision |
-|---|---|
-| Visual style | Realistic 3D, photorealistic is the goal (confirmed in survey 2 after seeing four style mockups in concepts/styles/). The journal UI sits on top as paper and handwriting. Assets: CC0 textures and skies, see asset-research-2026-09-27.md |
-| Growth | Procedural growth, no swapping between models. Self-organizing tree model: space-colonization markers + light + Borchert-Honda nutrient allocation + pipe model for thickness (see research-tree-growth.md) |
-| Offline growth | Keeps growing, but much slower. First guess: 1 real day closed = about 20 s of active game time (to be tuned) |
-| Sun | Natural sunrise to sunset cycle. The player "activates" the sun: it shines brighter and boosts growth (to be prototyped) |
-| Long-term goal | Prestige unlocks new tree species. No forced end: you can stop whenever you want |
-| Realism of size | Each species is capped at its real-life size and shape |
-| First species | Linden (Tilia, "Linde"): broad, dense crown, heart-shaped leaves, golden-yellow in autumn, up to about 30–40 m |
-| Sun steering | Timing is the steering, in all three dimensions (decided 2026-09-27). The sun follows a real arc: it rises in the east, stands in the south at noon (Germany), sets in the west. Boosting in the morning grows the crown east, at noon south and upward, in the evening west. A low sun grows the tree sideways, a high sun grows it taller. The north side gets less light by nature, as with real trees. Later, the seasons tilt the arc (low in winter, high in summer) |
-| Game loop | Short back and forth. Root runs are short because the life force from the tree phase always limits them |
-| Persistence | Superseded on 2026-09-26: a tree lives about one month (about 30 cycles), then moves to the gallery. The early idea of one tree over years is dropped |
-| Mode switch | Tap the ground and the camera dives down into the dark root world (and back up) |
-| Language | GDScript. Heavy math may move to GDExtension (C++) later if needed |
-| Wallpaper | Wanted (confirmed): the current tree as a live Android wallpaper. Feasible via the TheOathMan/Godot-Android-Live-Wallpaper plugin. Later milestone |
-| Start / tutorial | A seed is planted. The first root run happens from the seed, and the nutrients from that run grow the first sapling |
-| Feedback on growth | Parts that are currently growing twinkle a little |
-| Sound | Very important from the start. Peaceful overall: wind and birds above, a deep calm hum below |
-| Pacing | About one month of casual play per tree. One cycle is one in-game day: daytime is tree mode, night is root mode. Day plus night take at most 10 minutes of real play, about one cycle per real day. So a linden reaches full size in roughly 30 cycles, and each day must show visible growth |
-| End of a tree | The finished tree goes to a gallery, and the next game starts with a new seed |
-| Notifications | Yes, at most one per day (for example: a root run is affordable, or the tree has grown). Local notifications only, no push service |
-| Tree mode actions | Timing the sun, and pruning. Watering is out: water only comes from the roots |
-| Pruning | Cut a branch and the tree redirects its resources to the rest. Realistic use: remove a shaded or dying branch, or shape the crown. Adds a light choice without breaking the calm |
-| Soft failure | The tree never dies, but it reacts: too little water makes leaves droop and drop, branches with too little light die back (both come from the growth model). Pruning dead branches is the fix |
-| Orientation | Portrait. The tree fills a tall screen, and it doubles as the phone wallpaper |
-| Seasons | Later, not in the first prototype. When added, they follow the real calendar at the player's location (default: Germany). Plan the data model for it now |
+Each world feeds the other. One in-game day is one session of at most ten minutes. One tree takes about a month of casual play, then it moves to the grove and a new seed is planted beside it. The tree never dies. Nothing in the game rushes the player.
 
-## UI and interaction decisions (survey, 2026-09-27)
-| Topic | Decision |
-|---|---|
-| HUD in tree mode | Small pills: day, life force, four resources (as in the mockups) |
-| Boost | Hold anywhere on the screen. While boosting is the only tree action that works. Once pruning exists, a small tool switch sets the mode (boost or prune) |
-| Root run end | A run ends only when life force is used up. No stop button. Each night spends everything |
-| Pruning UI | A journal page with a handwritten explanation the first time; later just a scissors mark on the branch |
-| Look | The whole UI is a stylized journal (decided 2026-09-27): torn-out pages for smaller menus, handwritten notes with drawings and scribbles. Menus and HUD should feel like one notebook, animated where it helps. Handwriting fonts: Caveat, Patrick Hand, Kalam (all OFL, self-hosted). Keep the "no UI" toggle (pure scenery) for testing and screenshots |
-| Grove | Walk along your old trees in 3D. The finished trees stand on the meadow around the new one (later milestone; a simple list is the fallback) |
-| Clock | Runs only while the app is open, plus slow offline growth. One session is one in-game day |
-| Camera | Tree mode: fixed with slow orbit and pinch zoom. Root mode: third person behind the root tip |
-| Saving | Local only for now. Backup later |
-| Weather | Mood first, decided 2026-09-27: the world must feel alive and cohesive. Butterflies, wildflowers and bushes on the meadow; wind, clouds, rain and snow as atmosphere. No gameplay effect in Prototype 1; small effects (rain adds a little water) only later and only if cheap |
-| Money | Free, no ads |
-| Root cost | Rises with distance from the trunk and with depth |
+## 2. Look and feel
+- **Visual style:** realistic 3D, photorealistic is the goal. One hero tree, a mostly fixed camera, portrait orientation. Four style mockups were compared (concepts/styles/); realism won.
+- **Growth is always algorithmic:** the tree grows from a plant graph, never by swapping pre-made models. See research-tree-growth.md and section 4.
+- **Journal UI:** every menu, card and hint is a page of one notebook. Torn-out pages for small menus, full pages for the diary, grove, species and settings. Handwritten text (fonts Caveat, Patrick Hand, Kalam, all OFL, self-hosted) with small drawings and scribbles; buttons are circled words or sketched boxes. The HUD in tree mode is a few small pills (day, life force, four resources), paper or glass, to be tried. A "no UI" toggle shows pure scenery for testing, screenshots and the wallpaper.
+- **A living, cohesive world:** butterflies, wildflowers and bushes on the meadow; wind in leaves and grass, drifting clouds, occasional rain, snow in a later winter. All of it is mood and follows the same seed and clock. Gameplay effects of weather come later, only if cheap.
+- **Growth feedback:** parts that are growing right now twinkle a little.
+- **Sound:** very important from day one and peaceful. Ambience only, no music: wind, birds and insects above, a deep calm hum below, crossfaded on the dive.
+- **Language:** English.
 
-## Journal UI (decided 2026-09-27)
-- Every menu, card and hint is a page of one notebook: torn-out pages for small menus, full pages for the grove, species and settings.
-- Text is handwritten, with small drawings and scribbles (a sketched branch, a crossed-out word, an arrow). Buttons look like circled words or sketched boxes.
-- The HUD pills in tree mode stay small; they can be paper labels or stay glass, to be tried in the chosen style.
-- Contents of the journal, and whether the game writes a diary line per day, are still open (survey 2).
-- Assets: CC0 paper textures and free Godot canvas shaders for wobbly lines exist (see asset-research-2026-09-27.md); the drawings are ours.
+## 3. The day: tree mode
+- **Scene:** a single tree on a meadow with rolling hills and sky. Camera fixed on the tree, slow orbit by dragging, pinch to zoom. Looking at the tree from all sides is part of the day.
+- **The sun** follows its real arc for Germany: it rises in the east, stands in the south and high at noon, sets in the west. Later, seasons tilt the arc.
+- **Boost:** hold anywhere on the screen and the sun shines brighter and growth speeds up. Boosting is the only tree action while held. Once pruning exists, a small tool switch chooses boost or prune.
+- **Sun steering in three dimensions:** the timing of the boost shapes the tree. Morning grows the crown east, noon grows it south and taller, evening grows it west. A low sun grows sideways, a high sun grows up. The north side stays sparser by nature.
+- **Boost is a trade, not a limit:** there is no cap on holding. Boosting grows faster but the leaves turn light into less life force, so a boosted day shapes a bigger tree and a calm day fills the night's tank. Nutrients cap growth either way.
+- **Life force** comes from leaf area and light, accrues during the day and is spent underground at night.
+- **Water upkeep:** leaves drink water every day. Too little and they droop and drop, so the roots must keep finding water.
+- **Pruning:** tap a branch and confirm. Free; the cut wood is gone and its resources go to the rest of the crown. Dying or shaded branches are marked so the reason is visible. A journal page explains it the first time, later only a scissors mark.
+- **Soft failure only:** drought makes leaves droop and fall, shaded branches die back slowly. Both come from the growth model. Nothing kills the tree.
+- **Read the meadow:** the surface hints at what lies below, placed by the same seeded generator as the underground. Rushes and a damp patch over water, clover and nettles over nitrogen, a scatter of stones over rock, moss on the north side of the trunk. The player studies the meadow by day to plan the night's root run.
+- **Day length:** up to five minutes. Once nutrients are spent the sun glows softly, and dragging the sun along its arc moves time on, so a day can be two to five minutes. Dragging elsewhere orbits the camera.
+- **Dawn burst:** part of the growth bought by last night's nutrients is held back and released in the first ten seconds after sunrise, with the twinkle, while the camera rises. The daily total is unchanged.
 
-## Weather and life on the meadow (decided 2026-09-27)
-- Cosmetic in Prototype 1 and after: butterflies, wildflowers, bushes, wind in the leaves and grass, drifting clouds, occasional rain, snow in a later winter.
-- Everything follows the same seed and clock so it feels like one living place, not effects layered on top.
-- Gameplay effects are optional and later, only if cheap.
+## 4. Growth model (summary, details in research-tree-growth.md)
+Palubicki's self-organizing tree model with space-colonization markers seeded on the sun's side, Borchert-Honda allocation of the nutrient budget (later), and the pipe model for thickness. Buds with too little light go dormant and their branches are shed; that is the dieback. Roots reuse the same space-colonization code with the nutrient dots as attractors. Each species is capped at its real size and shape. First species: linden (Tilia), broad dense crown, heart-shaped leaves, up to about 30 to 40 m, full size after about 30 in-game days.
 
-## Tree mode
-- **Scene:** a single tree on a meadow with rolling hills and a sky (see references/meadow.png, references/tree-models.png).
-- **Growth tick:** the tree spends nutrients, and light exposure decides which buds grow.
-- **Steering:** the sun moves on its real arc, east to south to west. Boosting in the morning grows the tree east, at noon south and up, in the evening west (decided). Boosting trades life force for growth speed.
-- **Output:** life force grows with leaf area and light.
-- **Pruning:** tap a branch and confirm to cut it. Its resources go to the remaining branches. Dead or dying branches are marked so the player sees why pruning helps.
-- **Stress signals:** drought makes leaves droop and fall, and shaded branches die back slowly. Nothing kills the tree.
+## 5. The night: root mode
+- **Scene:** a black void with glowing coloured nutrient dots. Nearby dots glow, distant ones fade like a soft fog. Third-person camera behind the root tip.
+- **The dive:** only at sunset. The day ends, the player taps the ground, the camera dives down and the sound changes. Sunrise brings the camera back up.
+- **One run per night:** pick any point on an existing root (not only a tip), then steer a new main root with a virtual joystick. The root sinks slowly on its own; hold to dive faster. The run ends only when life force is used up. No stop button; each night spends everything.
+- **Cost:** life force per metre, rising with distance from the trunk and with depth.
+- **Rocks:** hard walls, steer around them. Deeper down there are more rocks.
+- **Result:** the steered path becomes a permanent main root. Fine side roots then sprout on their own along the path (space colonization within a short radius and a node budget per root) and collect the small dots nearby. Collected nutrients feed the tree the next day.
+- **A night without life force:** a short visit underground without growing, a note in the diary, then morning.
+- **Underground finds:** a fossil in a stone, an old root of an earlier tree, a humming water vein, a lost coin. Touched by the root, drawn into the journal.
 
-## Root mode
-- **Scene:** a black void with glowing, colored nutrient dots (see references/roots-space-*.png).
-- **Controls:** pick any point on an existing root (or a tip), then steer a new main root in third person. Growing drains life force.
-- **Pacing:** runs are short. Each run pushes one root a bit further in one direction, then it's back to the tree.
-- **Result:** the path you steered becomes a permanent root. The nutrients you collected go to the tree.
-- **Algorithm:** the same space-colonization code as the tree, with the nutrient dots as attractors, for any automatic side-rootlets.
+## 6. Resources
+Four underground resources, each a colour of dot.
 
-## Resources (biology-based, kept simple)
-Four underground resources. All are collected as glowing dots in root mode, and each has its own colour.
-
-| Resource | Colour (proposal) | Real biology | Game effect |
+| Resource | Colour | Real biology | Game effect |
 |---|---|---|---|
-| Water | Blue, most abundant | Needed for every growth process, carries nutrients, keeps leaves working | Base requirement for any growth |
-| Nitrogen (N) | Green | Builds leaves and chlorophyll | More and bigger leaves, so more life force |
-| Phosphorus (P) | Warm orange | Energy transfer, root development, flowers and seeds | Cheaper and faster root growth, later flowering |
-| Potassium (K) | Violet | Water regulation, wood strength, frost and drought resistance | Thicker, sturdier wood. Later: winter and drought hardiness |
+| Water | Blue, most abundant | Every growth process, carries nutrients, keeps leaves working | Needed for all growth, and drunk daily by the leaves (drought if short) |
+| Nitrogen (N) | Green | Leaves and chlorophyll | More and bigger leaves, so more life force |
+| Phosphorus (P) | Warm orange | Energy transfer, roots, flowers and seeds | Cheaper, faster root growth; later flowering |
+| Potassium (K) | Violet | Water regulation, wood strength, hardiness | Thicker, sturdier wood; later winter and drought hardiness |
 
-- **Rule (Liebig's law of the minimum):** growth is limited by the scarcest resource relative to the species' needs. Use a soft version so shortages slow the tree down but never block it completely.
-- **Species profiles:** each species has a need multiplier per resource. Examples: linden needs moist, nutrient-rich soil, so it wants a lot of water and N. Birch is a frugal pioneer with low needs overall. Willow wants very much water. Pine does well on poor soil and needs little N.
+- **Soft Liebig rule:** growth is limited by the scarcest resource relative to the species' needs, softened so a shortage slows the tree but never stops it.
+- **Species profiles:** a need multiplier per resource. Linden wants much water and N. Birch is frugal. Willow wants very much water. Pine needs little N. Oak is in between.
+- **Underground layout:** topsoil holds most N and P in rich patches with sparse ground between, and moderate water. Deeper there is less nutrient, more reliable water, K near the rocks, and more rock.
 
-## Underground layout
-- **Topsoil (shallow):** most nutrients (N, P) in rich patches with sparse areas between them. Water is moderate.
-- **Deeper:** fewer nutrients, more reliable water, and K from weathered minerals near the rocks. Rocks are obstacles to steer around.
-- **Branching:** a new run can start anywhere along an existing root, not only at its tips.
-- **Controls:** a virtual joystick for now.
-- **Main roots vs fine roots:** the player steers only main roots. Fine side roots then sprout on their own around the finished path, using space colonization with nearby small dots as attractors. They are limited to a short radius and a node budget per root. Biologically, fine roots do most of the absorbing, so they collect small dots near the path automatically.
-- **Root cost (to tune):** it should go up with distance from the trunk and with depth. The pipe model makes roots near the trunk thicken as more root hangs off them, and deeper soil is harder to grow through.
+## 7. Pacing and the month
+- **Clock:** one in-game day is one session. It runs only while the app is open. Starting values: up to 5 minutes of day, 3 minutes of night (480 s cycle, daylight fraction 0.625), to be tuned while playing.
+- **Offline:** while the app is closed the tree keeps growing very slowly, and life force accrues at the same slow rate. Starting value: one real day away is about 20 s of game time. The player always returns with a little life force.
+- **Every day must show visible growth**, for all 30 or so days.
+- **Visitors as milestones:** butterflies at the first leaves, bees at the linden blossom (around day 20), a bird's nest in the crown, a fox in the shade, finally a bench under the tree. Each gets a diary line. Cosmetic.
+- **A tree is finished** when it reaches its species size. It moves to the grove.
+- **Seed hand-off:** the last diary page shows the finished tree dropping a seed. That seed is the next tree, planted beside the old one.
+- **Grove:** the finished trees stand on the meadow around the new one and the player can walk along them in 3D (later milestone; a list is the fallback).
+- **Species unlock:** finishing one tree unlocks one species. Order: linden, birch, willow, oak, pine. That is the whole prestige system; there is no forced end to playing.
+- **Notification:** at most one per day, local only, one calm line about the tree ("your linden grew a new branch", "the roots are ready"). Can be switched off.
 
-## Realism on mobile: approach
-- A single hero tree and a mostly fixed camera. This is what makes realism affordable on a phone.
-- Develop on PC, but use Godot's **Mobile renderer** from day one so nothing is built that cannot be ported.
-- The main costs are leaves (alpha overdraw), the grass, and shadows. Budgets: leaf-cluster cards drawn with MultiMesh, instanced grass that fades with distance, one directional-light shadow.
-- Assets: CC0 textures and skies from Poly Haven and ambientCG (bark, grass, leaf atlases, HDRI skies); stylized props from Quaternius, KayKit and Kenney if the stylized look wins. Full list with licences in asset-research-2026-09-27.md.
+## 8. The journal
+Pages: **diary** (the game writes one line per day: growth, visitors, finds, a night without life force; the player can add a note), **grove**, **species**, **settings**. Each morning the diary opens with an optional **wish** ("today, reach the damp patch in the west"), no reward or penalty. The tutorial lives in the diary too.
 
-## Target device
-The test phone is a Fairphone 6 running /e/OS (Murena, Android without Google). It is a mid-range phone with Vulkan support.
-- Distribute the APK directly or through F-Droid-style stores, and avoid anything that depends on Google Play Services (Play Games login, Firebase, AdMob).
-- A live wallpaper renders all the time and costs battery. It needs a low-power mode: few frames per second and no shadows.
+## 9. Start and tutorial
+A seed is planted. The first night is the first root run, from the seed. The nutrients from that run grow the first sapling at dawn. No explanation outside the journal.
 
-## Prototype 1 (PC): all basics in one loop
-Goal: play the full loop once, from seed to roots to sapling to tree and back to roots. Grey-box visuals are fine, but the growth must already be algorithmic.
+## 10. Settings from day one
+Sound on/off, battery saver (lower frame rate), wallpaper mode, no-UI toggle, notification on/off.
 
-Build order, with each step playable on its own. Status 2026-09-27: steps 1 to 4 and 9 are built and tested (71 headless tests); 5 to 8 and 10 are open.
-1. **Project setup:** Godot 4 (latest stable), Mobile renderer, GDScript, git. Folders: `tree/`, `roots/`, `shared/` (plant graph, SCA), `audio/`, `ui/`.
-2. **Shared plant graph:** nodes with position, parent, radius and age, plus the pipe-model radius update. The tree and the roots both use it.
-3. **Tree growth v0:** space colonization toward markers, with a simple tube mesh rebuilt each tick. No light model yet.
-4. **Sun:** a day/night cycle (fast in the prototype) and a boost button. Markers are seeded on the side the sun is on, and boosting speeds up growth. The resources are nutrients (spent to grow) and life force (produced by leaves and light).
-5. **Root mode:** a black void with glowing nutrient dots. Pick any point on an existing root and fly a new main root in third person. Life force drains per metre, the path becomes a permanent root mesh, fine side roots sprout automatically, and nutrients are collected.
-6. **Switching:** tap the ground to dive the camera down, and tap a button to go back up. Both scenes stay loaded, or their state is kept.
-7. **Tutorial flow:** a seed, then the first root run, then the sapling grows.
-8. **Feel:** a twinkle shader or particles on growing tips, a placeholder ambient sound per mode, and a crossfade on switching.
-9. **Save/load:** the plant graphs, the resources and the timestamp. Offline growth is applied on load.
-10. **Day/night loop:** the in-game day drives the mode: daytime is tree mode, night is root mode, whole cycle under 10 minutes. Dive only at sunset. Dawn burst, and dragging the sun to shorten the day once nutrients are spent. Cycle count per tree is the month pacing knob.
-11. **Read the meadow:** surface hints (rushes, clover, stones, moss) placed from the underground generator, plus the slow orbit camera so the player can study them.
+## 11. Platform, device and later milestones
+- Android only for now, iOS later if ever. APK direct or through F-Droid style stores. Nothing that depends on Google Play Services.
+- Test phone: Fairphone 6 with /e/OS (Murena). Minimum: that class of phone, 2022 or newer, Vulkan, Godot Mobile renderer from day one.
+- Realism budget: one hero tree, fixed camera, leaf-cluster cards in MultiMesh, instanced grass fading with distance, one directional shadow.
+- Assets: CC0 textures and skies (Poly Haven, ambientCG) for bark, grass, leaf atlases and sky; paper textures and handwriting fonts for the journal; CC0 wind and hum sounds. Full list in asset-research-2026-09-27.md.
+- **Live wallpaper (later):** the current tree as an Android live wallpaper via the TheOathMan/Godot-Android-Live-Wallpaper plugin, with a low-power mode (few frames per second, no shadows).
+- **Seasons (later):** follow the real calendar at the player's location (default Germany) and tilt the sun's arc. Plan the data model for it now. Winter is parked: a linden is bare from November to April, and what the player does then is undecided.
+- **Money:** free, no ads.
+- **Saving:** local only for now; a backup option later.
 
-Later milestones: the full light model (shadow grid, Borchert-Honda), realistic assets (bark, leaves, grass, sky), mobile export and a performance pass on the Fairphone, seasons, the live wallpaper, prestige and species.
+## 12. Prototype 1 (PC): all basics in one loop
+Goal: play the full loop from seed to roots to sapling to tree and back. Grey-box visuals, algorithmic growth. Each step is playable on its own and gets acceptance criteria and headless tests before it starts (docs/acceptance.md in the repo).
 
-## Agentic build: rules for the repo
-- A `CLAUDE.md` in the repo carries the conventions: Godot version, GDScript style, folder layout, node budgets, no Google services, growth is always algorithmic.
-- Simulation and rendering are separate. Plant graph, growth tick, resources and offline catch-up are plain GDScript classes with no scene dependency, tested headless (`godot --headless -s tests/run_tests.gd`, a small custom runner; no GUT). Scenes and meshes only read the graph.
-- All randomness comes from one save seed (tree and underground), so every test and bug can be replayed.
-- Hard budgets from day one: tree internodes, fine roots per main root, nutrient dots loaded at once.
-- Each build step gets acceptance criteria before it starts, its own branch and pull request, and ends playable on the PC.
-- Visual judgement (does it look natural) stays with Simon, via screenshots in the thread.
+Status 2026-09-27: steps 1 to 4 and 9 are built, 82 headless tests pass. Steps 5 to 8, 10 and 11 are open.
+1. **Project setup:** Godot 4.5, Mobile renderer, GDScript, git. Folders `tree/`, `roots/`, `shared/`, `audio/`, `ui/`, `tests/`, `docs/`.
+2. **Shared plant graph:** nodes with position, parent, radius and age; pipe-model radii. Used by tree and roots.
+3. **Tree growth v0:** space colonization toward markers, tube mesh rebuilt on change.
+4. **Sun:** the day/night clock, the real sun arc, hold-to-boost, markers seeded on the sun's side, boost as a trade, nutrients spent and life force produced.
+5. **Root mode:** the void with dots and fog, pick a start point on a root, steer with joystick, auto-sink and hold-to-dive, rocks as walls, life force per metre, permanent root mesh, automatic fine roots, collection. The seeded underground generator also produces the surface hints and the finds.
+6. **Switching:** tap the ground at sunset to dive; sunrise brings the camera up. Both states persist.
+7. **Tutorial and diary:** seed, first run, sapling; the diary writes its first lines; the daily wish.
+8. **Feel:** twinkle on growing tips, placeholder ambience per world, crossfade on the dive.
+9. **Save/load:** plant graphs, resources, clock and timestamp; offline growth and life force applied on load.
+10. **Day/night loop:** the clock drives the mode; dawn burst; dragging the sun to shorten the day; a night without life force as a short visit.
+11. **Read the meadow:** surface hints rendered from the generator data; the orbit camera to study them.
 
-## Not in Prototype 1
-Realistic assets, the full light model, seasons, live wallpaper, prestige and extra species, mobile export, sound beyond placeholders, monetization.
+Later milestones, in rough order: realistic assets (bark, leaf atlases, grass, sky) and the full light model (shadow grid, Borchert-Honda); mobile export and a performance pass on the Fairphone; the journal art; visitors and finds art; grove and seed hand-off; sound design; live wallpaper; seasons; more species.
 
-## Decided in survey 2 (2026-09-27)
-| Topic | Decision |
-|---|---|
-| Visual style | Realistic 3D, photorealistic is the goal |
-| Diving | Only at sunset. The day ends, the player taps the ground, the night begins. Sunrise brings the camera back up |
-| Night without life force | A short visit underground without growing, plus a note in the journal. Then morning |
-| Day and night split | Up to five minutes of day and three minutes of night as the starting values (480 s cycle, daylight fraction 0.625). The day can be shorter: once the nutrients are spent, the player drags the sun along its arc to move time on. The day includes looking at the tree from all sides with the slow orbit. Simon will tune this while playing |
-| Boost limit | None. Holding the screen all day only burns nutrients faster; nutrients cap growth |
-| Offline life force | Accrues slowly, at the same rate as offline growth, so the player always returns with a little for the roots |
-| Runs per night | One. Pick a start point on an existing root, steer until life force is empty, then morning |
-| Depth control | The root sinks slowly on its own. Tap (hold) to dive faster; the joystick steers sideways and forward |
-| Rocks | Hard walls, steer around them |
-| Visibility in the void | Nearby dots glow, distant ones are faint, like a soft fog |
-| Water upkeep | Leaves drink water every day. Too little and they droop, so the roots must keep finding water |
-| Tree finished | When it reaches its species size (about a month for the linden). Then it moves to the gallery |
-| Species unlock | Finishing one tree unlocks one species. Order: linden, birch, willow, oak, pine |
-| Notification | One calm line per day about the tree ("your linden grew a new branch", "the roots are ready") |
-| Pruning cost | Free. The cut wood is gone, its resources go to the rest of the crown |
-| Sound | Ambience only: wind, birds and insects above, a deep hum below. No music |
-| Journal contents | Diary (the game writes one line per day, the player can add a note), grove, species, settings |
-| Platforms | Android only for now. iOS later, if ever |
-| Minimum phone | Fairphone 6 class, 2022 and newer, Vulkan mid-range, Mobile renderer |
+## 13. Agentic build rules (also in the repo's CLAUDE.md)
+- Simulation separate from rendering: `shared/` is plain GDScript with no scene dependency, tested headless with `godot --headless --path . -s tests/run_tests.gd` (small custom runner). After a fresh checkout run `godot --headless --path . --import` once.
+- All randomness from one save seed: tree, underground, surface hints, finds.
+- Hard budgets in code: tree nodes, fine roots per main root, nutrient dots loaded.
+- One build step per branch and pull request, acceptance criteria first, tests green before every push, playable on PC at the end.
+- Visual judgement (does it look natural) is Simon's, by screenshot in the thread. The play-test questions in game-feel-review-2026-09-27.md are asked after every prototype step.
+- Values to tune while playing: day and night lengths, offline rates, root cost per metre, how much one night grows the tree, water upkeep, dots per run and fog distance.
 
-## Feel additions (decided 2026-09-27, from game-feel-review-2026-09-27.md)
-All eight suggestions of the feel review are in. The play-test plan in that file is the plan for every prototype step.
-| Addition | What it is | Where it lands |
-|---|---|---|
-| Read the meadow | Surface plants hint at what lies below, placed by the same seeded generator: rushes and a damp patch over water, clover and nettles over nitrogen, a scatter of stones over rock, moss on the north side. The player studies the meadow by day (orbit camera) to plan the night's root run | Prototype 1, step 5 (underground generator) and a new step 11 |
-| Dawn burst | Part of the growth bought by the night's nutrients is held back and released in the first ten seconds after sunrise, with the twinkle, while the camera rises. Daily total unchanged | Step 10 (day/night loop) |
-| Boost as a trade | Boosting grows faster but converts nutrients into less life force. Holding all day shapes a bigger tree, a calm day fills the night's tank. No limit, no UI | Step 4 tuning, in the growth sim |
-| Let the day pass | Once nutrients are spent the sun glows softly; dragging the sun along its arc moves time on, so a day is two to five minutes as the player likes. Dragging elsewhere orbits the camera. Night keeps its length | Step 10 |
-| Visitors as milestones | Butterflies at the first leaves, bees at the linden blossom (about day 20), a bird's nest, a fox in the shade, finally a bench under the tree. Each gets a diary line. Cosmetic | Later milestone, with the realistic assets |
-| Underground finds | A fossil in a stone, an old root of an earlier tree, a humming water vein, a lost coin. Touched by the root, drawn into the journal | Step 5 (data) and later (art) |
-| Seed hand-off | The finished tree's last diary page shows it dropping a seed; that seed is the next tree, planted beside the old one in the grove | With the gallery/grove milestone |
-| One wish per day | The diary opens each morning with an optional line of direction ("today, reach the damp patch in the west"). No reward or penalty. Tutorial steps live here too | Step 7 (tutorial) |
+## 14. Not in Prototype 1
+Realistic assets, the full light model, seasons, live wallpaper, extra species, mobile export, sound beyond placeholders, visitor and find art, the 3D grove.
 
-
-## Open
-- Parked by Simon: winter (a real-calendar linden is bare from November to April; what does the player do then).
-- Tuning values, to be set while playing: day/night split, offline rates, root cost per metre, nutrient prices.
-- Settings from day one (decided, not built): sound on/off, battery saver (lower frame rate), wallpaper mode, no-UI toggle, notification on/off.
+## Decision log
+- 2026-09-26 interviews: vision, realism, algorithm, sun steering, roots, resources, pacing, soft failure, notifications, portrait, wallpaper wish, linden first.
+- 2026-09-26 review: contradictions fixed (branch anywhere), soft failure, budgets, seed, agentic rules.
+- 2026-09-27 survey 1: HUD, hold-to-boost, run ends when empty, journal explanation for pruning, camera, local save, free.
+- 2026-09-27: journal UI, weather as mood, style mockups.
+- 2026-09-27 survey 2: realistic 3D, dive only at sunset, night without life force, 5/3 split, no boost cap, offline life force, one run per night, auto-sink, rocks as walls, fog, water upkeep, finished at species size, species order, notification text, pruning free, ambience only, journal pages, Android only, minimum phone.
+- 2026-09-27 feel review: all eight additions accepted, shorter day, orbit as part of the day, sun steering in three dimensions, boost as a trade.

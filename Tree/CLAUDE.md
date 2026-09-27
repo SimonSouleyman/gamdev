@@ -16,14 +16,15 @@ Design doc: `docs/design-doc.md` (the source of truth for gameplay decisions).
 - `tree/` tree mode scenes, mesh builder, sun.
 - `roots/` root mode scenes, joystick, nutrient field.
 - `audio/`, `ui/` as named.
-- `tests/` headless tests. Run: `godot --headless -s tests/run_tests.gd` (exit code 0 = pass).
+- `tests/` headless tests. Run: `godot --headless --path . -s tests/run_tests.gd` (exit code 0 = pass). After a fresh checkout run `godot --headless --path . --import` once, or class_name lookups fail.
 - `docs/` design doc and research notes.
 
 ## Workflow
 - One build step (see design doc "Prototype 1") per branch and pull request. Each PR ends playable on PC.
 - Write acceptance criteria into `docs/acceptance.md` before starting a step; add a test for each.
 - Run the tests before every push. A failing test is never skipped or deleted to get green.
-- Visual judgement (does it look natural) is Simon's: post a screenshot in the project thread.
+- Visual judgement (does it look natural) is Simon's: post a screenshot in the project thread. After each step, ask the play-test questions from `docs/game-feel-review-2026-09-27.md`.
+- Sun steering is three-dimensional (east / south+up / west) and boosting trades life force for growth speed; keep both when touching `DayCycle` or `GrowthSim`.
 
 ## Style
 - `snake_case` files and functions, `PascalCase` classes via `class_name`.

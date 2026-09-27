@@ -1,5 +1,7 @@
 # Tree: feel and loop review (2026-09-27)
 
+> Status: all eight suggestions were accepted on 2026-09-27 and are in design-doc.md v2.0. The play-test plan below is the standing plan for every prototype step.
+
 Not technical. I played one day and one month through on paper with the decisions as they stand in design doc v1.2, and wrote down where it felt good, where it went flat, and what I would add.
 
 ## One day, as the player lives it (about 8 minutes)
