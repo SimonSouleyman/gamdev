@@ -414,6 +414,8 @@ func start_at(node_id: int) -> bool:
 ## After loading a save in the middle of a run.
 func resume_run() -> void:
 	_enter_run()
+	_waiting_for_input = false
+	_life_at_start = maxf(res.life_force + roots.run_length * roots.base_cost_per_metre, 0.001)
 	camera.position = roots.tip_position - roots.heading * 2.4 + Vector3.UP * 0.8
 
 

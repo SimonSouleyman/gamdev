@@ -107,7 +107,7 @@ func tick(delta: float) -> void:
 	budget += _dawn_burst_budget(delta, sun, top)
 	colonizer.bias_direction = (Vector3.UP * (1.0 - species.phototropism) + sun * species.phototropism).normalized()
 	# Longer shoots on a bigger tree, so the node budget reaches the species size.
-	colonizer.step_length = 0.15 + top * 0.008
+	colonizer.step_length = 0.15 + top * 0.014
 	colonizer.kill_distance = colonizer.step_length * 1.6
 	# Buds sense space further away in a bigger crown, so side branches can reach its edge.
 	colonizer.influence_radius = clampf(crown_radius(top) * 0.5, 1.2, 4.0)
@@ -231,7 +231,7 @@ func effective_leaves() -> float:
 ## A bigger tree needs more material per new segment (it also thickens everything below),
 ## so the growth spreads over the whole month instead of filling the budget early.
 func node_cost() -> float:
-	return cost_per_node * (1.0 + graph.size() / 600.0)
+	return cost_per_node * (1.0 + graph.size() / 380.0)
 
 
 func _affordable_nodes() -> int:

@@ -19,6 +19,8 @@ const NIGHT_HOLD_MARGIN: float = 0.5
 ## Game seconds after sunrise until the morning (diary line, first-morning page or wish).
 ## Just after the dawn burst, so the diary can say what the night bought.
 const MORNING_DELAY: float = 11.0
+## Share of the drunk dots that come back into the soil each night.
+const REGROW_SHARE: float = 0.05
 
 var seed: int = 1
 var sim: GrowthSim
@@ -214,6 +216,7 @@ func _sunrise() -> void:
 	night_empty = false
 	_spent_announced = false
 	var was_seed := sim.graph.size() <= 2
+	ground.regrow(REGROW_SHARE, day_number())
 	sim.start_dawn_burst()
 	if was_seed and not sim.nutrients_spent():
 		diary.add(day_number(), "The seed sprouted at dawn.")

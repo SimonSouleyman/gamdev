@@ -211,6 +211,20 @@ func collect(ids: PackedInt32Array, into: Resources) -> PackedInt32Array:
 	return out
 
 
+## The soil slowly refills (rain, rotting leaves, water seeping in): each night a share of the
+## drunk dots comes back, so the month does not run dry. Deterministic from the seed and day.
+## Returns how many came back.
+func regrow(share: float, day: int) -> int:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = hash([seed, "regrow", day])
+	var n := 0
+	for i in range(dot_collected.size()):
+		if dot_collected[i] != 0 and rng.randf() < share:
+			dot_collected[i] = 0
+			n += 1
+	return n
+
+
 func is_inside_rock(p: Vector3, margin: float = 0.0) -> bool:
 	return rock_at(p, margin) >= 0
 

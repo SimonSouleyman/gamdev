@@ -428,7 +428,10 @@ func _update_hud() -> void:
 			_hint.text = "The sun has set. Tap the ground to follow the roots down."
 		GameState.Phase.DAY:
 			if state.day_is_spent():
-				_hint.text = ("Almost nothing left to grow with today" if state.sim.nutrient_missing() and not state.sim.graph.is_full() else "Nothing left to grow with today") + ". Drag the sun along its arc to move the day on."
+				_hint.text = ("Almost nothing left to grow with today" if state.sim.nutrient_missing() and not state.sim.graph.is_full() and state.sim.resources.stock[0] >= state.sim.cost_per_node else "Nothing left to grow with today") + ". Drag the sun along its arc to move the day on."
+			elif state.day_number() <= 3 and not state.is_seed():
+				# The first days: a quiet reminder of what can be done while the tree grows.
+				_hint.text = "Hold anywhere to boost the sun. Drag the sun along its arc to pick the hour."
 			else:
 				_hint.text = ""
 		_:
