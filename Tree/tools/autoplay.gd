@@ -220,6 +220,9 @@ func _process(delta: float) -> bool:
 			_next("day runs on")
 		11:
 			main.time_scale = 20.0
+			if _page() != "" and s.phase == GameState.Phase.DAY:
+				_log("page during the day: '%s'" % _page())
+				main.journal.close_page()
 			if s.phase == GameState.Phase.SUNSET:
 				main.time_scale = 1.0
 				_next("sunset")
