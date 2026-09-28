@@ -90,7 +90,7 @@ Effort: S small (a day of building), M medium, L large. Phone risk: how much it 
 5. Weather moods (rain, mist, dew): 0.7, later, or never? ★ 0.7 with a light phone version.
 
 ## Answers (Simon, 2026-09-28 16:40 to 16:42 UTC)
-1. Bonsai: own version 0.7.
+1. Bonsai: first "own version 0.7", then changed at 16:43 UTC: bonsai stays in 0.6.
 2. Seasons: look in 0.7.
 3. Collection direction: living clearing first (not the recommended field guide).
 4. Time-lapse: 0.7.
