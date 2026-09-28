@@ -21,7 +21,9 @@ const WALL_H := 2.4
 
 var camera: Camera3D
 var _items: Dictionary = {}  # name -> Node3D (tappable)
-var _wood: ShaderMaterial
+var _wood: Material
+var _floor: Material
+var _table: Material
 var _time: float = 0.0
 var _lamp: OmniLight3D
 var menu: Control  # 2D handwritten menu note, added to a CanvasLayer by the owner
@@ -30,8 +32,11 @@ var menu: Control  # 2D handwritten menu note, added to a CanvasLayer by the own
 func _ready() -> void:
 	place()
 	rotation.y = PI
-	_wood = ShaderMaterial.new()
-	_wood.shader = preload("res://shed/wood.gdshader")
+	# Real weathered boards, a worn plank floor and an old workbench top (CC0, Poly Haven;
+	# Simon, play test 4: the shed looked like placeholders).
+	_wood = _planks("weathered_planks", 0.55, Color(0.82, 0.78, 0.74))
+	_floor = _planks("old_planks_02", 0.5, Color(0.75, 0.7, 0.66))
+	_table = _planks("wood_table_worn", 0.9, Color(0.9, 0.85, 0.8))
 	_build_room()
 	_build_bench()
 	_build_pinboard()
@@ -54,6 +59,43 @@ func _box(size: Vector3, at: Vector3, mat: Material, parent: Node3D = self) -> M
 	return m
 
 
+## A wood material from assets/wood, mapped in world space so every board has the same grain size.
+func _planks(name: String, scale: float, tint: Color) -> StandardMaterial3D:
+	var m := StandardMaterial3D.new()
+	var base := "res://assets/wood/%s_%s_1k.jpg"
+	m.albedo_texture = load(base % [name, "diff"])
+	m.albedo_color = tint
+	m.normal_enabled = true
+	m.normal_texture = load(base % [name, "nor_gl"])
+	m.roughness_texture = load(base % [name, "rough"])
+	m.roughness = 1.0
+	m.uv1_triplanar = true
+	m.uv1_world_triplanar = true
+	m.uv1_scale = Vector3.ONE * scale
+	return m
+
+
+## Leather with its grain (the journal's cover normal map from the paper look).
+func _leather(c: Color) -> StandardMaterial3D:
+	var m := _mat(c, 0.55)
+	m.normal_enabled = true
+	m.normal_texture = preload("res://lookdev/paper/textures/leather_normal.png")
+	m.uv1_triplanar = true
+	m.uv1_world_triplanar = true
+	m.uv1_scale = Vector3.ONE * 6.0
+	return m
+
+
+## Paper for page blocks and the seed bag.
+func _paper_mat(c: Color = Paper.PAPER) -> StandardMaterial3D:
+	var m := _mat(c, 0.95)
+	m.albedo_texture = preload("res://assets/paper/paper_beige.png")
+	m.uv1_triplanar = true
+	m.uv1_world_triplanar = true
+	m.uv1_scale = Vector3.ONE * 3.0
+	return m
+
+
 func _mat(c: Color, rough: float = 0.8) -> StandardMaterial3D:
 	var m := StandardMaterial3D.new()
 	m.albedo_color = c
@@ -66,7 +108,7 @@ func _build_room() -> void:
 	var hd := DEPTH * 0.5
 	var t := 0.08
 	# Floor boards and walls: back, left, right, and the front wall with the open door.
-	_box(Vector3(WIDTH, 0.1, DEPTH), Vector3(0, 0.05, 0), _wood)
+	_box(Vector3(WIDTH, 0.1, DEPTH), Vector3(0, 0.05, 0), _floor)
 	_box(Vector3(WIDTH, WALL_H, t), Vector3(0, WALL_H * 0.5, -hd), _wood)
 	_box(Vector3(t, WALL_H, DEPTH), Vector3(-hw, WALL_H * 0.5, 0), _wood)
 	_box(Vector3(t, WALL_H, DEPTH), Vector3(hw, WALL_H * 0.5, 0), _wood)
@@ -92,7 +134,7 @@ func _build_room() -> void:
 			st.add_vertex(v)
 		st.generate_normals()
 		tri.mesh = st.commit()
-		var gm := _wood.duplicate() as ShaderMaterial
+		var gm := _wood.duplicate() as Material
 		tri.material_override = gm
 		tri.set("material_override", gm)
 		tri.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON
@@ -146,22 +188,30 @@ func _build_bench() -> void:
 	bench.rotation.y = PI
 	bench.scale = Vector3(0.6, 0.8, 0.6)
 	add_child(bench)
-	_box(Vector3(1.6, 0.06, 0.7), Vector3(0, 0.9, 0), _wood, bench)
+	_box(Vector3(1.6, 0.06, 0.7), Vector3(0, 0.9, 0), _table, bench)
 	for x in [-0.72, 0.72]:
 		for z in [-0.28, 0.28]:
-			_box(Vector3(0.06, 0.9, 0.06), Vector3(x, 0.45, z), _wood, bench)
+			_box(Vector3(0.06, 0.9, 0.06), Vector3(x, 0.45, z), _table, bench)
 	# The journal: dark leather, a paper edge showing.
-	var journal := _box(Vector3(0.34, 0.06, 0.26), Vector3(-0.45, 0.96, 0.05), _mat(Paper.LEATHER, 0.6), bench)
+	var journal := _box(Vector3(0.34, 0.012, 0.26), Vector3(-0.45, 0.936, 0.05), _leather(Paper.LEATHER), bench)
 	journal.rotation.y = 0.2
-	_box(Vector3(0.32, 0.04, 0.24), Vector3(0.01, 0.0, 0.0), _mat(Paper.PAPER), journal).position.y = 0.0
+	# The page block between the covers, and the top cover; a ribbon hangs out at the bottom.
+	_box(Vector3(0.32, 0.036, 0.245), Vector3(0.008, 0.024, 0.0), _paper_mat(), journal)
+	_box(Vector3(0.34, 0.012, 0.26), Vector3(0.0, 0.048, 0.0), _leather(Paper.LEATHER), journal)
+	_box(Vector3(0.012, 0.004, 0.09), Vector3(0.05, 0.02, 0.16), _mat(Color(0.6, 0.12, 0.1)), journal)
 	_items["journal"] = journal
 	# The photo album: green cloth.
-	var album := _box(Vector3(0.36, 0.07, 0.3), Vector3(0.05, 0.965, -0.05), _mat(Color(0.25, 0.38, 0.24), 0.9), bench)
+	var album := _box(Vector3(0.36, 0.014, 0.3), Vector3(0.05, 0.937, -0.05), _leather(Color(0.22, 0.34, 0.22)), bench)
+	_box(Vector3(0.34, 0.045, 0.285), Vector3(0.008, 0.029, 0.0), _paper_mat(Color(0.72, 0.64, 0.52)), album)
+	_box(Vector3(0.36, 0.014, 0.3), Vector3(0.0, 0.058, 0.0), _leather(Color(0.22, 0.34, 0.22)), album)
 	album.rotation.y = -0.15
 	_items["album"] = album
 	# The seed bag: a small paper sack.
-	var seeds := _box(Vector3(0.14, 0.2, 0.08), Vector3(0.5, 1.03, 0.1), _mat(Color(0.78, 0.66, 0.46), 0.95), bench)
+	var seeds := _box(Vector3(0.14, 0.17, 0.08), Vector3(0.5, 1.015, 0.1), _paper_mat(Color(0.78, 0.64, 0.44)), bench)
 	seeds.rotation.y = 0.4
+	# Its top folded over once.
+	var fold := _box(Vector3(0.14, 0.05, 0.02), Vector3(0.0, 0.09, 0.03), _paper_mat(Color(0.72, 0.58, 0.4)), seeds)
+	fold.rotation.x = -0.9
 	_items["seeds"] = seeds
 	# A clay pot with a seedling, and a watering can, for the feel of the place.
 	var pot := MeshInstance3D.new()
@@ -173,6 +223,27 @@ func _build_bench() -> void:
 	pot.material_override = _mat(Color(0.62, 0.33, 0.2))
 	pot.position = Vector3(0.7, 1.0, -0.2)
 	bench.add_child(pot)
+	# Soil and a seedling with a few leaves.
+	var soil := MeshInstance3D.new()
+	var disc := CylinderMesh.new()
+	disc.top_radius = 0.082
+	disc.bottom_radius = 0.082
+	disc.height = 0.01
+	soil.mesh = disc
+	soil.material_override = _mat(Color(0.2, 0.14, 0.1), 1.0)
+	soil.position = Vector3(0, 0.06, 0)
+	pot.add_child(soil)
+	for k in range(4):
+		var leaf := MeshInstance3D.new()
+		var sm := SphereMesh.new()
+		sm.radius = 0.03
+		sm.height = 0.012
+		leaf.mesh = sm
+		leaf.material_override = _mat(Color(0.3, 0.5, 0.2), 0.7)
+		var a := k * TAU / 4.0 + 0.3
+		leaf.position = Vector3(cos(a) * 0.03, 0.1 + k * 0.012, sin(a) * 0.03)
+		leaf.rotation = Vector3(0.4 * sin(a), a, 0.4 * cos(a))
+		pot.add_child(leaf)
 	var can := _box(Vector3(0.22, 0.2, 0.14), Vector3(-0.15, 0.1, 0.4), _mat(Color(0.35, 0.45, 0.42), 0.4))
 	can.position = Vector3(1.1, 0.1, -0.9)
 

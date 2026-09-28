@@ -5,6 +5,7 @@ All third-party assets in this project, with their licences. CC0 needs no attrib
 | File(s) | Source | Licence |
 |---|---|---|
 | `assets/bark/tree_bark_03_*_2k.jpg` | Poly Haven, "Tree Bark 03" (https://polyhaven.com/a/tree_bark_03) | CC0 |
+| `assets/wood/weathered_planks_*`, `old_planks_02_*`, `wood_table_worn_*` (1k) | Poly Haven, "Weathered Planks", "Old Planks 02", "Wood Table Worn" (https://polyhaven.com) | CC0 |
 | `assets/leaves/LeafSet004_1K-JPG_*` | ambientCG, "Leaf Set 004" (https://ambientcg.com/view?id=LeafSet004) | CC0 |
 | `assets/ground/Grass004_1K-JPG_*` | ambientCG, "Grass 004" (https://ambientcg.com/view?id=Grass004) | CC0 |
 | `assets/paper/paper_cream.png`, `paper_grid.png`, `paper_beige.png` (downscaled from Papier13, 11, 7) | OpenGameArt, "Paper Textures (seamless)" (https://opengameart.org/content/paper-textures-seamless) | CC0 |
