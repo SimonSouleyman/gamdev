@@ -29,6 +29,10 @@ Design doc: `docs/design-doc.md` (the source of truth for gameplay decisions).
 - Before handing a step over, run `godot --path . -s tools/autoplay.gd -- --shots=<folder>` and look at the screenshots.
 - Sun steering is three-dimensional (east / south+up / west) and boosting trades life force for growth speed; keep both when touching `DayCycle` or `GrowthSim`.
 
+## Versions
+- Releases are tagged `tree-vX.Y(.Z)` and built into `GameDev/tree-releases`. From v0.5 on (Simon, 2026-09-28): fixes and improvements found in tests go out as 0.5.1, 0.5.2 and so on; only new features justify 0.6.
+- Phone builds use the Gradle build (the TreePhone plugin): `godot --headless --path . --export-debug "Android" <apk>`. The Android build template in `android/` is gitignored; after reinstalling it, set `buildTools` to `'36.0.0'` in `android/build/config.gradle` (see `android_plugin/README.md`).
+
 ## Style
 - `snake_case` files and functions, `PascalCase` classes via `class_name`.
 - Static typing everywhere (`var x: float`, `-> void`).
