@@ -210,8 +210,10 @@ func _handle_events() -> void:
 			"sunset":
 				if state.is_seed() and state.day_number() == 0:
 					_page_once("planted")
-					# Each species introduces itself once, the first time it is planted.
-					_page_once(Pages.species_page(state.sim.species.id))
+					# Each species introduces itself once, the first time it is planted from the seed bag
+					# (not the very first linden: the tutorial pages introduce it).
+					if not state.grove.is_empty() or state.sim.species.id != "linden":
+						_page_once(Pages.species_page(state.sim.species.id))
 				else:
 					_page_once("first_sunset")
 			"spent":
