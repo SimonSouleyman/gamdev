@@ -43,6 +43,9 @@ var _open_button: TextureButton
 var _pages_list: VBoxContainer
 var _pages_empty: Label
 var _book_title: Label
+## The clearing's collection: what came up in the crown's shade (Clearing.found).
+var _clearing_list: VBoxContainer
+var _clearing_more: Label
 
 
 func _ready() -> void:
@@ -311,13 +314,14 @@ func _build_book() -> void:
 	_tabs["diary"] = _build_diary_tab()
 	_tabs["pages"] = _build_pages_tab()
 	_tabs["settings"] = _build_settings_tab()
+	_tabs["clearing"] = _build_clearing_tab()
 	for k in _tabs:
 		var c: Control = _tabs[k]
 		c.set_anchors_preset(Control.PRESET_FULL_RECT)
 		content.add_child(c)
 
 	# Cloth ribbon bookmarks sticking out of the right edge of the book, with forked ends.
-	var ribbons := {"diary": Color(0.62, 0.2, 0.16), "pages": Color(0.25, 0.38, 0.22)}
+	var ribbons := {"diary": Color(0.62, 0.2, 0.16), "pages": Color(0.25, 0.38, 0.22), "clearing": Color(0.52, 0.42, 0.16)}
 	var y := 120
 	for k in ribbons:
 		var b := Button.new()
@@ -415,6 +419,62 @@ func _build_pages_tab() -> Control:
 	_pages_list.add_theme_constant_override("separation", 10)
 	box.add_child(_pages_list)
 	return box
+
+
+## The first collection (design doc 17.6): a handwritten list of the shade plants and mushrooms
+## that have come up under the crown, each with a small painted drawing and the day it came.
+func _build_clearing_tab() -> Control:
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 12)
+	box.add_child(Paper.ink_label("Under my crown", 32, Paper.INK, true))
+	var intro := Paper.ink_label("Where the crown's shade falls, the sun meadow gives way. What has come up there so far:", 25, Paper.FAINT_INK)
+	intro.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	box.add_child(intro)
+	_clearing_list = VBoxContainer.new()
+	_clearing_list.add_theme_constant_override("separation", 14)
+	box.add_child(_clearing_list)
+	_clearing_more = Paper.ink_label("", 24, Paper.FAINT_INK)
+	_clearing_more.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	box.add_child(_clearing_more)
+	return box
+
+
+func _refresh_clearing() -> void:
+	for c in _clearing_list.get_children():
+		c.queue_free()
+	var found: Dictionary = state.clearing.found
+	var atlas := load(Understory.ATLAS) as Texture2D
+	for k in Clearing.KINDS:
+		if not found.has(k):
+			continue
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 14)
+		# A small drawing of it, glued in beside the name.
+		var pic := TextureRect.new()
+		var at := AtlasTexture.new()
+		at.atlas = atlas
+		var cell: int = Understory.CELL[k]
+		var half := atlas.get_size() * 0.5
+		at.region = Rect2(Vector2(cell % 2, cell / 2) * half, half)
+		pic.texture = at
+		pic.custom_minimum_size = Vector2(96, 96)
+		pic.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		pic.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		row.add_child(pic)
+		var words := VBoxContainer.new()
+		words.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		words.add_child(Paper.ink_label(Clearing.NAMES[k], 30, Paper.INK, true))
+		var note := Paper.ink_label("first seen on day %d: %s" % [int(found[k]), Clearing.NOTES[k]], 23, Paper.FAINT_INK)
+		note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		words.add_child(note)
+		row.add_child(words)
+		_clearing_list.add_child(row)
+	if found.is_empty():
+		_clearing_more.text = "Nothing yet. The young tree's shade is still too small; the ground takes a few days to change."
+	elif found.size() < Clearing.KINDS.size():
+		_clearing_more.text = "More may come as the crown grows, and after rain."
+	else:
+		_clearing_more.text = ""
 
 
 func _build_settings_tab() -> Control:
@@ -515,6 +575,7 @@ func _refresh_diary() -> void:
 			_pages_list.add_child(b)
 			any = true
 	_pages_empty.visible = not any
+	_refresh_clearing()
 
 
 func set_setting(key: String, on: bool) -> void:

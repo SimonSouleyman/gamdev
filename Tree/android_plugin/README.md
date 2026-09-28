@@ -10,8 +10,32 @@ Godot 4.7 Android plugin (v2) for Tree. Singleton `TreePhone`, plain Android API
 | `isNotificationPermissionGranted() -> bool` | Permission granted and notifications enabled. |
 | `scheduleDaily(hour, minute, title, text)` | Daily reminder via `AlarmManager` (inexact `setAndAllowWhileIdle`, re-armed after each firing; exact only if `canScheduleExactAlarms()`). Channel `tree_daily`. Tap opens the game. Re-armed after reboot, app update and clock change. |
 | `cancelDaily()` | Stops the reminder. |
+| `saveVideoToGallery(aviPath: String, album: String) -> bool` | **Not built yet** (0.6 time-lapse, see below). The game already calls it when the plugin has it. |
 
 Game code uses the wrapper `res://shared/phone.gd` (`class_name Phone`), which is a no-op on PC.
+
+## To do: `saveVideoToGallery` (month time-lapse, design doc 17.7)
+
+The album's "save as video" writes the tree's morning photos as a Motion-JPEG AVI
+(`res://ui/mjpeg_avi.gd`: RIFF, one `vids`/`MJPG` stream, 6 fps, 540 px wide, every frame a
+whole JPEG in a `00dc` chunk, `idx1` index with offsets from the `movi` tag) into
+`user://timelapse/<species>_<stamp>.avi`, then calls `Phone.save_video_to_gallery(path)`, which
+passes the absolute path and the album name `"Tree"` to the plugin. Android's gallery apps do not
+play MJPEG AVI, so the plugin method should:
+
+1. Read the AVI's frames: walk the `idx1` entries (or the `00dc` chunks after `movi`) and decode each
+   JPEG with `BitmapFactory.decodeByteArray`. Frame rate = `dwRate / dwScale` of the `strh`.
+2. Encode H.264 MP4 with `MediaCodec` (`video/avc`, `COLOR_FormatSurface`, draw each bitmap onto the
+   encoder's input `Surface` with `lockHardwareCanvas`, presentation time = frame / fps) and
+   `MediaMuxer` (`MUXER_OUTPUT_MPEG_4`) into the app's cache dir. Plain Android APIs, no Google
+   libraries (works on /e/OS).
+3. Insert it into the gallery with `MediaStore.Video.Media.EXTERNAL_CONTENT_URI`:
+   `DISPLAY_NAME` = file name with `.mp4`, `MIME_TYPE` = `video/mp4`,
+   `RELATIVE_PATH` = `Movies/` + album (Android 10+; `IS_PENDING` 1 while copying, then 0).
+   No storage permission is needed on Android 10+ for the app's own MediaStore entries; below
+   Android 10 it needs `WRITE_EXTERNAL_STORAGE` (maxSdkVersion 28).
+4. Return `true` on success. Run the work off the UI thread; if it should report later, add a signal
+   `video_saved(ok: bool)` (the game currently reads only the return value).
 
 ## Layout
 

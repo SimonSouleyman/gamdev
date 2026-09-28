@@ -10,3 +10,4 @@ func test_phone_is_a_no_op_on_pc() -> void:
 	t.check(not Phone.cancel_daily_reminder(), "nothing to cancel")
 	t.check(not Phone.ask_notification_permission(), "no permission prompt")
 	t.check(not Phone.has_notification_permission(), "no permission on PC")
+	t.check(not Phone.save_video_to_gallery("user://timelapse/linden_1.avi"), "no gallery on PC")

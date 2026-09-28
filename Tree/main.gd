@@ -152,8 +152,8 @@ func start(p_state: GameState) -> void:
 func _show_underground(on: bool) -> void:
 	_underground = on
 	# By night the tree scene is hidden: the time to widen the clearing for a grown tree.
-	if on:
-		tree_view.refresh_clearing()
+	# At sunrise (behind the black fade) the ground under the crown catches up (mushrooms).
+	tree_view.refresh_clearing()
 	tree_view.visible = not on
 	tree_view.hud.visible = not on and not journal.settings["no_ui"]
 	root_view.visible = on
@@ -562,6 +562,8 @@ func enter_shed(animate: bool) -> void:
 		tree_view.set_shed_open(true)
 		shed.frame_tree(state.sim.height(), tree_view.camera.environment)
 		shed.camera.make_current()
+		# A finished tree's month plays as a flip-book in the album.
+		shed_menu.tree_finished = state.finished
 		shed_menu.show_menu(true)
 		ambience.set_world(true, 0.8)
 	if animate:

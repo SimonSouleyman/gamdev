@@ -43,6 +43,8 @@ var _clearing: float = -1.0
 var _scenery: Scenery
 var _env: Environment
 var _meadow: Meadow
+## Shade plants under the crown (the living clearing).
+var _understory: Understory
 var _builder := BranchMeshBuilder.new()
 ## The shears: while on, taps cut branches instead of boosting (Pruning).
 var prune_mode: bool = false:
@@ -128,10 +130,15 @@ func apply_species(sp: Species) -> void:
 
 ## Rebuilds the ground, meadow and forest ring when the tree has outgrown its clearing.
 ## Called at setup and at night, while the tree scene is hidden.
+## The ground under the crown follows its shade every time (Understory: only when grown).
 func refresh_clearing() -> void:
 	var r := Scenery.radius_for(state.sim.height())
-	if r == _clearing:
-		return
+	if r != _clearing:
+		_build_clearing(r)
+	_understory.refresh(state, [_grass, _herbs, _meadow2], _ground_mat)
+
+
+func _build_clearing(r: float) -> void:
 	_clearing = r
 	Terrain.edge = r
 	Shed.origin = Vector3(0.0, 0.0, r - 2.5)
@@ -146,6 +153,7 @@ func refresh_clearing() -> void:
 	# The haze begins further out as the clearing grows, so the forest ring is not buried.
 	_env.fog_depth_begin = r
 	_env.fog_depth_end = r * 2.0 + 34.0
+	_understory.forget_grass()
 
 
 ## The nest in the crown, once it has come (Visitors). (No bench: Simon did not like it.)
@@ -274,6 +282,8 @@ func _build_world() -> void:
 
 	_meadow = Meadow.new()
 	add_child(_meadow)
+	_understory = Understory.new()
+	add_child(_understory)
 	_scenery = Scenery.new()
 	add_child(_scenery)
 
@@ -767,6 +777,7 @@ func _frame_camera(snap: bool, delta: float = 0.0) -> void:
 		var gm := (layer as MultiMeshInstance3D).material_override as ShaderMaterial
 		gm.set_shader_parameter("fade_start", fade)
 		gm.set_shader_parameter("fade_end", fade + 18.0)
+	_understory.set_fade(fade, fade + 18.0)
 	var k := 1.0 if snap else 1.0 - exp(-2.0 * delta)
 	_focus = _focus.lerp(want_focus, k)
 	_distance = lerpf(_distance, want_distance, k)

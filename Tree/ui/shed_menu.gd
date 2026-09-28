@@ -34,8 +34,24 @@ var _album_right: TextureRect
 var _album_cap_l: Label
 var _album_cap_r: Label
 var _album_title: Label
+## The spread on show: an index into _spreads.
 var _album_index: int = 0
 var _photos: Array[String] = []
+## The album's spreads in order: {"photo": first photo index} for two photos, {"flip": tree index}
+## for a finished tree's double page with its month as a flip-book (TimeLapse).
+var _spreads: Array = []
+## The photos grouped by tree (TimeLapse.trees).
+var _trees: Array = []
+var _album_holders: Array[Control] = []
+var _flip_box: Control
+var _flip: FlipBook
+var _flip_title: Label
+var _flip_status: Label
+var _video_button: Button
+## The tree whose flip-book is open; -1 when two photos are on show.
+var _flip_tree: int = -1
+## The current tree is finished (main sets it): its flip-book page follows its last photo.
+var tree_finished: bool = false
 var _toggles: Dictionary = {}
 var _loading: Control
 var _seeds: Control
@@ -103,6 +119,7 @@ func place_tags(at: Dictionary, below: Dictionary, shown: Dictionary) -> void:
 func show_menu(on: bool) -> void:
 	_tags_layer.visible = on
 	if not on:
+		_flip.stop()
 		_options.visible = false
 		_album.visible = false
 		_seeds.visible = false
@@ -117,6 +134,7 @@ func set_tree_name(tree_name: String) -> void:
 
 ## Esc on the options board, in the album, at the seed bag or on the tree's page closes it.
 func close_boards() -> void:
+	_flip.stop()
 	_options.visible = false
 	_album.visible = false
 	_seeds.visible = false
@@ -269,12 +287,15 @@ func _build_album() -> void:
 	_album_title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	head.add_child(_album_title)
 	var close := Paper.ink_button("close", 26)
-	close.pressed.connect(func() -> void: _album.visible = false)
+	close.pressed.connect(func() -> void:
+		_flip.stop()
+		_album.visible = false)
 	head.add_child(close)
 	for side in [0, 1]:
 		var holder := CenterContainer.new()
 		holder.size_flags_vertical = Control.SIZE_EXPAND_FILL
 		box.add_child(holder)
+		_album_holders.append(holder)
 		var polaroid := PanelContainer.new()
 		# Slightly yellowed photo card, a little bent; glued in askew (see _show_spread).
 		PaperLook.apply(polaroid, "strip", 120 + side, 14.0, {"torn": Vector4.ZERO, "crumple": 0.12, "paper_color": Color(0.95, 0.94, 0.9), "foxing": 0.15, "edge_age": 0.35, "curl": 5.0})
@@ -316,21 +337,27 @@ func _build_album() -> void:
 		else:
 			_album_right = tex
 			_album_cap_r = cap
+	_build_flip_page(box)
 	var nav := HBoxContainer.new()
 	nav.alignment = BoxContainer.ALIGNMENT_CENTER
-	nav.add_theme_constant_override("separation", 60)
+	nav.add_theme_constant_override("separation", 36)
 	box.add_child(nav)
 	var prev := Paper.ink_button("< earlier", 24)
-	prev.pressed.connect(func() -> void: _turn(-2))
+	prev.pressed.connect(func() -> void: _turn(-1))
 	nav.add_child(prev)
+	# The month so far as a flip-book, for the tree on this spread (the current one too).
+	var flip := Paper.ink_button("flip through", 24)
+	flip.pressed.connect(_flip_through)
+	nav.add_child(flip)
 	var next := Paper.ink_button("later >", 24)
-	next.pressed.connect(func() -> void: _turn(2))
+	next.pressed.connect(func() -> void: _turn(1))
 	nav.add_child(next)
 	# On the phone: the upper photo of the spread becomes the home-screen wallpaper.
 	_wallpaper_button = Paper.ink_button("as wallpaper", 24)
 	_wallpaper_button.visible = Phone.is_available()
 	_wallpaper_button.pressed.connect(func() -> void:
-		if _album_index < _photos.size() and Phone.set_wallpaper(_photos[_album_index]):
+		var shown := _shown_photo()
+		if shown >= 0 and Phone.set_wallpaper(_photos[shown]):
 			_album_cap_l.text = "My wallpaper now.")
 	nav.add_child(_wallpaper_button)
 	_album.visible = false
@@ -338,23 +365,60 @@ func _build_album() -> void:
 
 func open_album() -> void:
 	_photos = Photos.list()
-	# The spread that holds the newest photo.
-	_album_index = (maxi(_photos.size() - 1, 0) / 2) * 2
+	_build_spreads()
+	# The newest spread (a finished tree's flip-book comes after its last photos).
+	_album_index = _spreads.size() - 1
 	_show_spread()
 	_album.visible = true
 
 
+## Two photos per spread, and after the last photo of each finished tree its flip-book page.
+func _build_spreads() -> void:
+	_trees = TimeLapse.trees(_photos)
+	var ends := {}  # last photo index of a finished tree -> tree index
+	var seen := 0
+	for ti in range(_trees.size()):
+		seen += (_trees[ti]["photos"] as Array).size()
+		if ti < _trees.size() - 1 or tree_finished:
+			ends[seen - 1] = ti
+	_spreads = []
+	var i := 0
+	while i < maxi(_photos.size(), 1):
+		_spreads.append({"photo": i})
+		for k in [i, i + 1]:
+			if ends.has(k):
+				_spreads.append({"flip": ends[k]})
+		i += 2
+
+
 func _turn(step: int) -> void:
 	var next := _album_index + step
-	if next < 0 or next >= maxi(_photos.size(), 1):
+	if next < 0 or next >= _spreads.size():
 		return
 	_album_index = next
 	_show_spread()
 
 
+## The first photo on the spread on show; -1 on a flip-book page or in an empty album.
+func _shown_photo() -> int:
+	if _flip_tree >= 0 or _spreads.is_empty():
+		return -1
+	var i: int = _spreads[_album_index].get("photo", -1)
+	return i if i < _photos.size() else -1
+
+
 func _show_spread() -> void:
+	var spread: Dictionary = _spreads[_album_index] if _album_index < _spreads.size() else {"photo": 0}
+	if spread.has("flip"):
+		_show_flip(int(spread["flip"]))
+		return
+	_flip_tree = -1
+	_flip.stop()
+	_flip_box.visible = false
+	for h in _album_holders:
+		h.visible = true
 	for side in [0, 1]:
-		var i: int = _album_index + int(side)
+		var i: int = int(spread["photo"]) + int(side)
 		var tex: TextureRect = _album_left if side == 0 else _album_right
 		var cap: Label = _album_cap_l if side == 0 else _album_cap_r
 		if i < _photos.size():
@@ -371,6 +435,100 @@ func _show_spread() -> void:
 			tex.texture = null
 			cap.text = "(no photo yet: every morning takes one, and the camera scrap outside takes more)" if _photos.is_empty() and side == 0 else ""
 			tex.get_parent().get_parent().visible = side == 0 and _photos.is_empty()
+
+
+# --- the flip-book (month time-lapse) ------------------------------------------------
+
+## A finished tree's double page: its mornings as a flip-book on one big photo card, the tree's
+## name above, "save as video" below.
+func _build_flip_page(box: VBoxContainer) -> void:
+	_flip_box = VBoxContainer.new()
+	_flip_box.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	_flip_box.add_theme_constant_override("separation", 10)
+	box.add_child(_flip_box)
+	_flip_title = Paper.ink_label("", 32, Paper.INK, true)
+	_flip_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_flip_box.add_child(_flip_title)
+	var holder := CenterContainer.new()
+	holder.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	_flip_box.add_child(holder)
+	var card := PanelContainer.new()
+	PaperLook.apply(card, "strip", 126, 14.0, {"torn": Vector4.ZERO, "crumple": 0.1, "paper_color": Color(0.95, 0.94, 0.9), "foxing": 0.15, "edge_age": 0.35, "curl": 3.0})
+	holder.add_child(card)
+	_flip = FlipBook.new()
+	_flip.custom_minimum_size = Vector2(430, 700)
+	card.add_child(_flip)
+	var row := HBoxContainer.new()
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	row.add_theme_constant_override("separation", 30)
+	_flip_box.add_child(row)
+	_video_button = Paper.ink_button("save as video", 24)
+	_video_button.pressed.connect(func() -> void:
+		if _flip_tree >= 0:
+			save_video(_flip_tree))
+	row.add_child(_video_button)
+	_flip_status = Paper.ink_label("", 22, Paper.FAINT_INK)
+	_flip_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_flip_status.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_flip_box.add_child(_flip_status)
+	_flip_box.visible = false
+
+
+func _show_flip(tree_index: int) -> void:
+	if tree_index < 0 or tree_index >= _trees.size():
+		return
+	_flip_tree = tree_index
+	for h in _album_holders:
+		h.visible = false
+	_flip_box.visible = true
+	var tree: Dictionary = _trees[tree_index]
+	var pages := TimeLapse.pages(tree)
+	var tree_name := Species.from_id(str(tree["species"])).display_name
+	_flip_title.text = "The %s, %d morning%s" % [tree_name.to_lower(), pages.size(), "" if pages.size() == 1 else "s"]
+	_flip_status.text = ""
+	_video_button.disabled = false
+	_flip.play(pages)
+
+
+## "flip through": the flip-book of the tree on the spread on show (or the newest tree).
+func _flip_through() -> void:
+	if _trees.is_empty():
+		return
+	var shown := _shown_photo()
+	_show_flip(TimeLapse.tree_of(_trees, shown) if shown >= 0 else (_flip_tree if _flip_tree >= 0 else _trees.size() - 1))
+
+
+## Writes the tree's month as a short video (MjpegAvi) and hands it to the phone's gallery.
+## One frame is made per rendered frame, so the album stays alive while the film develops.
+## Returns the video's path ("" if it failed).
+func save_video(tree_index: int) -> String:
+	var pages := TimeLapse.pages(_trees[tree_index])
+	_video_button.disabled = true
+	_flip_status.text = "developing the film..."
+	var jpegs: Array[PackedByteArray] = []
+	var size := Vector2i.ZERO
+	for p in pages:
+		await get_tree().process_frame
+		var img := Image.load_from_file(ProjectSettings.globalize_path(p))
+		if img == null or img.is_empty():
+			continue
+		if size == Vector2i.ZERO:
+			size = TimeLapse.video_size(img.get_width(), img.get_height())
+		jpegs.append(TimeLapse.encode_frame(img, size))
+	for _i in range(TimeLapse.HOLD_LAST if not jpegs.is_empty() else 0):
+		jpegs.append(jpegs[-1])
+	var path := TimeLapse.video_path(_trees[tree_index])
+	DirAccess.make_dir_recursive_absolute(TimeLapse.DIR)
+	if jpegs.is_empty() or MjpegAvi.write(path, jpegs, size.x, size.y, TimeLapse.FPS) != OK:
+		_flip_status.text = "The film could not be saved."
+		_video_button.disabled = false
+		return ""
+	if Phone.save_video_to_gallery(path):
+		_flip_status.text = "Saved to the phone's gallery (Movies/Tree)."
+	else:
+		_flip_status.text = "Saved as %s" % ProjectSettings.globalize_path(path)
+	_video_button.disabled = false
+	return path
 
 
 # --- the seed bag -------------------------------------------------------------------

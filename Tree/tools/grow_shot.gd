@@ -8,6 +8,8 @@ extends SceneTree
 ## measure the phone path on a PC.
 ## --overdraw: photograph the overdraw view instead (Forward+ and Mobile renderers only):
 ## the brighter, the more layers each pixel was shaded in.
+## --pitch=0.5 --zoom=0.8: look down more / step closer (the ground under the crown).
+## --rain: a shower on the last day (Clearing.after_rain), so the mushrooms are up.
 
 var shots_dir := ""
 var days := 10
@@ -21,6 +23,9 @@ var dive := false
 var prune := false
 var stats := false
 var overdraw := false
+var pitch := 0.12
+var zoom := 1.0
+var rain := false
 
 
 func _initialize() -> void:
@@ -35,6 +40,12 @@ func _initialize() -> void:
 			species = a.substr(10)
 		elif a.begins_with("--hour="):
 			hour = float(a.substr(7))
+		elif a.begins_with("--pitch="):
+			pitch = float(a.substr(8))
+		elif a.begins_with("--zoom="):
+			zoom = float(a.substr(7))
+		elif a == "--rain":
+			rain = true
 		elif a == "--prune":
 			prune = true
 		elif a == "--dive":
@@ -65,7 +76,10 @@ func _initialize() -> void:
 	# Stop at noon of the last day.
 	while g.sim.clock.time_of_day < g.sim.clock.daylight_fraction * hour:
 		g.tick(0.5)
+	if rain:
+		g.after_rain()
 	g.take_events()
+	print("clearing: found %s, plan %s" % [g.clearing.found, Clearing.counts(g.clearing.plan(Clearing.shade_map(g.sim), g.day_number(), Budgets.UNDERSTORY_PLANTS))])
 	print("day %d: %d nodes, %.1f m, %d tips, crown centre %s" % [g.day_number(), g.sim.graph.size(), g.sim.height(), g.sim.tip_count(), g.sim.centroid()])
 	view = TreeView.new()
 	root.add_child(view)
@@ -94,7 +108,8 @@ func _process(_delta: float) -> bool:
 			_print_stats(names[i - 1])
 	if i < names.size():
 		view._yaw = yaws[i]
-		view._pitch = 0.12
+		view._pitch = pitch
+		view._zoom = zoom
 	else:
 		quit()
 	return false

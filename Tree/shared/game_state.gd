@@ -27,6 +27,8 @@ var sim: GrowthSim
 var ground: Underground
 var roots: RootSystem
 var diary := Diary.new()
+## The ground under the crown: shade plants and mushrooms, the first collection (Clearing).
+var clearing := Clearing.new()
 var phase: Phase = Phase.DAY
 ## Tonight's single run was used.
 var run_used: bool = false
@@ -69,6 +71,7 @@ static func new_game(random_seed: int, species_id: String = "linden") -> GameSta
 	g.ground = Underground.new(random_seed)
 	g.roots = RootSystem.new(random_seed)
 	g.roots.species = g.sim.species
+	g.clearing = Clearing.new(random_seed)
 	g.sim.clock.time_of_day = g.sim.clock.daylight_fraction
 	g.sim.resources.life_force = SEED_LIFE_FORCE
 	g.phase = Phase.SUNSET
@@ -84,6 +87,8 @@ static func new_tree(random_seed: int, species_id: String, previous: GameState) 
 	if previous != null:
 		g.grove = previous.grove.duplicate(true)
 		g.seen_pages = previous.seen_pages.duplicate()
+		# The clearing's collection is the player's: it goes on under the next tree.
+		g.clearing.found = previous.clearing.found.duplicate()
 		# Visitors come anew to each tree (the nest was already there on a new seedling).
 		for k in g.seen_pages.keys():
 			if str(k).begins_with("visitor_"):
@@ -344,6 +349,11 @@ func _sunrise() -> void:
 		var died := sim.shade_dieback(day_number())
 		if died > 0:
 			diary.add(day_number(), "%d shaded twig%s died back in the crown." % [died, "" if died == 1 else "s"])
+	# The ground under the crown changes with its shade: diary lines for what comes up first.
+	if not was_seed:
+		for k in clearing.update(sim, day_number()):
+			diary.add(day_number(), Clearing.FIRST_LINES[k])
+			_event("clearing:" + k)
 	if sim.species.in_blossom(day_number()) and not sim.species.in_blossom(day_number() - 1):
 		diary.add(day_number(), "The %s is in blossom. The bees have come, and the leaves are busier than ever." % tree_name())
 		_event("blossom")
@@ -359,6 +369,11 @@ func _sunrise() -> void:
 func write_morning_line() -> void:
 	var tips := sim.tip_count()
 	diary.add(day_number(), "The %s is %.1f m tall with %d leaf cluster%s." % [tree_name(), sim.height(), tips, "" if tips == 1 else "s"])
+
+
+## The weather hook: a shower fell today (mushrooms come up in the shade for a few days).
+func after_rain() -> void:
+	clearing.after_rain(day_number())
 
 
 # --- moving the day on ------------------------------------------------------
@@ -447,6 +462,7 @@ func to_dict() -> Dictionary:
 		"spent_announced": _spent_announced,
 		"finished": finished,
 		"grove": grove,
+		"clearing": clearing.to_dict(),
 	}
 
 
@@ -459,6 +475,7 @@ static func from_dict(d_in: Dictionary) -> GameState:
 	g.roots = RootSystem.from_dict(d.get("roots", {}), g.seed)
 	g.roots.species = g.sim.species
 	g.diary = Diary.from_dict(d.get("diary", {}))
+	g.clearing = Clearing.from_dict(d.get("clearing", {}), g.seed)
 	g.phase = clampi(int(d.get("phase", Phase.DAY)), Phase.DAY, Phase.NIGHT) as Phase
 	g._empty_timer = float(d.get("empty_timer", 0.0))
 	g.morning_timer = float(d.get("morning_timer", -1.0))

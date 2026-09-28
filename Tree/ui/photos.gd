@@ -19,7 +19,45 @@ static func save_from(viewport: Viewport, day: int, tag: String, species_id: Str
 	DirAccess.make_dir_recursive_absolute(DIR)
 	var path := "%s/%s_day%03d_%s_%d.png" % [DIR, species_id, day, tag, int(Time.get_unix_time_from_system() * 1000.0)]
 	img.save_png(path)
+	_save_thumb(img, path)
 	return path
+
+
+## Small copies for the flip-book (TimeLapse), in a folder beside the photos: a month of full
+## photos would take seconds to load and hundreds of megabytes on a phone.
+const THUMB_WIDTH := 360
+
+
+static func thumb_path(path: String) -> String:
+	return DIR.path_join("thumbs").path_join(path.get_file().get_basename() + ".jpg")
+
+
+static func _save_thumb(img: Image, path: String) -> void:
+	var small := img.duplicate() as Image
+	small.resize(THUMB_WIDTH, int(float(THUMB_WIDTH) * img.get_height() / img.get_width()), Image.INTERPOLATE_BILINEAR)
+	DirAccess.make_dir_recursive_absolute(DIR.path_join("thumbs"))
+	small.save_jpg(thumb_path(path), 0.85)
+
+
+## The flip-book's copy of a photo (made from the photo the first time, for older albums).
+static func load_thumb(path: String) -> Texture2D:
+	var tp := thumb_path(path)
+	if not FileAccess.file_exists(tp):
+		var img := Image.load_from_file(ProjectSettings.globalize_path(path))
+		if img == null or img.is_empty():
+			return null
+		_save_thumb(img, path)
+	return load_texture(tp)
+
+
+## The day in a photo's file name.
+static func day_of(path: String) -> int:
+	var f := path.get_file()
+	return int(f.substr(f.find("_day") + 4, 3))
+
+
+static func is_morning(path: String) -> bool:
+	return path.get_file().contains("_morning_")
 
 
 static func list() -> Array[String]:
@@ -59,3 +97,7 @@ static func clear() -> void:
 		return
 	for f in d.get_files():
 		d.remove(f)
+	var t := DirAccess.open(DIR.path_join("thumbs"))
+	if t != null:
+		for f in t.get_files():
+			t.remove(f)
