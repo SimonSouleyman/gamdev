@@ -34,6 +34,8 @@ var _flash: ColorRect
 
 
 func _ready() -> void:
+	# Screenshots and PC tests can force a season, weather or moon (--season=autumn ...).
+	Almanac.read_cmdline()
 	if OS.get_cmdline_user_args().has("--ephemeral"):
 		ephemeral = true
 	_build()
@@ -96,6 +98,7 @@ func _build() -> void:
 	fade_layer.add_child(_dev_label)
 
 	tree_view.ground_tapped.connect(_on_ground_tapped)
+	tree_view.weather_fx.thunder.connect(ambience.play_thunder)
 	tree_view.pruned.connect(func(n: int) -> void:
 		state.diary.add(state.day_number(), "I cut off a branch (%d segments)." % n))
 	root_view.can_start = func() -> bool: return state.can_start_run()
@@ -193,6 +196,7 @@ func _process(delta: float) -> void:
 			_sim_accum = 0.0  # a long hitch: drop the rest rather than spiral
 	_handle_events()
 	ambience.daylight = state.phase == GameState.Phase.DAY
+	ambience.rain = tree_view.rain_now if not in_shed else tree_view.rain_now * 0.6
 	_autosave_timer += delta
 	if _autosave_timer >= AUTOSAVE_SECONDS:
 		_autosave_timer = 0.0

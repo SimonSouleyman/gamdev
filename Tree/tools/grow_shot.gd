@@ -3,6 +3,10 @@ extends SceneTree
 ## the tree view at noon from three sides. For judging the look of the growth.
 ## Run: godot --path . -s tools/grow_shot.gd -- --days=10 --shots=C:/some/folder [--seed=42] [--species=oak] [--boost] [--dive]
 ## --dive: instead, five frames of the fall into the ground (dive_amount 0 to 1) from the south.
+## Mood (section 17): --season=spring|summer|autumn|late_autumn, --weather=rain|mist|dew|clear,
+## --moon=<phase 0..1>, --date=YYYY-MM-DD (Almanac.read_cmdline); --night=<0..1> photographs the
+## sunset hold that far into the night instead of noon; --yaw=<radians> and --pitch= one view only;
+## --face_moon turns the view toward the moon; --look_up=<radians> tilts the camera toward the sky; --tag=<name> prefixes the file names.
 
 var shots_dir := ""
 var days := 10
@@ -14,6 +18,12 @@ var view: TreeView
 var frame := 0
 var dive := false
 var prune := false
+var night := -1.0
+var only_yaw := -100.0
+var pitch := 0.12
+var tag := ""
+var look_up := 0.0
+var face_moon := false
 
 
 func _initialize() -> void:
@@ -34,6 +44,19 @@ func _initialize() -> void:
 			dive = true
 		elif a == "--boost":
 			boost = true
+		elif a.begins_with("--night="):
+			night = float(a.substr(8))
+		elif a.begins_with("--yaw="):
+			only_yaw = float(a.substr(6))
+		elif a.begins_with("--pitch="):
+			pitch = float(a.substr(8))
+		elif a == "--face_moon":
+			face_moon = true
+		elif a.begins_with("--look_up="):
+			look_up = float(a.substr(10))
+		elif a.begins_with("--tag="):
+			tag = a.substr(6) + "_"
+	Almanac.read_cmdline()
 	DirAccess.make_dir_recursive_absolute(shots_dir)
 	var g := GameState.new_game(seed, species)
 	for day in range(days):
@@ -51,8 +74,10 @@ func _initialize() -> void:
 				# Optional: boost through the mornings, so the crown should lean east.
 				g.sim.clock.boost_active = boost and g.sim.clock.time_of_day < 0.2
 				g.tick(0.5)
-	# Stop at noon of the last day.
-	while g.sim.clock.time_of_day < g.sim.clock.daylight_fraction * hour:
+	# Stop at noon of the last day (or at sunset for --night).
+	while g.sim.clock.time_of_day < g.sim.clock.daylight_fraction * hour and g.phase == GameState.Phase.DAY:
+		g.tick(0.5)
+	while night >= 0.0 and g.phase == GameState.Phase.DAY:
 		g.tick(0.5)
 	g.take_events()
 	print("day %d: %d nodes, %.1f m, %d tips, crown centre %s" % [g.day_number(), g.sim.graph.size(), g.sim.height(), g.sim.tip_count(), g.sim.centroid()])
@@ -67,19 +92,28 @@ func _process(_delta: float) -> bool:
 		# After the view's own _ready, which runs once the tree starts.
 		view.setup(get_meta("game"))
 		view.set_hud_visible(false)
+		view.night_override = night
+		view.look_up = look_up
+		if face_moon:
+			# Stand opposite the moon, so it hangs above the tree.
+			var d := view._night_sky.moon_direction()
+			only_yaw = atan2(-d.x, -d.z)
 	if dive:
 		return _dive_frames()
 	if prune:
 		return _prune_frames()
 	var names := ["from_north", "from_east", "from_south"]
 	var yaws := [PI, PI * 0.5, 0.0]
+	if only_yaw > -99.0:
+		names = ["view"]
+		yaws = [only_yaw]
 	var i := frame / 20
 	if frame % 20 == 0 and i - 1 < names.size():
 		RenderingServer.force_draw(false)
-		root.get_viewport().get_texture().get_image().save_png(shots_dir.path_join("tree_day%d_h%d_%s.png" % [days, int(hour * 100), names[i - 1]]))
+		root.get_viewport().get_texture().get_image().save_png(shots_dir.path_join("%stree_day%d_h%d_%s.png" % [tag, days, int(hour * 100), names[i - 1]]))
 	if i < names.size():
 		view._yaw = yaws[i]
-		view._pitch = 0.12
+		view._pitch = pitch
 	else:
 		quit()
 	return false

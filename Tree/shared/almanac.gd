@@ -174,6 +174,10 @@ static func weather_for(seed: int, game_day: int, date: Dictionary) -> Dictionar
 		"rain", "mist", "dew", "thunder":
 			for k in ["rain", "mist", "dew", "thunder"]:
 				w[k] = k == weather_override
+			# A forced shower lasts the whole day, so it can be seen at any hour.
+			if weather_override == "rain":
+				w["rain_start"] = -0.1
+				w["rain_length"] = 1.2
 	return w
 
 

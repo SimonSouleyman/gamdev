@@ -8,6 +8,9 @@ uniform vec3 sun_color : source_color = vec3(1.0);
 uniform float brightness = 1.0;
 uniform float coverage = 0.45;
 uniform float seed = 0.0;
+// Weather and night (Scenery.set_mood): how much of the cloud shows, and a heavier grey belly.
+uniform float opacity = 1.0;
+uniform float grey = 0.0;
 
 void fragment() {
 	vec2 c = UV * 2.0 - 1.0;
@@ -19,6 +22,6 @@ void fragment() {
 	n = n * round_mask + (1.0 - round_mask) * 0.0;
 	float a = smoothstep(coverage * 0.7, coverage * 0.7 + 0.35, n);
 	float shade = mix(0.72, 1.0, smoothstep(coverage, coverage + 0.45, n));
-	ALBEDO = sun_color * shade * brightness;
-	ALPHA = a * 0.9;
+	ALBEDO = mix(sun_color * shade * brightness, vec3(0.42, 0.45, 0.5) * brightness * mix(0.8, 1.0, shade), grey);
+	ALPHA = a * 0.9 * opacity;
 }

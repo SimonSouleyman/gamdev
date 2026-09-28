@@ -12,8 +12,13 @@ uniform float fade_end = 30.0;
 uniform vec3 translucency : source_color = vec3(0.3, 0.38, 0.08);
 // The second meadow layer picks its cell per clump (in the instance colour's alpha).
 uniform bool cell_from_alpha = false;
+// The season's colour (SeasonLook), dew sparkling in the early sun and the sheen of rain.
+uniform vec3 season_tint = vec3(1.0);
+uniform float dew = 0.0;
+uniform float wet = 0.0;
 
 varying float root_shade;
+varying vec3 clump_pos;
 
 void vertex() {
 	vec3 world = (MODEL_MATRIX * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
@@ -29,6 +34,7 @@ void vertex() {
 	VERTEX.z += sway * 0.03 * top * top;
 	NORMAL = normalize(mix(NORMAL, vec3(0.0, 1.0, 0.0), 0.5));
 	root_shade = top;
+	clump_pos = world;
 }
 
 void fragment() {
@@ -38,11 +44,21 @@ void fragment() {
 	ALPHA = tex.a;
 	ALPHA_SCISSOR_THRESHOLD = 0.4;
 	ALPHA_ANTIALIASING_EDGE = 0.25;
-	ALBEDO = tex.rgb * COLOR.rgb;
+	ALBEDO = tex.rgb * COLOR.rgb * season_tint;
 	// Blades shade each other near the ground.
 	AO = mix(0.35, 1.0, smoothstep(0.0, 0.6, root_shade));
 	AO_LIGHT_AFFECT = 0.5;
-	ROUGHNESS = 0.95;
-	SPECULAR = 0.05;
+	ROUGHNESS = mix(0.95, 0.4, max(wet, dew * 0.6));
+	SPECULAR = mix(0.05, 0.45, max(wet, dew * 0.6));
+	ALBEDO *= 1.0 - 0.15 * wet;
+	if (dew > 0.001) {
+		// Dew: a few tiny drops on the blades catch the light and glint as the eye moves.
+		vec2 cell = floor(UV * 150.0);
+		float h = fract(sin(dot(cell + clump_pos.xz * 3.1, vec2(12.9898, 78.233))) * 43758.5453);
+		vec2 f = fract(UV * 150.0) - 0.5;
+		float drop = step(0.93, h) * smoothstep(0.25, 0.0, length(f)) * step(0.5, tex.a);
+		float glint = pow(0.5 + 0.5 * sin(TIME * 1.7 + h * 40.0 + dot(VIEW, vec3(9.0, 5.0, 7.0))), 6.0);
+		EMISSION = vec3(1.0, 0.98, 0.9) * drop * (0.25 + 1.6 * glint) * dew;
+	}
 	BACKLIGHT = translucency * smoothstep(0.3, 1.0, root_shade);
 }
