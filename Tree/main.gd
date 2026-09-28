@@ -29,6 +29,7 @@ var in_shed: bool = false
 var _corner: CanvasLayer
 var _shed_button: Button
 var _photo_button: Button
+var _shears_button: Button
 var _flash: ColorRect
 
 
@@ -94,6 +95,8 @@ func _build() -> void:
 	fade_layer.add_child(_dev_label)
 
 	tree_view.ground_tapped.connect(_on_ground_tapped)
+	tree_view.pruned.connect(func(n: int) -> void:
+		state.diary.add(state.day_number(), "I cut off a branch (%d segments)." % n))
 	root_view.can_start = func() -> bool: return state.can_start_run()
 	root_view.run_started.connect(func(_id: int) -> void: state.mark_run_started())
 	# Swipe up after the night's root: straight on to the morning.
@@ -172,6 +175,9 @@ func _process(delta: float) -> void:
 	tree_view.input_enabled = not paused and not _transitioning
 	_shed_button.visible = not in_shed and not _transitioning
 	_photo_button.visible = not in_shed and not _underground and not _transitioning and state.phase == GameState.Phase.DAY
+	_shears_button.visible = _photo_button.visible and state.sim.graph.size() > 6
+	if tree_view.prune_mode and not _shears_button.visible:
+		_set_shears(false)
 	root_view.input_enabled = not paused and not _transitioning
 	root_view.process_mode = Node.PROCESS_MODE_DISABLED if paused else Node.PROCESS_MODE_INHERIT
 	if not paused:
@@ -426,11 +432,24 @@ func _build_corner() -> void:
 			enter_shed(true))
 	_photo_button = _scrap("photo", Vector2(-160, 210))
 	_photo_button.pressed.connect(func() -> void: _take_photo("camera"))
+	# The shears: while out, a tap cuts a branch instead of boosting the sun (play test 4).
+	_shears_button = _scrap("shears", Vector2(-160, 270))
+	_shears_button.pressed.connect(func() -> void:
+		_set_shears(not tree_view.prune_mode)
+		if tree_view.prune_mode:
+			_page_once("shears"))
 	_flash = ColorRect.new()
 	_flash.color = Color(1, 1, 1, 0)
 	_flash.set_anchors_preset(Control.PRESET_FULL_RECT)
 	_flash.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_corner.add_child(_flash)
+
+
+func _set_shears(on: bool) -> void:
+	tree_view.prune_mode = on
+	if not on:
+		tree_view.pruning.preview(-1)
+	_shears_button.text = "put away" if on else "shears"
 
 
 func _scrap(text: String, at: Vector2) -> Button:

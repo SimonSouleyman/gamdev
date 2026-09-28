@@ -10,6 +10,11 @@ const TEXTS: Dictionary = {
 	"spent": ["Nothing left to grow with", "The tree has used up what the roots brought. The leaves still gather life force for tonight's root while the day runs out."],
 	"first_sunset": ["Sunset", "The day is over. Tap the ground to dive down to the roots.\n\nThe meadow hints at what lies below: rushes and a damp patch over water, clover and nettles over nitrogen, stones over rock."],
 	"pick": ["A new root", "Tonight a root can start anywhere on the old roots, not only at a tip. Tap a point on a root to begin; drag to look around."],
+	"shears": ["The shears", "With the shears on, touch a branch (or point at it with the mouse): a mark shows where it would be cut, and the part that would fall is outlined. Slide along the tree to choose, lift the finger (or click) to cut. Off the tree, nothing is cut.
+
+Cutting is free. The tree puts its strength into the branches that are left, so the crown takes the shape you give it.
+
+Tap the shears again to put them away; then a tap boosts the sun again."],
 	"empty_night": ["A quiet night", "There was no life force left for a root tonight, so I only looked around below.\n\nCalm days, without boosting, fill the tank for the night."],
 }
 

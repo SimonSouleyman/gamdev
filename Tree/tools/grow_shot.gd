@@ -12,6 +12,7 @@ var hour := 0.5  # fraction of the daylight, 0.5 = noon
 var view: TreeView
 var frame := 0
 var dive := false
+var prune := false
 
 
 func _initialize() -> void:
@@ -24,6 +25,8 @@ func _initialize() -> void:
 			seed = int(a.substr(7))
 		elif a.begins_with("--hour="):
 			hour = float(a.substr(7))
+		elif a == "--prune":
+			prune = true
 		elif a == "--dive":
 			dive = true
 		elif a == "--boost":
@@ -63,6 +66,8 @@ func _process(_delta: float) -> bool:
 		view.set_hud_visible(false)
 	if dive:
 		return _dive_frames()
+	if prune:
+		return _prune_frames()
 	var names := ["from_north", "from_east", "from_south"]
 	var yaws := [PI, PI * 0.5, 0.0]
 	var i := frame / 20
@@ -88,5 +93,30 @@ func _dive_frames() -> bool:
 		RenderingServer.force_draw(false)
 		root.get_viewport().get_texture().get_image().save_png(shots_dir.path_join("dive_%d.png" % int(steps[i] * 100)))
 	if i >= steps.size():
+		quit()
+	return false
+
+
+## --prune: preview a cut on a side branch, cut it, and photograph the fall.
+func _prune_frames() -> bool:
+	view._yaw = 0.0
+	view._pitch = 0.12
+	if frame == 20:
+		# A side branch around mid height.
+		var g := view.state.sim.graph
+		var best := -1
+		for id in range(3, g.size()):
+			if g.children[id].size() > 0 and absf(g.positions[id].y - view.state.sim.height() * 0.5) < 1.0 and Vector2(g.positions[id].x, g.positions[id].z).length() > 1.0:
+				best = id
+				break
+		view.pruning.preview(best)
+	for k in [[30, "prune_preview"], [36, "prune_fall1"], [48, "prune_fall2"], [80, "prune_after"]]:
+		if frame == k[0]:
+			RenderingServer.force_draw(false)
+			root.get_viewport().get_texture().get_image().save_png(shots_dir.path_join(k[1] + ".png"))
+	if frame == 31:
+		print("cut ", view.pruning.cut(), " segments")
+		view._rebuild()
+	if frame > 82:
 		quit()
 	return false

@@ -6,6 +6,8 @@ extends Node3D
 ## Reads GameState; the only things it writes are boost, time skips and the ground tap.
 
 signal ground_tapped
+## A branch was cut with the shears (segments cut).
+signal pruned(segments: int)
 
 const REBUILD_INTERVAL := 0.5
 const TWINKLE_SECONDS := 2.5
@@ -40,6 +42,9 @@ var _scenery: Scenery
 var _env: Environment
 var _meadow: Meadow
 var _builder := BranchMeshBuilder.new()
+## The shears: while on, taps cut branches instead of boosting (Pruning).
+var prune_mode: bool = false
+var pruning: Pruning
 var _rebuild_timer: float = 0.0
 var _built_size: int = -1
 var _births: Dictionary = {}  # node id -> time it appeared
@@ -256,6 +261,9 @@ func _build_world() -> void:
 	_meadow2 = _clump_layer(Foliage.clump_texture(false, 13))
 	add_child(_leaves)
 
+	pruning = Pruning.new()
+	pruning.view = self
+	add_child(pruning)
 	_twinkles = MultiMeshInstance3D.new()
 	var tmm := MultiMesh.new()
 	tmm.transform_format = MultiMesh.TRANSFORM_3D
@@ -725,6 +733,9 @@ func _unhandled_input(event: InputEvent) -> void:
 				_end_press(true, m.position)
 	elif event is InputEventMouseMotion and _pressing:
 		_drag((event as InputEventMouseMotion).position, (event as InputEventMouseMotion).relative)
+	elif event is InputEventMouseMotion and prune_mode and state.phase == GameState.Phase.DAY:
+		# Hovering with the mouse shows where the shears would cut.
+		pruning.preview(pruning.pick((event as InputEventMouseMotion).position))
 
 
 func _start_pinch() -> void:
@@ -742,9 +753,16 @@ func _begin_press(pos: Vector2) -> void:
 	_press_time = _time
 	_drag_mode = ""
 	# (Play test 3: no holding and no dragging the sun; a tap boosts, see _end_press.)
+	if prune_mode and state.phase == GameState.Phase.DAY:
+		_drag_mode = "prune"
+		pruning.preview(pruning.pick(pos))
 
 
 func _drag(pos: Vector2, rel: Vector2) -> void:
+	if _drag_mode == "prune":
+		# The finger slides along the tree; the mark follows. Off the tree, nothing is cut.
+		pruning.preview(pruning.pick(pos))
+		return
 	if _drag_mode != "orbit" and pos.distance_to(_press_pos) > DRAG_THRESHOLD:
 		_drag_mode = "orbit"
 		state.sim.clock.boost_active = false
@@ -757,6 +775,16 @@ func _end_press(is_release: bool, pos: Vector2 = Vector2.ZERO) -> void:
 	if not _pressing:
 		return
 	_pressing = false
+	if _drag_mode == "prune":
+		_drag_mode = ""
+		if is_release and state.phase == GameState.Phase.DAY:
+			var cut := pruning.cut()
+			if cut > 0:
+				_rebuild()
+				pruned.emit(cut)
+		else:
+			pruning.preview(-1)
+		return
 	# A short tap by day boosts the sun for one game hour; the clock keeps running.
 	if is_release and _drag_mode != "orbit" and state.phase == GameState.Phase.DAY and _press_phase == GameState.Phase.DAY and _time - _press_time < 0.6:
 		state.boost_hour()
