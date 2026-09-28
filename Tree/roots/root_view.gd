@@ -297,7 +297,8 @@ func _build_hud() -> void:
 	_hint = PaperNote.new(27, 62)
 	_hint.set_anchors_preset(Control.PRESET_TOP_WIDE)
 	_hint.offset_left = 50
-	_hint.offset_right = -50
+	# Clear of the corner scraps (shed, photo) on the right.
+	_hint.offset_right = -190
 	_hint.offset_top = 190
 	root.add_child(_hint)
 
