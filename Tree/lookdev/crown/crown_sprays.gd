@@ -31,6 +31,7 @@ static func material() -> ShaderMaterial:
 	mat.shader = preload("res://lookdev/crown/leaf_spray.gdshader")
 	mat.set_shader_parameter("spray_color", load(COLOR))
 	mat.set_shader_parameter("spray_normal", load(NORMAL))
+	mat.set_shader_parameter("cheap", Budgets.PHONE)
 	return mat
 
 

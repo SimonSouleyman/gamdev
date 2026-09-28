@@ -5,7 +5,7 @@ extends Node3D
 ## grass; butterflies around the crown, birds crossing the sky, pollen in the sunlight and
 ## fireflies at dusk. All mood: nothing here touches the simulation. Seeded like everything else.
 
-const FOREST_TREES := Budgets.FOREST_TREES
+static var FOREST_TREES: int = Budgets.FOREST_TREES
 ## The open middle where the player's tree grows; the underground reaches about as far.
 ## The clearing of a young tree (Simon: a small clearing ringed by trees).
 const CLEARING_RADIUS := 18.0
@@ -18,9 +18,9 @@ var clearing_radius: float = CLEARING_RADIUS
 ## The clearing for a tree of this height, in steps of 6 m so the world is rebuilt rarely.
 static func radius_for(tree_height: float) -> float:
 	return clampf(CLEARING_RADIUS + snappedf(maxf(0.0, tree_height - 8.0) * 1.4, 6.0), CLEARING_RADIUS, CLEARING_MAX)
-const BUSHES := Budgets.FOREST_BUSHES
+static var BUSHES: int = Budgets.FOREST_BUSHES
 const CLOUDS := 16
-const FLOWERS := Budgets.MEADOW_FLOWERS
+static var FLOWERS: int = Budgets.MEADOW_FLOWERS
 const BUTTERFLIES := 6
 const BIRDS := 5
 
@@ -263,7 +263,8 @@ func _build_distant_trees(seed: int, bark: Material, leaf: Material) -> void:
 	var weights := [3, 3, 3, 2, 3]
 	for t in range(FOREST_TREES):
 		var ang := TAU * (float(t) + _rng.randf() * 0.8) / FOREST_TREES * 3.0
-		var front := t % 3 != 2
+		# A phone keeps only the front rows; the painted deep wood stands in for the rest.
+		var front := t % 3 != 2 or Budgets.PHONE
 		var d := clearing_radius + (_rng.randf_range(2.6, 7.0) if front else _rng.randf_range(8.0, 24.0))
 		var kind := _weighted(weights)
 		if front and kind == 4 and _rng.randf() < 0.6:
@@ -284,6 +285,7 @@ func _build_distant_trees(seed: int, bark: Material, leaf: Material) -> void:
 			mm.set_instance_transform(i, Transform3D(Basis(Vector3.UP, _rng.randf() * TAU).scaled(Vector3.ONE * s), spots[i]))
 		mmi.multimesh = mm
 		mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		mmi.add_to_group("forest_trees")
 		add_child(mmi)
 
 
@@ -357,9 +359,9 @@ const SHRUBS: Array[Dictionary] = [
 	{"name": "blackthorn", "size": Vector3(2.2, 1.6, 2.0), "leaf": Color(0.36, 0.48, 0.26), "clusters": 90, "card": 0.38, "flowers": Color(0, 0, 0, 0)},
 ]
 ## Front band of low herbs, ferns and flowers along the edge.
-const EDGE_HERBS := 1100
+static var EDGE_HERBS: int = Budgets.EDGE_HERBS
 ## Tall flowers among them (foxglove, campion, yarrow, buttercup).
-const EDGE_FLOWERS := 500
+static var EDGE_FLOWERS: int = Budgets.EDGE_FLOWERS
 const EDGE_FLOWER_COLORS: Array[Color] = [Color(0.78, 0.4, 0.66), Color(0.86, 0.3, 0.42), Color(0.95, 0.93, 0.86), Color(0.95, 0.82, 0.25)]
 
 
@@ -385,7 +387,7 @@ func _build_bushes(forest_leaf: Material) -> void:
 		var colors := PackedColorArray()
 		var indices := PackedInt32Array()
 		var blossoms: Array[Vector3] = []
-		for _c in range(int(kind["clusters"])):
+		for _c in range(int(float(kind["clusters"]) * Budgets.SHRUB_DENSITY)):
 			var v := Vector3(_rng.randf_range(-1, 1), _rng.randf_range(0, 1), _rng.randf_range(-1, 1))
 			if v.length() > 1.0:
 				continue
@@ -448,6 +450,7 @@ func _build_bushes(forest_leaf: Material) -> void:
 			mm.set_instance_transform(i, Transform3D(Basis(Vector3.UP, _rng.randf() * TAU).scaled(Vector3(s, s * _rng.randf_range(0.85, 1.2), s)), Terrain.at(Vector3(cos(ang) * d, 0, sin(ang) * d)) + Vector3(0, -0.15, 0)))
 		mmi.multimesh = mm
 		mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		mmi.add_to_group("shrubs")
 		add_child(mmi)
 		_split_near_shed(mmi, 3.4)
 	_build_edge_herbs()

@@ -5,7 +5,7 @@ shader_type spatial;
 // as one soft surface. Far clumps shrink away.
 render_mode cull_disabled, diffuse_lambert_wrap;
 
-uniform sampler2D clump_texture : source_color, filter_linear_mipmap_anisotropic, repeat_disable;
+uniform sampler2D clump_texture : source_color, filter_linear_mipmap, repeat_disable;
 uniform float wind_strength = 1.0;
 uniform float fade_start = 14.0;
 uniform float fade_end = 30.0;

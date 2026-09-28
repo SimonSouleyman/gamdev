@@ -137,6 +137,10 @@ func _build_world() -> void:
 	var sky := Sky.new()
 	sky.sky_material = _sky_mat
 	sky.radiance_size = Sky.RADIANCE_SIZE_64
+	if Budgets.PHONE:
+		# The sun moves every frame; the real-time path is the cheap one on a phone.
+		sky.process_mode = Sky.PROCESS_MODE_REALTIME
+		sky.radiance_size = Sky.RADIANCE_SIZE_256
 	_env = Environment.new()
 	_env.background_mode = Environment.BG_SKY
 	_env.sky = sky
@@ -147,7 +151,8 @@ func _build_world() -> void:
 	_env.reflected_light_source = Environment.REFLECTION_SOURCE_SKY
 	_env.tonemap_mode = Environment.TONE_MAPPER_ACES
 	_env.tonemap_exposure = 1.1
-	_env.glow_enabled = true
+	# Glow costs a phone more than it gives.
+	_env.glow_enabled = not Budgets.PHONE
 	_env.glow_intensity = 0.35
 	_env.glow_bloom = 0.05
 	_env.fog_enabled = true
@@ -296,8 +301,8 @@ func _build_world() -> void:
 	add_child(_sun_disc)
 
 
-const GRASS_CLUMPS := Budgets.MEADOW_GRASS_CLUMPS
-const HERB_CLUMPS := Budgets.MEADOW_HERB_CLUMPS
+static var GRASS_CLUMPS: int = Budgets.MEADOW_GRASS_CLUMPS
+static var HERB_CLUMPS: int = Budgets.MEADOW_HERB_CLUMPS
 
 
 func _clump_layer(tex: Texture2D) -> MultiMeshInstance3D:
@@ -642,7 +647,8 @@ func _frame_camera(snap: bool, delta: float = 0.0) -> void:
 	# Just wide enough to hold the whole tree at this distance.
 	camera.fov = clampf(rad_to_deg(2.0 * atan(height * 0.62 / maxf(want_distance, 0.1))) + 10.0, 50.0, 80.0)
 	# The meadow grass fades out beyond the tree, however far back the camera stands.
-	var fade := maxf(24.0, want_distance + 22.0)
+	# (A phone lets it fade sooner: meadow cards are what it pays most for.)
+	var fade := maxf(14.0 if Budgets.PHONE else 24.0, want_distance + (8.0 if Budgets.PHONE else 22.0))
 	for layer in [_grass, _herbs]:
 		var gm := (layer as MultiMeshInstance3D).material_override as ShaderMaterial
 		gm.set_shader_parameter("fade_start", fade)

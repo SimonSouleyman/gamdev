@@ -26,7 +26,7 @@ static func apply(scenery: Node3D) -> void:
 		if leaf_surface < 0:
 			continue
 		if not done.has(mesh):
-			var cards := 8 if mesh.get_surface_count() == 2 else 6
+			var cards := Budgets.FOREST_SPRAY_CARDS if mesh.get_surface_count() == 2 else maxi(3, Budgets.FOREST_SPRAY_CARDS - 2)
 			done[mesh] = _respray(mesh, leaf_surface, cards, template)
 		if done[mesh] != null:
 			mmi.multimesh.mesh = done[mesh]

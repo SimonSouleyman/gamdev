@@ -4,7 +4,7 @@ shader_type spatial;
 // sun, and a dithered alpha keeps edges soft without sorting.
 render_mode cull_disabled, depth_draw_opaque, diffuse_lambert_wrap, specular_schlick_ggx;
 
-uniform sampler2D spray_color : source_color, filter_linear_mipmap_anisotropic, repeat_disable;
+uniform sampler2D spray_color : source_color, filter_linear_mipmap, repeat_disable;
 uniform sampler2D spray_normal : hint_normal, filter_linear_mipmap, repeat_disable;
 uniform vec3 crown_centre = vec3(0.0, 8.0, 0.0);
 uniform vec3 crown_radii = vec3(5.0);
@@ -17,6 +17,8 @@ uniform vec3 tint_mul : source_color = vec3(1.0);
 uniform bool baked = false;
 // > 0: fragments closer to the camera than this dissolve (forest trees in front of the camera).
 uniform float near_fade = 0.0;
+// Phones skip the leaf normal map (one texture read and a TBN per fragment less).
+uniform bool cheap = false;
 
 
 void vertex() {
@@ -62,8 +64,10 @@ void fragment() {
 	// Instance alpha carries the crown occlusion: inner and lower leaves see little sky.
 	AO = 1.0 - COLOR.a;
 	AO_LIGHT_AFFECT = 0.35;
-	NORMAL_MAP = texture(spray_normal, UV).rgb;
-	NORMAL_MAP_DEPTH = 0.7;
+	if (!cheap) {
+		NORMAL_MAP = texture(spray_normal, UV).rgb;
+		NORMAL_MAP_DEPTH = 0.7;
+	}
 	ROUGHNESS = 0.85;
 	SPECULAR = 0.06;
 	// Leaves are thin: the sun shines through them, stronger on the crown's shaded side.

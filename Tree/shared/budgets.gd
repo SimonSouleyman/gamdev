@@ -13,12 +13,23 @@ const FINE_ROOTS_MAX_PER_MAIN_ROOT: int = 600
 ## Max nutrient dots kept in memory for the underground at once.
 const NUTRIENT_DOTS_LOADED: int = 4000
 ## The forest around the clearing (rendering budgets: every tree is instanced from a few variants).
-const FOREST_TREES: int = 140
-const FOREST_VARIANT_NODES: int = 320
-const FOREST_BUSHES: int = 260
-const MEADOW_FLOWERS: int = 1500
-const MEADOW_GRASS_CLUMPS: int = 9500
-const MEADOW_HERB_CLUMPS: int = 900
+## A phone gets about half: measured on a Fairphone 6, the forest and the meadow cards cost the
+## most (alpha-tested overdraw).
+static var PHONE: bool = OS.has_feature("mobile")
+static var FOREST_TREES: int = 36 if PHONE else 140
+static var FOREST_VARIANT_NODES: int = 240 if PHONE else 320
+static var FOREST_BUSHES: int = 80 if PHONE else 260
+static var MEADOW_FLOWERS: int = 500 if PHONE else 1500
+static var MEADOW_GRASS_CLUMPS: int = 2800 if PHONE else 9500
+static var MEADOW_HERB_CLUMPS: int = 350 if PHONE else 900
+## Leaf sprays per forest cluster, and edge herb cards.
+static var FOREST_SPRAY_CARDS: int = 3 if PHONE else 8
+static var EDGE_HERBS: int = 300 if PHONE else 1100
+static var EDGE_FLOWERS: int = 250 if PHONE else 500
+## Share of each shrub's leaf clusters a phone draws.
+static var SHRUB_DENSITY: float = 0.5 if PHONE else 1.0
+## Frame cap: a steady 30 on a phone saves battery.
+static var MAX_FPS: int = 30 if PHONE else 0
 ## Max attraction markers alive in the tree canopy at once.
 const TREE_MARKERS: int = 2000
 ## Max main roots (one per night) a tree may grow; roughly a month plus spare nights.

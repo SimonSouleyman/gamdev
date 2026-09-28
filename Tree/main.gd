@@ -36,6 +36,8 @@ func _ready() -> void:
 	if OS.get_cmdline_user_args().has("--ephemeral"):
 		ephemeral = true
 	_build()
+	if Budgets.MAX_FPS > 0:
+		Engine.max_fps = Budgets.MAX_FPS
 	if ephemeral:
 		return  # tools start their own seeded game
 	# A drawn page covers the first frames while the forest grows.
