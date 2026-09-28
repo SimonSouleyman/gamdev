@@ -83,3 +83,10 @@ Each criterion has a test in `tests/` unless marked (visual), which Simon judges
 - With vibration on, a cut, a dive and a finished tree buzz the phone (Input.vibrate_handheld; VIBRATE permission added by the TreePhone export plugin); off, nothing buzzes (test).
 - After the game was closed for an hour or more, a torn "while you were away" page shows once: how long, the growth in metres, the visitors that came meanwhile and an ink sketch of the tree drawn from its plant graph (tests: report once, none for a short absence, absences add up, the page's words).
 - (visual) tools/shed_shot.gd photographs the shed, each thing hovered and mid-tap, the pinboard (also in clearer print), the pot's page and the away page.
+## 0.6 part 1: a simpler forest on the phone
+- On the phone path (Budgets.PHONE; on a PC `-- --phone`) the forest ring and the shrub belt are baked cards (ForestImpostors): one draw call per set, trees ordered from the clearing outwards, octagon cards cut to the plant's outline, hard alpha cut (no dither, no near fade, no shadow lookups).
+- Every forest tree kind and shrub kind has baked cells (colour and normals, two sides) inside the shader's cell array; each card shows its own plant's kind.
+- A phone keeps only Budgets.FOREST_REAL_TREES real 3D trees, the innermost tree of each sector of the ring; a PC keeps all its 3D trees and its look is unchanged.
+- tools/grow_shot.gd `--stats` prints draw calls and primitives with and without the forest; on the phone path at day 10 the forest costs about 12k primitives in 4 to 8 draw calls (before: about 117k in 18 to 21).
+- (visual) The ring still reads as a closed wall of mixed broadleaves with the painted deep wood behind; the player's tree stands out at noon and in the evening (days 5 and 20).
+- (phone) The day tree view reaches 30 fps on the Fairphone 6.

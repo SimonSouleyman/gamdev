@@ -3,6 +3,11 @@ extends SceneTree
 ## the tree view at noon from three sides. For judging the look of the growth.
 ## Run: godot --path . -s tools/grow_shot.gd -- --days=10 --shots=C:/some/folder [--seed=42] [--species=oak] [--boost] [--dive]
 ## --dive: instead, five frames of the fall into the ground (dive_amount 0 to 1) from the south.
+## --stats: also print draw calls and primitives of each view, with and without the forest ring
+## and shrub belt. Add `--phone` (and `--rendering-method gl_compatibility` before `--`) to
+## measure the phone path on a PC.
+## --overdraw: photograph the overdraw view instead (Forward+ and Mobile renderers only):
+## the brighter, the more layers each pixel was shaded in.
 
 var shots_dir := ""
 var days := 10
@@ -14,6 +19,8 @@ var view: TreeView
 var frame := 0
 var dive := false
 var prune := false
+var stats := false
+var overdraw := false
 
 
 func _initialize() -> void:
@@ -32,6 +39,10 @@ func _initialize() -> void:
 			prune = true
 		elif a == "--dive":
 			dive = true
+		elif a == "--overdraw":
+			overdraw = true
+		elif a == "--stats":
+			stats = true
 		elif a == "--boost":
 			boost = true
 	DirAccess.make_dir_recursive_absolute(shots_dir)
@@ -67,6 +78,8 @@ func _process(_delta: float) -> bool:
 		# After the view's own _ready, which runs once the tree starts.
 		view.setup(get_meta("game"))
 		view.set_hud_visible(false)
+		if overdraw:
+			root.get_viewport().debug_draw = Viewport.DEBUG_DRAW_OVERDRAW
 	if dive:
 		return _dive_frames()
 	if prune:
@@ -77,12 +90,38 @@ func _process(_delta: float) -> bool:
 	if frame % 20 == 0 and i - 1 < names.size():
 		RenderingServer.force_draw(false)
 		root.get_viewport().get_texture().get_image().save_png(shots_dir.path_join("tree_day%d_h%d_%s.png" % [days, int(hour * 100), names[i - 1]]))
+		if stats:
+			_print_stats(names[i - 1])
 	if i < names.size():
 		view._yaw = yaws[i]
 		view._pitch = 0.12
 	else:
 		quit()
 	return false
+
+
+## What the frame just drawn cost, and what it costs without the forest (trees, impostors, shrubs).
+func _print_stats(label: String) -> void:
+	var all := _render_info()
+	var forest: Array[Node] = get_nodes_in_group("forest_trees") + get_nodes_in_group("shrubs")
+	for n in forest:
+		(n as Node3D).visible = false
+	RenderingServer.force_draw(false)
+	var bare := _render_info()
+	for n in forest:
+		(n as Node3D).visible = true
+	print("%s  %s: draw calls %d (shadow %d), primitives %d (shadow %d), objects %d | without forest: draw calls %d, primitives %d | forest: %d draw calls, %d primitives" % [
+		RenderingServer.get_current_rendering_method(), label, all[0], all[2], all[1], all[3], all[4], bare[0], bare[1], all[0] - bare[0], all[1] - bare[1]])
+
+
+## [draw calls, primitives, shadow draw calls, shadow primitives, objects] of the last frame.
+func _render_info() -> Array[int]:
+	var vp := root.get_viewport()
+	var vis := Viewport.RENDER_INFO_TYPE_VISIBLE
+	var sh := Viewport.RENDER_INFO_TYPE_SHADOW
+	return [vp.get_render_info(vis, Viewport.RENDER_INFO_DRAW_CALLS_IN_FRAME), vp.get_render_info(vis, Viewport.RENDER_INFO_PRIMITIVES_IN_FRAME),
+		vp.get_render_info(sh, Viewport.RENDER_INFO_DRAW_CALLS_IN_FRAME), vp.get_render_info(sh, Viewport.RENDER_INFO_PRIMITIVES_IN_FRAME),
+		vp.get_render_info(vis, Viewport.RENDER_INFO_OBJECTS_IN_FRAME)]
 
 
 func _dive_frames() -> bool:
