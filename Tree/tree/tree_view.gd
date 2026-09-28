@@ -45,7 +45,13 @@ var _env: Environment
 var _meadow: Meadow
 var _builder := BranchMeshBuilder.new()
 ## The shears: while on, taps cut branches instead of boosting (Pruning).
-var prune_mode: bool = false
+var prune_mode: bool = false:
+	set(on):
+		prune_mode = on
+		if on and state != null:
+			prune_height = state.sim.height() * 0.55
+## Where on the trunk the camera looks while the shears are out.
+var prune_height: float = 1.0
 var pruning: Pruning
 var _rebuild_timer: float = 0.0
 var _built_size: int = -1
@@ -423,8 +429,9 @@ func _plant_grass(seed: int) -> void:
 		for i in range(count):
 			# Denser in the open meadow a few metres out, where the camera looks.
 			var d := (_clearing + 2.0) * pow(rng.randf(), 0.55)
-			if d < 0.3:
-				d = 0.3 + rng.randf() * 0.4
+			# Bare earth right around the trunk (Meadow.BARE_RADIUS).
+			if d < Meadow.BARE_RADIUS + 0.05:
+				d = Meadow.BARE_RADIUS + 0.05 + rng.randf() * 0.5
 			var a := rng.randf() * TAU
 			# No grass inside the garden shed.
 			if Vector2(cos(a) * d - Shed.origin.x, sin(a) * d - Shed.origin.z).length() < 2.4:
@@ -673,15 +680,18 @@ func _update_twinkles() -> void:
 			alive.append(id)
 		else:
 			_births.erase(id)
+	# Only every fourth new segment glows, and softly: many fast-flickering yellow points read
+	# as screen flicker (Simon, 0.5.1).
+	alive = alive.filter(func(id: int) -> bool: return id % 4 == 0)
 	var mm := _twinkles.multimesh
 	mm.instance_count = alive.size()
 	for i in range(alive.size()):
 		var id: int = alive[i]
 		var age := (_time - float(_births[id])) / TWINKLE_SECONDS
-		var flicker := 0.6 + 0.4 * sin(_time * 14.0 + id * 1.7)
+		var flicker := 0.85 + 0.15 * sin(_time * 2.0 + id * 1.7)
 		var s := 0.22 * (1.0 - age) * flicker + 0.04
 		mm.set_instance_transform(i, Transform3D(Basis.from_scale(Vector3.ONE * s), g.positions[id]))
-		mm.set_instance_color(i, Color(1.0, 0.92, 0.6, (1.0 - age) * flicker))
+		mm.set_instance_color(i, Color(1.0, 0.92, 0.6, (1.0 - age) * flicker * 0.6))
 
 
 func twinkle_count() -> int:
@@ -760,10 +770,15 @@ func _frame_camera(snap: bool, delta: float = 0.0) -> void:
 		_framed_day = state.day_number()
 	var height := _framed_height
 	var want_focus := Vector3(0, clampf(height * 0.5, 0.25, 30.0), 0)
+	if prune_mode:
+		want_focus = Vector3(0, prune_height, 0)
 	# The camera stays inside the clearing, which grows with the tree (refresh_clearing), so a
 	# grown linden is seen whole from further back rather than through a wide lens.
 	var room := maxf(_clearing, Scenery.CLEARING_RADIUS) - 3.0
 	var want_distance := clampf(clampf(height * 1.35 + 2.2, 2.4, room) * _zoom, 1.5, room + 0.5)
+	if prune_mode:
+		# Closer in, looking at the part of the crown around prune_height.
+		want_distance = clampf((height * 0.45 + 2.0) * _zoom, 1.5, room + 0.5)
 	# Just wide enough to hold the whole tree at this distance.
 	camera.fov = clampf(rad_to_deg(2.0 * atan(height * 0.62 / maxf(want_distance, 0.1))) + 10.0, 50.0, 80.0)
 	# The meadow grass fades out beyond the tree, however far back the camera stands.
@@ -823,7 +838,10 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 	if event is InputEventMouseButton:
 		var m := event as InputEventMouseButton
-		if m.button_index == MOUSE_BUTTON_WHEEL_UP and m.pressed:
+		if prune_mode and m.pressed and (m.button_index == MOUSE_BUTTON_WHEEL_UP or m.button_index == MOUSE_BUTTON_WHEEL_DOWN):
+			# With the shears: the wheel rides the camera up and down the trunk.
+			prune_height = clampf(prune_height + (0.5 if m.button_index == MOUSE_BUTTON_WHEEL_UP else -0.5), 0.3, state.sim.height())
+		elif m.button_index == MOUSE_BUTTON_WHEEL_UP and m.pressed:
 			_zoom = clampf(_zoom * 0.9, 0.35, 6.0)
 		elif m.button_index == MOUSE_BUTTON_WHEEL_DOWN and m.pressed:
 			_zoom = clampf(_zoom * 1.1, 0.35, 6.0)
@@ -855,11 +873,19 @@ func _begin_press(pos: Vector2) -> void:
 	_drag_mode = ""
 	# (Play test 3: no holding and no dragging the sun; a tap boosts, see _end_press.)
 	if prune_mode and state.phase == GameState.Phase.DAY:
-		_drag_mode = "prune"
-		pruning.preview(pruning.pick(pos))
+		# On a branch: choose where to cut. Beside the tree: move the camera along the trunk.
+		var id := pruning.pick(pos)
+		_drag_mode = "prune" if id >= 0 else "trunk"
+		pruning.preview(id)
 
 
 func _drag(pos: Vector2, rel: Vector2) -> void:
+	if _drag_mode == "trunk":
+		# With the shears out the camera rides the trunk (Simon, 0.5.1): up and down along it,
+		# around it sideways, so every branch can be reached.
+		_yaw -= rel.x * 0.006
+		prune_height = clampf(prune_height + rel.y * 0.02 * maxf(1.0, state.sim.height() / 10.0), 0.3, state.sim.height())
+		return
 	if _drag_mode == "prune":
 		# The finger slides along the tree; the mark follows. Off the tree, nothing is cut.
 		pruning.preview(pruning.pick(pos))
@@ -876,6 +902,9 @@ func _end_press(is_release: bool, pos: Vector2 = Vector2.ZERO) -> void:
 	if not _pressing:
 		return
 	_pressing = false
+	if _drag_mode == "trunk":
+		_drag_mode = ""
+		return
 	if _drag_mode == "prune":
 		_drag_mode = ""
 		if is_release and state.phase == GameState.Phase.DAY:

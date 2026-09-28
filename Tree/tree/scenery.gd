@@ -69,7 +69,8 @@ func build(seed: int, bark: Material, leaf: Material, noise: Texture2D, radius: 
 	_build_flowers()
 	_build_butterflies()
 	_build_birds()
-	_pollen = _motes(Color(1.0, 0.95, 0.75, 0.9), 60, Vector3(5, 3, 5), Vector3(0, 3, 0), 0.025)
+	# A few soft motes of pollen, not a swarm of bright points (Simon, 0.5.1: the crown flickered).
+	_pollen = _motes(Color(1.0, 0.95, 0.8, 0.45), 16, Vector3(5, 3, 5), Vector3(0, 3, 0), 0.03)
 	_fireflies = _motes(Color(0.85, 1.0, 0.45, 1.0), 40, Vector3(9, 0.8, 9), Vector3(0, 0.6, 0), 0.04)
 
 
