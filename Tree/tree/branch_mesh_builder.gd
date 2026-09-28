@@ -11,6 +11,9 @@ var radius_scale: float = 1.3
 var min_radius: float = 0.006
 ## Bark texture repeats per metre along the wood.
 var bark_tiling: float = 1.2
+## Optional, one per graph node (the bonsai: deadwood, shari, wire scars): written as vertex
+## colours, with the angle around the wood (0..1) in UV2.x so a shader can draw a strip.
+var node_colors: PackedColorArray = PackedColorArray()
 
 
 func sides_for(r: float) -> int:
@@ -100,6 +103,9 @@ func build(g: PlantGraph, first_id: int = 1, end_id: int = -1) -> ArrayMesh:
 	var tangents := PackedFloat32Array()
 	var uvs := PackedVector2Array()
 	var indices := PackedInt32Array()
+	var tinted := node_colors.size() == n
+	var colors := PackedColorArray()
+	var uv2s := PackedVector2Array()
 	for id in range(first, last):
 		if alive[id] == 0:
 			continue
@@ -129,6 +135,12 @@ func build(g: PlantGraph, first_id: int = 1, end_id: int = -1) -> ArrayMesh:
 		var reps := maxf(1.0, round(r_bottom * 20.0))
 		_ring(g.positions[p], bottom_axis, bottom_side, r_bottom, sides, along[p] * bark_tiling, reps, verts, normals, tangents, uvs)
 		_ring(g.positions[id], axis[id], side[id], r_top, sides, along[id] * bark_tiling, reps, verts, normals, tangents, uvs)
+		if tinted:
+			for k in range(2):
+				var c := node_colors[p] if k == 0 and main_child[p] == id else node_colors[id]
+				for i in range(sides + 1):
+					colors.append(c)
+					uv2s.append(Vector2(float(i) / float(sides), 0.0))
 		var stride := sides + 1
 		for i in range(sides):
 			var a0 := base + i
@@ -145,6 +157,9 @@ func build(g: PlantGraph, first_id: int = 1, end_id: int = -1) -> ArrayMesh:
 	arrays[Mesh.ARRAY_TANGENT] = tangents
 	arrays[Mesh.ARRAY_TEX_UV] = uvs
 	arrays[Mesh.ARRAY_INDEX] = indices
+	if tinted:
+		arrays[Mesh.ARRAY_COLOR] = colors
+		arrays[Mesh.ARRAY_TEX_UV2] = uv2s
 	var mesh := ArrayMesh.new()
 	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
 	return mesh

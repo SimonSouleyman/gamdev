@@ -13,7 +13,8 @@ extends Node3D
 ## paper and cloth textures, so they can open and rustle.
 
 ## The things that are menu entries, in the order of their labels.
-const ITEMS: Array[String] = ["journal", "album", "seeds", "pot", "gloves", "options"]
+## The bonsai on the windowsill is one too, once it is there (bonsai_ready).
+const ITEMS: Array[String] = ["journal", "album", "seeds", "pot", "gloves", "options", "bonsai"]
 ## Seconds from the tap until the page opens: the motion and the sound come first.
 const TAP_DELAY := 0.42
 
@@ -35,6 +36,8 @@ const BENCH_TOP := 0.87
 var camera: Camera3D
 ## Where the bonsai will stand: on the windowsill beside the workbench (design doc 16 A).
 var bonsai_spot: Node3D
+## The bonsai stands on the sill (unlocked): it answers a tap and carries a label.
+var bonsai_ready: bool = false
 var _items: Dictionary = {}  # name -> Node3D (the part that moves on a tap)
 var _picks: Dictionary = {}  # name -> [Node3D centre, radius in metres]
 var _tag_anchors: Dictionary = {}  # name -> [Node3D, below: bool] (where its label goes)
@@ -255,6 +258,11 @@ func _build_window() -> void:
 	bonsai_spot.name = "bonsai_spot"
 	bonsai_spot.position = Vector3(cx, sill_top, hd - 0.1)
 	add_child(bonsai_spot)
+	_pick("bonsai", bonsai_spot.position + Vector3(0.0, 0.2, -0.04), 0.17)
+	var tag := Node3D.new()
+	tag.position = bonsai_spot.position + Vector3(0.0, 0.08, -0.16)
+	add_child(tag)
+	_tag_anchors["bonsai"] = [tag, true]
 	# Daylight through the window: a soft spot from outside, and a faint shaft of dusty air.
 	var sun := SpotLight3D.new()
 	sun.light_color = Color(1.0, 0.9, 0.72)
@@ -605,7 +613,7 @@ func item_at(screen: Vector2) -> String:
 	var best_score := 1.0
 	for k in _picks:
 		var at := (_picks[k][0] as Node3D).global_position
-		if camera.is_position_behind(at):
+		if camera.is_position_behind(at) or (k == "bonsai" and not bonsai_ready):
 			continue
 		var r := _screen_radius(at, float(_picks[k][1]))
 		var score := camera.unproject_position(at).distance_to(screen) / maxf(r, 1.0)
@@ -636,7 +644,8 @@ func _build_sounds() -> void:
 	_player.volume_db = -4.0
 	add_child(_player)
 	var files := {"journal": "shed_book_open.ogg", "album": "shed_book_flip.ogg", "seeds": "shed_paper_bag.wav",
-		"pot": "shed_clay_pot.ogg", "gloves": "shed_gloves.ogg", "options": "shed_pin.ogg", "door": "shed_door.ogg"}
+		"pot": "shed_clay_pot.ogg", "gloves": "shed_gloves.ogg", "options": "shed_pin.ogg", "door": "shed_door.ogg",
+		"bonsai": "shed_clay_pot.ogg"}
 	for k in files:
 		var path := "res://assets/sounds/" + str(files[k])
 		if ResourceLoader.exists(path):

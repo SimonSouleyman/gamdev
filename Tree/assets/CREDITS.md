@@ -29,6 +29,10 @@ The HUD's shed and shears pictures (`ui/icons/shed.png`, `shears.png`, `shears_c
 | `assets/sounds/shed_book_open.ogg`, `shed_book_flip.ogg`, `shed_gloves.ogg`, `shed_pin.ogg`, `shed_door.ogg` (bookOpen, bookFlip2, cloth2, metalClick, creak1) | OpenGameArt, "50 RPG sound effects" by Kenney (https://opengameart.org/content/50-rpg-sound-effects) | CC0 |
 | `assets/sounds/shed_paper_bag.wav` (snd_use_map, cut to 1.3 s, mono) | OpenGameArt, "Opening and closing a map sounds" by spring-spring (https://opengameart.org/content/opening-and-closing-a-map-sounds) | CC0 |
 | `assets/sounds/shed_clay_pot.ogg` (item_stone_02) | OpenGameArt, "80 CC0 RPG SFX" by rubberduck (https://opengameart.org/content/80-cc0-rpg-sfx) | CC0 |
+| `assets/bonsai/Gravel022_Color.jpg`, `Gravel022_NormalGL.jpg` (downscaled to 512) | ambientCG, "Gravel 022" (https://ambientcg.com/view?id=Gravel022): the bonsai's fine gravel | CC0 |
+| `assets/bonsai/Moss002_Color.jpg`, `Moss002_NormalGL.jpg` (downscaled to 512) | ambientCG, "Moss 002" (https://ambientcg.com/view?id=Moss002): moss cushions on the bonsai's soil | CC0 |
+
+The bonsai reuses the Poly Haven clay planter (nursery pot) and watering can above and the sounds above (clay pot, metal click, paper bag, water). Its juniper foliage atlas (`lookdev/bonsai/make_juniper.py`) and the style pages (`lookdev/bonsai/make_styles.py`) are painted by Pillow scripts; the glazed pots, the fertiliser tin, the wire coils and the root ball are built in code.
 Everything else (the shed room, the journal, album and seed bag on the workbench, tree, roots, meadow plants, leaf fallback, paper, the wind, the underground hum and the collect note) is generated in code.
 Everything else (tree, roots, meadow plants, the shade plants and mushrooms of `lookdev/grass/understory_atlas.png`, leaf fallback, paper, the wind, the underground hum and the collect note) is generated in code.
 | `assets/sounds/rain.ogg` (track 1 of the pack) | OpenGameArt, "Rain (loopable)" by Ylmir (https://opengameart.org/content/rain-loopable) | CC0 |

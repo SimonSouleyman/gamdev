@@ -143,7 +143,9 @@ static func _cell(p: Vector3, size: float) -> Vector3i:
 func _node_grid(graph: PlantGraph, size: float, skip_dead: bool) -> Dictionary:
 	var grid := {}
 	for id in range(graph.size()):
-		if skip_dead and graph.get_flag(id, "dead", false):
+		# A resting node (a pinched bonsai tip, silver deadwood) takes no markers: the buds
+		# behind it get them instead.
+		if skip_dead and (graph.get_flag(id, "dead", false) or graph.get_flag(id, "rest", false)):
 			continue
 		var key := _cell(graph.positions[id], size)
 		# Packed arrays are values: append to a copy and store it back.

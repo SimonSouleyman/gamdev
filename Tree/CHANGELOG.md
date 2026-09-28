@@ -9,6 +9,13 @@
 - The month time-lapse: in the album a finished tree's page plays its morning photos as a
   flip-book ("flip through" does it for any tree), and "save as video" saves the month as a
   short film (into the phone's gallery once the phone plugin can; on a PC into the game folder).
+## v0.6 (in progress): bonsai mode
+- After the first finished tree a young juniper stands on the shed's windowsill. Tap it: the
+  camera comes close to the pot. Water it, give it pellets (N, P or K), turn the pot toward the
+  window, shape it with the shears (a third at most), pinch fresh tips and wire branches into new
+  lines. About every seventh day it asks to be repotted. It follows the same days as the tree,
+  costs the tree nothing and never dies; its album page grows by milestones.
+- Each finished clearing tree leaves a cutting for the sill; style pages show the classic shapes.
 
 ## v0.5.2 (2026-09-28)
 
