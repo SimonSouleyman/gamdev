@@ -1,65 +1,67 @@
 class_name Ambience
 extends Node
-## Ambience per world (design doc: wind, birds and insects above, a deep calm hum below,
-## crossfaded on the dive). Placeholder sounds from AmbienceSynth.
+## Ambience per world (design doc: ambience only, no music). Above: a recorded forest with birds
+## by day, a second bird recording on top, crickets as the sun goes down, a soft wind from
+## AmbienceSynth. Below: a deep calm hum and water trickling somewhere in the soil. Crossfaded on
+## the dive and with the time of day. Recordings are CC0 (assets/CREDITS.md; Simon, play test 4).
 
 const ABOVE_DB := -8.0
 const BELOW_DB := -6.0
 const SILENT_DB := -60.0
+## How loud each layer is at full presence.
+const LEVELS := {"forest": -6.0, "birds": -14.0, "crickets": -12.0, "wind": -18.0, "hum": -6.0, "water": -20.0}
+## How fast layers follow their targets (dB per second).
+const FADE_DB_PER_S := 30.0
 
-var _wind: AudioStreamPlayer
-var _insects: AudioStreamPlayer
-var _hum: AudioStreamPlayer
-## One player per chirp: the stream of a playing player is never swapped (that crashed the
-## audio thread on the phone).
-var _birds: Array[AudioStreamPlayer] = []
-var _chirps: Array[AudioStreamWAV] = []
-var _rng := RandomNumberGenerator.new()
-var _bird_timer: float = 3.0
+var _layers: Dictionary = {}  # name -> AudioStreamPlayer
 var _above: bool = true
 ## Birds sing by day only; the tree view sets this.
 var daylight: bool = true
-var _tween: Tween
 var _collect: AudioStreamPlayer
 var _streak: int = 0
 var _streak_timer: float = 0.0
+var _rng := RandomNumberGenerator.new()
+## Seconds a set_world crossfade takes.
+var _fade_speed: float = FADE_DB_PER_S
 
 
 func _ready() -> void:
 	_rng.seed = 7
-	_wind = _player(AmbienceSynth.wind(), ABOVE_DB)
-	_insects = _player(AmbienceSynth.insects(), ABOVE_DB - 10.0)
-	_hum = _player(AmbienceSynth.hum(), SILENT_DB)
-	for v in range(4):
-		_chirps.append(AmbienceSynth.chirp(v))
-		var b := _player(_chirps[v], ABOVE_DB - 4.0)
-		_birds.append(b)
+	_layer("forest", _loop(load("res://assets/sounds/forest_ambience.mp3")))
+	_layer("birds", _loop(load("res://assets/sounds/birds.ogg")))
+	_layer("crickets", _loop(load("res://assets/sounds/crickets.mp3")))
+	_layer("wind", AmbienceSynth.wind())
+	_layer("hum", AmbienceSynth.hum())
+	_layer("water", _loop(load("res://assets/sounds/water_flowing.ogg")))
 	_collect = AudioStreamPlayer.new()
 	_collect.stream = AmbienceSynth.pling()
 	_collect.volume_db = -14.0
 	_collect.max_polyphony = 4
 	add_child(_collect)
-	for p in [_wind, _insects, _hum]:
-		(p as AudioStreamPlayer).play()
 
 
-func _player(stream: AudioStream, db: float) -> AudioStreamPlayer:
+func _loop(stream: AudioStream) -> AudioStream:
+	if stream is AudioStreamMP3:
+		(stream as AudioStreamMP3).loop = true
+	elif stream is AudioStreamOggVorbis:
+		(stream as AudioStreamOggVorbis).loop = true
+	return stream
+
+
+func _layer(name: String, stream: AudioStream) -> void:
 	var p := AudioStreamPlayer.new()
 	p.stream = stream
-	p.volume_db = db
+	p.volume_db = SILENT_DB
 	add_child(p)
-	return p
+	# Each layer starts at its own point, so the loops do not line up.
+	p.play(_rng.randf() * 5.0)
+	_layers[name] = p
 
 
 ## Crossfade between the meadow and the underground.
 func set_world(above: bool, seconds: float = 2.0) -> void:
 	_above = above
-	if _tween:
-		_tween.kill()
-	_tween = create_tween().set_parallel(true)
-	_tween.tween_property(_wind, "volume_db", ABOVE_DB if above else SILENT_DB, seconds)
-	_tween.tween_property(_insects, "volume_db", (ABOVE_DB - 10.0) if above else SILENT_DB, seconds)
-	_tween.tween_property(_hum, "volume_db", SILENT_DB if above else BELOW_DB, seconds)
+	_fade_speed = 60.0 / maxf(seconds, 0.05)
 
 
 func is_above() -> bool:
@@ -80,16 +82,24 @@ func set_enabled(on: bool) -> void:
 	AudioServer.set_bus_mute(AudioServer.get_bus_index("Master"), not on)
 
 
+func _target(name: String) -> float:
+	var on := false
+	match name:
+		"forest", "birds":
+			on = _above and daylight
+		"crickets":
+			on = _above and not daylight
+		"wind":
+			on = _above
+		"hum", "water":
+			on = not _above
+	return float(LEVELS[name]) if on else SILENT_DB
+
+
 func _process(delta: float) -> void:
 	_streak_timer -= delta
 	if _streak_timer <= 0.0:
 		_streak = 0
-	if not _above or not daylight:
-		return
-	_bird_timer -= delta
-	if _bird_timer <= 0.0:
-		_bird_timer = _rng.randf_range(2.5, 9.0)
-		var bird := _birds[_rng.randi_range(0, _birds.size() - 1)]
-		if not bird.playing:
-			bird.pitch_scale = _rng.randf_range(0.9, 1.15)
-			bird.play()
+	for name in _layers:
+		var p: AudioStreamPlayer = _layers[name]
+		p.volume_db = move_toward(p.volume_db, _target(name), _fade_speed * delta)
