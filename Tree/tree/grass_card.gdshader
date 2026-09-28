@@ -28,7 +28,7 @@ void fragment() {
 	ALPHA = tex.a;
 	ALPHA_SCISSOR_THRESHOLD = 0.4;
 	ALPHA_ANTIALIASING_EDGE = 0.3;
-	ROUGHNESS = 0.85;
-	SPECULAR = 0.2;
+	ROUGHNESS = 0.95;
+	SPECULAR = 0.05;
 	BACKLIGHT = tex.rgb * 0.15 * (1.0 - UV.y);
 }

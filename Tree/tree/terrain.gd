@@ -56,7 +56,8 @@ static func ground_mesh(size: float, cells: int) -> ArrayMesh:
 			var b := Vector3(x1, height(x1, z0), z0)
 			var c := Vector3(x1, height(x1, z1), z1)
 			var d := Vector3(x0, height(x0, z1), z1)
-			for v in [a, c, b, a, d, c]:
+			# Wound so the ground faces up (it was culled from above and never drawn).
+			for v in [a, b, c, a, c, d]:
 				st.set_uv(Vector2(v.x, v.z) * 0.1)
 				st.add_vertex(v)
 	st.generate_normals()

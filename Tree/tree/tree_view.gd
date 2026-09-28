@@ -112,8 +112,9 @@ func refresh_clearing() -> void:
 	_meadow.build(state.ground)
 	_plant_grass(state.seed)
 	_scenery.build(state.seed, _bark_mat, _leaf_mat, _noise_tex, r)
-	# The same haze over a wider clearing would bury the forest; it thins as the clearing grows.
-	_env.fog_density = 0.011 * Scenery.CLEARING_RADIUS / r
+	# The haze begins further out as the clearing grows, so the forest ring is not buried.
+	_env.fog_depth_begin = r
+	_env.fog_depth_end = r * 2.0 + 34.0
 
 
 func _build_world() -> void:
@@ -147,7 +148,12 @@ func _build_world() -> void:
 	_env.glow_bloom = 0.05
 	_env.fog_enabled = true
 	# Haze lies between the tree and the forest: the wood recedes, the tree stays crisp.
-	_env.fog_density = 0.011
+	# Depth fog: the tree and meadow stay crisp, only what lies beyond recedes.
+	_env.fog_mode = Environment.FOG_MODE_DEPTH
+	_env.fog_depth_begin = 18.0
+	_env.fog_depth_end = 70.0
+	_env.fog_depth_curve = 1.0
+	_env.fog_density = 0.6
 	_env.fog_light_color = Color(0.45, 0.55, 0.5)
 	_env.fog_aerial_perspective = 0.4
 	_env.fog_sky_affect = 0.05
@@ -527,7 +533,7 @@ func _rebuild() -> void:
 	mm.instance_count = spots.size() * per
 	var rng := RandomNumberGenerator.new()
 	rng.seed = hash([state.seed, "leaf clusters"])
-	var grow := 1.0 + state.sim.height() * 0.03
+	var grow := 1.0 + state.sim.height() * 0.06
 	var centre := state.sim.centroid()
 	var crown_r := maxf(0.5, state.sim.height() * 0.35)
 	var n := 0

@@ -140,7 +140,8 @@ func _seed_markers(sun: Vector3, top: float, amount: float, steer: float) -> voi
 	# Nothing is seeded above the species' full height: the tree stops growing taller there.
 	var cap := species.max_height
 	colonizer.seed_sphere(Vector3(0, top + 0.45, 0) + flat * 0.4, 0.45, leader, limit, MARKER_MIN_Y, cap)
-	colonizer.seed_sphere(marker_center(sun, top, steer), r, crown, limit, MARKER_MIN_Y, cap)
+	# The crown starts above a clear trunk, so the base does not keep branching into a bush.
+	colonizer.seed_sphere(marker_center(sun, top, steer), r, crown, limit, maxf(MARKER_MIN_Y, top * 0.35), cap)
 
 
 ## Centre of the crown sphere for new markers.
