@@ -523,12 +523,22 @@ func save_video(tree_index: int) -> String:
 		_flip_status.text = "The film could not be saved."
 		_video_button.disabled = false
 		return ""
-	if Phone.save_video_to_gallery(path):
-		_flip_status.text = "Saved to the phone's gallery (Movies/Tree)."
-	else:
-		_flip_status.text = "Saved as %s" % ProjectSettings.globalize_path(path)
+	if Phone.save_video_to_gallery(path, _on_video_saved.bind(path)):
+		# The phone turns it into an MP4 on its own; the button waits for the answer.
+		_flip_status.text = "saving to the phone's gallery..."
+		return path
+	_flip_status.text = "Saved as %s" % ProjectSettings.globalize_path(path)
 	_video_button.disabled = false
 	return path
+
+
+## The phone's answer to save_video (Phone.save_video_to_gallery).
+func _on_video_saved(ok: bool, path: String) -> void:
+	if ok:
+		_flip_status.text = "Saved to the phone's gallery (Movies/Tree)."
+	else:
+		_flip_status.text = "The gallery would not take it. Saved as %s" % ProjectSettings.globalize_path(path)
+	_video_button.disabled = false
 
 
 # --- the seed bag -------------------------------------------------------------------
