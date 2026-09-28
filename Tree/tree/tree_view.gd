@@ -148,9 +148,8 @@ func refresh_clearing() -> void:
 	_env.fog_depth_end = r * 2.0 + 34.0
 
 
-## The nest in the crown and the bench under the tree, once they have come (Visitors).
+## The nest in the crown, once it has come (Visitors). (No bench: Simon did not like it.)
 var _nest: MeshInstance3D
-var _bench: Node3D
 
 
 func update_visitors() -> void:
@@ -184,27 +183,6 @@ func update_visitors() -> void:
 					best_d = d
 					best = id
 		_nest.position = g.positions[best] + Vector3(0, 0.05, 0)
-	if _bench == null:
-		_bench = Node3D.new()
-		var wood := StandardMaterial3D.new()
-		wood.albedo_texture = load("res://assets/wood/weathered_planks_diff_1k.jpg")
-		wood.uv1_triplanar = true
-		wood.uv1_world_triplanar = true
-		wood.roughness = 0.9
-		for part in [[Vector3(1.6, 0.05, 0.4), Vector3(0, 0.45, 0)], [Vector3(1.6, 0.3, 0.05), Vector3(0, 0.75, -0.2)], [Vector3(0.06, 0.45, 0.35), Vector3(-0.7, 0.22, 0)], [Vector3(0.06, 0.45, 0.35), Vector3(0.7, 0.22, 0)]]:
-			var m := MeshInstance3D.new()
-			var b := BoxMesh.new()
-			b.size = part[0]
-			m.mesh = b
-			m.position = part[1]
-			m.material_override = wood
-			_bench.add_child(m)
-		add_child(_bench)
-	_bench.visible = Visitors.has_come(state, "bench")
-	if _bench.visible:
-		var p := Vector3(2.6, 0, 1.8)
-		_bench.position = Terrain.at(p)
-		_bench.rotation.y = atan2(p.x, p.z)
 
 
 func _build_world() -> void:
