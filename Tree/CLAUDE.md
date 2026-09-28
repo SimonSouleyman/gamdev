@@ -14,11 +14,12 @@ Design doc: `docs/design-doc.md` (the source of truth for gameplay decisions).
 ## Layout
 - `shared/` simulation core: plant graph, space colonization, resources, day cycle, save data.
 - `tree/` tree mode scenes, mesh builder, sun.
+- `shed/` the garden shed (the menu) and the bonsai on its windowsill (`bonsai_view.gd`; the simulation is `shared/bonsai_sim.gd`, its paper `ui/bonsai_hud.gd`).
 - `roots/` root mode scenes, joystick, nutrient field.
 - `audio/`, `ui/` as named.
 - `tests/` headless tests. Run: `godot --headless --path . -s tests/run_tests.gd` (exit code 0 = pass). After a fresh checkout run `godot --headless --path . --import` once, or class_name lookups fail.
 - `docs/` design doc and research notes.
-- `tools/` dev tools: `autoplay.gd` plays the real scene end to end (seed, first root, sapling, tap boost, the day running on, second root) and takes screenshots; `grow_shot.gd` grows a tree for N days and photographs it; `month_report.gd -- --species=<id>|all` prints bot play day by day until the tree is finished, for tuning; `root_bot.gd` is the autopilot they share.
+- `tools/` dev tools: `autoplay.gd` plays the real scene end to end (seed, first root, sapling, tap boost, the day running on, second root) and takes screenshots; `grow_shot.gd` grows a tree for N days and photographs it; `month_report.gd -- --species=<id>|all` prints bot play day by day until the tree is finished, for tuning; `root_bot.gd` is the autopilot they share; `render_icons.gd` renders the HUD pictures and compass into `ui/icons` (needs a window); `hud_shot.gd` photographs the tree view with its real HUD. `shed_shot.gd` photographs the shed and then the bonsai (`--bonsai-only` for just the bonsai).
 - `main.tscn` is the game: it owns `GameState` (shared/) and switches `TreeView` (tree/) and `RootView` (roots/).
 
 ## Workflow

@@ -10,8 +10,39 @@ Godot 4.7 Android plugin (v2) for Tree. Singleton `TreePhone`, plain Android API
 | `isNotificationPermissionGranted() -> bool` | Permission granted and notifications enabled. |
 | `scheduleDaily(hour, minute, title, text)` | Daily reminder via `AlarmManager` (inexact `setAndAllowWhileIdle`, re-armed after each firing; exact only if `canScheduleExactAlarms()`). Channel `tree_daily`. Tap opens the game. Re-armed after reboot, app update and clock change. |
 | `cancelDaily()` | Stops the reminder. |
+| `saveVideoToGallery(aviPath: String, album: String) -> bool` | Month time-lapse: MJPEG AVI (absolute path) to H.264 MP4 in the gallery under `Movies/<album>`. Runs on its own thread: returns `true` once started (`false` if the file is missing or a video is already being saved), then emits `video_saved(ok: bool)`. See below. |
+
+Signals: `notification_permission_result(granted: bool)`, `video_saved(ok: bool)`.
 
 Game code uses the wrapper `res://shared/phone.gd` (`class_name Phone`), which is a no-op on PC.
+
+## `saveVideoToGallery` (month time-lapse, design doc 17.7) - built
+
+The album's "save as video" writes the tree's morning photos as a Motion-JPEG AVI
+(`res://ui/mjpeg_avi.gd`: RIFF, one `vids`/`MJPG` stream, 6 fps, 540 px wide, every frame a
+whole JPEG in a `00dc` chunk, `idx1` index with offsets from the `movi` tag) into
+`user://timelapse/<species>_<stamp>.avi`, then calls
+`Phone.save_video_to_gallery(path, on_done)`, which passes the absolute path and the album name
+`"Tree"` to the plugin and connects `on_done` once to `video_saved`. The album shows
+"saving to the phone's gallery..." until the signal arrives. Android's gallery apps do not play
+MJPEG AVI, so `VideoSaver.java` (on a worker thread):
+
+1. Reads the AVI: walks the RIFF chunks (`hdrl`/`strl`/`movi`), takes the `##dc` chunks inside
+   `movi` as frames and decodes each JPEG with `BitmapFactory.decodeByteArray`.
+   Frame rate = `dwRate / dwScale` of the `vids` `strh`.
+2. Encodes H.264 MP4 with `MediaCodec` (`video/avc`, `COLOR_FormatSurface`, each bitmap drawn onto
+   the encoder's input `Surface` with `lockHardwareCanvas`) and `MediaMuxer` (`MUXER_OUTPUT_MPEG_4`)
+   into the app's cache dir. Canvas input stamps frames with the time they are posted, so frames
+   are posted a steady 40 ms apart (bitrate scaled to match), each encoder output is matched to the
+   frame posted at its timestamp, and gets presentation time frame / fps. Size: the frames' size
+   rounded to even (retried at multiples of 16 if the encoder refuses).
+3. Inserts it with `MediaStore.Video.Media.EXTERNAL_CONTENT_URI`: `DISPLAY_NAME` = AVI name with
+   `.mp4`, `MIME_TYPE` = `video/mp4`, `RELATIVE_PATH` = `Movies/` + album, `IS_PENDING` 1 while
+   copying, then 0 (the row is deleted if the copy fails). Android 9 and older: copies the file to
+   the public `Movies/<album>` folder and registers it with `DATA`; that needs
+   `WRITE_EXTERNAL_STORAGE` (manifest, `maxSdkVersion` 28) granted by the owner - the game does not
+   ask for it, so there it fails cleanly (`video_saved(false)`, the AVI stays in the user folder).
+4. Emits `video_saved(ok)` on Godot's render thread. The temporary MP4 is deleted either way.
 
 ## Layout
 

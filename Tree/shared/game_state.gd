@@ -27,6 +27,8 @@ var sim: GrowthSim
 var ground: Underground
 var roots: RootSystem
 var diary := Diary.new()
+## The ground under the crown: shade plants and mushrooms, the first collection (Clearing).
+var clearing := Clearing.new()
 var phase: Phase = Phase.DAY
 ## Tonight's single run was used.
 var run_used: bool = false
@@ -51,6 +53,24 @@ var finished: bool = false
 ## each {"species": id, "days": int, "seed": int}. Carried from tree to tree (the grove);
 ## it decides which species the seed bag offers (Species.unlocked).
 var grove: Array = []
+## What happened while the game was closed, for the "while you were away" diary page: set by
+## apply_offline after an absence of at least AWAY_REPORT_SECONDS, taken (once) by the scene.
+## {"seconds", "grown" (metres), "height", "segments" (new ones), "visitors" (ids)}; empty if none.
+var away_report: Dictionary = {}
+
+## The bonsai on the shed's windowsill (design doc section 16): null until it is unlocked by the
+## first finished tree (or the test switch). Independent of the tree (no shared life force or
+## resources); it follows the same clock. Only the one on the sill grows; the others (cuttings
+## of finished trees, waiting their turn) rest on the shelf below: species id -> its save.
+var bonsai: BonsaiSim = null
+var bonsai_resting: Dictionary = {}
+
+## An absence shorter than this gets no "while you were away" page.
+const AWAY_REPORT_SECONDS: float = 3600.0
+## Today's weather (Almanac.weather_for), fixed once per game day so a real midnight in the
+## middle of a game day does not change it. Mood only; not saved (a load asks again).
+var _weather: Dictionary = {}
+var _weather_day: int = -1
 
 
 ## A new game: a seed is planted at sunset; the first night is the first root run.
@@ -62,6 +82,7 @@ static func new_game(random_seed: int, species_id: String = "linden") -> GameSta
 	g.ground = Underground.new(random_seed)
 	g.roots = RootSystem.new(random_seed)
 	g.roots.species = g.sim.species
+	g.clearing = Clearing.new(random_seed)
 	g.sim.clock.time_of_day = g.sim.clock.daylight_fraction
 	g.sim.resources.life_force = SEED_LIFE_FORCE
 	g.phase = Phase.SUNSET
@@ -77,10 +98,17 @@ static func new_tree(random_seed: int, species_id: String, previous: GameState) 
 	if previous != null:
 		g.grove = previous.grove.duplicate(true)
 		g.seen_pages = previous.seen_pages.duplicate()
+		# The clearing's collection is the player's: it goes on under the next tree.
+		g.clearing.found = previous.clearing.found.duplicate()
 		# Visitors come anew to each tree (the nest was already there on a new seedling).
 		for k in g.seen_pages.keys():
 			if str(k).begins_with("visitor_"):
 				g.seen_pages.erase(k)
+		# The bonsai is a lifelong companion: it stays on the sill from tree to tree.
+		g.bonsai = previous.bonsai
+		g.bonsai_resting = previous.bonsai_resting.duplicate(true)
+		if g.bonsai != null:
+			g.bonsai.clock.time_of_day = g.sim.clock.time_of_day
 	return g
 
 
@@ -111,6 +139,46 @@ func can_plant_next(any_species: bool = false) -> bool:
 	return finished or any_species
 
 
+# --- the bonsai ------------------------------------------------------------------------
+
+## Bonsai mode opens after the first finished tree (section 16 H), or with the test switch.
+func bonsai_unlocked(any_species: bool = false) -> bool:
+	return bonsai != null or not grove.is_empty() or any_species
+
+
+## The juniper comes to the sill once the bonsai is unlocked. Returns it (or null while locked).
+func ensure_bonsai(any_species: bool = false) -> BonsaiSim:
+	if bonsai == null and bonsai_unlocked(any_species):
+		bonsai = BonsaiSim.starter(hash([seed, "bonsai"]))
+		bonsai.clock.time_of_day = sim.clock.time_of_day
+	return bonsai
+
+
+## What may stand on the sill: the juniper, and a cutting of every finished clearing tree
+## (all six with the test switch).
+func bonsai_choices(any_species: bool = false) -> Array[String]:
+	var out: Array[String] = ["juniper"]
+	for sid in Species.ORDER:
+		if any_species or finished_species().has(sid):
+			out.append(sid)
+	return out
+
+
+## Puts another bonsai on the sill: the one there rests on the shelf (kept as it is), the new
+## one comes from the shelf or, the first time, as a fresh cutting.
+func swap_bonsai(species_id: String, any_species: bool = false) -> bool:
+	if bonsai == null or species_id == bonsai.species.id or not bonsai_choices(any_species).has(species_id):
+		return false
+	bonsai_resting[bonsai.species.id] = bonsai.to_dict()
+	if bonsai_resting.has(species_id):
+		bonsai = BonsaiSim.from_dict(bonsai_resting[species_id])
+		bonsai_resting.erase(species_id)
+	else:
+		bonsai = BonsaiSim.cutting(hash([seed, "cutting", species_id]), species_id)
+	bonsai.clock.time_of_day = sim.clock.time_of_day
+	return true
+
+
 func day_number() -> int:
 	return sim.clock.day_count
 
@@ -133,6 +201,15 @@ func is_seed() -> bool:
 
 func tick(delta: float) -> void:
 	var clock := sim.clock
+	var before := clock.day_count + clock.time_of_day
+	_tick_loop(delta)
+	# The bonsai lives through the same days: it moves on exactly as far as the clock did.
+	if bonsai != null:
+		bonsai.follow(clock, (clock.day_count + clock.time_of_day - before) * clock.seconds_per_day)
+
+
+func _tick_loop(delta: float) -> void:
+	var clock := sim.clock
 	match phase:
 		Phase.DAY:
 			# A tapped boost lasts one game hour; the clock never stops for it.
@@ -150,6 +227,10 @@ func tick(delta: float) -> void:
 				clock.boost_active = false
 				clock.boost_remaining = 0.0
 				phase = Phase.SUNSET
+				_weather_note("evening")
+				# A shower today: mushrooms come up under the crown for a few days (living clearing).
+				if bool(weather_today().get("rain", false)) and day_number() > 0:
+					after_rain()
 				_event("sunset")
 			else:
 				sim.tick(delta)
@@ -250,11 +331,37 @@ func finish_run_early() -> void:
 ## The view grew the root itself (RootView drives RootSystem directly): record the end of the run.
 ## Time away from the game grows the tree a little. In the middle of a night's root the life
 ## force stays as it was, or the root would run on with what the leaves gathered meanwhile.
+## Visitors that are due by the tree's new size come meanwhile and are named on the away page.
 func apply_offline(seconds: float) -> void:
 	var life := sim.resources.life_force
+	var height_before := sim.height()
+	var nodes_before := sim.living_nodes()
 	sim.apply_offline(seconds)
+	if bonsai != null:
+		bonsai.apply_offline(seconds)
 	if phase == Phase.NIGHT and roots.run_active:
 		sim.resources.life_force = life
+	if seconds < AWAY_REPORT_SECONDS:
+		return
+	var came: Array[String] = Visitors.arrive(self)
+	# Two absences before the page was read add up.
+	var before: Dictionary = away_report
+	var visitors: Array = before.get("visitors", []).duplicate()
+	visitors.append_array(came)
+	away_report = {
+		"seconds": seconds + float(before.get("seconds", 0.0)),
+		"grown": maxf(sim.height() - height_before, 0.0) + float(before.get("grown", 0.0)),
+		"height": sim.height(),
+		"segments": maxi(sim.living_nodes() - nodes_before, 0) + int(before.get("segments", 0)),
+		"visitors": visitors,
+	}
+
+
+## The "while you were away" report, once: empty afterwards.
+func take_away_report() -> Dictionary:
+	var r := away_report
+	away_report = {}
+	return r
 
 
 func notify_run_done() -> void:
@@ -288,6 +395,13 @@ func _finish() -> void:
 	grove.append({"species": sim.species.id, "days": day_number(), "seed": seed})
 	diary.add(day_number(), "The %s has grown to its full size. It dropped a seed; the seed bag in the shed is ready for the next tree." % tree_name())
 	_event("finished")
+	# The first finished tree opens bonsai mode: a juniper waits on the shed's windowsill.
+	if bonsai == null:
+		ensure_bonsai()
+		diary.add(day_number(), "A young juniper stands on the windowsill in the shed now, a bonsai to shape for as long as I like.")
+		_event("bonsai")
+	else:
+		diary.add(day_number(), "I took a cutting of the %s for the windowsill." % tree_name())
 
 
 func _sunrise() -> void:
@@ -313,6 +427,11 @@ func _sunrise() -> void:
 		var died := sim.shade_dieback(day_number())
 		if died > 0:
 			diary.add(day_number(), "%d shaded twig%s died back in the crown." % [died, "" if died == 1 else "s"])
+	# The ground under the crown changes with its shade: diary lines for what comes up first.
+	if not was_seed:
+		for k in clearing.update(sim, day_number()):
+			diary.add(day_number(), Clearing.FIRST_LINES[k])
+			_event("clearing:" + k)
 	if sim.species.in_blossom(day_number()) and not sim.species.in_blossom(day_number() - 1):
 		diary.add(day_number(), "The %s is in blossom. The bees have come, and the leaves are busier than ever." % tree_name())
 		_event("blossom")
@@ -320,14 +439,37 @@ func _sunrise() -> void:
 	if was_seed and not sim.nutrients_spent():
 		diary.add(day_number(), "The seed sprouted at dawn.")
 	diary.wish = Diary.make_wish(ground, day_number(), seed)
+	_weather_note("morning")
 	morning_timer = 0.0
 	_event("sunrise")
+
+
+## The weather of the current game day (design doc section 17: mood only).
+func weather_today() -> Dictionary:
+	if _weather_day != day_number() or _weather.is_empty():
+		_weather_day = day_number()
+		_weather = Almanac.weather_for(seed, _weather_day, Almanac.today())
+	return _weather
+
+
+## A diary line when the weather was worth noting: mist and dew at sunrise, a shower at sunset.
+func _weather_note(part: String) -> void:
+	if day_number() == 0:
+		return
+	var line := Almanac.diary_line(weather_today(), part)
+	if line != "":
+		diary.add(day_number(), line)
 
 
 ## Called by the tree view at the end of the dawn burst, for the morning diary line.
 func write_morning_line() -> void:
 	var tips := sim.tip_count()
 	diary.add(day_number(), "The %s is %.1f m tall with %d leaf cluster%s." % [tree_name(), sim.height(), tips, "" if tips == 1 else "s"])
+
+
+## The weather hook: a shower fell today (mushrooms come up in the shade for a few days).
+func after_rain() -> void:
+	clearing.after_rain(day_number())
 
 
 # --- moving the day on ------------------------------------------------------
@@ -416,6 +558,9 @@ func to_dict() -> Dictionary:
 		"spent_announced": _spent_announced,
 		"finished": finished,
 		"grove": grove,
+		"clearing": clearing.to_dict(),
+		"bonsai": bonsai.to_dict() if bonsai != null else null,
+		"bonsai_resting": bonsai_resting,
 	}
 
 
@@ -428,6 +573,7 @@ static func from_dict(d_in: Dictionary) -> GameState:
 	g.roots = RootSystem.from_dict(d.get("roots", {}), g.seed)
 	g.roots.species = g.sim.species
 	g.diary = Diary.from_dict(d.get("diary", {}))
+	g.clearing = Clearing.from_dict(d.get("clearing", {}), g.seed)
 	g.phase = clampi(int(d.get("phase", Phase.DAY)), Phase.DAY, Phase.NIGHT) as Phase
 	g._empty_timer = float(d.get("empty_timer", 0.0))
 	g.morning_timer = float(d.get("morning_timer", -1.0))
@@ -442,4 +588,10 @@ static func from_dict(d_in: Dictionary) -> GameState:
 			g.grove.append({"species": str(t.get("species", "linden")), "days": int(t.get("days", 0)), "seed": int(t.get("seed", 0))})
 	for k in d.get("seen_pages", []):
 		g.seen_pages[str(k)] = true
+	if d.get("bonsai") is Dictionary:
+		g.bonsai = BonsaiSim.from_dict(d["bonsai"])
+	if d.get("bonsai_resting") is Dictionary:
+		for sid in d["bonsai_resting"]:
+			if d["bonsai_resting"][sid] is Dictionary:
+				g.bonsai_resting[str(sid)] = d["bonsai_resting"][sid]
 	return g

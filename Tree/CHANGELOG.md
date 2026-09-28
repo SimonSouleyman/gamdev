@@ -1,5 +1,41 @@
 # Changelog
 
+## v0.6 (2026-09-28)
+
+The whole plan of design doc section 17 in one version, then an extensive PC test (a 12-day
+scripted play-through of every menu, phase and reload, and a look review of every hour, season
+and weather). From here on: fixes as 0.6.1, 0.6.2 ...; new features start 0.7.
+- Phone: the forest ring as camera-facing painted cards (half the triangles, 4-8 draw calls).
+- HUD: pictures instead of paper scraps (journal, hut, camera, secateurs) at the middle right;
+  a brass hand compass; the secateurs as the mouse pointer while pruning.
+- Night: stars, a moon in its real phase, soft moonlight, a deep blue night sky.
+- The shed: the workbench in the middle with real objects as the menu (journal, album, seed bag,
+  pot, gloves, pinboard), each with a sound and a small motion; a windowsill; "clearer print" and
+  "vibration" switches; a "while you were away" page with an ink sketch.
+- Seasons after the real calendar (look only), weather moods (rain, mist, dew, thunder).
+- The living clearing: shade plants under the crown (anemones in spring, ferns, moss, mushrooms
+  after rain) and a journal page that collects them.
+- The album's month as a flip-book, saved as a video to the phone's gallery.
+- Bonsai mode on the windowsill (design doc section 16).
+- No bench under the tree.
+
+## v0.6 (in progress)
+
+- The living clearing: as the crown grows, its shade changes the ground below by itself. The sun
+  meadow thins to leaf litter, wood anemones flower, then ferns unroll and moss spreads; for a
+  few days after rain or a damp morning mushrooms come up. The journal's new "clearing" ribbon
+  lists what has come up so far (the first collection), with a diary line for each first.
+- The month time-lapse: in the album a finished tree's page plays its morning photos as a
+  flip-book ("flip through" does it for any tree), and "save as video" saves the month as a
+  short film (into the phone's gallery once the phone plugin can; on a PC into the game folder).
+## v0.6 (in progress): bonsai mode
+- After the first finished tree a young juniper stands on the shed's windowsill. Tap it: the
+  camera comes close to the pot. Water it, give it pellets (N, P or K), turn the pot toward the
+  window, shape it with the shears (a third at most), pinch fresh tips and wire branches into new
+  lines. About every seventh day it asks to be repotted. It follows the same days as the tree,
+  costs the tree nothing and never dies; its album page grows by milestones.
+- Each finished clearing tree leaves a cutting for the sill; style pages show the classic shapes.
+
 ## v0.5.2 (2026-09-28)
 
 From Simon's feedback on 0.5.1.

@@ -245,6 +245,12 @@ static func clump_mesh() -> ArrayMesh:
 	arrays[Mesh.ARRAY_NORMAL] = normals
 	arrays[Mesh.ARRAY_TEX_UV] = uvs
 	arrays[Mesh.ARRAY_INDEX] = indices
+	# White vertex colours: the phone renderer multiplies the per-clump colour by the vertex colour
+	# and reads a missing one as black (black grass clumps on the phone, 0.6 look review).
+	var white := PackedColorArray()
+	white.resize(verts.size())
+	white.fill(Color.WHITE)
+	arrays[Mesh.ARRAY_COLOR] = white
 	var mesh := ArrayMesh.new()
 	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
 	return mesh

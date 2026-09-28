@@ -1,7 +1,9 @@
 class_name ShedMenu
 extends CanvasLayer
-## The 2D part of the garden shed: the handwritten menu note, the options pinned to the board,
-## the photo album and the loading page. All paper and ink (Paper), never plain windows.
+## The 2D part of the garden shed: the small handwritten labels beside the things on the
+## workbench (0.6: the things are the menu, no menu note any more), the options pinned to the
+## board, the photo album, the seed bag, the tree's own page ("while you were away") and the
+## loading page. All paper and ink (Paper), never plain windows.
 
 signal continue_pressed
 signal journal_pressed
@@ -10,8 +12,18 @@ signal setting_changed(key: String, value: bool)
 ## A species was chosen from the seed bag: plant it as the next tree.
 signal plant_pressed(species_id: String)
 
+## The words on the labels of the things in the shed (Shed.ITEMS); the pot names the tree.
+const TAG_TEXTS := {"journal": "journal", "album": "photo album", "seeds": "seed bag",
+	"pot": "my linden", "gloves": "go outside", "options": "options", "bonsai": "my bonsai"}
+## The switches on the options pinboard, in their order.
+const OPTION_NAMES := {"sound": "sound", "no_ui": "no UI (pure scenery)", "battery_saver": "battery saver",
+	"notifications": "a note each day", "vibration": "vibration", "clearer_print": "clearer print",
+	"any_species": "any species now (testing: planting replaces the current tree; opens the bonsai)"}
+
 var settings: Dictionary = {}
-var _note: PanelContainer
+var _tags_layer: Control
+var _tags: Dictionary = {}  # item -> PanelContainer
+var _tree_name: String = "linden"
 var _options: Control
 var _album: Control
 var _album_pages: Array[Control] = []
@@ -22,86 +34,115 @@ var _album_right: TextureRect
 var _album_cap_l: Label
 var _album_cap_r: Label
 var _album_title: Label
+## The spread on show: an index into _spreads.
 var _album_index: int = 0
 var _photos: Array[String] = []
+## The album's spreads in order: {"photo": first photo index} for two photos, {"flip": tree index}
+## for a finished tree's double page with its month as a flip-book (TimeLapse).
+var _spreads: Array = []
+## The photos grouped by tree (TimeLapse.trees).
+var _trees: Array = []
+var _album_holders: Array[Control] = []
+var _flip_box: Control
+var _flip: FlipBook
+var _flip_title: Label
+var _flip_status: Label
+var _video_button: Button
+## The tree whose flip-book is open; -1 when two photos are on show.
+var _flip_tree: int = -1
+## The current tree is finished (main sets it): its flip-book page follows its last photo.
+var tree_finished: bool = false
 var _toggles: Dictionary = {}
 var _loading: Control
-var _subtitle: Label
 var _seeds: Control
 var _seeds_box: VBoxContainer
+var _tree_page: Control
+var _tree_box: VBoxContainer
+var _sketch_graph: PlantGraph
 
 
 func _ready() -> void:
 	layer = 18
-	_build_note()
+	_build_tags()
 	_build_options()
 	_build_album()
 	_build_seeds()
+	_build_tree_page()
 	_build_loading()
 
 
-# --- the menu note pinned inside the door frame -----------------------------------
+# --- the labels beside the things on the workbench ------------------------------------
 
-func _build_note() -> void:
-	_note = PanelContainer.new()
-	_note.add_theme_stylebox_override("panel", Paper.paper_box(256, 320, 71, "top", 26.0))
-	_note.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
-	# Pinned low on the left, beside the doorway.
-	_note.offset_left = -300
-	_note.offset_top = -440
-	_note.offset_right = -22
-	_note.offset_bottom = -30
-	_note.rotation_degrees = -2.5
-	add_child(_note)
-	var box := VBoxContainer.new()
-	box.add_theme_constant_override("separation", 10)
-	_note.add_child(box)
-	box.add_child(Paper.ink_label("Tree", 52, Paper.INK, true))
-	_subtitle = Paper.ink_label("my linden", 26, Paper.FAINT_INK)
-	box.add_child(_subtitle)
-	for pair in [["go outside", "continue"], ["read the journal", "journal"], ["look at the photos", "album"], ["options", "options"]]:
-		var b := Paper.ink_button(pair[0], 28)
-		b.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
-		var key: String = pair[1]
-		b.pressed.connect(func() -> void: _on_menu(key))
-		box.add_child(b)
+## A small torn strip of paper with a word in ink for each thing. They show on the first visits
+## (until the thing was used once) and when the pointer rests on it, so a new player
+## understands that the things on the bench are the menu.
+func _build_tags() -> void:
+	_tags_layer = Control.new()
+	_tags_layer.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_tags_layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(_tags_layer)
+	var i := 0
+	for item in TAG_TEXTS:
+		var tag := PanelContainer.new()
+		tag.add_theme_stylebox_override("panel", Paper.paper_box(120, 44, 150 + i, "all", 9.0))
+		tag.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		var l := Paper.ink_label(TAG_TEXTS[item], 24)
+		l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		tag.add_child(l)
+		tag.rotation_degrees = [-3.0, 2.0, -1.5, 2.5, -2.0, 1.5, -2.5][i % 7]
+		tag.visible = false
+		_tags_layer.add_child(tag)
+		_tags[item] = tag
+		i += 1
 
 
-func _on_menu(key: String) -> void:
-	match key:
-		"continue":
-			continue_pressed.emit()
-		"journal":
-			journal_pressed.emit()
-		"album":
-			open_album()
-		"options":
-			open_options()
+## Puts the labels by the things: `at` maps an item to its screen point, `below` to whether the
+## label hangs under that point (else it sits on it), `shown` to whether it shows now.
+## Labels fade in and out softly.
+func place_tags(at: Dictionary, below: Dictionary, shown: Dictionary) -> void:
+	for item in _tags:
+		var tag: PanelContainer = _tags[item]
+		var on: bool = bool(shown.get(item, false)) and at.has(item) and _tags_layer.visible
+		var a := move_toward(tag.modulate.a, 1.0 if on else 0.0, 0.12)
+		tag.modulate.a = a
+		tag.visible = a > 0.01
+		if at.has(item):
+			tag.size = tag.get_combined_minimum_size()
+			tag.pivot_offset = tag.size * 0.5
+			var hang := tag.size.y * -0.1 if bool(below.get(item, false)) else tag.size.y
+			var pos := (at[item] as Vector2) - Vector2(tag.size.x * 0.5, hang)
+			# Always whole on the screen.
+			var room := _tags_layer.size
+			tag.position = pos.clamp(Vector2(8, 8), Vector2(maxf(room.x - tag.size.x - 8.0, 8.0), maxf(room.y - tag.size.y - 8.0, 8.0)))
 
 
 func show_menu(on: bool) -> void:
-	_note.visible = on
+	_tags_layer.visible = on
 	if not on:
+		_flip.stop()
 		_options.visible = false
 		_album.visible = false
 		_seeds.visible = false
 
 
-## The menu note names the tree ("my silver birch").
+## The pot's label names the tree ("my silver birch").
 func set_tree_name(tree_name: String) -> void:
-	_subtitle.text = "my " + tree_name
+	_tree_name = tree_name
+	var l := _tags["pot"].get_child(0) as Label
+	l.text = "my " + tree_name
 
 
-## Esc on the options board, in the album or at the seed bag goes back to the note.
+## Esc on the options board, in the album, at the seed bag or on the tree's page closes it.
 func close_boards() -> void:
+	_flip.stop()
 	_options.visible = false
 	_album.visible = false
 	_seeds.visible = false
-	_note.visible = true
+	_tree_page.visible = false
 
 
 func is_busy() -> bool:
-	return _options.visible or _album.visible or _seeds.visible
+	return _options.visible or _album.visible or _seeds.visible or _tree_page.visible
 
 
 # --- options, pinned to the board -------------------------------------------------
@@ -121,17 +162,19 @@ func _build_options() -> void:
 	board.set_anchors_preset(Control.PRESET_FULL_RECT)
 	board.offset_left = 30
 	board.offset_right = -30
-	board.offset_top = 150
-	board.offset_bottom = -330
+	board.offset_top = 110
+	board.offset_bottom = -230
 	_options.add_child(board)
-	var names := {"sound": "sound", "no_ui": "no UI (pure scenery)", "battery_saver": "battery saver", "notifications": "a note each day", "any_species": "any species now (testing: planting replaces the current tree)"}
+	var names := OPTION_NAMES
 	var i := 0
 	for key in names:
 		var note := PanelContainer.new()
 		note.add_theme_stylebox_override("panel", Paper.paper_box(200, 90, 80 + i, "all", 18.0))
-		note.position = Vector2(60 + (i % 2) * 300, 70 + (i / 2) * 240)
-		note.custom_minimum_size = Vector2(260, 150)
-		note.rotation_degrees = [-3.0, 2.0, 1.5, -2.0, 2.5][i]
+		# Two columns; the long test switch gets the last row to itself.
+		var last := i == names.size() - 1
+		note.position = Vector2(60 + (i % 2) * 300, 50 + (i / 2) * 210)
+		note.custom_minimum_size = Vector2(560 if last else 260, 130)
+		note.rotation_degrees = [-3.0, 2.0, 1.5, -2.0, 2.5, -1.0, 1.0][i]
 		board.add_child(note)
 		var c := CheckBox.new()
 		c.text = names[key]
@@ -161,12 +204,10 @@ func _build_options() -> void:
 	back.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
 	back.offset_left = -60
 	back.offset_right = 60
-	back.offset_top = -310
-	back.offset_bottom = -260
+	back.offset_top = -210
+	back.offset_bottom = -160
 	back.add_theme_stylebox_override("normal", Paper.paper_box(96, 48, 90, "all", 14.0))
-	back.pressed.connect(func() -> void:
-		_options.visible = false
-		_note.visible = true)
+	back.pressed.connect(func() -> void: _options.visible = false)
 	_options.add_child(back)
 	_options.visible = false
 
@@ -193,7 +234,6 @@ func _cork_box() -> StyleBoxTexture:
 
 
 func open_options() -> void:
-	_note.visible = false
 	for k in _toggles:
 		(_toggles[k] as CheckBox).set_pressed_no_signal(bool(settings.get(k, false)))
 	_options.visible = true
@@ -248,13 +288,14 @@ func _build_album() -> void:
 	head.add_child(_album_title)
 	var close := Paper.ink_button("close", 26)
 	close.pressed.connect(func() -> void:
-		_album.visible = false
-		_note.visible = true)
+		_flip.stop()
+		_album.visible = false)
 	head.add_child(close)
 	for side in [0, 1]:
 		var holder := CenterContainer.new()
 		holder.size_flags_vertical = Control.SIZE_EXPAND_FILL
 		box.add_child(holder)
+		_album_holders.append(holder)
 		var polaroid := PanelContainer.new()
 		# Slightly yellowed photo card, a little bent; glued in askew (see _show_spread).
 		PaperLook.apply(polaroid, "strip", 120 + side, 14.0, {"torn": Vector4.ZERO, "crumple": 0.12, "paper_color": Color(0.95, 0.94, 0.9), "foxing": 0.15, "edge_age": 0.35, "curl": 5.0})
@@ -296,46 +337,88 @@ func _build_album() -> void:
 		else:
 			_album_right = tex
 			_album_cap_r = cap
+	_build_flip_page(box)
 	var nav := HBoxContainer.new()
 	nav.alignment = BoxContainer.ALIGNMENT_CENTER
-	nav.add_theme_constant_override("separation", 60)
+	nav.add_theme_constant_override("separation", 36)
 	box.add_child(nav)
 	var prev := Paper.ink_button("< earlier", 24)
-	prev.pressed.connect(func() -> void: _turn(-2))
+	prev.pressed.connect(func() -> void: _turn(-1))
 	nav.add_child(prev)
+	# The month so far as a flip-book, for the tree on this spread (the current one too).
+	var flip := Paper.ink_button("flip through", 24)
+	flip.pressed.connect(_flip_through)
+	nav.add_child(flip)
 	var next := Paper.ink_button("later >", 24)
-	next.pressed.connect(func() -> void: _turn(2))
+	next.pressed.connect(func() -> void: _turn(1))
 	nav.add_child(next)
 	# On the phone: the upper photo of the spread becomes the home-screen wallpaper.
 	_wallpaper_button = Paper.ink_button("as wallpaper", 24)
 	_wallpaper_button.visible = Phone.is_available()
 	_wallpaper_button.pressed.connect(func() -> void:
-		if _album_index < _photos.size() and Phone.set_wallpaper(_photos[_album_index]):
+		var shown := _shown_photo()
+		if shown >= 0 and Phone.set_wallpaper(_photos[shown]):
 			_album_cap_l.text = "My wallpaper now.")
 	nav.add_child(_wallpaper_button)
 	_album.visible = false
 
 
 func open_album() -> void:
-	_note.visible = false
 	_photos = Photos.list()
-	# The spread that holds the newest photo.
-	_album_index = (maxi(_photos.size() - 1, 0) / 2) * 2
+	_build_spreads()
+	# The newest spread (a finished tree's flip-book comes after its last photos).
+	_album_index = _spreads.size() - 1
 	_show_spread()
 	_album.visible = true
 
 
+## Two photos per spread, and after the last photo of each finished tree its flip-book page.
+func _build_spreads() -> void:
+	_trees = TimeLapse.trees(_photos)
+	var ends := {}  # last photo index of a finished tree -> tree index
+	var seen := 0
+	for ti in range(_trees.size()):
+		seen += (_trees[ti]["photos"] as Array).size()
+		if ti < _trees.size() - 1 or tree_finished:
+			ends[seen - 1] = ti
+	_spreads = []
+	var i := 0
+	while i < maxi(_photos.size(), 1):
+		_spreads.append({"photo": i})
+		for k in [i, i + 1]:
+			if ends.has(k):
+				_spreads.append({"flip": ends[k]})
+		i += 2
+
+
 func _turn(step: int) -> void:
 	var next := _album_index + step
-	if next < 0 or next >= maxi(_photos.size(), 1):
+	if next < 0 or next >= _spreads.size():
 		return
 	_album_index = next
 	_show_spread()
 
 
+## The first photo on the spread on show; -1 on a flip-book page or in an empty album.
+func _shown_photo() -> int:
+	if _flip_tree >= 0 or _spreads.is_empty():
+		return -1
+	var i: int = _spreads[_album_index].get("photo", -1)
+	return i if i < _photos.size() else -1
+
+
 func _show_spread() -> void:
+	var spread: Dictionary = _spreads[_album_index] if _album_index < _spreads.size() else {"photo": 0}
+	if spread.has("flip"):
+		_show_flip(int(spread["flip"]))
+		return
+	_flip_tree = -1
+	_flip.stop()
+	_flip_box.visible = false
+	for h in _album_holders:
+		h.visible = true
 	for side in [0, 1]:
-		var i: int = _album_index + int(side)
+		var i: int = int(spread["photo"]) + int(side)
 		var tex: TextureRect = _album_left if side == 0 else _album_right
 		var cap: Label = _album_cap_l if side == 0 else _album_cap_r
 		if i < _photos.size():
@@ -352,6 +435,110 @@ func _show_spread() -> void:
 			tex.texture = null
 			cap.text = "(no photo yet: every morning takes one, and the camera scrap outside takes more)" if _photos.is_empty() and side == 0 else ""
 			tex.get_parent().get_parent().visible = side == 0 and _photos.is_empty()
+
+
+# --- the flip-book (month time-lapse) ------------------------------------------------
+
+## A finished tree's double page: its mornings as a flip-book on one big photo card, the tree's
+## name above, "save as video" below.
+func _build_flip_page(box: VBoxContainer) -> void:
+	_flip_box = VBoxContainer.new()
+	_flip_box.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	_flip_box.add_theme_constant_override("separation", 10)
+	box.add_child(_flip_box)
+	_flip_title = Paper.ink_label("", 32, Paper.INK, true)
+	_flip_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_flip_box.add_child(_flip_title)
+	var holder := CenterContainer.new()
+	holder.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	_flip_box.add_child(holder)
+	var card := PanelContainer.new()
+	PaperLook.apply(card, "strip", 126, 14.0, {"torn": Vector4.ZERO, "crumple": 0.1, "paper_color": Color(0.95, 0.94, 0.9), "foxing": 0.15, "edge_age": 0.35, "curl": 3.0})
+	holder.add_child(card)
+	_flip = FlipBook.new()
+	_flip.custom_minimum_size = Vector2(430, 700)
+	card.add_child(_flip)
+	var row := HBoxContainer.new()
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	row.add_theme_constant_override("separation", 30)
+	_flip_box.add_child(row)
+	_video_button = Paper.ink_button("save as video", 24)
+	_video_button.pressed.connect(func() -> void:
+		if _flip_tree >= 0:
+			save_video(_flip_tree))
+	row.add_child(_video_button)
+	_flip_status = Paper.ink_label("", 22, Paper.FAINT_INK)
+	_flip_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_flip_status.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_flip_box.add_child(_flip_status)
+	_flip_box.visible = false
+
+
+func _show_flip(tree_index: int) -> void:
+	if tree_index < 0 or tree_index >= _trees.size():
+		return
+	_flip_tree = tree_index
+	for h in _album_holders:
+		h.visible = false
+	_flip_box.visible = true
+	var tree: Dictionary = _trees[tree_index]
+	var pages := TimeLapse.pages(tree)
+	var tree_name := Species.from_id(str(tree["species"])).display_name
+	_flip_title.text = "The %s, %d morning%s" % [tree_name.to_lower(), pages.size(), "" if pages.size() == 1 else "s"]
+	_flip_status.text = ""
+	_video_button.disabled = false
+	_flip.play(pages)
+
+
+## "flip through": the flip-book of the tree on the spread on show (or the newest tree).
+func _flip_through() -> void:
+	if _trees.is_empty():
+		return
+	var shown := _shown_photo()
+	_show_flip(TimeLapse.tree_of(_trees, shown) if shown >= 0 else (_flip_tree if _flip_tree >= 0 else _trees.size() - 1))
+
+
+## Writes the tree's month as a short video (MjpegAvi) and hands it to the phone's gallery.
+## One frame is made per rendered frame, so the album stays alive while the film develops.
+## Returns the video's path ("" if it failed).
+func save_video(tree_index: int) -> String:
+	var pages := TimeLapse.pages(_trees[tree_index])
+	_video_button.disabled = true
+	_flip_status.text = "developing the film..."
+	var jpegs: Array[PackedByteArray] = []
+	var size := Vector2i.ZERO
+	for p in pages:
+		await get_tree().process_frame
+		var img := Image.load_from_file(ProjectSettings.globalize_path(p))
+		if img == null or img.is_empty():
+			continue
+		if size == Vector2i.ZERO:
+			size = TimeLapse.video_size(img.get_width(), img.get_height())
+		jpegs.append(TimeLapse.encode_frame(img, size))
+	for _i in range(TimeLapse.HOLD_LAST if not jpegs.is_empty() else 0):
+		jpegs.append(jpegs[-1])
+	var path := TimeLapse.video_path(_trees[tree_index])
+	DirAccess.make_dir_recursive_absolute(TimeLapse.DIR)
+	if jpegs.is_empty() or MjpegAvi.write(path, jpegs, size.x, size.y, TimeLapse.FPS) != OK:
+		_flip_status.text = "The film could not be saved."
+		_video_button.disabled = false
+		return ""
+	if Phone.save_video_to_gallery(path, _on_video_saved.bind(path)):
+		# The phone turns it into an MP4 on its own; the button waits for the answer.
+		_flip_status.text = "saving to the phone's gallery..."
+		return path
+	_flip_status.text = "Saved as %s" % ProjectSettings.globalize_path(path)
+	_video_button.disabled = false
+	return path
+
+
+## The phone's answer to save_video (Phone.save_video_to_gallery).
+func _on_video_saved(ok: bool, path: String) -> void:
+	if ok:
+		_flip_status.text = "Saved to the phone's gallery (Movies/Tree)."
+	else:
+		_flip_status.text = "The gallery would not take it. Saved as %s" % ProjectSettings.globalize_path(path)
+	_video_button.disabled = false
 
 
 # --- the seed bag -------------------------------------------------------------------
@@ -385,7 +572,6 @@ func _build_seeds() -> void:
 func open_seeds(state: GameState, any_species: bool) -> void:
 	for c in _seeds_box.get_children():
 		c.queue_free()
-	_note.visible = false
 	var head := HBoxContainer.new()
 	_seeds_box.add_child(head)
 	var title := Paper.ink_label("The seed bag", 40, Paper.INK, true)
@@ -419,10 +605,164 @@ When this %s has grown to its full size (%d of %d segments now), one goes into t
 			b.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
 			b.pressed.connect(func() -> void:
 				_seeds.visible = false
-				_note.visible = true
 				plant_pressed.emit(sid))
 			_seeds_box.add_child(b)
 	_seeds.visible = true
+
+
+# --- the tree's own page: "while you were away", and the flower pot ------------------------
+
+func _build_tree_page() -> void:
+	_tree_page = Control.new()
+	_tree_page.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_tree_page.mouse_filter = Control.MOUSE_FILTER_STOP
+	add_child(_tree_page)
+	var dim := ColorRect.new()
+	dim.color = Color(0.05, 0.04, 0.02, 0.45)
+	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_tree_page.add_child(dim)
+	# A page torn out of the diary, a little askew.
+	var sheet := PanelContainer.new()
+	sheet.add_theme_stylebox_override("panel", Paper.paper_box(300, 440, 61, "all", 30.0))
+	sheet.set_anchors_preset(Control.PRESET_FULL_RECT)
+	sheet.offset_left = 44
+	sheet.offset_right = -44
+	sheet.offset_top = 130
+	sheet.offset_bottom = -170
+	sheet.rotation_degrees = -1.0
+	_tree_page.add_child(sheet)
+	_tree_box = VBoxContainer.new()
+	_tree_box.add_theme_constant_override("separation", 12)
+	sheet.add_child(_tree_box)
+	_tree_page.visible = false
+
+
+## The torn diary page about the tree. With a report (GameState.take_away_report): what
+## happened while the game was closed, the growth in metres, the visitors that came and an ink
+## sketch of the tree as it stands now. Without one it is the flower pot's page: how the tree is.
+func show_tree_page(state: GameState, report: Dictionary = {}) -> void:
+	for c in _tree_box.get_children():
+		c.queue_free()
+	var head := HBoxContainer.new()
+	_tree_box.add_child(head)
+	var away := not report.is_empty()
+	var title := Paper.ink_label("While you were away" if away else "My " + state.tree_name(), 40, Paper.INK, true)
+	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	head.add_child(title)
+	var close := Paper.ink_button("close", 26)
+	close.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
+	close.pressed.connect(func() -> void: _tree_page.visible = false)
+	head.add_child(close)
+	# One label per paragraph (a long label with blank lines spreads out on the page).
+	for line in (away_text(state.tree_name(), report) if away else status_text(state)):
+		var body := Paper.ink_label(line, 27)
+		body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		_tree_box.add_child(body)
+	_sketch_graph = state.sim.graph
+	var sketch := Control.new()
+	sketch.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	sketch.custom_minimum_size = Vector2(0, 300)
+	sketch.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	sketch.draw.connect(func() -> void: _draw_graph_sketch(sketch))
+	_tree_box.add_child(sketch)
+	_tree_page.visible = true
+
+
+func is_tree_page_open() -> bool:
+	return _tree_page.visible
+
+
+## "2 days and 3 hours" for an absence in seconds.
+static func away_duration(seconds: float) -> String:
+	var hours := int(seconds / 3600.0)
+	var days := hours / 24
+	hours = hours % 24
+	var d := "%d day%s" % [days, "" if days == 1 else "s"]
+	var h := "%d hour%s" % [hours, "" if hours == 1 else "s"]
+	if days == 0:
+		return h
+	return d if hours == 0 else d + " and " + h
+
+
+## The paragraphs of the "while you were away" page.
+static func away_text(tree_name: String, report: Dictionary) -> Array[String]:
+	var lines: Array[String] = ["I was away for %s." % away_duration(float(report.get("seconds", 0.0)))]
+	var grown := float(report.get("grown", 0.0))
+	var segments := int(report.get("segments", 0))
+	if grown >= 0.05:
+		lines.append("Meanwhile the %s grew %.1f m and is %.1f m tall now." % [tree_name, grown, float(report.get("height", 0.0))])
+	elif segments > 0:
+		lines.append("Meanwhile the %s grew a few new twigs (%d segments)." % [tree_name, segments])
+	else:
+		lines.append("The %s rested and waited for me." % tree_name)
+	var visitors: Array = report.get("visitors", [])
+	if visitors.is_empty():
+		lines.append("No visitors came this time.")
+	else:
+		for id in visitors:
+			lines.append(str(Visitors.LINES.get(id, id)))
+	return lines
+
+
+## The paragraphs of the flower pot's page: how the tree is doing and who has come so far.
+static func status_text(state: GameState) -> Array[String]:
+	var sim := state.sim
+	var lines: Array[String] = []
+	if state.finished:
+		lines.append("Day %d in the clearing. The %s has grown to its full size: %.1f m tall." % [state.day_number(), state.tree_name(), sim.height()])
+	else:
+		lines.append("Day %d in the clearing. The %s is %.1f m tall, %d of %d segments grown." % [
+			state.day_number(), state.tree_name(), sim.height(), sim.living_nodes(), sim.species.finish_nodes])
+	var came: Array[String] = []
+	for id in Visitors.LINES:
+		if Visitors.has_come(state, id):
+			came.append(str(Visitors.LINES[id]))
+	if came.is_empty():
+		lines.append("No visitors yet.")
+	lines.append_array(came)
+	return lines
+
+
+## The tree as it stands, drawn in ink from the plant graph: every living segment a stroke as
+## thick as its wood, a little shaky like a quick drawing, leaves as pale green dabs at the tips.
+func _draw_graph_sketch(c: Control) -> void:
+	var g := _sketch_graph
+	if g == null or g.size() == 0:
+		return
+	# Seen from the south with a slight turn, so the crown has some depth.
+	var pts := PackedVector2Array()
+	pts.resize(g.size())
+	var lo := Vector2(INF, INF)
+	var hi := Vector2(-INF, -INF)
+	for id in range(g.size()):
+		var p := g.positions[id]
+		var q := Vector2(p.x + p.z * 0.35, -p.y)
+		pts[id] = q
+		if not g.get_flag(id, "dead", false):
+			lo = lo.min(q)
+			hi = hi.max(q)
+	var span := hi - lo
+	var margin := 24.0
+	var fit := minf((c.size.x - margin * 2.0) / maxf(span.x, 0.5), (c.size.y - margin * 2.0) / maxf(span.y, 0.5))
+	fit = minf(fit, 140.0)
+	var base := Vector2(c.size.x * 0.5, c.size.y - margin)
+	var mid := Vector2((lo.x + hi.x) * 0.5, hi.y)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 7
+	var ink := Color(Paper.INK, 0.85)
+	c.draw_line(base + Vector2(-c.size.x * 0.3, 2), base + Vector2(c.size.x * 0.3, 2), Color(Paper.INK, 0.5), 2.0, true)
+	var leaves := Color(0.32, 0.46, 0.22, 0.35)
+	for id in range(1, g.size()):
+		var parent := g.parents[id]
+		if parent < 0 or g.get_flag(id, "dead", false):
+			continue
+		var a := base + (pts[parent] - mid) * fit + Vector2(rng.randf_range(-0.6, 0.6), rng.randf_range(-0.6, 0.6))
+		var b := base + (pts[id] - mid) * fit
+		c.draw_line(a, b, ink, clampf(g.radii[id] * fit * 1.6, 1.0, 10.0), true)
+	for id in g.tips():
+		if not g.get_flag(id, "dead", false):
+			c.draw_circle(base + (pts[id] - mid) * fit, 3.0 + rng.randf() * 3.0, leaves)
 
 
 # --- loading page -------------------------------------------------------------------

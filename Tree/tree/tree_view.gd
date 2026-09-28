@@ -43,7 +43,27 @@ var _clearing: float = -1.0
 var _scenery: Scenery
 var _env: Environment
 var _meadow: Meadow
+## Shade plants under the crown (the living clearing).
+var _understory: Understory
 var _builder := BranchMeshBuilder.new()
+## Moon, stars and moonlight after sunset; rain, falling leaves and thunder (section 17).
+var _night_sky: NightSky
+var weather_fx: WeatherFx
+## 0 by day, 1 in the full night: the sky deepens from dusk to night during the sunset hold.
+var night_amount: float = 0.0
+## Tools: a fixed night amount instead of the clock (-1 = from the clock).
+var night_override: float = -1.0
+## Tools: tilts the camera up by this many radians (to photograph the sky).
+var look_up: float = 0.0
+var _sunset_since: float = -1.0
+## The season's look (Almanac.season_look) and today's weather, for the mood.
+var season: Dictionary = {}
+var weather: Dictionary = {}
+var rain_now: float = 0.0
+var _grass_mats: Array[ShaderMaterial] = []
+var _forest_leaf_mats: Array[ShaderMaterial] = []
+var _wet_set: float = -1.0
+var _dew_set: float = -1.0
 ## The shears: while on, taps cut branches instead of boosting (Pruning).
 var prune_mode: bool = false:
 	set(on):
@@ -105,6 +125,7 @@ func _ready() -> void:
 
 func setup(p_state: GameState) -> void:
 	state = p_state
+	_mood_day = -1
 	apply_species(state.sim.species)
 	_clearing = -1.0
 	refresh_clearing()
@@ -121,17 +142,34 @@ func setup(p_state: GameState) -> void:
 func apply_species(sp: Species) -> void:
 	var b := sp.bark_tint
 	_bark_mat.set_shader_parameter("texture_tint", Vector3(b.r, b.g, b.b))
-	_spray_mat.set_shader_parameter("tint_mul", sp.leaf_tint)
+	season = Almanac.season_look_now()
+	_spray_mat.set_shader_parameter("tint_mul", sp.leaf_tint * SeasonLook.leaf_tint(season))
+
+
+## The season's look on the crown, forest, shrubs and meadow (after the calendar, or forced).
+func apply_season() -> void:
+	season = Almanac.season_look_now()
+	apply_species(state.sim.species)
+	SeasonLook.apply(self, season, state.sim.species.id)
+	_grass_mats = SeasonLook.grass_materials(self)
+	_forest_leaf_mats = SeasonLook.leaf_materials(_scenery)
+	_wet_set = -1.0
+	_dew_set = -1.0
 
 
 # --- world ------------------------------------------------------------------
 
 ## Rebuilds the ground, meadow and forest ring when the tree has outgrown its clearing.
 ## Called at setup and at night, while the tree scene is hidden.
+## The ground under the crown follows its shade every time (Understory: only when grown).
 func refresh_clearing() -> void:
 	var r := Scenery.radius_for(state.sim.height())
-	if r == _clearing:
-		return
+	if r != _clearing:
+		_build_clearing(r)
+	_understory.refresh(state, [_grass, _herbs, _meadow2], _ground_mat)
+
+
+func _build_clearing(r: float) -> void:
 	_clearing = r
 	Terrain.edge = r
 	Shed.origin = Vector3(0.0, 0.0, r - 2.5)
@@ -146,6 +184,10 @@ func refresh_clearing() -> void:
 	# The haze begins further out as the clearing grows, so the forest ring is not buried.
 	_env.fog_depth_begin = r
 	_env.fog_depth_end = r * 2.0 + 34.0
+	_understory.forget_grass()
+	_fog_begin = _env.fog_depth_begin
+	_fog_end = _env.fog_depth_end
+	apply_season()
 
 
 ## The nest in the crown, once it has come (Visitors). (No bench: Simon did not like it.)
@@ -255,6 +297,8 @@ func _build_world() -> void:
 	_ground_mat = ShaderMaterial.new()
 	_ground_mat.shader = preload("res://tree/ground.gdshader")
 	_ground_mat.set_shader_parameter("noise", _noise_tex)
+	if _compat:
+		_ground_mat.set_shader_parameter("brightness", 0.72)
 	Assets.apply_ground(_ground_mat)
 	ground.material_override = _ground_mat
 	var gmat := _ground_mat
@@ -274,6 +318,8 @@ func _build_world() -> void:
 
 	_meadow = Meadow.new()
 	add_child(_meadow)
+	_understory = Understory.new()
+	add_child(_understory)
 	_scenery = Scenery.new()
 	add_child(_scenery)
 
@@ -374,6 +420,10 @@ func _build_world() -> void:
 	_sun_disc.material_override = dmat
 	_sun_disc.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(_sun_disc)
+	_night_sky = NightSky.new()
+	add_child(_night_sky)
+	weather_fx = WeatherFx.new()
+	add_child(weather_fx)
 
 
 static var GRASS_CLUMPS: int = Budgets.MEADOW_GRASS_CLUMPS
@@ -486,10 +536,11 @@ func _build_hud() -> void:
 	var compass := Compass.new()
 	compass.camera = camera
 	compass.set_anchors_preset(Control.PRESET_TOP_RIGHT)
-	compass.offset_left = -130
-	compass.offset_right = -20
-	compass.offset_top = 80
-	compass.offset_bottom = 190
+	# The old hand compass, its ring at the top.
+	compass.offset_left = -168
+	compass.offset_right = -14
+	compass.offset_top = 68
+	compass.offset_bottom = 222
 	hud.add_child(compass)
 
 	_hint = PaperNote.new(28, 61)
@@ -648,6 +699,7 @@ func _rebuild() -> void:
 	var crown := CrownSprays.populate(_leaves.multimesh, state.sim, state.seed)
 	_spray_mat.set_shader_parameter("crown_centre", crown.get_center())
 	_spray_mat.set_shader_parameter("crown_radii", crown.size * 0.5 + Vector3.ONE * 0.5)
+	weather_fx.set_crown(crown)
 
 
 func _update_twinkles() -> void:
@@ -690,7 +742,7 @@ func _update_sun() -> void:
 	_sun_disc.visible = skippable and dir.y > -0.1
 	# The light stays on at the sunset hold, just under the horizon, so the physical sky glows.
 	# At the sunset hold the sun rests right on the western horizon: the sky keeps its afterglow.
-	var light_dir := dir if h > 0.0 else Vector3(-1, 0.012, 0.1).normalized()
+	var light_dir := dir if h > 0.0 else Vector3(-1, 0.06, 0.1).normalized()
 	_sun_light.visible = true
 	_sun_light.look_at_from_position(light_dir * 20.0, Vector3.ZERO, Vector3.UP if absf(light_dir.y) < 0.99 else Vector3.FORWARD)
 	# A low sun still lights the clearing warmly (dawn burst, evening): at least 0.9.
@@ -737,6 +789,102 @@ func _update_sun() -> void:
 		_sun_light.light_energy *= 0.7
 		_env.ambient_light_energy *= 0.8
 		_env.tonemap_exposure *= 0.85
+	_update_mood(h)
+
+
+# --- night, weather and season (design doc section 17) ------------------------------
+
+var _fog_begin: float = 18.0
+var _mood_day: int = -1
+var _fog_end: float = 70.0
+
+
+## After the sun: deepens dusk into night with the moon and stars, and lays today's weather over
+## the light (a shower darkens and greys the sky, mist thickens the haze, dew glints on the grass).
+func _update_mood(_h: float) -> void:
+	var clock := state.sim.clock
+	# The night deepens over the sunset hold: dusk first, a starry night half a minute later.
+	match state.phase:
+		GameState.Phase.DAY:
+			_sunset_since = -1.0
+			night_amount = 0.0
+		GameState.Phase.SUNSET:
+			if _sunset_since < 0.0:
+				_sunset_since = _time
+			night_amount = smoothstep(3.0, 30.0, _time - _sunset_since)
+		GameState.Phase.NIGHT:
+			night_amount = 1.0
+	if night_override >= 0.0:
+		night_amount = night_override
+	var n := night_amount
+	# Once a game day: the calendar's season and the moon's phase (the real date moves on).
+	if state.day_number() != _mood_day:
+		_mood_day = state.day_number()
+		apply_season()
+		_night_sky.set_phase(Almanac.moon_phase_now())
+	weather = state.weather_today()
+	var t := clock.time_of_day / clock.daylight_fraction if state.phase == GameState.Phase.DAY else -1.0
+	rain_now = Almanac.rain_amount(weather, t) if t >= 0.0 else 0.0
+	var mist := Almanac.mist_amount(weather, t) if t >= 0.0 else 0.0
+	var dew := Almanac.dew_amount(weather, t) if t >= 0.0 else 0.0
+	var r := rain_now
+	if n > 0.0:
+		# Night: the sky dims to a deep blue, the sun's warm fill fades, a cool moonlit fill stays
+		# so the tree and the meadow still read.
+		# The physical sky takes its brightness from the sun light: dimming the light for the scene
+		# is paid back on the sky (near the horizon its colour goes about as the energy to the 0.8),
+		# then the sky dims to a deep blue.
+		var dim := 1.0 - 0.97 * n
+		_sun_light.light_energy *= dim
+		_sky_mat.energy_multiplier *= pow(dim, -0.8) * lerpf(1.0, 0.35, n)
+		_sun_light.light_color = _sun_light.light_color.lerp(Color(0.6, 0.66, 0.9), n)
+		_env.ambient_light_color = Color(0.58, 0.64, 0.72).lerp(Color(0.42, 0.5, 0.74), n)
+		_env.ambient_light_sky_contribution = lerpf(0.45, 0.15, n)
+		_env.fog_light_color = _env.fog_light_color.lerp(Color(0.1, 0.13, 0.22), n)
+		if _compat:
+			_scenery.set_haze(_env.fog_light_color * 0.9, 0.55)
+	else:
+		_env.ambient_light_color = Color(0.58, 0.64, 0.72)
+		_env.ambient_light_sky_contribution = 0.45
+	# The eye sees fewer colours by night (and the meadow's green would glow).
+	_env.adjustment_saturation = 1.0 - 0.4 * n
+	if r > 0.0:
+		# A shower: an overcast, greyer sky, flat light, the haze closer.
+		_sky_mat.energy_multiplier *= 1.0 - (0.25 if _compat else 0.45) * r
+		_sun_light.light_energy *= 1.0 - 0.6 * r
+		_sun_light.shadow_opacity = 0.8 * (1.0 - 0.7 * r)
+		_env.fog_light_color = _env.fog_light_color.lerp(Color(0.36, 0.4, 0.43), r * 0.7)
+		_env.adjustment_saturation *= 1.0 - 0.25 * r
+	# Mist: the haze comes down into the clearing, soft and pale, and lifts as the morning goes on.
+	var m := maxf(mist, r * 0.25)
+	_env.fog_depth_begin = lerpf(_fog_begin, 4.0, m)
+	_env.fog_depth_end = lerpf(_fog_end, _fog_begin + 40.0, m)
+	_env.fog_density = lerpf(0.6, 0.72, m)
+	if mist > 0.0:
+		_env.fog_light_color = _env.fog_light_color.lerp(Color(0.66, 0.7, 0.7), mist * 0.6)
+		_env.fog_sun_scatter += 0.08 * mist
+		if _compat:
+			_scenery.set_haze(_env.fog_light_color, lerpf(0.55, 0.85, mist))
+	_scenery.set_mood(n, r)
+	_understory.set_night(n)
+	var cam := get_viewport().get_camera_3d()
+	var eye := cam.global_position if cam != null else camera.global_position
+	_night_sky.update(eye, n, maxf(r, mist * 0.5))
+	weather_fx.update(eye, -camera.global_basis.z, t, weather, r, float(season.get("fall", 0.0)))
+	# Wet leaves and grass during and after a shower; dew in the early morning.
+	var wet := r
+	if absf(wet - _wet_set) > 0.02:
+		_wet_set = wet
+		_spray_mat.set_shader_parameter("wet", wet)
+		# The wood only a little: far wet leaves glinting read as snow.
+		for mat in _forest_leaf_mats:
+			mat.set_shader_parameter("wet", wet * 0.25)
+		for mat in _grass_mats:
+			mat.set_shader_parameter("wet", wet)
+	if absf(dew - _dew_set) > 0.02:
+		_dew_set = dew
+		for mat in _grass_mats:
+			mat.set_shader_parameter("dew", dew)
 
 func _frame_camera(snap: bool, delta: float = 0.0) -> void:
 	var real_height := maxf(state.sim.height(), 0.2)
@@ -766,6 +914,7 @@ func _frame_camera(snap: bool, delta: float = 0.0) -> void:
 		var gm := (layer as MultiMeshInstance3D).material_override as ShaderMaterial
 		gm.set_shader_parameter("fade_start", fade)
 		gm.set_shader_parameter("fade_end", fade + 18.0)
+	_understory.set_fade(fade, fade + 18.0)
 	var k := 1.0 if snap else 1.0 - exp(-2.0 * delta)
 	_focus = _focus.lerp(want_focus, k)
 	_distance = lerpf(_distance, want_distance, k)
@@ -786,6 +935,8 @@ func _frame_camera(snap: bool, delta: float = 0.0) -> void:
 	var d := look - camera.position
 	if d.length_squared() > 1e-6:
 		camera.look_at(look, Vector3.UP if absf(d.normalized().y) < 0.98 else Vector3.FORWARD)
+	if look_up != 0.0:
+		camera.rotate_object_local(Vector3.RIGHT, look_up)
 
 
 # --- input ------------------------------------------------------------------

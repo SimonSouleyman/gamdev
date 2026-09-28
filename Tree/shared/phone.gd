@@ -58,5 +58,23 @@ static func has_notification_permission() -> bool:
 	return bool(_plugin().isNotificationPermissionGranted())
 
 
+## Puts a video (the month time-lapse, an MJPEG .avi written by MjpegAvi) into the phone's
+## gallery (Movies/Tree). The plugin converts it to an MP4 on its own thread (a second or more);
+## see android_plugin/README.md. Returns true once saving has started; the result then arrives
+## once as `on_done.call(ok: bool)` (the singleton's signal video_saved). Returns false, and never
+## calls on_done, on PC, with a plugin that does not have the method, or when saving cannot start.
+static func save_video_to_gallery(path: String, on_done: Callable = Callable()) -> bool:
+	if not is_available():
+		return false
+	var p := _plugin()
+	if not p.has_method("saveVideoToGallery"):
+		return false
+	var listen := on_done.is_valid() and p.has_signal("video_saved") and p.connect("video_saved", on_done, CONNECT_ONE_SHOT) == OK
+	var started := bool(p.saveVideoToGallery(ProjectSettings.globalize_path(path), "Tree"))
+	if listen and not started and p.is_connected("video_saved", on_done):
+		p.disconnect("video_saved", on_done)
+	return started
+
+
 static func _plugin() -> Object:
 	return Engine.get_singleton(SINGLETON)

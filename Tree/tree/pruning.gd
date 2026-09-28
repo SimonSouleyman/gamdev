@@ -8,6 +8,16 @@ extends Node3D
 signal cut_done(segments: int)
 
 var view: TreeView
+## Anything else with shears (the bonsai, BonsaiView): an object with pruning_graph(),
+## pruning_camera(), pruning_bark() and pruning_cut(id) -> int. Null for the tree.
+var host: Object = null
+## Soft failure only: a cut never takes more than this share of the living tree (the bonsai: a
+## third), nor anything below `first_id` (the trunk base).
+var max_share: float = 0.2
+var min_cut: int = 8
+var first_id: int = 3
+## How far a cut piece falls before it sinks away (the grass; the bonsai's sill is closer).
+var fall_depth: float = 1.5
 ## The node whose segment (from its parent) would be cut; -1 for none.
 var target: int = -1
 var _marker: MeshInstance3D
@@ -50,8 +60,8 @@ func _ready() -> void:
 ## The branch nearest to a screen point: the node whose segment passes closest, never the trunk
 ## base. -1 when nothing is near.
 func pick(screen: Vector2) -> int:
-	var g := view.state.sim.graph
-	var cam := view.camera
+	var g := _graph()
+	var cam := _camera()
 	# How much living wood hangs on each node (children have higher ids than their parents).
 	var below := PackedInt32Array()
 	below.resize(g.size())
@@ -64,14 +74,14 @@ func pick(screen: Vector2) -> int:
 		if id > 0:
 			below[g.parents[id]] += below[id]
 	# Soft failure only: never the trunk, never a cut that takes more than a fifth of the tree.
-	var limit := maxi(8, int(living * 0.2))
+	var limit := maxi(min_cut, int(living * max_share))
 	var best := -1
 	var best_d := PICK_RADIUS
-	for id in range(3, g.size()):
+	for id in range(first_id, g.size()):
 		if g.get_flag(id, "dead", false) or below[id] > limit:
 			continue
-		var a := g.positions[g.parents[id]]
-		var b := g.positions[id]
+		var a := to_global(g.positions[g.parents[id]])
+		var b := to_global(g.positions[id])
 		if cam.is_position_behind(a) or cam.is_position_behind(b):
 			continue
 		var d := Geometry2D.get_closest_point_to_segment(screen, cam.unproject_position(a), cam.unproject_position(b)).distance_to(screen)
@@ -83,8 +93,20 @@ func pick(screen: Vector2) -> int:
 	return best
 
 
+func _graph() -> PlantGraph:
+	return host.call("pruning_graph") if host != null else view.state.sim.graph
+
+
+func _camera() -> Camera3D:
+	return host.call("pruning_camera") if host != null else view.camera
+
+
+func _bark() -> Material:
+	return host.call("pruning_bark") if host != null else view._bark_mat
+
+
 func _subtree(id: int) -> Array[int]:
-	var g := view.state.sim.graph
+	var g := _graph()
 	var out: Array[int] = []
 	var stack: Array[int] = [id]
 	while not stack.is_empty():
@@ -104,7 +126,7 @@ func preview(id: int) -> void:
 	if id < 0:
 		_marker.visible = false
 		return
-	var g := view.state.sim.graph
+	var g := _graph()
 	var a := g.positions[g.parents[id]]
 	var b := g.positions[id]
 	_marker.visible = true
@@ -123,7 +145,7 @@ func preview(id: int) -> void:
 func cut() -> int:
 	if target < 0:
 		return 0
-	var g := view.state.sim.graph
+	var g := _graph()
 	var id := target
 	var nodes := _subtree(id)
 	var cut_at := g.positions[g.parents[id]].lerp(g.positions[id], 0.35)
@@ -136,9 +158,11 @@ func cut() -> int:
 		piece.radii[remap[n]] = g.radii[n]
 	piece.radii[0] = g.radii[id]
 	var mesh := _builder.build(piece)
-	var count := view.state.sim.prune(id)
+	var count: int = host.call("pruning_cut", id) if host != null else view.state.sim.prune(id)
 	preview(-1)
 	_fall(mesh, cut_at, (g.positions[id] - cut_at).normalized())
+	# A short snip in the hand (0.6; the pinboard switch "vibration" turns it off).
+	Haptics.buzz("cut")
 	cut_done.emit(count)
 	return count
 
@@ -149,7 +173,7 @@ func _fall(mesh: ArrayMesh, cut_at: Vector3, dir: Vector3) -> void:
 	add_child(pivot)
 	var m := MeshInstance3D.new()
 	m.mesh = mesh
-	m.material_override = view._bark_mat
+	m.material_override = _bark()
 	m.position = -cut_at
 	pivot.add_child(m)
 	# It tips over away from the trunk, drops to the ground and sinks into the grass.
@@ -157,11 +181,11 @@ func _fall(mesh: ArrayMesh, cut_at: Vector3, dir: Vector3) -> void:
 	if side.length_squared() < 1e-4:
 		side = Vector3.RIGHT
 	var axis := side.normalized().cross(Vector3.UP).normalized() * -1.0
-	var drop := cut_at.y + 0.1
+	var drop := minf(cut_at.y + 0.1, fall_depth)
 	var tw := pivot.create_tween()
 	tw.set_parallel(true)
 	tw.tween_property(pivot, "basis", Basis(axis, 1.1), 0.9).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
 	tw.tween_property(pivot, "position:y", cut_at.y - drop, 0.9).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
 	tw.chain().tween_interval(0.8)
-	tw.chain().tween_property(pivot, "position:y", cut_at.y - drop - 1.5, 1.2)
+	tw.chain().tween_property(pivot, "position:y", cut_at.y - drop - fall_depth, 1.2)
 	tw.chain().tween_callback(pivot.queue_free)

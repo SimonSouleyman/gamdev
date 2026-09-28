@@ -29,6 +29,7 @@ const BIRDS := 5
 var _rng := RandomNumberGenerator.new()
 var _clouds: Array[MeshInstance3D] = []
 var _cloud_mats: Array[ShaderMaterial] = []
+var _cloud_coverage: Array[float] = []
 var _butterflies: MultiMeshInstance3D
 var _birds: MultiMeshInstance3D
 var _pollen: GPUParticles3D
@@ -59,6 +60,7 @@ func build(seed: int, bark: Material, leaf: Material, noise: Texture2D, radius: 
 		c.queue_free()
 	_clouds.clear()
 	_cloud_mats.clear()
+	_cloud_coverage.clear()
 	_rng.seed = hash([seed, "scenery"])
 	_noise = noise
 	_build_distant_trees(seed, bark, leaf)
@@ -256,27 +258,42 @@ func _add_leaf_surface(mesh: ArrayMesh, spots: Array[Transform3D], tint: Color, 
 func _build_distant_trees(seed: int, bark: Material, leaf: Material) -> void:
 	_prune_cache(seed)
 	var variants: Array[ArrayMesh] = []
-	for v in range(KINDS.size()):
-		variants.append(_grow_variant(seed, v, bark, leaf))
+	variants.resize(KINDS.size())
 	var per_variant: Array = []
 	for _v in range(KINDS.size()):
 		per_variant.append([])
 	# A closed wall of mixed trees around the clearing: a dense first row close to the edge,
 	# then deeper wood. Oak and beech dominate, birches at the bright edge, spruce behind.
 	var weights := [3, 3, 3, 2, 3]
+	var trees: Array = []
 	for t in range(FOREST_TREES):
 		var ang := TAU * (float(t) + _rng.randf() * 0.8) / FOREST_TREES * 3.0
-		# A phone keeps only the front rows; the painted deep wood stands in for the rest.
-		var front := t % 3 != 2 or Budgets.PHONE
+		# A phone with 3D trees keeps only the front rows; the painted deep wood stands in for the rest.
+		var front := t % 3 != 2 or (Budgets.PHONE and not Budgets.FOREST_IMPOSTORS)
 		var d := clearing_radius + (_rng.randf_range(2.6, 7.0) if front else _rng.randf_range(8.0, 24.0))
 		var kind := _weighted(weights)
 		if front and kind == 4 and _rng.randf() < 0.6:
 			kind = 2
-		(per_variant[kind] as Array).append(Terrain.at(Vector3(cos(ang) * d, 0, sin(ang) * d)) + Vector3(0, -0.3, 0))
+		trees.append([kind, Terrain.at(Vector3(cos(ang) * d, 0, sin(ang) * d)) + Vector3(0, -0.3, 0)])
+	var real := _real_trees(trees)
+	var cards: Array = []
+	for i in range(trees.size()):
+		var kind: int = trees[i][0]
+		if real.has(i):
+			(per_variant[kind] as Array).append(trees[i][1])
+		else:
+			var sc: Vector2 = KINDS[kind]["scale"]
+			cards.append([kind, trees[i][1], _rng.randf_range(sc.x, sc.y)])
+	if not cards.is_empty():
+		var mmi := ForestImpostors.build("trees", cards, _rng, ForestImpostors.material("trees"))
+		mmi.add_to_group("forest_trees")
+		add_child(mmi)
 	for v in range(KINDS.size()):
 		var spots: Array = per_variant[v]
 		if spots.is_empty():
 			continue
+		# Only the kinds that stand as real trees are grown (a phone with cards needs few).
+		variants[v] = _grow_variant(seed, v, bark, leaf)
 		var mmi := MultiMeshInstance3D.new()
 		var mm := MultiMesh.new()
 		mm.transform_format = MultiMesh.TRANSFORM_3D
@@ -289,7 +306,34 @@ func _build_distant_trees(seed: int, bark: Material, leaf: Material) -> void:
 		mmi.multimesh = mm
 		mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		mmi.add_to_group("forest_trees")
+		# The impostor baker (tools/bake_forest_impostors.gd) finds each kind by this.
+		mmi.set_meta("kind", v)
 		add_child(mmi)
+
+
+## Which trees stay real 3D trees: all of them without cards; with cards, the innermost tree
+## of each of a few sectors around the ring, so the few big near crowns have depth and wind
+## from every side the camera looks.
+func _real_trees(trees: Array) -> Dictionary:
+	var real := {}
+	if not Budgets.FOREST_IMPOSTORS:
+		for i in range(trees.size()):
+			real[i] = true
+		return real
+	var sectors := Budgets.FOREST_REAL_TREES
+	var best: Array = []
+	best.resize(sectors)
+	best.fill(-1)
+	for i in range(trees.size()):
+		var p: Vector3 = trees[i][1]
+		var sector := int(fposmod(atan2(p.z, p.x), TAU) / TAU * sectors) % sectors
+		var b: int = best[sector]
+		if b < 0 or Vector2(p.x, p.z).length() < Vector2(trees[b][1].x, trees[b][1].z).length():
+			best[sector] = i
+	for b in best:
+		if b >= 0:
+			real[b] = true
+	return real
 
 
 func _weighted(weights: Array) -> int:
@@ -372,6 +416,10 @@ const EDGE_FLOWER_COLORS: Array[Color] = [Color(0.78, 0.4, 0.66), Color(0.86, 0.
 
 
 func _build_bushes(forest_leaf: Material) -> void:
+	if Budgets.FOREST_IMPOSTORS:
+		_build_bush_cards()
+		_build_edge_herbs()
+		return
 	# The shrubs stand in front of the wood and catch more light than its shaded crowns.
 	var leaf := forest_leaf.duplicate() as ShaderMaterial
 	leaf.set_shader_parameter("tint_mul", Color(1.0, 1.05, 0.95))
@@ -457,9 +505,24 @@ func _build_bushes(forest_leaf: Material) -> void:
 		mmi.multimesh = mm
 		mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		mmi.add_to_group("shrubs")
+		mmi.set_meta("kind", k)
 		add_child(mmi)
 		_split_near_shed(mmi, 3.4)
 	_build_edge_herbs()
+
+
+## The shrub belt as cards (ForestImpostors), placed like the 3D shrubs.
+func _build_bush_cards() -> void:
+	var plants: Array = []
+	for k in range(SHRUBS.size()):
+		for i in range(BUSHES / SHRUBS.size()):
+			var ang := _rng.randf() * TAU
+			var d := clearing_radius + (_rng.randf_range(-1.2, 2.2) if i % 4 != 3 else _rng.randf_range(3.0, 12.0))
+			plants.append([k, Terrain.at(Vector3(cos(ang) * d, 0, sin(ang) * d)) + Vector3(0, -0.15, 0), _rng.randf_range(0.8, 1.3)])
+	var mmi := ForestImpostors.build("shrubs", plants, _rng, ForestImpostors.material("shrubs"))
+	mmi.add_to_group("shrubs")
+	add_child(mmi)
+	_split_near_shed(mmi, 3.4)
 
 
 ## The front layer: tall herbs, ferns and flowers along the foot of the shrubs.
@@ -545,12 +608,15 @@ func _split_near_shed(mmi: MultiMeshInstance3D, radius: float) -> void:
 		var m := MultiMesh.new()
 		m.transform_format = MultiMesh.TRANSFORM_3D
 		m.use_colors = mm.use_colors
+		m.use_custom_data = mm.use_custom_data
 		m.mesh = mm.mesh
 		m.instance_count = (ids as Array).size()
 		for j in range((ids as Array).size()):
 			m.set_instance_transform(j, mm.get_instance_transform(ids[j]))
 			if mm.use_colors:
 				m.set_instance_color(j, mm.get_instance_color(ids[j]))
+			if mm.use_custom_data:
+				m.set_instance_custom_data(j, mm.get_instance_custom_data(ids[j]))
 		parts.append(m)
 	mmi.multimesh = parts[0]
 	var n := mmi.duplicate() as MultiMeshInstance3D
@@ -582,7 +648,9 @@ func _build_clouds(noise: Texture2D) -> void:
 		mat.shader = preload("res://tree/cloud.gdshader")
 		mat.set_shader_parameter("noise", noise)
 		mat.set_shader_parameter("seed", _rng.randf() * 10.0)
-		mat.set_shader_parameter("coverage", _rng.randf_range(0.42, 0.52))
+		var coverage := _rng.randf_range(0.42, 0.52)
+		mat.set_shader_parameter("coverage", coverage)
+		_cloud_coverage.append(coverage)
 		m.material_override = mat
 		m.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		var a := _rng.randf() * TAU
@@ -796,6 +864,23 @@ func update(delta: float, day: bool, h: float, sun_color: Color, tree_height: fl
 	_pollen.emitting = day and h > 0.15
 	_pollen.position = Vector3(0, maxf(1.5, tree_height * 0.5), 0)
 	_fireflies.emitting = not day
+
+
+## Night and weather (TreeView, after update): at night only every fourth cloud stays, dim and
+## moonlit, so the stars show; a shower closes the sky with heavier grey clouds.
+func set_mood(night: float, rain: float) -> void:
+	for i in range(_cloud_mats.size()):
+		var m := _cloud_mats[i]
+		m.set_shader_parameter("opacity", maxf(1.0 if i % 4 == 0 else 1.0 - night * 0.95, rain))
+		m.set_shader_parameter("grey", rain * 0.85)
+		m.set_shader_parameter("coverage", _cloud_coverage[i] - rain * 0.16)
+		if night > 0.0:
+			m.set_shader_parameter("sun_color", Color(1.0, 0.72, 0.55).lerp(Color(0.6, 0.66, 0.82), night))
+			m.set_shader_parameter("brightness", lerpf(0.3, 0.12, night))
+	# No butterflies or pollen in the rain.
+	if rain > 0.3:
+		_butterflies.visible = false
+		_pollen.emitting = false
 
 
 func _update_birds(delta: float, day: bool) -> void:

@@ -11,6 +11,8 @@ const LEAF_COLOR := "res://assets/leaves/LeafSet004_1K-JPG_Color.jpg"
 const LEAF_OPACITY := "res://assets/leaves/LeafSet004_1K-JPG_Opacity.jpg"
 const LEAF_NORMAL := "res://assets/leaves/LeafSet004_1K-JPG_NormalGL.jpg"
 const GROUND_COLOR := "res://assets/ground/Grass004_1K-JPG_Color.jpg"
+## Leaf litter for the forest floor under the crown's shade (the living clearing).
+const FLOOR_COLOR := "res://assets/ground/forest_leaves_04_diff_1k.jpg"
 
 
 static func _tex(path: String) -> Texture2D:
@@ -47,3 +49,7 @@ static func apply_ground(mat: ShaderMaterial) -> void:
 		return
 	mat.set_shader_parameter("ground_albedo", g)
 	mat.set_shader_parameter("use_texture", true)
+	var f := _tex(FLOOR_COLOR)
+	if f != null:
+		mat.set_shader_parameter("floor_albedo", f)
+		mat.set_shader_parameter("use_floor", true)

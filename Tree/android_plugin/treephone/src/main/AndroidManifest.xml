@@ -4,6 +4,11 @@
     <uses-permission android:name="android.permission.SET_WALLPAPER" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!-- Saving the time-lapse video into Movies/Tree on Android 9 and older (MediaStore needs no
+         permission for the app's own entries from Android 10 on). -->
+    <uses-permission
+        android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="28" />
 
     <application>
         <!-- Godot Android plugin v2 registration: singleton "TreePhone". -->

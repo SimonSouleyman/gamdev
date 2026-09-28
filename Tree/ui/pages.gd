@@ -20,6 +20,24 @@ Tap the shears again to put them away; then a tap boosts the sun again."],
 In the garden shed, the seed bag on the workbench now offers the next seed: plant it and a new tree begins beside this one. Each finished tree brings a new kind of seed.
 
 There is no hurry. This tree stays as long as you like."],
+	"bonsai": ["A bonsai on the windowsill", "A young juniper in a clay nursery pot, for as long as I like. It lives through the same days as the tree outside but needs nothing from it, and nothing bad happens if I forget it for a while.
+
+The window is its sun: the side facing the glass grows, the back stays sparse. Turn the pot a quarter now and then.
+
+Water when the soil looks pale (wet soil is dark; too much only slows it), a spoon of pellets when it hungers. Every seventh day or so it asks to be repotted.
+
+Shape it as I like with the shears, pinching and wire. The style pages show the classic shapes, only for inspiration."],
+	"bonsai_water": ["Watering", "The soil dries over the day, faster in the sun. Dry, the leaves droop and it grows slowly; soaked, it sulks a little. It never dies of it."],
+	"bonsai_fertiliser": ["Pellets", "Nitrogen, phosphorus and potassium, like the tree outside: the scarcest one sets the pace. A spoon too many burns a few leaf tips brown; they grow on after a few days."],
+	"bonsai_shears": ["Shaping", "The pot keeps the bonsai small: it carries only so many twigs. Cutting one branch gives its strength to the buds inside, so the tree grows denser, not bigger. A third of it at most at once.
+
+A juniper keeps a cut branch as silver deadwood (jin); a cut close to the trunk strips a line of bark below it (shari)."],
+	"bonsai_pinch": ["Pinching", "A fresh tip, grown today or yesterday, can be pinched between two fingers: it stops, and the buds behind it take its share. The pads grow dense and close."],
+	"bonsai_wire": ["Wire", "Copper coiled round a branch holds it in a new line. Over about four days the branch sets and keeps it.
+
+Take it off after that: left on too long, the wire bites into the bark, and the scar stays."],
+	"bonsai_repot": ["Repotting", "The roots fill the pot in about a week. Lift the tree out, snip the long roots circling the root ball, choose a pot (a bigger one carries more twigs), and give it fresh soil."],
+	"bonsai_burn": ["Burnt tips", "Too many pellets of one kind: a few leaf tips turned brown. They rest a few days, then grow on."],
 	"empty_night": ["A quiet night", "There was no life force left for a root tonight, so I only looked around below.\n\nCalm days, without boosting, fill the tank for the night."],
 }
 

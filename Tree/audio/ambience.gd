@@ -9,7 +9,7 @@ const ABOVE_DB := -8.0
 const BELOW_DB := -6.0
 const SILENT_DB := -60.0
 ## How loud each layer is at full presence.
-const LEVELS := {"forest": -6.0, "birds": -14.0, "crickets": -12.0, "wind": -18.0, "hum": -6.0, "water": -20.0}
+const LEVELS := {"forest": -6.0, "birds": -14.0, "crickets": -12.0, "wind": -18.0, "hum": -6.0, "water": -20.0, "rain": -9.0}
 ## How fast layers follow their targets (dB per second).
 const FADE_DB_PER_S := 30.0
 
@@ -17,6 +17,9 @@ var _layers: Dictionary = {}  # name -> AudioStreamPlayer
 var _above: bool = true
 ## Birds sing by day only; the tree view sets this.
 var daylight: bool = true
+## A shower above, 0..1 (the tree view's weather, design doc section 17); birds fall quiet in it.
+var rain: float = 0.0
+var _thunder: AudioStreamPlayer
 var _collect: AudioStreamPlayer
 var _streak: int = 0
 var _streak_timer: float = 0.0
@@ -33,6 +36,11 @@ func _ready() -> void:
 	_layer("wind", AmbienceSynth.wind())
 	_layer("hum", AmbienceSynth.hum())
 	_layer("water", _loop(load("res://assets/sounds/water_flowing.ogg")))
+	_layer("rain", _loop(load("res://assets/sounds/rain.ogg")))
+	_thunder = AudioStreamPlayer.new()
+	_thunder.stream = load("res://assets/sounds/thunder.ogg")
+	_thunder.volume_db = -13.0
+	add_child(_thunder)
 	_collect = AudioStreamPlayer.new()
 	_collect.stream = AmbienceSynth.pling()
 	_collect.volume_db = -14.0
@@ -78,6 +86,15 @@ func play_collect(count: int) -> void:
 	_collect.play()
 
 
+## Distant thunder: a deep, soft roll far away (sound only). Not heard underground.
+func play_thunder() -> void:
+	if _thunder == null or not _above:
+		return
+	_thunder.pitch_scale = _rng.randf_range(0.55, 0.72)
+	_thunder.volume_db = _rng.randf_range(-16.0, -11.0)
+	_thunder.play()
+
+
 func set_enabled(on: bool) -> void:
 	AudioServer.set_bus_mute(AudioServer.get_bus_index("Master"), not on)
 
@@ -93,6 +110,12 @@ func _target(name: String) -> float:
 			on = _above
 		"hum", "water":
 			on = not _above
+		"rain":
+			on = _above and rain > 0.01
+			if on:
+				return float(LEVELS[name]) + linear_to_db(clampf(rain, 0.05, 1.0))
+	if name == "birds" and rain > 0.3:
+		on = false
 	return float(LEVELS[name]) if on else SILENT_DB
 
 

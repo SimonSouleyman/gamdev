@@ -7,3 +7,5 @@ export_presets.cfg
 .DS_Store
 Thumbs.db
 /android/
+# Python
+__pycache__/

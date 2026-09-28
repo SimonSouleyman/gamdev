@@ -91,6 +91,14 @@ static func _looks_like_a_game(parsed: Variant) -> bool:
 	var n := (graph["parents"] as Array).size()
 	if n < 1 or (graph["positions"] as Array).size() != n * 3 or (graph["radii"] as Array).size() != n or (graph["ages"] as Array).size() != n:
 		return false
+	# The bonsai's graph is read the same way (a second plant graph in the same file).
+	if game.get("bonsai") != null:
+		var bonsai: Variant = game["bonsai"]
+		if not (bonsai is Dictionary) or not ((bonsai as Dictionary).get("graph") is Dictionary):
+			return false
+		var bg: Dictionary = bonsai["graph"]
+		if not (bg.get("parents") is Array) or not (bg.get("positions") is Array) or (bg["positions"] as Array).size() != (bg["parents"] as Array).size() * 3:
+			return false
 	for key in ["roots", "underground", "diary"]:
 		if game.has(key) and not (game[key] is Dictionary):
 			return false

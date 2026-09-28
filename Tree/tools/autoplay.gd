@@ -258,7 +258,8 @@ func _process(delta: float) -> bool:
 					_log("tapped root node %d at %s" % [id, p])
 					_next("picked a start point")
 		14:
-			if stage_time > 0.5 and not s.roots.run_active and not s.night_done:
+			# (The pause after a run shows what grew before the night moves on: settling counts.)
+			if stage_time > 0.5 and not s.roots.run_active and not s.night_done and not rv.is_settling():
 				_fail("tapping a root did not start the run")
 			if stage_time > 4.0 and stage_time - delta <= 4.0:
 				_shot("15_second_run")
