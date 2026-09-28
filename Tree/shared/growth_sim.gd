@@ -71,10 +71,21 @@ func _init(random_seed: int = 1) -> void:
 
 ## Height of the highest node.
 func height() -> float:
+	# Only living wood counts: a cut or shaded-off branch no longer makes the tree taller.
 	var h := 0.0
-	for p in graph.positions:
-		h = maxf(h, p.y)
+	for id in range(graph.size()):
+		if graph.positions[id].y > h and not graph.get_flag(id, "dead", false):
+			h = graph.positions[id].y
 	return h
+
+
+## Segments that are alive (not pruned, not died back).
+func living_nodes() -> int:
+	var n := 0
+	for id in range(graph.size()):
+		if not graph.get_flag(id, "dead", false):
+			n += 1
+	return n
 
 
 ## Crown centre of mass, for tests (is the tree leaning east?).
@@ -396,7 +407,7 @@ func drink_upkeep() -> float:
 
 ## Grown to the species' full size (or the node budget): the tree is finished.
 func is_finished() -> bool:
-	return graph.size() >= species.finish_nodes or graph.is_full()
+	return living_nodes() >= species.finish_nodes or graph.is_full()
 
 
 ## Offline catch-up: `real_seconds` closed become a much slower growth.

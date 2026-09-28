@@ -124,7 +124,7 @@ func _build_options() -> void:
 	board.offset_top = 150
 	board.offset_bottom = -330
 	_options.add_child(board)
-	var names := {"sound": "sound", "no_ui": "no UI (pure scenery)", "battery_saver": "battery saver", "notifications": "a note each day", "any_species": "any species now (for testing)"}
+	var names := {"sound": "sound", "no_ui": "no UI (pure scenery)", "battery_saver": "battery saver", "notifications": "a note each day", "any_species": "any species now (testing: planting replaces the current tree)"}
 	var i := 0
 	for key in names:
 		var note := PanelContainer.new()

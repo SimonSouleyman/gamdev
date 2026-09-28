@@ -52,10 +52,23 @@ func _ready() -> void:
 func pick(screen: Vector2) -> int:
 	var g := view.state.sim.graph
 	var cam := view.camera
+	# How much living wood hangs on each node (children have higher ids than their parents).
+	var below := PackedInt32Array()
+	below.resize(g.size())
+	var living := 0
+	for id in range(g.size() - 1, -1, -1):
+		if g.get_flag(id, "dead", false):
+			continue
+		below[id] += 1
+		living += 1
+		if id > 0:
+			below[g.parents[id]] += below[id]
+	# Soft failure only: never the trunk, never a cut that takes more than a fifth of the tree.
+	var limit := maxi(8, int(living * 0.2))
 	var best := -1
 	var best_d := PICK_RADIUS
 	for id in range(3, g.size()):
-		if g.get_flag(id, "dead", false):
+		if g.get_flag(id, "dead", false) or below[id] > limit:
 			continue
 		var a := g.positions[g.parents[id]]
 		var b := g.positions[id]

@@ -878,6 +878,7 @@ func _end_press(is_release: bool, pos: Vector2 = Vector2.ZERO) -> void:
 			var cut := pruning.cut()
 			if cut > 0:
 				_rebuild()
+				update_visitors()
 				pruned.emit(cut)
 		else:
 			pruning.preview(-1)

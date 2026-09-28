@@ -299,7 +299,7 @@ func _build_hud() -> void:
 	_hint.offset_left = 50
 	# Clear of the corner scraps (shed, photo) on the right.
 	_hint.offset_right = -190
-	_hint.offset_top = 190
+	_hint.offset_top = 268
 	root.add_child(_hint)
 
 	joystick = ThumbStick.new()

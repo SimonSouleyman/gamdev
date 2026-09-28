@@ -360,6 +360,9 @@ func skip_time(fraction: float) -> void:
 	var seconds := minf(fraction, to_sunset) * clock.seconds_per_day
 	if fraction >= to_sunset:
 		seconds += 0.01  # land on the sunset itself, not a hair before it
+	# A boost already bought waits for after the skip (test loop: dragging the sun wiped it).
+	var boost_left := sim.clock.boost_remaining
+	sim.clock.boost_remaining = 0.0
 	sim.clock.boost_active = false
 	# The dawn burst (the night's growth) always plays out first.
 	while sim.dawn_burst_active() and seconds > 0.0 and phase == Phase.DAY:
@@ -373,6 +376,8 @@ func skip_time(fraction: float) -> void:
 		tick(step)
 		seconds -= step
 	sim.growth_paused = false
+	if phase == Phase.DAY:
+		sim.clock.boost_remaining = boost_left
 	sim.repace_rest_of_day()
 
 
