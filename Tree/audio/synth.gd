@@ -8,10 +8,14 @@ const RATE: int = 22050
 
 
 static func _to_wav(samples: PackedFloat32Array, loop: bool) -> AudioStreamWAV:
+	# A few extra frames past the end (a copy of the loop start for loops, silence otherwise),
+	# so the resampler never reads beyond the buffer.
+	var pad := 16
 	var bytes := PackedByteArray()
-	bytes.resize(samples.size() * 2)
-	for i in range(samples.size()):
-		bytes.encode_s16(i * 2, int(clampf(samples[i], -1.0, 1.0) * 32000.0))
+	bytes.resize((samples.size() + pad) * 2)
+	for i in range(samples.size() + pad):
+		var v := samples[i] if i < samples.size() else (samples[i - samples.size()] if loop else 0.0)
+		bytes.encode_s16(i * 2, int(clampf(v, -1.0, 1.0) * 32000.0))
 	var w := AudioStreamWAV.new()
 	w.format = AudioStreamWAV.FORMAT_16_BITS
 	w.mix_rate = RATE

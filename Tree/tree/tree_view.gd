@@ -506,11 +506,33 @@ func _process(delta: float) -> void:
 	_rebuild_timer += delta
 	if _rebuild_timer >= REBUILD_INTERVAL and state.sim.graph.size() != _built_size:
 		_rebuild_timer = 0.0
+		var t0 := Time.get_ticks_usec()
 		_rebuild()
+		_perf_rebuild_ms = maxf(_perf_rebuild_ms, (Time.get_ticks_usec() - t0) / 1000.0)
+	_perf_log(delta)
 	_update_twinkles()
 	_update_sun()
 	_frame_camera(false, delta)
 	_update_hud()
+
+
+## Debug builds (the phone test APK) log the frame rate and the slowest tree rebuild every
+## five seconds, so performance can be read over adb logcat.
+var _perf_rebuild_ms: float = 0.0
+var _perf_timer: float = 0.0
+var _perf_worst: float = 0.0
+
+
+func _perf_log(delta: float) -> void:
+	if not OS.is_debug_build() or OS.has_feature("editor"):
+		return
+	_perf_timer += delta
+	_perf_worst = maxf(_perf_worst, delta)
+	if _perf_timer >= 5.0:
+		print("perf: fps %d, worst frame %.0f ms, slowest rebuild %.0f ms, nodes %d, clearing %.0f m" % [Engine.get_frames_per_second(), _perf_worst * 1000.0, _perf_rebuild_ms, state.sim.graph.size(), _clearing])
+		_perf_timer = 0.0
+		_perf_worst = 0.0
+		_perf_rebuild_ms = 0.0
 
 
 func _rebuild() -> void:
