@@ -1,7 +1,8 @@
 extends SceneTree
 ## Grows a tree for N in-game days with the root bot and calm days, then takes screenshots of
 ## the tree view at noon from three sides. For judging the look of the growth.
-## Run: godot --path . -s tools/grow_shot.gd -- --days=10 --shots=C:/some/folder [--seed=42] [--boost]
+## Run: godot --path . -s tools/grow_shot.gd -- --days=10 --shots=C:/some/folder [--seed=42] [--boost] [--dive]
+## --dive: instead, five frames of the fall into the ground (dive_amount 0 to 1) from the south.
 
 var shots_dir := ""
 var days := 10
@@ -10,6 +11,7 @@ var boost := false
 var hour := 0.5  # fraction of the daylight, 0.5 = noon
 var view: TreeView
 var frame := 0
+var dive := false
 
 
 func _initialize() -> void:
@@ -22,6 +24,8 @@ func _initialize() -> void:
 			seed = int(a.substr(7))
 		elif a.begins_with("--hour="):
 			hour = float(a.substr(7))
+		elif a == "--dive":
+			dive = true
 		elif a == "--boost":
 			boost = true
 	DirAccess.make_dir_recursive_absolute(shots_dir)
@@ -57,6 +61,8 @@ func _process(_delta: float) -> bool:
 		# After the view's own _ready, which runs once the tree starts.
 		view.setup(get_meta("game"))
 		view.set_hud_visible(false)
+	if dive:
+		return _dive_frames()
 	var names := ["from_north", "from_east", "from_south"]
 	var yaws := [PI, PI * 0.5, 0.0]
 	var i := frame / 20
@@ -67,5 +73,20 @@ func _process(_delta: float) -> bool:
 		view._yaw = yaws[i]
 		view._pitch = 0.12
 	else:
+		quit()
+	return false
+
+
+func _dive_frames() -> bool:
+	var steps := [0.0, 0.3, 0.55, 0.75, 0.9]
+	var i := frame / 15
+	view._yaw = 0.0
+	view._pitch = 0.12
+	if i < steps.size():
+		view.dive_amount = steps[i]
+	if frame % 15 == 14 and i < steps.size():
+		RenderingServer.force_draw(false)
+		root.get_viewport().get_texture().get_image().save_png(shots_dir.path_join("dive_%d.png" % int(steps[i] * 100)))
+	if i >= steps.size():
 		quit()
 	return false

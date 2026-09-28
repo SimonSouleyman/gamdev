@@ -9,6 +9,8 @@ signal run_started(from_id: int)
 signal run_finished(totals: PackedFloat32Array)
 signal find_touched(find: Dictionary)
 signal dots_collected(count: int)
+## A quick swipe up once the night's root is done: back up to the tree (play test 4).
+signal swipe_up
 
 enum Mode { IDLE, PICK, RUN, DONE }
 
@@ -44,6 +46,7 @@ var _orbit_pitch: float = 0.45
 var _orbit_distance: float = 7.0
 var _look: Vector3 = Vector3(0, -1.5, 0)
 var _press_pos: Vector2 = Vector2.ZERO
+var _press_msec: int = 0
 var _pressing: bool = false
 var _dragged: bool = false
 
@@ -390,7 +393,7 @@ func _update_hud() -> void:
 		Mode.RUN:
 			_hint.text = "Move the stick (or WASD) to grow the root." if _waiting_for_input else ""
 		Mode.DONE:
-			_hint.text = "A quiet night below. Morning comes soon." if quiet_night else "The new root settles. Fine roots reach for what is near."
+			_hint.text = ("A quiet night below. Swipe up to wake the tree." if quiet_night else "The new root settles. Fine roots reach for what is near.") if is_settling() or quiet_night else "Swipe up to wake the tree, or wait for the morning."
 		_:
 			_hint.text = ""
 
@@ -708,6 +711,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		_pressing = true
 		_dragged = false
 		_press_pos = pos
+		_press_msec = Time.get_ticks_msec()
 	elif is_move:
 		if _pressing:
 			var rel := (event as InputEventMouseMotion).relative
@@ -723,6 +727,10 @@ func _unhandled_input(event: InputEvent) -> void:
 				_hover.position = roots.graph.positions[id]
 	elif is_release:
 		_pressing = false
+		var swipe := _press_pos - pos
+		if mode == Mode.DONE and not is_settling() and swipe.y > 160.0 and absf(swipe.x) < swipe.y * 0.7 				and Time.get_ticks_msec() - _press_msec < 900:
+			swipe_up.emit()
+			return
 		if not _dragged and mode == Mode.PICK:
 			var id := pick_node_at(pos)
 			if id >= 0:

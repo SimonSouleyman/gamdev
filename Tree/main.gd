@@ -96,6 +96,11 @@ func _build() -> void:
 	tree_view.ground_tapped.connect(_on_ground_tapped)
 	root_view.can_start = func() -> bool: return state.can_start_run()
 	root_view.run_started.connect(func(_id: int) -> void: state.mark_run_started())
+	# Swipe up after the night's root: straight on to the morning.
+	root_view.swipe_up.connect(func() -> void:
+		if state.phase == GameState.Phase.NIGHT and (state.night_done or state.night_empty) and not _transitioning:
+			state.night_done = true
+			state.tick(9999.0))
 	root_view.run_finished.connect(func(_t: PackedFloat32Array) -> void: state.notify_run_done())
 	root_view.find_touched.connect(func(f: Dictionary) -> void: state.notify_find(f))
 	root_view.dots_collected.connect(func(n: int) -> void: ambience.play_collect(n))

@@ -479,7 +479,7 @@ func _update_hud() -> void:
 	sun_arc.progress = s.clock.time_of_day / s.clock.daylight_fraction
 	match state.phase:
 		GameState.Phase.SUNSET:
-			_hint.text = "The sun has set. Tap the ground to follow the roots down."
+			_hint.text = "The sun has set. Tap the ground or swipe down to follow the roots."
 		GameState.Phase.DAY:
 			if state.day_is_spent():
 				_hint.text = ("Almost nothing left to grow with today" if state.sim.nutrient_missing() and not state.sim.graph.is_full() and state.sim.resources.stock[0] >= state.sim.cost_per_node else "Nothing left to grow with today") + ". The leaves still gather life force for tonight."
@@ -664,10 +664,15 @@ func _frame_camera(snap: bool, delta: float = 0.0) -> void:
 	_distance = lerpf(_distance, want_distance, k)
 	var orbit := _focus + Vector3(sin(_yaw) * cos(_pitch), sin(_pitch), cos(_yaw) * cos(_pitch)) * _distance
 	orbit.y = maxf(orbit.y, 0.25)
-	# The dive ends low beside the trunk looking into the soil; sunrise starts there and rises.
-	var dive_point := Vector3(sin(_yaw), 0.0, cos(_yaw)) * 1.0 + Vector3(0, 0.8, 0)
-	camera.position = orbit.lerp(dive_point, dive_amount)
-	var look := _focus.lerp(Vector3(0, -1.0, 0), dive_amount)
+	# The dive: the camera falls straight down into the ground beside the tree, turning a little
+	# and closing in (Simon, play test 4). Sunrise plays the same move backwards, rising out.
+	var fall := dive_amount * dive_amount
+	var spin := dive_amount * 0.55
+	var r := Vector2(orbit.x - _focus.x, orbit.z - _focus.z).length() * lerpf(1.0, 0.6, dive_amount)
+	var a := _yaw + spin
+	camera.position = Vector3(_focus.x + sin(a) * r, lerpf(orbit.y, -1.6, fall), _focus.z + cos(a) * r)
+	camera.fov *= lerpf(1.0, 0.8, dive_amount)
+	var look := Vector3(_focus.x, lerpf(_focus.y, -4.0, fall), _focus.z)
 	var d := look - camera.position
 	if d.length_squared() > 1e-6:
 		camera.look_at(look, Vector3.UP if absf(d.normalized().y) < 0.98 else Vector3.FORWARD)
@@ -747,6 +752,12 @@ func _end_press(is_release: bool, pos: Vector2 = Vector2.ZERO) -> void:
 	# A short tap by day boosts the sun for one game hour; the clock keeps running.
 	if is_release and _drag_mode != "orbit" and state.phase == GameState.Phase.DAY and _press_phase == GameState.Phase.DAY and _time - _press_time < 0.6:
 		state.boost_hour()
+	# A quick swipe down at sunset dives too: the tree above, the roots below (play test 4).
+	var swipe := pos - _press_pos
+	if is_release and state.phase == GameState.Phase.SUNSET and _press_phase == GameState.Phase.SUNSET 			and swipe.y > 160.0 and absf(swipe.x) < swipe.y * 0.7 and _time - _press_time < 0.9:
+		_drag_mode = ""
+		ground_tapped.emit()
+		return
 	# Only a short tap that began at sunset dives (not the end of a boost held through sunset).
 	if is_release and _drag_mode != "orbit" and state.phase == GameState.Phase.SUNSET 			and _press_phase == GameState.Phase.SUNSET and _time - _press_time < 0.6:
 		if _hits_ground(pos):
