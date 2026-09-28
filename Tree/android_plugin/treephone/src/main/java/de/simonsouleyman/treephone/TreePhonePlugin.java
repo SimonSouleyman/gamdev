@@ -15,17 +15,23 @@ import org.godotengine.godot.plugin.GodotPlugin;
 import org.godotengine.godot.plugin.SignalInfo;
 import org.godotengine.godot.plugin.UsedByGodot;
 
-import java.util.Collections;
+import java.io.File;
+import java.util.HashSet;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * Godot singleton "TreePhone": home-screen wallpaper and a daily local reminder.
+ * Godot singleton "TreePhone": home-screen wallpaper, a daily local reminder and the month
+ * time-lapse saved to the gallery.
  * Plain Android APIs only (no Google Play services).
  */
 public class TreePhonePlugin extends GodotPlugin {
     static final String TAG = "TreePhone";
     private static final int REQUEST_NOTIFICATIONS = 7301;
     private static final String SIGNAL_PERMISSION = "notification_permission_result";
+    private static final String SIGNAL_VIDEO = "video_saved";
+
+    private final AtomicBoolean savingVideo = new AtomicBoolean(false);
 
     public TreePhonePlugin(Godot godot) {
         super(godot);
@@ -38,7 +44,10 @@ public class TreePhonePlugin extends GodotPlugin {
 
     @Override
     public Set<SignalInfo> getPluginSignals() {
-        return Collections.singleton(new SignalInfo(SIGNAL_PERMISSION, Boolean.class));
+        Set<SignalInfo> signals = new HashSet<>();
+        signals.add(new SignalInfo(SIGNAL_PERMISSION, Boolean.class));
+        signals.add(new SignalInfo(SIGNAL_VIDEO, Boolean.class));
+        return signals;
     }
 
     private Context context() {
@@ -135,5 +144,40 @@ public class TreePhonePlugin extends GodotPlugin {
         if (ctx != null) {
             ReminderScheduler.cancel(ctx);
         }
+    }
+
+    /**
+     * Converts the game's Motion-JPEG AVI at the absolute path into an H.264 MP4 and puts it into
+     * the gallery under Movies/album. The work (a second or more) runs on its own thread: returns
+     * true once it has started, and the result arrives as the signal video_saved(ok). Returns
+     * false (and emits nothing) when it cannot start: no file, or a video is being saved already.
+     */
+    @UsedByGodot
+    public boolean saveVideoToGallery(String aviPath, String album) {
+        Context ctx = context();
+        if (ctx == null || aviPath == null || !new File(aviPath).isFile()) {
+            Log.w(TAG, "saveVideoToGallery: no file " + aviPath);
+            return false;
+        }
+        if (!savingVideo.compareAndSet(false, true)) {
+            Log.w(TAG, "saveVideoToGallery: already saving a video");
+            return false;
+        }
+        String folder = album == null || album.trim().isEmpty() ? "Tree" : album.trim();
+        Thread worker = new Thread(() -> {
+            boolean ok = false;
+            try {
+                ok = VideoSaver.save(ctx, aviPath, folder);
+            } catch (Throwable t) {
+                Log.w(TAG, "saveVideoToGallery crashed", t);
+            } finally {
+                savingVideo.set(false);
+                boolean result = ok;
+                Log.i(TAG, "saveVideoToGallery " + aviPath + " -> " + result);
+                runOnRenderThread(() -> emitSignal(SIGNAL_VIDEO, result));
+            }
+        }, "TreePhone-video");
+        worker.start();
+        return true;
     }
 }
