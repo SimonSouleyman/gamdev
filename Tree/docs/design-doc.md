@@ -120,8 +120,8 @@ Later milestones, in rough order: realistic assets (bark, leaf atlases, grass, s
 ## 14. Not in Prototype 1
 Realistic assets, the full light model, seasons, live wallpaper, extra species, mobile export, sound beyond placeholders, visitor and find art, the 3D grove.
 
-## 16. Bonsai mode (proposal, 2026-09-28, waiting for Simon's survey)
-A second, smaller game in the garden shed: one bonsai in a pot that the player grows and shapes over many weeks, next to the tree on the clearing. Reference: a juniper in informal upright style on a wooden bench (docs/references/bonsai/juniper-reference.png). Nothing here is built yet; the letters in brackets point to the open survey questions at the end of this section.
+## 16. Bonsai mode (decided 2026-09-28, later milestone)
+A second, smaller game in the garden shed: one bonsai in a pot that the player grows and shapes over many weeks, next to the tree on the clearing. Reference: a juniper in informal upright style on a wooden bench (docs/references/bonsai/juniper-reference.png). Nothing here is built yet; the letters in brackets point to the survey answers at the end of this section.
 
 **Where it lives.** The bonsai stands on the windowsill beside the workbench (A), so it is always visible in the shed menu and grows while the player looks at it. Tapping it moves the camera close to the pot: that is bonsai mode. The shed "back" gesture returns to the workbench. The window is its sun: light comes from one fixed side, which gives the bonsai its own version of sun steering (turning the pot, below).
 
@@ -158,18 +158,18 @@ A second, smaller game in the garden shed: one bonsai in a pot that the player g
 - New: pot models (a few shapes and glazes), watering can, fertiliser tin, wire coil mesh, root-ball mesh for repotting, moss and fine gravel on the soil.
 - Performance: the shed already holds 30 fps on the Fairphone; one small tree close up is cheaper than the clearing.
 
-**Open decisions (survey to Simon, 2026-09-28).**
-- (A) Where it stands: windowsill beside the workbench (recommended), on the workbench, or outside on a board by the shed door.
-- (B) Night: no root run, repotting every seventh day (recommended); a small root run in the pot every night; or nothing underground at all.
-- (C) Wire: yes, with wire bite as the soft failure (recommended); or shears and pinching only.
-- (D) End: one lifelong bonsai (recommended); finished when a style is reached, then album and a new one; or a shelf of several at once.
-- (E) Species: roster species plus juniper as the only conifer and starter (recommended); roster only; or a separate bonsai list (juniper, Japanese maple, pine, ficus).
-- (F) Style: free with style pages as inspiration (recommended); or style templates with a calm hint how close the tree is.
-- (G) Link: independent, no shared life force (recommended); or fertiliser bought with the clearing tree's life force.
-- (H) Unlock: after the first finished clearing tree (recommended); from the start; or only after all six species.
+**Decided by Simon (2026-09-28 survey: every recommendation taken).**
+- (A) Where it stands: windowsill beside the workbench.
+- (B) Night: no root run, repotting every seventh day.
+- (C) Wire: yes, with wire bite as the soft failure.
+- (D) End: one lifelong bonsai.
+- (E) Species: roster species plus juniper as the only conifer and starter.
+- (F) Style: free with style pages as inspiration.
+- (G) Link: independent, no shared life force.
+- (H) Unlock: after the first finished clearing tree.
 
 ## Decision log
-- 2026-09-28 **proposal, not decided:** bonsai mode (section 16), Simon asked for it as a later game mode in the garden shed with a loop like the tree; open decisions A to H wait for his survey.
+- 2026-09-28 bonsai mode (Simon, section 16): a later game mode in the garden shed with a loop like the tree; every survey recommendation taken: windowsill beside the workbench, repotting every seventh day instead of a root run, wire with wire bite, one lifelong bonsai, roster cuttings plus juniper as the only conifer and starter, free styling, independent of the clearing tree, unlocked after the first finished tree.
 - 2026-09-27 play test 2 and QA rounds (Simon): the meadow is dense soft grass with herbs and wildflowers (no single blades); the clearing is closed in by a dense wall of mixed trees (oak, beech, birch, linden, spruce) and undergrowth; reference photos in docs/references/clearing. Moving the sun on rests the tree (life force still gathers) so the nutrients wait for the hour the player picks; a missing N, P or K slows growth to about a third instead of stopping it (soft Liebig floor 0.35); the simulation runs in fixed steps.
 - 2026-09-27 play test 1 (Simon): the sun can be moved on at any time of the day; a root can end early and the leftover life force feeds more fine roots (replaces "leftover carries over"); no ball at the root tip; brighter start at dusk; the scene is a small forest clearing, not an open meadow; the journal is a book (big menus) and torn pages (small), with the HUD in the same handwritten paper style; CC0 photo textures (bark, leaves, ground, paper) and OFL handwriting fonts (Caveat, Patrick Hand) approved.
 - 2026-09-26 interviews: vision, realism, algorithm, sun steering, roots, resources, pacing, soft failure, notifications, portrait, wallpaper wish, linden first.
