@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.6 (in progress)
+
+- The living clearing: as the crown grows, its shade changes the ground below by itself. The sun
+  meadow thins to leaf litter, wood anemones flower, then ferns unroll and moss spreads; for a
+  few days after rain or a damp morning mushrooms come up. The journal's new "clearing" ribbon
+  lists what has come up so far (the first collection), with a diary line for each first.
+- The month time-lapse: in the album a finished tree's page plays its morning photos as a
+  flip-book ("flip through" does it for any tree), and "save as video" saves the month as a
+  short film (into the phone's gallery once the phone plugin can; on a PC into the game folder).
+
 ## v0.5.2 (2026-09-28)
 
 From Simon's feedback on 0.5.1.

@@ -513,6 +513,8 @@ func enter_shed(animate: bool) -> void:
 		tree_view.set_shed_open(true)
 		shed.frame_tree(state.sim.height(), tree_view.camera.environment)
 		shed.camera.make_current()
+		# A finished tree's month plays as a flip-book in the album.
+		shed_menu.tree_finished = state.finished
 		shed_menu.show_menu(true)
 		ambience.set_world(true, 0.8)
 	if animate:

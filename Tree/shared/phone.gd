@@ -58,5 +58,17 @@ static func has_notification_permission() -> bool:
 	return bool(_plugin().isNotificationPermissionGranted())
 
 
+## Puts a video (the month time-lapse, an MJPEG .avi written by MjpegAvi) into the phone's
+## gallery (Movies/Tree). The plugin converts it to an MP4 there; see android_plugin/README.md.
+## A no-op that returns false on PC, and with a plugin that does not have the method yet.
+static func save_video_to_gallery(path: String) -> bool:
+	if not is_available():
+		return false
+	var p := _plugin()
+	if not p.has_method("saveVideoToGallery"):
+		return false
+	return bool(p.saveVideoToGallery(ProjectSettings.globalize_path(path), "Tree"))
+
+
 static func _plugin() -> Object:
 	return Engine.get_singleton(SINGLETON)

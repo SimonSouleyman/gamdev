@@ -8,6 +8,7 @@ All third-party assets in this project, with their licences. CC0 needs no attrib
 | `assets/wood/weathered_planks_*`, `old_planks_02_*`, `wood_table_worn_*` (1k) | Poly Haven, "Weathered Planks", "Old Planks 02", "Wood Table Worn" (https://polyhaven.com) | CC0 |
 | `assets/leaves/LeafSet004_1K-JPG_*` | ambientCG, "Leaf Set 004" (https://ambientcg.com/view?id=LeafSet004) | CC0 |
 | `assets/ground/Grass004_1K-JPG_*` | ambientCG, "Grass 004" (https://ambientcg.com/view?id=Grass004) | CC0 |
+| `assets/ground/forest_leaves_04_diff_1k.jpg` (leaf litter under the crown's shade) | Poly Haven, "Forest Leaves 04" (https://polyhaven.com/a/forest_leaves_04) | CC0 |
 | `assets/paper/paper_cream.png`, `paper_grid.png`, `paper_beige.png` (downscaled from Papier13, 11, 7) | OpenGameArt, "Paper Textures (seamless)" (https://opengameart.org/content/paper-textures-seamless) | CC0 |
 | `assets/sounds/forest_ambience.mp3` | OpenGameArt, "Forest Ambience" by TinyWorlds (https://opengameart.org/content/forest-ambience) | CC0 |
 | `assets/sounds/birds.ogg` | OpenGameArt, "Ambient Bird Sounds" by isaiah658 (https://opengameart.org/content/ambient-bird-sounds) | CC0 |
@@ -16,4 +17,4 @@ All third-party assets in this project, with their licences. CC0 needs no attrib
 | `ui/fonts/Caveat-Regular.ttf` | Google Fonts, Caveat by Impallari Type | SIL Open Font License 1.1 (`ui/fonts/OFL-Caveat.txt`) |
 | `ui/fonts/PatrickHand-Regular.ttf` | Google Fonts, Patrick Hand by Patrick Wagesreiter | SIL Open Font License 1.1 (`ui/fonts/OFL-PatrickHand.txt`) |
 
-Everything else (tree, roots, meadow plants, leaf fallback, paper, the wind, the underground hum and the collect note) is generated in code.
+Everything else (tree, roots, meadow plants, the shade plants and mushrooms of `lookdev/grass/understory_atlas.png`, leaf fallback, paper, the wind, the underground hum and the collect note) is generated in code.

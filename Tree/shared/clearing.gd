@@ -27,7 +27,7 @@ const NOTES := {
 	"anemone": "white stars in the light shade, where the meadow grass gave way",
 	"fern": "unrolled from a green curl in the deep shade",
 	"moss": "soft cushions where the shade lies all day",
-	"mushroom": "came up after the damp and were gone a few days later",
+	"mushroom": "come up after rain or a damp night and are gone a few days later",
 }
 const FIRST_LINES := {
 	"anemone": "Wood anemones are flowering in the shade of my crown, where the meadow grass has thinned.",

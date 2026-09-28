@@ -66,3 +66,15 @@ Each criterion has a test in `tests/` unless marked (visual), which Simon judges
 - Each species has a journal page (look and quirk), shown once when it is planted, kept in the pages tab.
 - (visual) The hero tree's bark and leaf tint follow the species (white birch, dark oak); the forest ring is unchanged.
 - tools/month_report.gd --species=<id>|all: growth every day, finished near 30 days (birch 25, oak 35).
+
+## 0.6 living clearing (design doc 17.6) — done
+- The crown's shade on the ground comes from the hero tree's crown (Clearing.shade_map: leaf clusters projected along the sun's rays over the day); a seedling casts none, a grown crown shades the north side of the trunk most.
+- Shade plants come up by themselves, in time: wood anemones first, ferns after about a week of shade, moss last; mushrooms for three days after rain (`GameState.after_rain()` / `Clearing.after_rain(day)`, the weather hook) or a seeded damp morning. Nothing grows on the bare earth around the trunk; the same seed and shade give the same plants; the budget caps them.
+- Each kind's first appearance writes one diary line and joins the journal's "clearing" page (the first collection), which is saved and carried to the next tree.
+- (visual) Under the crown the meadow thins and darkens, the ground turns to leaf litter with painted anemones, ferns, moss cushions and mushrooms (tools/grow_shot.gd --pitch=0.6 --zoom=0.35 --rain).
+
+## 0.6 month time-lapse (design doc 17.7) — done
+- The album's photos group by tree; the flip-book plays a tree's morning photos in order at six pages a second; a finished tree's flip-book page follows its last photos, "flip through" plays any tree's month (the current one too).
+- "save as video" writes a Motion-JPEG AVI (valid RIFF with one frame chunk and index entry per photo) and calls `Phone.save_video_to_gallery(path)`, a no-op on PC (plugin work in android_plugin/README.md).
+- The flip-book loads small copies of the photos (user://photos/thumbs), made when a photo is taken or on first use; clearing the album clears them.
+- (visual) Pages turn toward the binding, showing the next morning under them (tools/shed_shot.gd --flip=25).
