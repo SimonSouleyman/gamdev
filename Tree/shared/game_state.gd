@@ -37,6 +37,8 @@ var night_empty: bool = false
 var _empty_timer: float = 0.0
 ## One-time journal pages already shown (the tutorial lives in the journal).
 var seen_pages: Dictionary = {}
+## Tutorial pages shown but not yet closed when the game was saved; they come back on load.
+var pending_pages: Array = []
 ## Things that happened since the scenes last looked: "sunset", "dive", "sunrise",
 ## "run_done", "night_empty", "find:<kind>", "spent". Scenes pop them with take_events().
 var _events: Array[String] = []
@@ -84,11 +86,20 @@ func tick(delta: float) -> void:
 	var clock := sim.clock
 	match phase:
 		Phase.DAY:
+			# A tapped boost lasts one game hour; the clock never stops for it.
+			var clk := sim.clock
+			if clk.boost_remaining > 0.0:
+				clk.boost_active = true
+				clk.boost_remaining -= delta
+				if clk.boost_remaining <= 0.0:
+					clk.boost_remaining = 0.0
+					clk.boost_active = false
 			var to_sunset := (clock.daylight_fraction - clock.time_of_day) * clock.seconds_per_day
 			if delta >= to_sunset:
 				sim.tick(maxf(0.0, to_sunset))
 				clock.time_of_day = clock.daylight_fraction
 				clock.boost_active = false
+				clock.boost_remaining = 0.0
 				phase = Phase.SUNSET
 				_event("sunset")
 			else:
@@ -99,7 +110,9 @@ func tick(delta: float) -> void:
 						morning_timer = -1.0
 						write_morning_line()
 						_event("morning")
-				if not _spent_announced and sim.nutrients_spent():
+				# Also when one nutrient is gone while the others still carry growth (QA round 3: the
+				# player was never told which one was missing).
+				if not _spent_announced and (sim.nutrients_spent() or sim.nutrient_missing()):
 					_spent_announced = true
 					_event("spent")
 		Phase.SUNSET:
@@ -212,11 +225,17 @@ func _on_run_done() -> void:
 func _sunrise() -> void:
 	phase = Phase.DAY
 	sim.clock.boost_active = false
+	sim.clock.boost_remaining = 0.0
 	night_done = false
 	night_empty = false
 	_spent_announced = false
 	var was_seed := sim.graph.size() <= 2
 	ground.regrow(REGROW_SHARE, day_number())
+	# The old roots drank from the deposits they reach all night.
+	var drawn := roots.drink_tapped(ground, sim.resources)
+	var total_drawn := drawn[0] + drawn[1] + drawn[2] + drawn[3]
+	if total_drawn > 0.5:
+		diary.add(day_number(), "The old roots drew water %.1f, nitrogen %.1f, phosphorus %.1f, potassium %.1f from the soil overnight." % [drawn[0], drawn[1], drawn[2], drawn[3]])
 	sim.start_dawn_burst()
 	if was_seed and not sim.nutrients_spent():
 		diary.add(day_number(), "The seed sprouted at dawn.")
@@ -234,6 +253,15 @@ func write_morning_line() -> void:
 # --- moving the day on ------------------------------------------------------
 
 ## Once nutrients are spent, the player may drag the sun along its arc to move time on.
+## Tap: the sun shines brighter for one more game hour (up to three hours ahead).
+func boost_hour() -> void:
+	if phase != Phase.DAY:
+		return
+	var clk := sim.clock
+	clk.boost_remaining = minf(clk.boost_remaining + clk.hour_seconds(), clk.hour_seconds() * 3.0)
+	clk.boost_active = true
+
+
 ## The sun can be moved on at any time of the day (Simon, play test 2026-09-27): wait for the
 ## afternoon, then boost to steer the crown west, without waiting in real time.
 func can_skip_time() -> bool:
@@ -297,6 +325,7 @@ func to_dict() -> Dictionary:
 		"night_done": night_done,
 		"night_empty": night_empty,
 		"seen_pages": seen_pages.keys(),
+		"pending_pages": pending_pages,
 		"empty_timer": _empty_timer,
 		"morning_timer": morning_timer,
 		"spent_announced": _spent_announced,
@@ -318,6 +347,7 @@ static func from_dict(d_in: Dictionary) -> GameState:
 	g.run_used = bool(d.get("run_used", false))
 	g.night_done = bool(d.get("night_done", false))
 	g.night_empty = bool(d.get("night_empty", false))
+	g.pending_pages = Array(d.get("pending_pages", []))
 	for k in d.get("seen_pages", []):
 		g.seen_pages[str(k)] = true
 	return g

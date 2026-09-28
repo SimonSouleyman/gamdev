@@ -9,13 +9,15 @@ signal dragged(fraction_of_day: float)
 
 ## 0..1 through the daylight part of the day.
 var progress: float = 0.0
+## Game hours of boost still ahead, drawn as a bright stretch of the arc.
+var boost_hours: float = 0.0
 var _dragging: bool = false
 var _time: float = 0.0
 
 
 func _ready() -> void:
 	# Only a press on the sun itself is taken; anything else passes on (hold to boost, orbit).
-	mouse_filter = Control.MOUSE_FILTER_PASS
+	mouse_filter = Control.MOUSE_FILTER_IGNORE
 
 
 func _process(delta: float) -> void:
@@ -48,6 +50,12 @@ func _draw() -> void:
 	for i in range(steps):
 		if i % 2 == 0:
 			draw_line(_arc_point(float(i) / steps), _arc_point(float(i + 1) / steps), Color(1, 1, 0.9, 0.7), 3.0, true)
+	if boost_hours > 0.0:
+		var span := boost_hours / DayCycle.DAYLIGHT_HOURS
+		var pts := PackedVector2Array()
+		for i in range(13):
+			pts.append(_arc_point(progress + span * i / 12.0))
+		draw_polyline(pts, Color(1.0, 0.85, 0.4, 0.95), 6.0, true)
 	var k := knob_position()
 	var pulse := 1.0 + 0.15 * sin(_time * 3.0)
 	draw_circle(k, 34.0 * pulse, Color(1.0, 0.85, 0.4, 0.25))

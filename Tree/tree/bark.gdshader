@@ -59,6 +59,8 @@ void fragment() {
 	}
 	// Per-species bark tint from vertex colours (white where a mesh has none).
 	ALBEDO *= COLOR.rgb * tint_mul;
+	// Thin twigs (high in the UV repeat count, i.e. small radius) are greyer, not orange.
+	ALBEDO = mix(ALBEDO, vec3(dot(ALBEDO, vec3(0.33))) * 0.8, 0.35);
 	RIM = rim_strength;
 	RIM_TINT = 0.5;
 	SPECULAR = 0.3;

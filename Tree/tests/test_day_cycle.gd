@@ -33,8 +33,9 @@ func test_advance_counts_days() -> void:
 
 func test_day_is_five_minutes_night_three() -> void:
 	var c := DayCycle.new()
-	t.check_near(c.seconds_per_day * c.daylight_fraction, 300.0, 1e-3, "five minutes of daylight")
-	t.check_near(c.seconds_per_day * (1.0 - c.daylight_fraction), 180.0, 1e-3, "three minutes of night")
+	t.check_near(c.seconds_per_day * c.daylight_fraction, 120.0, 1e-3, "two minutes of daylight (play test 3)")
+	t.check_near(c.seconds_per_day * (1.0 - c.daylight_fraction), 72.0, 1e-3, "a short night clock")
+	t.check_near(c.hour_seconds() * DayCycle.DAYLIGHT_HOURS, 120.0, 1e-3, "fourteen game hours of daylight")
 
 
 func test_boost_multiplies_light() -> void:

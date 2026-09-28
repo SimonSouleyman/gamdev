@@ -29,6 +29,9 @@ var _noise_tex: NoiseTexture2D
 var _bark_mat: ShaderMaterial
 var _leaf_mat: ShaderMaterial
 var _ground_mat: ShaderMaterial
+var _ground: MeshInstance3D
+## Radius of the clearing the world was last built for.
+var _clearing: float = -1.0
 var _scenery: Scenery
 var _env: Environment
 var _meadow: Meadow
@@ -71,6 +74,8 @@ var _res_labels: Array[Label] = []
 var _hint: PaperNote
 var _boost_label: Label
 var sun_arc: SunArc
+## True while a journal page is open (set by main): hints then stay quiet, the page says it.
+var page_open: Callable = func() -> bool: return false
 
 
 func _ready() -> void:
@@ -83,9 +88,8 @@ func _ready() -> void:
 
 func setup(p_state: GameState) -> void:
 	state = p_state
-	_meadow.build(state.ground)
-	_plant_grass(state.seed)
-	_scenery.build(state.seed, _bark_mat, _leaf_mat, _noise_tex)
+	_clearing = -1.0
+	refresh_clearing()
 	_built_size = -1
 	_births.clear()
 	# Nodes that already exist do not twinkle.
@@ -94,6 +98,24 @@ func setup(p_state: GameState) -> void:
 
 
 # --- world ------------------------------------------------------------------
+
+## Rebuilds the ground, meadow and forest ring when the tree has outgrown its clearing.
+## Called at setup and at night, while the tree scene is hidden.
+func refresh_clearing() -> void:
+	var r := Scenery.radius_for(state.sim.height())
+	if r == _clearing:
+		return
+	_clearing = r
+	Terrain.edge = r
+	Shed.origin = Vector3(0.0, 0.0, r - 2.5)
+	_ground.mesh = Terrain.ground_mesh(160.0 + (r - Scenery.CLEARING_RADIUS) * 2.0, 110)
+	_meadow.build(state.ground)
+	_plant_grass(state.seed)
+	_scenery.build(state.seed, _bark_mat, _leaf_mat, _noise_tex, r)
+	# The haze begins further out as the clearing grows, so the forest ring is not buried.
+	_env.fog_depth_begin = r
+	_env.fog_depth_end = r * 2.0 + 34.0
+
 
 func _build_world() -> void:
 	camera = Camera3D.new()
@@ -126,7 +148,12 @@ func _build_world() -> void:
 	_env.glow_bloom = 0.05
 	_env.fog_enabled = true
 	# Haze lies between the tree and the forest: the wood recedes, the tree stays crisp.
-	_env.fog_density = 0.011
+	# Depth fog: the tree and meadow stay crisp, only what lies beyond recedes.
+	_env.fog_mode = Environment.FOG_MODE_DEPTH
+	_env.fog_depth_begin = 18.0
+	_env.fog_depth_end = 70.0
+	_env.fog_depth_curve = 1.0
+	_env.fog_density = 0.6
 	_env.fog_light_color = Color(0.45, 0.55, 0.5)
 	_env.fog_aerial_perspective = 0.4
 	_env.fog_sky_affect = 0.05
@@ -137,9 +164,9 @@ func _build_world() -> void:
 	add_child(camera)
 
 	var ground := MeshInstance3D.new()
-	var plane := PlaneMesh.new()
-	plane.size = Vector2(160, 160)
-	ground.mesh = plane
+	_ground = ground
+	# Uneven ground: a level spot at the trunk, swells and hollows, rising toward the forest.
+	ground.mesh = Terrain.ground_mesh(160.0, 110)
 	_noise_tex = NoiseTexture2D.new()
 	_noise_tex.width = 512
 	_noise_tex.height = 512
@@ -261,7 +288,6 @@ func _build_world() -> void:
 
 const GRASS_CLUMPS := Budgets.MEADOW_GRASS_CLUMPS
 const HERB_CLUMPS := Budgets.MEADOW_HERB_CLUMPS
-const GRASS_RADIUS := 20.0
 
 
 func _clump_layer(tex: Texture2D) -> MultiMeshInstance3D:
@@ -276,7 +302,7 @@ func _clump_layer(tex: Texture2D) -> MultiMeshInstance3D:
 	mat.set_shader_parameter("clump_texture", tex)
 	mmi.material_override = mat
 	mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	mmi.custom_aabb = AABB(Vector3(-24, -1, -24), Vector3(48, 3, 48))
+	mmi.custom_aabb = AABB(Vector3(-46, -1, -46), Vector3(92, 6, 92))
 	add_child(mmi)
 	return mmi
 
@@ -289,14 +315,20 @@ func _plant_grass(seed: int) -> void:
 		var count: int = layer[1]
 		mm.instance_count = count
 		for i in range(count):
-			var d := GRASS_RADIUS * pow(rng.randf(), 0.7)
+			# Denser in the open meadow a few metres out, where the camera looks.
+			var d := (_clearing + 2.0) * pow(rng.randf(), 0.55)
 			if d < 0.3:
 				d = 0.3 + rng.randf() * 0.4
 			var a := rng.randf() * TAU
-			var w := rng.randf_range(layer[2].x, layer[2].y)
-			var h := rng.randf_range(layer[3].x, layer[3].y)
+			# No grass inside the garden shed.
+			if Vector2(cos(a) * d - Shed.origin.x, sin(a) * d - Shed.origin.z).length() < 2.4:
+				d = maxf(0.3, d - 4.0)
+			# A wider clearing spreads the same clumps further: they grow fuller to keep it a meadow.
+			var fuller := sqrt(_clearing / Scenery.CLEARING_RADIUS)
+			var w := rng.randf_range(layer[2].x, layer[2].y) * fuller
+			var h := rng.randf_range(layer[3].x, layer[3].y) * lerpf(1.0, fuller, 0.5)
 			var basis := Basis(Vector3.UP, rng.randf() * TAU).scaled(Vector3(w, h, w))
-			mm.set_instance_transform(i, Transform3D(basis, Vector3(cos(a) * d, -0.02, sin(a) * d)))
+			mm.set_instance_transform(i, Transform3D(basis, Terrain.at(Vector3(cos(a) * d, 0.0, sin(a) * d)) + Vector3(0, -0.02, 0)))
 			var v := rng.randf_range(0.82, 1.12)
 			var pos := Vector2(cos(a) * d, sin(a) * d)
 			# Soft patches: dry yellowish, lush and dark green, shade under the forest edge.
@@ -404,6 +436,10 @@ func _pill(parent: Control, dot: Color) -> Label:
 	return l
 
 
+func set_shed_open(on: bool) -> void:
+	_scenery.set_shed_open(on)
+
+
 func set_hud_visible(on: bool) -> void:
 	hud.visible = on
 
@@ -416,26 +452,30 @@ func _update_hud() -> void:
 	for k in range(4):
 		_res_labels[k].text = "%s %.1f" % [short[k], s.resources.amount(k)]
 	_boost_label.get_parent().get_parent().visible = s.clock.boost_active
-	_boost_label.text = "sun boost"
+	_boost_label.text = "sun boost %d:%02d" % [int(s.clock.boost_remaining / s.clock.hour_seconds() * 60.0) / 60, int(s.clock.boost_remaining / s.clock.hour_seconds() * 60.0) % 60]
 	# The sun's arc is always there by day: drag the sun to move the day on (brighter once
 	# there is nothing left to grow with).
-	sun_arc.visible = state.can_skip_time()
+	# The arc shows the time of day and the boost; it is no longer dragged.
+	sun_arc.visible = state.phase == GameState.Phase.DAY
 	# Faint unless it matters: while dragging, or once the day has nothing left to grow with.
-	sun_arc.modulate.a = 1.0 if state.day_is_spent() or sun_arc.is_dragging() else 0.35
+	sun_arc.modulate.a = 0.75
+	sun_arc.boost_hours = s.clock.boost_remaining / s.clock.hour_seconds()
 	sun_arc.progress = s.clock.time_of_day / s.clock.daylight_fraction
 	match state.phase:
 		GameState.Phase.SUNSET:
 			_hint.text = "The sun has set. Tap the ground to follow the roots down."
 		GameState.Phase.DAY:
 			if state.day_is_spent():
-				_hint.text = ("Almost nothing left to grow with today" if state.sim.nutrient_missing() and not state.sim.graph.is_full() and state.sim.resources.stock[0] >= state.sim.cost_per_node else "Nothing left to grow with today") + ". Drag the sun along its arc to move the day on."
+				_hint.text = ("Almost nothing left to grow with today" if state.sim.nutrient_missing() and not state.sim.graph.is_full() and state.sim.resources.stock[0] >= state.sim.cost_per_node else "Nothing left to grow with today") + ". The leaves still gather life force for tonight."
 			elif state.day_number() <= 3 and not state.is_seed():
 				# The first days: a quiet reminder of what can be done while the tree grows.
-				_hint.text = "Hold anywhere to boost the sun. Drag the sun along its arc to pick the hour."
+				_hint.text = "Tap to let the sun shine brighter for an hour."
 			else:
 				_hint.text = ""
 		_:
 			_hint.text = ""
+	if page_open.call():
+		_hint.text = ""
 
 
 # --- frame ------------------------------------------------------------------
@@ -472,31 +512,44 @@ func _rebuild() -> void:
 	_built_size = g.size()
 	_tree_mesh.mesh = _builder.build(g)
 	_seed.visible = state.is_seed()
-	# Leaf clusters on every living twig (thin wood), so the crown fills out, not just the tips.
+	# Leaves gather toward the branch ends (within a few nodes of a living tip), as sprays of
+	# several smaller clusters, so the crown reads as masses of foliage rather than beads.
+	var near_tip := {}
+	for tip in g.tips():
+		if tip <= 1 or g.get_flag(tip, "dead", false):
+			continue
+		var cur := tip
+		for _k in range(4):
+			if cur <= 1:
+				break
+			near_tip[cur] = true
+			cur = g.parents[cur]
 	var spots := PackedInt32Array()
-	for id in range(2, g.size()):
-		var bare_below := state.sim.height() * 0.3 if state.sim.height() > 4.0 else 0.0
-	# Leaves on the thin twigs of the crown; the lower trunk of a grown tree stays bare.
-		if g.radii[id] < 0.06 and not g.get_flag(id, "dead", false) and g.positions[id].y >= bare_below:
-			spots.append(id)
+	for id in near_tip.keys():
+		spots.append(id)
+	spots.sort()
+	var per := 1 if state.sim.height() < 3.0 else (2 if state.sim.height() < 10.0 else 3)
 	var mm := _leaves.multimesh
-	mm.instance_count = spots.size()
+	mm.instance_count = spots.size() * per
 	var rng := RandomNumberGenerator.new()
 	rng.seed = hash([state.seed, "leaf clusters"])
-	# Each card stands for a spray of many leaves: a big crown needs bigger sprays to read as dense.
-	var grow := 1.0 + state.sim.height() * 0.08
+	var grow := 1.0 + state.sim.height() * 0.06
 	var centre := state.sim.centroid()
 	var crown_r := maxf(0.5, state.sim.height() * 0.35)
-	for i in range(spots.size()):
-		var id := spots[i]
-		var s := (0.09 + 0.05 * rng.randf()) * grow
-		var basis := Basis(Vector3.UP, rng.randf() * TAU) * Basis(Vector3.RIGHT, rng.randf_range(-0.4, 0.4))
-		mm.set_instance_transform(i, Transform3D(basis.scaled(Vector3.ONE * s), g.positions[id]))
-		var tint := rng.randf_range(0.85, 1.12)
-		# Leaves deep inside the crown are in shade.
-		var inner := clampf(1.0 - g.positions[id].distance_to(centre) / crown_r, 0.0, 1.0)
-		tint *= lerpf(1.0, 0.55, inner)
-		mm.set_instance_color(i, Color(tint * rng.randf_range(0.9, 1.05), tint, tint * rng.randf_range(0.85, 1.0)))
+	var n := 0
+	for id in spots:
+		for k in range(per):
+			var s := (0.09 + 0.05 * rng.randf()) * grow
+			var off := Vector3(rng.randf_range(-1, 1), rng.randf_range(-0.6, 0.8), rng.randf_range(-1, 1)) * s * 1.4 * float(k > 0)
+			var basis := Basis(Vector3.UP, rng.randf() * TAU) * Basis(Vector3.RIGHT, rng.randf_range(-0.4, 0.4))
+			var p := g.positions[id] + off
+			mm.set_instance_transform(n, Transform3D(basis.scaled(Vector3.ONE * s), p))
+			var tint := rng.randf_range(0.85, 1.12)
+			# Leaves deep inside the crown are in shade.
+			var inner := clampf(1.0 - p.distance_to(centre) / crown_r, 0.0, 1.0)
+			tint *= lerpf(1.0, 0.55, inner)
+			mm.set_instance_color(n, Color(tint * rng.randf_range(0.9, 1.05), tint, tint * rng.randf_range(0.85, 1.0)))
+			n += 1
 
 
 func _update_twinkles() -> void:
@@ -551,10 +604,12 @@ func _update_sun() -> void:
 	# The sky glows brighter near the horizon hours, and the haze takes the sun's colour.
 	# A low sun: a bright golden sky and haze, the ground in raking light (the reference photos).
 	_sky_mat.energy_multiplier = 1.5 + 1.7 * (1.0 - k) + (0.35 if clock.boost_active else 0.0)
-	_env.fog_light_color = Color(0.45, 0.55, 0.5).lerp(_sun_light.light_color * 0.9, 0.4 * (1.0 - k))
-	_env.fog_sun_scatter = 0.35 * (1.0 - k)
+	# After sunset the haze stays cool blue-grey; only while the sun is up does it warm.
+	var warm := 0.25 * (1.0 - k) if h > 0.0 else 0.0
+	_env.fog_light_color = (Color(0.45, 0.55, 0.5) if h > 0.0 else Color(0.32, 0.38, 0.48)).lerp(_sun_light.light_color * 0.9, warm)
+	_env.fog_sun_scatter = 0.08 * (1.0 - k)
 	# The eye adapts: a low sun and the dusk are exposed brighter, so the tree stays readable.
-	_env.tonemap_exposure = 1.1 + 0.6 * (1.0 - k)
+	_env.tonemap_exposure = 1.1 + 0.3 * (1.0 - k)
 	# Never too dark by day: the dawn burst must be seen.
 	# Brighter dusk (Simon: the start at sunset was too dark).
 	_env.ambient_light_energy = (1.2 + 0.3 * k) if state.phase == GameState.Phase.DAY else 1.2
@@ -572,12 +627,18 @@ func _frame_camera(snap: bool, delta: float = 0.0) -> void:
 		_framed_day = state.day_number()
 	var height := _framed_height
 	var want_focus := Vector3(0, clampf(height * 0.5, 0.25, 30.0), 0)
-	# The camera stays inside the clearing; a tall tree is seen with a wider lens instead.
-	# The camera stays in the clearing; a tall tree is seen from lower down with a wider lens,
-	# and the forest trees right behind the camera dissolve (near_fade in the scenery materials).
-	# Never beyond the bushes at the clearing edge (about 17 m): the forest stays behind the camera.
-	var want_distance := clampf(clampf(height * 1.7 + 2.2, 2.4, 16.0) * _zoom, 1.5, 16.5)
-	camera.fov = clampf(55.0 + height * 1.2, 55.0, 85.0)
+	# The camera stays inside the clearing, which grows with the tree (refresh_clearing), so a
+	# grown linden is seen whole from further back rather than through a wide lens.
+	var room := maxf(_clearing, Scenery.CLEARING_RADIUS) - 3.0
+	var want_distance := clampf(clampf(height * 1.35 + 2.2, 2.4, room) * _zoom, 1.5, room + 0.5)
+	# Just wide enough to hold the whole tree at this distance.
+	camera.fov = clampf(rad_to_deg(2.0 * atan(height * 0.62 / maxf(want_distance, 0.1))) + 10.0, 50.0, 80.0)
+	# The meadow grass fades out beyond the tree, however far back the camera stands.
+	var fade := maxf(24.0, want_distance + 22.0)
+	for layer in [_grass, _herbs]:
+		var gm := (layer as MultiMeshInstance3D).material_override as ShaderMaterial
+		gm.set_shader_parameter("fade_start", fade)
+		gm.set_shader_parameter("fade_end", fade + 18.0)
 	var k := 1.0 if snap else 1.0 - exp(-2.0 * delta)
 	_focus = _focus.lerp(want_focus, k)
 	_distance = lerpf(_distance, want_distance, k)
@@ -647,19 +708,10 @@ func _begin_press(pos: Vector2) -> void:
 	_press_phase = state.phase
 	_press_time = _time
 	_drag_mode = ""
-	if state.phase == GameState.Phase.DAY:
-		if state.can_skip_time() and _near_sun(pos):
-			_drag_mode = "sun"
-		else:
-			# Hold anywhere: the sun shines brighter while held.
-			_drag_mode = "boost"
-			state.sim.clock.boost_active = true
+	# (Play test 3: no holding and no dragging the sun; a tap boosts, see _end_press.)
 
 
 func _drag(pos: Vector2, rel: Vector2) -> void:
-	if _drag_mode == "sun":
-		_drag_sun(rel)
-		return
 	if _drag_mode != "orbit" and pos.distance_to(_press_pos) > DRAG_THRESHOLD:
 		_drag_mode = "orbit"
 		state.sim.clock.boost_active = false
@@ -672,38 +724,14 @@ func _end_press(is_release: bool, pos: Vector2 = Vector2.ZERO) -> void:
 	if not _pressing:
 		return
 	_pressing = false
-	state.sim.clock.boost_active = false
+	# A short tap by day boosts the sun for one game hour; the clock keeps running.
+	if is_release and _drag_mode != "orbit" and state.phase == GameState.Phase.DAY and _press_phase == GameState.Phase.DAY and _time - _press_time < 0.6:
+		state.boost_hour()
 	# Only a short tap that began at sunset dives (not the end of a boost held through sunset).
-	if is_release and _drag_mode != "orbit" and _drag_mode != "sun" and state.phase == GameState.Phase.SUNSET 			and _press_phase == GameState.Phase.SUNSET and _time - _press_time < 0.6:
+	if is_release and _drag_mode != "orbit" and state.phase == GameState.Phase.SUNSET 			and _press_phase == GameState.Phase.SUNSET and _time - _press_time < 0.6:
 		if _hits_ground(pos):
 			ground_tapped.emit()
 	_drag_mode = ""
-
-
-func _near_sun(pos: Vector2) -> bool:
-	# Only the visible, glowing sun can be grabbed; elsewhere a press is a boost.
-	if not _sun_disc.visible or camera.is_position_behind(_sun_disc.global_position):
-		return false
-	return camera.unproject_position(_sun_disc.global_position).distance_to(pos) < 110.0
-
-
-## Moves time on in proportion to how far the finger moves along the sun's screen path.
-func _drag_sun(rel: Vector2) -> void:
-	var clock := state.sim.clock
-	var step := 0.01
-	var here := clock.sun_direction() * SUN_DISTANCE
-	var saved := clock.time_of_day
-	clock.time_of_day = minf(saved + step, clock.daylight_fraction - 0.0001)
-	var there := clock.sun_direction() * SUN_DISTANCE
-	clock.time_of_day = saved
-	if camera.is_position_behind(here) or camera.is_position_behind(there):
-		return
-	var path := camera.unproject_position(there) - camera.unproject_position(here)
-	if path.length() < 0.5:
-		return
-	var along := rel.dot(path.normalized())
-	if along > 0.0:
-		state.skip_time(along / path.length() * step)
 
 
 func _hits_ground(pos: Vector2) -> bool:

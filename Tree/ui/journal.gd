@@ -17,6 +17,8 @@ var state: GameState
 var settings: Dictionary = {"sound": true, "no_ui": false, "battery_saver": false, "notifications": true}
 
 var _queue: Array = []  # [{id, title, body}]
+## Pages put aside while the player is in the shed; they come back outside.
+var _held: Array = []
 var _page: Control
 var _page_sheet: PanelContainer
 var _page_title: Label
@@ -94,9 +96,39 @@ func _next_page() -> void:
 ## Drops every open or queued page (a new game or a load starts clean).
 func clear_pages() -> void:
 	_queue.clear()
+	_held.clear()
 	_page.visible = false
 	_page_id = ""
 	_book.visible = false
+
+
+## Puts the open and queued pages aside without marking them read (entering the shed).
+func hold_pages() -> void:
+	if _page.visible:
+		_held.append({"id": _page_id, "title": _page_title.text, "body": _page_body.text})
+		_page.visible = false
+		_page_id = ""
+	_held.append_array(_queue)
+	_queue.clear()
+	opened_changed.emit(is_open())
+
+
+## Brings the pages put aside back (leaving the shed).
+func release_pages() -> void:
+	_queue = _held + _queue
+	_held.clear()
+	if not _page.visible and not _queue.is_empty():
+		_next_page()
+
+
+## Ids of the page on screen, the queued and the held ones, in order (saved with the game).
+func pending_ids() -> Array[String]:
+	var out: Array[String] = []
+	if _page.visible and _page_id != "":
+		out.append(_page_id)
+	for p in _held + _queue:
+		out.append(str(p["id"]))
+	return out
 
 
 func current_page() -> String:
@@ -294,7 +326,7 @@ func _build_book() -> void:
 		content.add_child(c)
 
 	# Cloth ribbon bookmarks sticking out of the right edge of the book, with forked ends.
-	var ribbons := {"diary": Color(0.62, 0.2, 0.16), "pages": Color(0.25, 0.38, 0.22), "settings": Color(0.25, 0.3, 0.5)}
+	var ribbons := {"diary": Color(0.62, 0.2, 0.16), "pages": Color(0.25, 0.38, 0.22)}
 	var y := 120
 	for k in ribbons:
 		var b := Button.new()

@@ -16,14 +16,14 @@ var clock := DayCycle.new()
 ## Nutrient cost of one new segment, scaled by species.needs.
 var cost_per_node: float = 0.08
 ## Life force produced per tip per second at full light.
-var life_force_per_tip: float = 0.008
+var life_force_per_tip: float = 0.02  # scaled with the 2-minute day (play test 3)
 ## Segments the tree may add per second at full light and full nutrients.
 ## Low enough that one night's nutrients last a good part of the day.
-var max_growth_per_second: float = 0.8
+var max_growth_per_second: float = 1.0
 ## Dawn burst: this share of what the nutrients can buy is released in the first seconds after sunrise.
 var dawn_burst_share: float = 0.25
 var dawn_burst_seconds: float = 10.0
-var dawn_burst_max_nodes: int = 60
+var dawn_burst_max_nodes: int = 30
 var _burst_nodes_left: int = 0
 var _burst_rate: float = 0.0
 var _burst_accum: float = 0.0
@@ -140,7 +140,8 @@ func _seed_markers(sun: Vector3, top: float, amount: float, steer: float) -> voi
 	# Nothing is seeded above the species' full height: the tree stops growing taller there.
 	var cap := species.max_height
 	colonizer.seed_sphere(Vector3(0, top + 0.45, 0) + flat * 0.4, 0.45, leader, limit, MARKER_MIN_Y, cap)
-	colonizer.seed_sphere(marker_center(sun, top, steer), r, crown, limit, MARKER_MIN_Y, cap)
+	# The crown starts above a clear trunk, so the base does not keep branching into a bush.
+	colonizer.seed_sphere(marker_center(sun, top, steer), r, crown, limit, maxf(MARKER_MIN_Y, top * 0.35), cap)
 
 
 ## Centre of the crown sphere for new markers.

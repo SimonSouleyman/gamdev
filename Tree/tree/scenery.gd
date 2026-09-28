@@ -7,7 +7,17 @@ extends Node3D
 
 const FOREST_TREES := Budgets.FOREST_TREES
 ## The open middle where the player's tree grows; the underground reaches about as far.
+## The clearing of a young tree (Simon: a small clearing ringed by trees).
 const CLEARING_RADIUS := 18.0
+## The clearing grows with the tree, so the camera can step back and see a grown linden whole
+## (Simon's pick in the visuals thread: "bigger clearing").
+const CLEARING_MAX := 42.0
+var clearing_radius: float = CLEARING_RADIUS
+
+
+## The clearing for a tree of this height, in steps of 6 m so the world is rebuilt rarely.
+static func radius_for(tree_height: float) -> float:
+	return clampf(CLEARING_RADIUS + snappedf(maxf(0.0, tree_height - 8.0) * 1.4, 6.0), CLEARING_RADIUS, CLEARING_MAX)
 const BUSHES := Budgets.FOREST_BUSHES
 const CLOUDS := 16
 const FLOWERS := Budgets.MEADOW_FLOWERS
@@ -29,7 +39,9 @@ var _bird_wait: float = 8.0
 var _butterfly_params: Array = []
 
 
-func build(seed: int, bark: Material, leaf: Material, noise: Texture2D) -> void:
+func build(seed: int, bark: Material, leaf: Material, noise: Texture2D, radius: float = CLEARING_RADIUS) -> void:
+	clearing_radius = radius
+	Terrain.edge = radius
 	# The forest gets its own copies of the materials, which dissolve near the camera.
 	bark = bark.duplicate()
 	leaf = leaf.duplicate()
@@ -38,7 +50,7 @@ func build(seed: int, bark: Material, leaf: Material, noise: Texture2D) -> void:
 	# Depth separation (Simon: the tree must stand out from the forest): the wood is darker,
 	# cooler and without the hero tree's rim light.
 	(bark as ShaderMaterial).set_shader_parameter("tint_mul", Color(0.62, 0.64, 0.66))
-	(leaf as ShaderMaterial).set_shader_parameter("tint_mul", Color(0.8, 0.86, 0.84))
+	(leaf as ShaderMaterial).set_shader_parameter("tint_mul", Color(0.66, 0.76, 0.78))
 	(bark as ShaderMaterial).set_shader_parameter("rim_strength", 0.0)
 	(leaf as ShaderMaterial).set_shader_parameter("rim_strength", 0.0)
 	for c in get_children():
@@ -48,6 +60,7 @@ func build(seed: int, bark: Material, leaf: Material, noise: Texture2D) -> void:
 	_rng.seed = hash([seed, "scenery"])
 	_noise = noise
 	_build_distant_trees(seed, bark, leaf)
+	_near_shed.clear()
 	_build_bushes(leaf)
 	_build_backdrop()
 	_build_clouds(noise)
@@ -64,14 +77,14 @@ func build(seed: int, bark: Material, leaf: Material, noise: Texture2D) -> void:
 ## species, different heights and greens). Broadleaves are grown by the real growth model with
 ## their own shape; the spruce is built directly. Each kind has its own bark and leaf colour.
 const KINDS: Array[Dictionary] = [
-	{"name": "oak", "apical": 0.03, "crown": 12.0, "photo": 0.3, "nodes": 380, "bark": Color(0.42, 0.37, 0.32), "leaf": Color(0.5, 0.62, 0.36), "card": 0.26, "scale": Vector2(2.6, 3.4)},
-	{"name": "beech", "apical": 0.07, "crown": 9.0, "photo": 0.4, "nodes": 340, "bark": Color(0.75, 0.74, 0.7), "leaf": Color(0.66, 0.8, 0.42), "card": 0.24, "scale": Vector2(2.7, 3.6)},
-	{"name": "birch", "apical": 0.22, "crown": 4.5, "photo": 0.45, "nodes": 280, "bark": Color(1.45, 1.42, 1.35), "leaf": Color(0.8, 0.92, 0.5), "card": 0.2, "scale": Vector2(2.6, 3.4)},
-	{"name": "linden", "apical": 0.1, "crown": 12.0, "photo": 0.5, "nodes": 330, "bark": Color(0.55, 0.47, 0.38), "leaf": Color(0.58, 0.72, 0.4), "card": 0.24, "scale": Vector2(2.5, 3.3)},
+	{"name": "oak", "apical": 0.12, "crown": 12.0, "photo": 0.3, "nodes": 380, "bark": Color(0.42, 0.37, 0.32), "leaf": Color(0.5, 0.62, 0.36), "card": 0.24, "scale": Vector2(2.6, 3.4)},
+	{"name": "beech", "apical": 0.2, "crown": 9.0, "photo": 0.4, "nodes": 340, "bark": Color(0.75, 0.74, 0.7), "leaf": Color(0.66, 0.8, 0.42), "card": 0.22, "scale": Vector2(2.7, 3.6)},
+	{"name": "birch", "apical": 0.22, "crown": 4.5, "photo": 0.45, "nodes": 280, "bark": Color(1.45, 1.42, 1.35), "leaf": Color(0.8, 0.92, 0.5), "card": 0.19, "scale": Vector2(2.6, 3.4)},
+	{"name": "linden", "apical": 0.1, "crown": 12.0, "photo": 0.5, "nodes": 330, "bark": Color(0.55, 0.47, 0.38), "leaf": Color(0.58, 0.72, 0.4), "card": 0.22, "scale": Vector2(2.5, 3.3)},
 	{"name": "spruce", "spruce": true, "bark": Color(0.4, 0.33, 0.28), "leaf": Color(0.36, 0.5, 0.36), "card": 0.45, "scale": Vector2(1.5, 2.1)},
 ]
 ## Bump when the forest generator changes, so cached meshes are regrown.
-const FOREST_CACHE_VERSION := 8
+const FOREST_CACHE_VERSION := 10
 
 
 func _grow_variant(seed: int, variant: int, bark: Material, leaf: Material) -> ArrayMesh:
@@ -154,10 +167,12 @@ func _build_broadleaf(seed: int, variant: int, local: RandomNumberGenerator, kin
 	var g := sim.graph
 	for id in range(2, g.size()):
 		# Bare lower trunks: leaves only in the upper crown, so the wood has depth and trunks.
-		if g.radii[id] >= 0.05 or g.positions[id].y < 0.35 * sim.height():
+		if g.radii[id] >= 0.05 or g.positions[id].y < 0.4 * sim.height():
 			continue
-		var s: float = kind["card"] * local.randf_range(0.85, 1.2)
-		spots.append(Transform3D(Basis(Vector3.UP, local.randf() * TAU).scaled(Vector3.ONE * s), g.positions[id]))
+		for k in range(2):
+			var s: float = kind["card"] * local.randf_range(0.85, 1.2)
+			var off := Vector3(local.randf_range(-1, 1), local.randf_range(-0.5, 0.8), local.randf_range(-1, 1)) * s * 1.5 * float(k)
+			spots.append(Transform3D(Basis(Vector3.UP, local.randf() * TAU).scaled(Vector3.ONE * s), g.positions[id] + off))
 	_add_leaf_surface(mesh, spots, kind["leaf"], local)
 	return mesh
 
@@ -245,15 +260,15 @@ func _build_distant_trees(seed: int, bark: Material, leaf: Material) -> void:
 		per_variant.append([])
 	# A closed wall of mixed trees around the clearing: a dense first row close to the edge,
 	# then deeper wood. Oak and beech dominate, birches at the bright edge, spruce behind.
-	var weights := [3, 3, 2, 2, 2]
+	var weights := [3, 3, 3, 2, 3]
 	for t in range(FOREST_TREES):
 		var ang := TAU * (float(t) + _rng.randf() * 0.8) / FOREST_TREES * 3.0
 		var front := t % 3 != 2
-		var d := CLEARING_RADIUS + (_rng.randf_range(2.0, 6.5) if front else _rng.randf_range(8.0, 24.0))
+		var d := clearing_radius + (_rng.randf_range(2.6, 7.0) if front else _rng.randf_range(8.0, 24.0))
 		var kind := _weighted(weights)
 		if front and kind == 4 and _rng.randf() < 0.6:
 			kind = 2
-		(per_variant[kind] as Array).append(Vector3(cos(ang) * d, 0, sin(ang) * d))
+		(per_variant[kind] as Array).append(Terrain.at(Vector3(cos(ang) * d, 0, sin(ang) * d)) + Vector3(0, -0.3, 0))
 	for v in range(KINDS.size()):
 		var spots: Array = per_variant[v]
 		if spots.is_empty():
@@ -311,8 +326,8 @@ func _build_backdrop() -> void:
 	var wall := MeshInstance3D.new()
 	_wall = wall
 	var cyl := CylinderMesh.new()
-	cyl.top_radius = 52.0
-	cyl.bottom_radius = 52.0
+	cyl.top_radius = clearing_radius + 34.0
+	cyl.bottom_radius = clearing_radius + 34.0
 	cyl.height = 22.0
 	cyl.radial_segments = 64
 	cyl.cap_top = false
@@ -331,34 +346,62 @@ func _build_backdrop() -> void:
 	add_child(wall)
 
 
-## Bushes along the edge of the clearing: leaf clusters heaped into rounded shrubs.
-func _build_bushes(leaf: Material) -> void:
+## The edge of the clearing in three layers (Simon, play test 3): low herbs and flowers in
+## front, a belt of mixed shrubs at middle height behind them, then the trees. Each shrub species
+## has its own size, shape and colour; some flower.
+const SHRUBS: Array[Dictionary] = [
+	{"name": "hazel", "size": Vector3(2.2, 3.4, 2.2), "leaf": Color(0.62, 0.78, 0.4), "clusters": 110, "card": 0.55, "flowers": Color(0, 0, 0, 0)},
+	{"name": "hawthorn", "size": Vector3(1.8, 2.6, 1.8), "leaf": Color(0.48, 0.64, 0.32), "clusters": 90, "card": 0.42, "flowers": Color(0.97, 0.96, 0.92, 1)},
+	{"name": "elder", "size": Vector3(2.0, 2.9, 1.9), "leaf": Color(0.4, 0.56, 0.28), "clusters": 100, "card": 0.48, "flowers": Color(0.95, 0.92, 0.75, 1)},
+	{"name": "holly", "size": Vector3(1.2, 2.4, 1.2), "leaf": Color(0.22, 0.34, 0.18), "clusters": 80, "card": 0.34, "flowers": Color(0.75, 0.12, 0.1, 1)},
+	{"name": "blackthorn", "size": Vector3(2.2, 1.6, 2.0), "leaf": Color(0.36, 0.48, 0.26), "clusters": 90, "card": 0.38, "flowers": Color(0, 0, 0, 0)},
+]
+## Front band of low herbs, ferns and flowers along the edge.
+const EDGE_HERBS := 1100
+## Tall flowers among them (foxglove, campion, yarrow, buttercup).
+const EDGE_FLOWERS := 500
+const EDGE_FLOWER_COLORS: Array[Color] = [Color(0.78, 0.4, 0.66), Color(0.86, 0.3, 0.42), Color(0.95, 0.93, 0.86), Color(0.95, 0.82, 0.25)]
+
+
+func _build_bushes(forest_leaf: Material) -> void:
+	# The shrubs stand in front of the wood and catch more light than its shaded crowns.
+	var leaf := forest_leaf.duplicate() as ShaderMaterial
+	leaf.set_shader_parameter("tint_mul", Color(1.0, 1.05, 0.95))
 	var cluster := Foliage.cluster_mesh(6, 1.0, Assets.has_leaf_atlas()).surface_get_arrays(0)
 	var cv: PackedVector3Array = cluster[Mesh.ARRAY_VERTEX]
 	var cn: PackedVector3Array = cluster[Mesh.ARRAY_NORMAL]
 	var cu: PackedVector2Array = cluster[Mesh.ARRAY_TEX_UV]
 	var ci: PackedInt32Array = cluster[Mesh.ARRAY_INDEX]
-	for variant in range(3):
+	var flower_mat := StandardMaterial3D.new()
+	flower_mat.vertex_color_use_as_albedo = true
+	flower_mat.roughness = 0.7
+	for k in range(SHRUBS.size()):
+		var kind: Dictionary = SHRUBS[k]
+		var size: Vector3 = kind["size"]
+		var tint_base: Color = kind["leaf"]
 		var verts := PackedVector3Array()
 		var normals := PackedVector3Array()
 		var uvs := PackedVector2Array()
 		var colors := PackedColorArray()
 		var indices := PackedInt32Array()
-		var size := Vector3(1.2, 0.9, 1.1) * (1.0 + variant * 0.35)
-		for _c in range(60 + variant * 25):
+		var blossoms: Array[Vector3] = []
+		for _c in range(int(kind["clusters"])):
 			var v := Vector3(_rng.randf_range(-1, 1), _rng.randf_range(0, 1), _rng.randf_range(-1, 1))
 			if v.length() > 1.0:
 				continue
-			var xf := Transform3D(Basis(Vector3.UP, _rng.randf() * TAU).scaled(Vector3.ONE * _rng.randf_range(0.25, 0.4)), v * size)
-			var tint := _rng.randf_range(0.7, 1.0)
+			var xf := Transform3D(Basis(Vector3.UP, _rng.randf() * TAU).scaled(Vector3.ONE * float(kind["card"]) * _rng.randf_range(0.8, 1.2)), v * size)
+			var t := _rng.randf_range(0.8, 1.1) * lerpf(0.7, 1.0, v.y)
+			var col := Color(tint_base.r * t, tint_base.g * t, tint_base.b * t)
 			var base := verts.size()
 			for i in range(cv.size()):
 				verts.append(xf * cv[i])
 				normals.append(((xf.basis * cn[i]).normalized() + v.normalized()).normalized())
 				uvs.append(cu[i])
-				colors.append(Color(tint * 0.9, tint, tint * 0.8))
+				colors.append(col)
 			for i in ci:
 				indices.append(base + i)
+			if (kind["flowers"] as Color).a > 0.0 and v.length() > 0.7 and _rng.randf() < 0.8:
+				blossoms.append(v * size * 1.03)
 		var arrays := []
 		arrays.resize(Mesh.ARRAY_MAX)
 		arrays[Mesh.ARRAY_VERTEX] = verts
@@ -369,19 +412,152 @@ func _build_bushes(leaf: Material) -> void:
 		var mesh := ArrayMesh.new()
 		mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
 		mesh.surface_set_material(0, leaf)
+		# Blossom umbels or berries as small bright spheres on the outside of the shrub.
+		if not blossoms.is_empty():
+			var st := SurfaceTool.new()
+			st.begin(Mesh.PRIMITIVE_TRIANGLES)
+			var sphere := SphereMesh.new()
+			sphere.radius = 0.045
+			sphere.height = 0.07
+			sphere.radial_segments = 6
+			sphere.rings = 3
+			var sa := sphere.surface_get_arrays(0)
+			var sv: PackedVector3Array = sa[Mesh.ARRAY_VERTEX]
+			var sn: PackedVector3Array = sa[Mesh.ARRAY_NORMAL]
+			var si: PackedInt32Array = sa[Mesh.ARRAY_INDEX]
+			var fc: Color = kind["flowers"]
+			for b in blossoms:
+				for idx in si:
+					st.set_color(fc)
+					st.set_normal(sn[idx])
+					st.add_vertex(sv[idx] + b)
+			var fm := st.commit()
+			mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, fm.surface_get_arrays(0))
+			mesh.surface_set_material(1, flower_mat)
 		var mmi := MultiMeshInstance3D.new()
 		var mm := MultiMesh.new()
 		mm.transform_format = MultiMesh.TRANSFORM_3D
 		mm.mesh = mesh
-		mm.instance_count = BUSHES / 3
+		mm.instance_count = BUSHES / SHRUBS.size()
 		for i in range(mm.instance_count):
 			var ang := _rng.randf() * TAU
-			var d := CLEARING_RADIUS + _rng.randf_range(-1.0, 4.0)
-			var s := _rng.randf_range(0.8, 1.5)
-			mm.set_instance_transform(i, Transform3D(Basis(Vector3.UP, _rng.randf() * TAU).scaled(Vector3(s, s * _rng.randf_range(0.8, 1.2), s)), Vector3(cos(ang) * d, -0.1, sin(ang) * d)))
+			# The middle layer: a belt of shrubs between the herbs and the first trees, and a few
+			# more as undergrowth deeper in the wood.
+			var d := clearing_radius + (_rng.randf_range(-1.2, 2.2) if i % 4 != 3 else _rng.randf_range(3.0, 12.0))
+			var s := _rng.randf_range(0.8, 1.3)
+			mm.set_instance_transform(i, Transform3D(Basis(Vector3.UP, _rng.randf() * TAU).scaled(Vector3(s, s * _rng.randf_range(0.85, 1.2), s)), Terrain.at(Vector3(cos(ang) * d, 0, sin(ang) * d)) + Vector3(0, -0.15, 0)))
 		mmi.multimesh = mm
 		mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		add_child(mmi)
+		_split_near_shed(mmi, 3.4)
+	_build_edge_herbs()
+
+
+## The front layer: tall herbs, ferns and flowers along the foot of the shrubs.
+func _build_edge_herbs() -> void:
+	for layer in [["herbs", Foliage.clump_texture(true, 21), Vector2(0.6, 1.0), Vector2(0.7, 1.2), Color(1, 1, 1)],
+			["ferns", Foliage.clump_texture(false, 22), Vector2(0.8, 1.3), Vector2(0.8, 1.2), Color(0.7, 0.85, 0.6)]]:
+		var mmi := MultiMeshInstance3D.new()
+		var mm := MultiMesh.new()
+		mm.transform_format = MultiMesh.TRANSFORM_3D
+		mm.use_colors = true
+		mm.mesh = Foliage.clump_mesh()
+		mm.instance_count = EDGE_HERBS / 2
+		var tint: Color = layer[4]
+		for i in range(mm.instance_count):
+			var ang := _rng.randf() * TAU
+			var d := clearing_radius - _rng.randf_range(0.6, 3.0)
+			var w := _rng.randf_range(layer[2].x, layer[2].y)
+			var h := _rng.randf_range(layer[3].x, layer[3].y)
+			var basis := Basis(Vector3.UP, _rng.randf() * TAU).scaled(Vector3(w, h, w))
+			mm.set_instance_transform(i, Transform3D(basis, Terrain.at(Vector3(cos(ang) * d, 0, sin(ang) * d)) + Vector3(0, -0.03, 0)))
+			var v := _rng.randf_range(0.85, 1.1)
+			mm.set_instance_color(i, Color(tint.r * v, tint.g * v, tint.b * v))
+		mmi.multimesh = mm
+		var mat := ShaderMaterial.new()
+		mat.shader = preload("res://tree/grass_card.gdshader")
+		mat.set_shader_parameter("clump_texture", layer[1])
+		mat.set_shader_parameter("fade_start", clearing_radius * 2.0 + 20.0)
+		mat.set_shader_parameter("fade_end", clearing_radius * 2.0 + 50.0)
+		mmi.material_override = mat
+		mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		add_child(mmi)
+		_split_near_shed(mmi, 3.0)
+	# Flower heads on thin stems, standing a little above the herbs.
+	var head := SphereMesh.new()
+	head.radius = 0.06
+	head.height = 0.14
+	head.radial_segments = 6
+	head.rings = 3
+	var fmat := StandardMaterial3D.new()
+	fmat.vertex_color_use_as_albedo = true
+	fmat.roughness = 0.8
+	head.material = fmat
+	var fmi := MultiMeshInstance3D.new()
+	var fm := MultiMesh.new()
+	fm.transform_format = MultiMesh.TRANSFORM_3D
+	fm.use_colors = true
+	fm.mesh = head
+	fm.instance_count = EDGE_FLOWERS
+	for i in range(EDGE_FLOWERS):
+		var ang := _rng.randf() * TAU
+		var d := clearing_radius - _rng.randf_range(0.8, 3.2)
+		var at := Terrain.at(Vector3(cos(ang) * d, 0, sin(ang) * d)) + Vector3(0, _rng.randf_range(0.5, 1.2), 0)
+		var k := _rng.randi() % EDGE_FLOWER_COLORS.size()
+		# Foxgloves are tall spikes; the others round heads.
+		var sc := Vector3(1, 2.6, 1) if k == 0 else Vector3.ONE * _rng.randf_range(0.8, 1.3)
+		fm.set_instance_transform(i, Transform3D(Basis.from_scale(sc), at))
+		fm.set_instance_color(i, EDGE_FLOWER_COLORS[k])
+	fmi.multimesh = fm
+	fmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_child(fmi)
+	_split_near_shed(fmi, 3.0)
+
+
+## Edge plants standing where the (hidden) shed is: moved into their own node, hidden while the
+## shed scene shows, so nothing grows through the shed's floor and walls.
+var _near_shed: Array[MultiMeshInstance3D] = []
+
+
+func _split_near_shed(mmi: MultiMeshInstance3D, radius: float) -> void:
+	var mm := mmi.multimesh
+	var near: Array[int] = []
+	var far: Array[int] = []
+	for i in range(mm.instance_count):
+		var o := mm.get_instance_transform(i).origin
+		if Vector2(o.x - Shed.origin.x, o.z - Shed.origin.z).length() < radius:
+			near.append(i)
+		else:
+			far.append(i)
+	if near.is_empty():
+		return
+	var parts: Array[MultiMesh] = []
+	for ids in [far, near]:
+		var m := MultiMesh.new()
+		m.transform_format = MultiMesh.TRANSFORM_3D
+		m.use_colors = mm.use_colors
+		m.mesh = mm.mesh
+		m.instance_count = (ids as Array).size()
+		for j in range((ids as Array).size()):
+			m.set_instance_transform(j, mm.get_instance_transform(ids[j]))
+			if mm.use_colors:
+				m.set_instance_color(j, mm.get_instance_color(ids[j]))
+		parts.append(m)
+	mmi.multimesh = parts[0]
+	var n := mmi.duplicate() as MultiMeshInstance3D
+	n.multimesh = parts[1]
+	n.visible = not _shed_open
+	add_child(n)
+	_near_shed.append(n)
+
+
+var _shed_open := false
+
+
+func set_shed_open(on: bool) -> void:
+	_shed_open = on
+	for n in _near_shed:
+		n.visible = not on
 
 
 # --- sky ------------------------------------------------------------------------
@@ -436,7 +612,7 @@ func _build_flowers() -> void:
 		var center := Vector3(cos(a) * r, 0, sin(a) * r)
 		var col := palette[_rng.randi() % palette.size()]
 		for _f in range(FLOWERS / 60):
-			var p := center + Vector3(_rng.randf_range(-1.2, 1.2), _rng.randf_range(0.04, 0.14), _rng.randf_range(-1.2, 1.2))
+			var p := Terrain.at(center + Vector3(_rng.randf_range(-1.2, 1.2), 0.0, _rng.randf_range(-1.2, 1.2))) + Vector3(0, _rng.randf_range(0.04, 0.14), 0)
 			spots.append(Transform3D(Basis(Vector3.RIGHT, _rng.randf_range(-0.3, 0.3)).scaled(Vector3.ONE * _rng.randf_range(0.7, 1.3)), p))
 			colors.append(col * _rng.randf_range(0.9, 1.05))
 	mm.instance_count = spots.size()

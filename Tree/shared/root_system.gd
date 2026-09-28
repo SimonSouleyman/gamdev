@@ -53,6 +53,11 @@ var last_collected: PackedInt32Array = PackedInt32Array()
 var last_finds: Array = []
 ## Totals collected during the current (or last) run, by Resources.Kind.
 var run_totals: PackedFloat32Array = PackedFloat32Array([0, 0, 0, 0])
+## Deposits the roots have reached (dot id -> true); they are drunk from every night.
+var tapped: Dictionary = {}
+var _run_touched: Dictionary = {}
+## Share of a deposit's capacity the old roots draw each night.
+const NIGHTLY_SHARE: float = 0.2
 
 
 func _init(random_seed: int = 1) -> void:
@@ -82,6 +87,7 @@ func start_run(from_id: int) -> bool:
 	run_length = 0.0
 	_carry = 0.0
 	run_totals = PackedFloat32Array([0, 0, 0, 0])
+	_run_touched = {}
 	_stuck_time = 0.0
 	if from_id == 0:
 		heading = Vector3(0.0, -0.5, -1.0).normalized()
@@ -247,10 +253,12 @@ func _flattened(v: Vector3) -> Vector3:
 
 
 func _collect(p: Vector3, radius: float, ground: Underground, res: Resources) -> void:
-	var ids := ground.collect(ground.dots_near(p, radius), res)
-	for i in ids:
-		run_totals[ground.dot_kinds[i]] += ground.dot_amounts[i]
-	last_collected.append_array(ids)
+	# The tip draws from each deposit once per run; after that the root has tapped it.
+	var fresh := PackedInt32Array()
+	for i in ground.dots_near(p, radius):
+		if not _run_touched.has(i):
+			fresh.append(i)
+	_collect_ids(fresh, ground, res)
 
 
 ## Ends the run: fine roots sprout along the new path and drink the dots they reach.
@@ -350,9 +358,28 @@ func _grow_fine_roots(ground: Underground, res: Resources) -> void:
 
 func _collect_ids(ids: PackedInt32Array, ground: Underground, res: Resources) -> void:
 	var got := ground.collect(ids, res)
-	for i in got:
-		run_totals[ground.dot_kinds[i]] += ground.dot_amounts[i]
+	for j in range(got.size()):
+		var i := got[j]
+		run_totals[ground.dot_kinds[i]] += ground.last_drawn[j]
+		_run_touched[i] = true
+		tapped[i] = true
 	last_collected.append_array(got)
+
+
+## Every night the whole root network keeps drinking from the deposits it has reached.
+## Returns what it drew, by Resources.Kind.
+func drink_tapped(ground: Underground, res: Resources) -> PackedFloat32Array:
+	var totals := PackedFloat32Array([0, 0, 0, 0])
+	var ids := PackedInt32Array()
+	for i in tapped.keys():
+		if ground.dot_collected[i] == 0:
+			ids.append(i)
+		else:
+			tapped.erase(i)
+	var got := ground.collect(ids, res, NIGHTLY_SHARE)
+	for j in range(got.size()):
+		totals[ground.dot_kinds[got[j]]] += ground.last_drawn[j]
+	return totals
 
 
 ## Nearest root node to `p` (for picking a start point). -1 if none within `max_distance`.
@@ -381,6 +408,8 @@ func to_dict() -> Dictionary:
 		"main_root_count": main_root_count,
 		"rng_state": str(rng.state),
 		"run_totals": run_totals,
+		"tapped": tapped.keys(),
+		"run_touched": _run_touched.keys(),
 		"carry": _carry,
 		"run_active": run_active,
 		"tip_id": tip_id,
@@ -399,6 +428,10 @@ static func from_dict(d: Dictionary, random_seed: int = 1) -> RootSystem:
 	r.main_root_count = int(d.get("main_root_count", 0))
 	r.rng.state = int(str(d.get("rng_state", r.rng.state)))
 	r.run_totals = PackedFloat32Array(d.get("run_totals", [0, 0, 0, 0]))
+	for i in d.get("tapped", []):
+		r.tapped[int(i)] = true
+	for i in d.get("run_touched", []):
+		r._run_touched[int(i)] = true
 	r._carry = float(d.get("carry", 0.0))
 	r.run_active = bool(d.get("run_active", false))
 	r.tip_id = int(d.get("tip_id", -1))

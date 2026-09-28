@@ -27,7 +27,16 @@ const FIND_TEXTS: Dictionary = {
 var seed: int = 1
 var dot_positions: PackedVector3Array = PackedVector3Array()
 var dot_kinds: PackedInt32Array = PackedInt32Array()
+## Each dot is a deposit (Simon, play test 3): `dot_capacity` is what it held at the start,
+## `dot_amounts` what is left. A root draws one share per contact; roots that reached a dot
+## keep drawing from it night after night (RootSystem.drink_tapped) until it is empty.
 var dot_amounts: PackedFloat32Array = PackedFloat32Array()
+var dot_capacity: PackedFloat32Array = PackedFloat32Array()
+## How many first-contact shares a deposit holds.
+const DEPOSIT_SHARES: float = 4.0
+## The new root's first contact takes this much, so a well-steered night pays off that night
+## (QA round 2: at 1/4 the old roots drank more than the new one).
+const FIRST_SHARE: float = 0.4
 var dot_collected: PackedByteArray = PackedByteArray()
 var rock_centers: PackedVector3Array = PackedVector3Array()
 var rock_radii: PackedFloat32Array = PackedFloat32Array()
@@ -126,7 +135,8 @@ func _add_dot(p: Vector3, kind: int, amount: float) -> void:
 		return
 	dot_positions.append(p)
 	dot_kinds.append(kind)
-	dot_amounts.append(amount)
+	dot_amounts.append(amount * DEPOSIT_SHARES)
+	dot_capacity.append(amount * DEPOSIT_SHARES)
 	dot_collected.append(0)
 
 
@@ -200,15 +210,33 @@ func dots_near(p: Vector3, radius: float) -> PackedInt32Array:
 
 
 ## Marks dots collected and adds them to the matching resource. Returns the ids collected.
-func collect(ids: PackedInt32Array, into: Resources) -> PackedInt32Array:
+## Draws `share` of each deposit's capacity (at most what is left) into the matching resource.
+## Returns the ids drawn from; `last_drawn` holds the amount each gave, in the same order.
+var last_drawn: PackedFloat32Array = PackedFloat32Array()
+
+
+func collect(ids: PackedInt32Array, into: Resources, share: float = FIRST_SHARE) -> PackedInt32Array:
 	var out := PackedInt32Array()
+	last_drawn = PackedFloat32Array()
 	for i in ids:
 		if dot_collected[i] != 0:
 			continue
-		dot_collected[i] = 1
-		into.add(dot_kinds[i], dot_amounts[i])
+		var take := minf(dot_amounts[i], dot_capacity[i] * share)
+		if take <= 0.0:
+			continue
+		dot_amounts[i] -= take
+		if dot_amounts[i] <= 0.01:
+			dot_amounts[i] = 0.0
+			dot_collected[i] = 1
+		into.add(dot_kinds[i], take)
 		out.append(i)
+		last_drawn.append(take)
 	return out
+
+
+## How full a deposit still is, 0..1 (for the glow's size).
+func fullness(i: int) -> float:
+	return 0.0 if dot_capacity[i] <= 0.0 else dot_amounts[i] / dot_capacity[i]
 
 
 ## The soil slowly refills (rain, rotting leaves, water seeping in): each night a share of the
@@ -219,9 +247,14 @@ func regrow(share: float, day: int) -> int:
 	rng.seed = hash([seed, "regrow", day])
 	var n := 0
 	for i in range(dot_collected.size()):
-		if dot_collected[i] != 0 and rng.randf() < share:
-			dot_collected[i] = 0
-			n += 1
+		# Clover and nettles keep feeding nitrogen back into the soil, so it comes back faster
+		# (QA: without this nitrogen ran out from day 4 and held the tree back for a week).
+		var chance := share * (6.0 if dot_kinds[i] == Resources.Kind.NITROGEN else 2.0)
+		if dot_amounts[i] < dot_capacity[i] and rng.randf() < chance:
+			dot_amounts[i] = minf(dot_capacity[i], dot_amounts[i] + dot_capacity[i] * 0.5)
+			if dot_collected[i] != 0:
+				dot_collected[i] = 0
+				n += 1
 	return n
 
 
@@ -290,7 +323,8 @@ func to_dict() -> Dictionary:
 	var found: Array = []
 	for f in finds:
 		found.append(f["found"])
-	return {"seed": seed, "collected": Marshalls.raw_to_base64(dot_collected), "finds_found": found}
+	return {"seed": seed, "collected": Marshalls.raw_to_base64(dot_collected),
+		"amounts": Marshalls.raw_to_base64(dot_amounts.to_byte_array()), "finds_found": found}
 
 
 static func from_dict(d: Dictionary) -> Underground:
@@ -298,6 +332,14 @@ static func from_dict(d: Dictionary) -> Underground:
 	var raw := Marshalls.base64_to_raw(str(d.get("collected", "")))
 	if raw.size() == u.dot_collected.size():
 		u.dot_collected = raw
+	var am := Marshalls.base64_to_raw(str(d.get("amounts", ""))).to_float32_array()
+	if am.size() == u.dot_amounts.size():
+		u.dot_amounts = am
+	else:
+		# An older save: dots were either full or gone.
+		for i in range(u.dot_count()):
+			if u.dot_collected[i] != 0:
+				u.dot_amounts[i] = 0.0
 	var found: Array = d.get("finds_found", [])
 	for i in range(mini(found.size(), u.finds.size())):
 		u.finds[i]["found"] = bool(found[i])
