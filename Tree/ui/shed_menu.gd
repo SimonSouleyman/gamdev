@@ -290,9 +290,8 @@ func _build_album() -> void:
 func open_album() -> void:
 	_note.visible = false
 	_photos = Photos.list()
-	_album_index = maxi(0, _photos.size() - 2)
-	if _album_index % 2 == 1:
-		_album_index -= 1
+	# The spread that holds the newest photo.
+	_album_index = (maxi(_photos.size() - 1, 0) / 2) * 2
 	_show_spread()
 	_album.visible = true
 

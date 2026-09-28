@@ -1,5 +1,43 @@
 # Changelog
 
+## v0.3 (2026-09-28)
+
+From Simon's play test 3 and his menu wishes, then three rounds of independent review
+(each with a play/robustness tester and a look/realism tester).
+
+### Gameplay (play test 3)
+- The day runs by itself (about three minutes). A tap boosts the sun for one game hour while the
+  clock keeps running; taps stack up to three hours; a boost ends with the day and is saved.
+- Resources are deposits: the new root's first contact takes 40 %, and every root that reached a
+  deposit keeps drinking a share of it each night until it is empty. Reached deposits are dimmed
+  underground, so fresh ones stand out. Nitrogen comes back faster (clover and nettles).
+- Growth is steady over the whole month: visible every day, the tree reaches its size near day 30.
+- When one nutrient runs out, a page says which one and what colour its dots are.
+
+### Menus (Simon's answers 1A 2A 3A 4A)
+- The start menu is the garden shed: the tree seen through the open door, journal, album and seed
+  bag on the bench, a handwritten note as the menu. A "shed" scrap pauses the game and goes there.
+- Options on a cork pinboard, a photo album with a photo every morning plus a camera scrap,
+  a drawn journal page while loading. One tree at a time, no save slots.
+
+### Look
+- Uneven natural ground (it is now actually drawn), gentle swells, rising toward the forest.
+- The clearing edge in three layers: herbs, ferns and flowers in front, a belt of hazel, hawthorn,
+  elder, holly and blackthorn, then the trees. The shed is only seen from inside.
+- The clearing grows with the tree (18 m up to 42 m), so the camera can step back and show a grown
+  linden whole.
+- The crown starts above a clear trunk, fuller leaves, fuller darker forest crowns, depth fog that
+  keeps the tree crisp, less glare in the evening.
+
+### Fixes
+- No softlock from Esc during a dive or sunrise; no HUD over the shed or scraps over loading.
+- Unread tutorial pages survive entering the shed and closing the game.
+- Album in the order taken, opens on the newest photo; one photo at a time, never through a fade.
+
+### Phone
+- Android export (arm64, portrait, debug-signed, no Google services needed), app icon from an
+  in-game shot of a half-grown linden.
+
 ## v0.2 (2026-09-27)
 
 Everything since v0.1, from Simon's play tests and seven rounds of independent review

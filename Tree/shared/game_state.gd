@@ -110,7 +110,9 @@ func tick(delta: float) -> void:
 						morning_timer = -1.0
 						write_morning_line()
 						_event("morning")
-				if not _spent_announced and sim.nutrients_spent():
+				# Also when one nutrient is gone while the others still carry growth (QA round 3: the
+				# player was never told which one was missing).
+				if not _spent_announced and (sim.nutrients_spent() or sim.nutrient_missing()):
 					_spent_announced = true
 					_event("spent")
 		Phase.SUNSET:
