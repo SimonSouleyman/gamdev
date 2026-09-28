@@ -22,6 +22,7 @@ static var FOREST_BUSHES: int = 80 if PHONE else 260
 static var MEADOW_FLOWERS: int = 500 if PHONE else 1500
 static var MEADOW_GRASS_CLUMPS: int = 2800 if PHONE else 9500
 static var MEADOW_HERB_CLUMPS: int = 350 if PHONE else 900
+static var MEADOW_VARIETY_CLUMPS: int = 900 if PHONE else 2800
 ## Leaf sprays per forest leaf cluster, and edge herb cards.
 static var FOREST_SPRAYS: int = 3 if PHONE else 5
 static var EDGE_HERBS: int = 300 if PHONE else 1100

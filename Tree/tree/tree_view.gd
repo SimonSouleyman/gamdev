@@ -25,6 +25,8 @@ var _sun_disc: MeshInstance3D
 var _sky_mat: PhysicalSkyMaterial
 var _grass: MultiMeshInstance3D
 var _herbs: MultiMeshInstance3D
+## Fine grass, sedge, clover and meadow flowers (GrassLook.apply_meadow2).
+var _meadow2: MultiMeshInstance3D
 var _noise_tex: NoiseTexture2D
 var _bark_mat: ShaderMaterial
 var _leaf_mat: ShaderMaterial
@@ -115,6 +117,7 @@ func refresh_clearing() -> void:
 	RockLook.apply_meadow(_meadow)
 	_plant_grass(state.seed)
 	GrassLook.apply(self)
+	GrassLook.apply_meadow2(self)
 	_scenery.build(state.seed, _bark_mat, _leaf_mat, _noise_tex, r)
 	ForestSprays.apply(_scenery)
 	# The haze begins further out as the clearing grows, so the forest ring is not buried.
@@ -250,6 +253,7 @@ func _build_world() -> void:
 	# in between (Simon, play test: single blades did not fit the picture).
 	_grass = _clump_layer(Foliage.clump_texture(false, 11))
 	_herbs = _clump_layer(Foliage.clump_texture(true, 12))
+	_meadow2 = _clump_layer(Foliage.clump_texture(false, 13))
 	add_child(_leaves)
 
 	_twinkles = MultiMeshInstance3D.new()
@@ -659,7 +663,7 @@ func _frame_camera(snap: bool, delta: float = 0.0) -> void:
 	# The meadow grass fades out beyond the tree, however far back the camera stands.
 	# (A phone lets it fade sooner: meadow cards are what it pays most for.)
 	var fade := maxf(14.0 if Budgets.PHONE else 24.0, want_distance + (8.0 if Budgets.PHONE else 22.0))
-	for layer in [_grass, _herbs]:
+	for layer in [_grass, _herbs, _meadow2]:
 		var gm := (layer as MultiMeshInstance3D).material_override as ShaderMaterial
 		gm.set_shader_parameter("fade_start", fade)
 		gm.set_shader_parameter("fade_end", fade + 18.0)
