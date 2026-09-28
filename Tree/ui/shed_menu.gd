@@ -16,6 +16,7 @@ var _options: Control
 var _album: Control
 var _album_pages: Array[Control] = []
 var _album_cards: Array[Control] = []
+var _wallpaper_button: Button
 var _album_left: TextureRect
 var _album_right: TextureRect
 var _album_cap_l: Label
@@ -305,6 +306,13 @@ func _build_album() -> void:
 	var next := Paper.ink_button("later >", 24)
 	next.pressed.connect(func() -> void: _turn(2))
 	nav.add_child(next)
+	# On the phone: the upper photo of the spread becomes the home-screen wallpaper.
+	_wallpaper_button = Paper.ink_button("as wallpaper", 24)
+	_wallpaper_button.visible = Phone.is_available()
+	_wallpaper_button.pressed.connect(func() -> void:
+		if _album_index < _photos.size() and Phone.set_wallpaper(_photos[_album_index]):
+			_album_cap_l.text = "My wallpaper now.")
+	nav.add_child(_wallpaper_button)
 	_album.visible = false
 
 

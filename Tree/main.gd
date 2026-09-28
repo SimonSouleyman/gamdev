@@ -355,7 +355,7 @@ func _morning() -> void:
 
 # --- settings, saving, dev keys -----------------------------------------------
 
-func _apply_setting(key: String, on: bool) -> void:
+func _apply_setting(key: String, on: bool, from_player: bool = true) -> void:
 	match key:
 		"sound":
 			ambience.set_enabled(on)
@@ -364,7 +364,15 @@ func _apply_setting(key: String, on: bool) -> void:
 			tree_view.hud.visible = not on and not _underground and not in_shed
 			journal.set_button_faint(on)
 		"battery_saver":
-			Engine.max_fps = 30 if on else 0
+			Engine.max_fps = 30 if on else Budgets.MAX_FPS
+		"notifications":
+			# A daily reminder on the phone (plain Android, no Google services), re-armed at start.
+			if on:
+				if from_player:
+					Phone.ask_notification_permission()
+				Phone.schedule_daily_reminder(9, 0, "Tree", "A new morning in the clearing. See what grew overnight.")
+			else:
+				Phone.cancel_daily_reminder()
 	_save_settings()
 
 
@@ -377,7 +385,7 @@ func _load_settings() -> void:
 		for k in (d as Dictionary):
 			if journal.settings.has(k):
 				journal.set_setting(k, bool(d[k]))
-				_apply_setting(k, bool(d[k]))
+				_apply_setting(k, bool(d[k]), false)
 
 
 func _save_settings() -> void:

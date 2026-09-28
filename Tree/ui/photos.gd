@@ -13,7 +13,8 @@ static func save_from(viewport: Viewport, day: int, tag: String, species_id: Str
 	var img := viewport.get_texture().get_image()
 	if img == null or img.is_empty():
 		return ""
-	var w := 360
+	# Big enough to serve as the phone's wallpaper (album: "as wallpaper").
+	var w := 1080
 	img.resize(w, int(float(w) * img.get_height() / img.get_width()), Image.INTERPOLATE_BILINEAR)
 	DirAccess.make_dir_recursive_absolute(DIR)
 	var path := "%s/%s_day%03d_%s_%d.png" % [DIR, species_id, day, tag, int(Time.get_unix_time_from_system() * 1000.0)]
