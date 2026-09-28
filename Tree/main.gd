@@ -56,9 +56,13 @@ func _ready() -> void:
 	enter_shed(false)
 	_corner.visible = true
 	shed_menu.show_loading(false)
+	# Back after a while: a torn diary page tells what happened meanwhile (once).
+	_show_away_page()
 
 
 func _build() -> void:
+	# "clearer print" also reaches pages and labels made later.
+	Paper.watch_print(get_tree())
 	tree_view = TreeView.new()
 	add_child(tree_view)
 	root_view = RootView.new()
@@ -175,7 +179,7 @@ func _process(delta: float) -> void:
 	if state == null:
 		return
 	# A journal page pauses the game; transitions only block input (the dawn burst runs while the camera rises).
-	var paused := journal.is_open() or in_shed
+	var paused := journal.is_open() or in_shed or shed_menu.is_tree_page_open()
 	# No diary over a dive or a sunrise.
 	journal.set_button_enabled(not _transitioning)
 	tree_view.input_enabled = not paused and not _transitioning
@@ -202,6 +206,8 @@ func _process(delta: float) -> void:
 		_autosave_timer = 0.0
 		save()
 	_dev_label.text = ("speed x%d" % int(time_scale)) if time_scale != 1.0 else ""
+	if in_shed:
+		_update_shed_tags()
 
 
 func _handle_events() -> void:
@@ -228,6 +234,7 @@ func _handle_events() -> void:
 			"morning":
 				_morning()
 			"finished":
+				Haptics.buzz("finished")
 				state.seen_pages["finished"] = true
 				journal.show_page("finished", Pages.title("finished"), Pages.body("finished"))
 			_:
@@ -287,6 +294,7 @@ func _on_ground_tapped() -> void:
 
 func _dive() -> void:
 	_transitioning = true
+	Haptics.buzz("dive")
 	tree_view.hud.visible = false
 	ambience.set_world(false, 2.2)
 	var tw := _new_tween()
@@ -371,6 +379,10 @@ func _apply_setting(key: String, on: bool, from_player: bool = true) -> void:
 			journal.set_button_faint(on)
 		"battery_saver":
 			Engine.max_fps = 30 if on else Budgets.MAX_FPS
+		"vibration":
+			Haptics.enabled = on
+		"clearer_print":
+			Paper.set_clear_print(on, get_tree().root)
 		"notifications":
 			# A daily reminder on the phone (plain Android, no Google services), re-armed at start.
 			if on:
@@ -441,6 +453,8 @@ func _notification(what: int) -> void:
 		_paused_at = -1.0
 		if away > 1.0:
 			state.apply_offline(away)
+			tree_view.update_visitors()
+			_show_away_page()
 
 
 # --- the garden shed -----------------------------------------------------------------
@@ -584,13 +598,39 @@ func leave_shed() -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
-	if not in_shed or _transitioning or journal.is_open() or shed_menu.is_busy():
+	if not in_shed or _transitioning or journal.is_open() or shed_menu.is_busy() or _shed_tapped != "":
+		_shed_hover = ""
+		return
+	# A pointer resting on a thing shows its label (PC; on a phone the first visits show them).
+	var motion := event as InputEventMouseMotion
+	if motion != null:
+		_shed_hover = shed.item_at(motion.position)
 		return
 	var m := event as InputEventMouseButton
 	if m == null or m.pressed or m.button_index != MOUSE_BUTTON_LEFT:
 		return
-	# Tapping the things in the shed.
-	match shed.item_at(m.position):
+	var item := shed.item_at(m.position)
+	if item == "":
+		return
+	# The thing answers first (sound and a small motion), then its page opens.
+	_shed_tapped = item
+	state.seen_pages["shed_used_" + item] = true
+	await get_tree().create_timer(shed.tap(item)).timeout
+	_shed_tapped = ""
+	if not in_shed or journal.is_open() or shed_menu.is_busy():
+		return
+	open_shed_item(item)
+
+
+var _shed_hover: String = ""
+var _shed_tapped: String = ""
+
+
+## What a thing in the shed opens: the journal the diary, the album the photos, the seed bag
+## its page (and the next seed), the flower pot the tree's own page, the pinboard the options;
+## the garden gloves and the open door lead outside.
+func open_shed_item(item: String) -> void:
+	match item:
 		"journal":
 			journal.open_diary()
 		"album":
@@ -599,6 +639,32 @@ func _unhandled_input(event: InputEvent) -> void:
 			shed_menu.open_options()
 		"seeds":
 			shed_menu.open_seeds(state, bool(journal.settings.get("any_species", false)))
+		"pot":
+			shed_menu.show_tree_page(state)
+		"gloves", "door":
+			leave_shed()
+
+
+## The labels beside the things: shown until a thing was used once, and while hovered.
+func _update_shed_tags() -> void:
+	var at := {}
+	var below := {}
+	var shown := {}
+	var free := not (_transitioning or journal.is_open() or shed_menu.is_busy())
+	for item in Shed.ITEMS:
+		at[item] = shed.item_tag_position(item)
+		below[item] = shed.item_tag_below(item)
+		shown[item] = free and (_shed_hover == item or not state.seen_pages.has("shed_used_" + item))
+	shed_menu.place_tags(at, below, shown)
+
+
+## The "while you were away" page, once, when the game comes back after a while.
+func _show_away_page() -> void:
+	if state == null:
+		return
+	var report := state.take_away_report()
+	if not report.is_empty():
+		shed_menu.show_tree_page(state, report)
 
 
 ## The seed bag planted the next tree: a new game of that species beside the old one. The grove

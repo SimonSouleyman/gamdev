@@ -30,3 +30,7 @@ class TreePhoneExportPlugin extends EditorExportPlugin:
 	func _get_android_dependencies(_platform: EditorExportPlatform, _debug: bool) -> PackedStringArray:
 		# Plain Android APIs only: no Maven dependencies.
 		return PackedStringArray()
+
+	func _get_android_manifest_element_contents(_platform: EditorExportPlatform, _debug: bool) -> String:
+		# Haptics (ui/haptics.gd): a short buzz on a cut, a dive and a finished tree.
+		return "<uses-permission android:name=\"android.permission.VIBRATE\" />"

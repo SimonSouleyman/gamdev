@@ -1,15 +1,21 @@
 class_name Shed
 extends Node3D
 ## The garden shed (Simon, play test 3; menus as whole scenes, like Plants vs. Zombies): the
-## start menu and the place to pause. It stands at the north edge of the clearing with its door
+## start menu and the place to pause. It stands at the south edge of the clearing with its door
 ## open toward the tree, so the player's real tree, grown so far, is the big picture in the doorway.
-## On the workbench: the journal, the photo album and the seed bag; on the wall a pinboard with
-## the options and a handwritten note with the menu. Built from simple shapes and procedural wood.
+## 0.6 (design doc section 17, item 3): the workbench stands in the middle of the view and the
+## things on it ARE the menu: the journal, the photo album, the seed bag, the flower pot with a
+## seedling and a pair of garden gloves; the pinboard on the wall holds the options. Each answers
+## a tap with a real sound and a small motion before its page opens. Beside the bench a small
+## window with a sill waits for the bonsai (section 16): `bonsai_spot`.
+## Real CC0 models from Poly Haven where they fit (workbench, gloves, clay pot, watering can,
+## trowel; assets/CREDITS.md), the books and the seed bag built here from the real leather,
+## paper and cloth textures, so they can open and rustle.
 
-signal continue_pressed
-signal journal_pressed
-signal album_pressed
-signal options_pressed
+## The things that are menu entries, in the order of their labels.
+const ITEMS: Array[String] = ["journal", "album", "seeds", "pot", "gloves", "options"]
+## Seconds from the tap until the page opens: the motion and the sound come first.
+const TAP_DELAY := 0.42
 
 ## Where the shed stands: the south edge of the clearing (behind the default view of the tree),
 ## the door facing north to the tree, which the sun lights from behind the shed.
@@ -18,36 +24,50 @@ static var origin := Vector3(0.0, 0.0, 15.5)
 const WIDTH := 3.2
 const DEPTH := 2.8
 const WALL_H := 2.4
+const DOOR_W := 0.8
+const DOOR_H := 2.05
+## The small window in the front wall, left of the door as seen from inside (local +x).
+const WINDOW_X := Vector2(0.5, 0.78)
+const WINDOW_Y := Vector2(1.2, 1.72)
+const BENCH_Z := 0.4
+const BENCH_TOP := 0.87
 
 var camera: Camera3D
-var _items: Dictionary = {}  # name -> Node3D (tappable)
+## Where the bonsai will stand: on the windowsill beside the workbench (design doc 16 A).
+var bonsai_spot: Node3D
+var _items: Dictionary = {}  # name -> Node3D (the part that moves on a tap)
+var _picks: Dictionary = {}  # name -> [Node3D centre, radius in metres]
+var _tag_anchors: Dictionary = {}  # name -> [Node3D, below: bool] (where its label goes)
 var _wood: Material
 var _floor: Material
-var _table: Material
 var _time: float = 0.0
 var _lamp: OmniLight3D
 var _lamp_base: float = 1.0
-var menu: Control  # 2D handwritten menu note, added to a CanvasLayer by the owner
+var _sounds: Dictionary = {}  # name -> AudioStream
+var _player: AudioStreamPlayer
+var _busy: Dictionary = {}  # name -> Tween
 
 
 func _ready() -> void:
 	place()
 	rotation.y = PI
-	# Real weathered boards, a worn plank floor and an old workbench top (CC0, Poly Haven;
-	# Simon, play test 4: the shed looked like placeholders).
+	# Real weathered boards and a worn plank floor (CC0, Poly Haven; Simon, play test 4).
 	_wood = _planks("weathered_planks", 0.55, Color(0.82, 0.78, 0.74))
 	_floor = _planks("old_planks_02", 0.5, Color(0.75, 0.7, 0.66))
-	_table = _planks("wood_table_worn", 0.9, Color(0.9, 0.85, 0.8))
 	_build_room()
+	_build_window()
 	_build_bench()
 	_build_pinboard()
 	_build_camera()
+	_build_sounds()
 
 
 ## Stands the shed at the current edge of the clearing.
 func place() -> void:
 	position = Terrain.at(origin)
 
+
+# --- materials -------------------------------------------------------------------------
 
 func _box(size: Vector3, at: Vector3, mat: Material, parent: Node3D = self) -> MeshInstance3D:
 	var m := MeshInstance3D.new()
@@ -76,24 +96,27 @@ func _planks(name: String, scale: float, tint: Color) -> StandardMaterial3D:
 	return m
 
 
-## Leather with its grain (the journal's cover normal map from the paper look).
-func _leather(c: Color) -> StandardMaterial3D:
-	var m := _mat(c, 0.55)
+## Leather or book cloth with its grain (the journal's cover normal map from the paper look).
+func _leather(c: Color, grain: float = 9.0) -> StandardMaterial3D:
+	var m := _mat(c, 0.62)
 	m.normal_enabled = true
 	m.normal_texture = preload("res://lookdev/paper/textures/leather_normal.png")
+	m.normal_scale = 0.8
 	m.uv1_triplanar = true
-	m.uv1_world_triplanar = true
-	m.uv1_scale = Vector3.ONE * 6.0
+	m.uv1_scale = Vector3.ONE * grain
 	return m
 
 
-## Paper for page blocks and the seed bag.
-func _paper_mat(c: Color = Paper.PAPER) -> StandardMaterial3D:
+## Paper for page blocks, labels and the seed bag; `crumpled` adds the crumple normal map.
+func _paper_mat(c: Color = Paper.PAPER, crumpled: bool = false, kind: String = "beige") -> StandardMaterial3D:
 	var m := _mat(c, 0.95)
-	m.albedo_texture = preload("res://assets/paper/paper_beige.png")
+	m.albedo_texture = load("res://assets/paper/paper_%s.png" % kind)
 	m.uv1_triplanar = true
-	m.uv1_world_triplanar = true
 	m.uv1_scale = Vector3.ONE * 3.0
+	if crumpled:
+		m.normal_enabled = true
+		m.normal_texture = preload("res://lookdev/paper/textures/crumple_normal.png")
+		m.normal_scale = 1.4
 	return m
 
 
@@ -104,28 +127,51 @@ func _mat(c: Color, rough: float = 0.8) -> StandardMaterial3D:
 	return m
 
 
+## A real model from assets/shed (Poly Haven glTF, origin at its foot).
+func _model(id: String, at: Vector3, scale_by: float, turn: float, parent: Node3D) -> Node3D:
+	var n: Node3D = (load("res://assets/shed/%s/%s_1k.gltf" % [id, id]) as PackedScene).instantiate()
+	n.position = at
+	n.scale = Vector3.ONE * scale_by
+	n.rotation.y = turn
+	parent.add_child(n)
+	return n
+
+
+# --- the room --------------------------------------------------------------------------
+
 func _build_room() -> void:
 	var hw := WIDTH * 0.5
 	var hd := DEPTH * 0.5
 	var t := 0.08
-	# Floor boards and walls: back, left, right, and the front wall with the open door.
+	# Floor boards and walls: back, left, right.
 	_box(Vector3(WIDTH, 0.1, DEPTH), Vector3(0, 0.05, 0), _floor)
 	_box(Vector3(WIDTH, WALL_H, t), Vector3(0, WALL_H * 0.5, -hd), _wood)
 	_box(Vector3(t, WALL_H, DEPTH), Vector3(-hw, WALL_H * 0.5, 0), _wood)
 	_box(Vector3(t, WALL_H, DEPTH), Vector3(hw, WALL_H * 0.5, 0), _wood)
-	var door_w := 1.3
-	var side := (WIDTH - door_w) * 0.5
-	_box(Vector3(side, WALL_H, t), Vector3(-hw + side * 0.5, WALL_H * 0.5, hd), _wood)
-	_box(Vector3(side, WALL_H, t), Vector3(hw - side * 0.5, WALL_H * 0.5, hd), _wood)
-	_box(Vector3(door_w, WALL_H - 2.05, t), Vector3(0, 2.05 + (WALL_H - 2.05) * 0.5, hd), _wood)
-	# The door itself, swung open against the outside of the front wall.
-	var door := _box(Vector3(door_w, 2.0, 0.05), Vector3(0, 0, 0), _wood)
-	door.rotation.y = 1.25
-	door.position = Vector3(door_w * 0.5 + 0.35, 1.0, hd + 0.62)
-	# A window in the left wall: a frame of four slats.
-	var frame := _mat(Color(0.35, 0.25, 0.16))
-	for y in [1.1, 1.8]:
-		_box(Vector3(0.1, 0.06, 0.9), Vector3(-hw + 0.02, y, -0.2), frame)
+	# The front wall around the open door (centred) and the window (local +x).
+	var dx := DOOR_W * 0.5
+	var right_w := hw - dx
+	_box(Vector3(right_w, WALL_H, t), Vector3(-dx - right_w * 0.5, WALL_H * 0.5, hd), _wood)
+	# Left of the door: beside, below and above the window opening.
+	var wx0 := WINDOW_X.x
+	var wx1 := WINDOW_X.y
+	_box(Vector3(wx0 - dx, WALL_H, t), Vector3((dx + wx0) * 0.5, WALL_H * 0.5, hd), _wood)
+	_box(Vector3(hw - wx1, WALL_H, t), Vector3((wx1 + hw) * 0.5, WALL_H * 0.5, hd), _wood)
+	_box(Vector3(wx1 - wx0, WINDOW_Y.x, t), Vector3((wx0 + wx1) * 0.5, WINDOW_Y.x * 0.5, hd), _wood)
+	_box(Vector3(wx1 - wx0, WALL_H - WINDOW_Y.y, t), Vector3((wx0 + wx1) * 0.5, (WALL_H + WINDOW_Y.y) * 0.5, hd), _wood)
+	_box(Vector3(DOOR_W, WALL_H - DOOR_H, t), Vector3(0, DOOR_H + (WALL_H - DOOR_H) * 0.5, hd), _wood)
+	# Door frame posts and the door itself, swung open against the outside of the front wall.
+	var frame := _mat(Color(0.3, 0.22, 0.15), 0.9)
+	for x in [-dx - 0.03, dx + 0.03]:
+		_box(Vector3(0.06, DOOR_H, 0.12), Vector3(x, DOOR_H * 0.5, hd), frame)
+	_box(Vector3(DOOR_W + 0.12, 0.07, 0.12), Vector3(0, DOOR_H + 0.03, hd), frame)
+	var hinge := Node3D.new()
+	hinge.position = Vector3(-dx, 0, hd + 0.05)
+	hinge.rotation.y = -1.9
+	add_child(hinge)
+	_box(Vector3(DOOR_W, 2.0, 0.05), Vector3(DOOR_W * 0.5, 1.0, 0), _wood, hinge)
+	_items["door"] = hinge
+	_pick("door", Vector3(0, 1.25, hd), 0.5)
 	# The gable ends above the front and back walls.
 	for z in [-hd, hd]:
 		var tri := MeshInstance3D.new()
@@ -135,23 +181,18 @@ func _build_room() -> void:
 			st.add_vertex(v)
 		st.generate_normals()
 		tri.mesh = st.commit()
-		var gm := _wood.duplicate() as Material
-		tri.material_override = gm
-		tri.set("material_override", gm)
-		tri.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_ON
+		tri.material_override = _wood
 		add_child(tri)
 		# Visible from both sides.
 		var back := tri.duplicate() as MeshInstance3D
 		back.scale = Vector3(-1, 1, 1)
 		add_child(back)
-	# Rafters, and a few things hanging from them.
+	# Rafters, and a bunch of herbs drying from one.
 	for x in [-1.0, 0.0, 1.0]:
 		_box(Vector3(0.08, 0.1, DEPTH), Vector3(x, WALL_H + 0.05, 0), _mat(Color(0.3, 0.21, 0.13)))
-	var twine := _box(Vector3(0.02, 0.5, 0.02), Vector3(-0.6, WALL_H - 0.25, 0.3), _mat(Color(0.6, 0.5, 0.3)))
 	for k in range(3):
-		_box(Vector3(0.12, 0.25, 0.04), Vector3(0.35 + k * 0.18, WALL_H - 0.2, -0.3), _mat(Color(0.35, 0.42, 0.2).lerp(Color(0.5, 0.45, 0.25), k * 0.3)))
-	var rake := _box(Vector3(0.03, 1.5, 0.03), Vector3(-WIDTH * 0.5 + 0.2, 0.8, -0.9), _mat(Color(0.45, 0.33, 0.2)))
-	rake.rotation.z = 0.12
+		var herb := _box(Vector3(0.1, 0.24, 0.04), Vector3(-1.0 + (k - 1) * 0.12, WALL_H - 0.16, -0.4), _mat(Color(0.35, 0.42, 0.2).lerp(Color(0.5, 0.45, 0.25), k * 0.3), 0.95))
+		herb.rotation.z = (k - 1) * 0.15
 	# Pitched roof.
 	var roof := _mat(Color(0.3, 0.22, 0.17), 0.95)
 	var r1 := _box(Vector3(WIDTH * 0.62, 0.06, DEPTH + 0.5), Vector3(-WIDTH * 0.26, WALL_H + 0.38, 0), roof)
@@ -162,17 +203,17 @@ func _build_room() -> void:
 	_lamp = OmniLight3D.new()
 	_lamp.light_color = Color(1.0, 0.78, 0.5)
 	_lamp.light_energy = 1.1
+	_lamp.omni_range = 4.5
 	# The phone's simpler renderer lights the room more dimly.
 	if RenderingServer.get_current_rendering_method() == "gl_compatibility":
 		_lamp_base = 2.0
 		_lamp.omni_range = 5.5
-	_lamp.omni_range = 4.5
-	_lamp.position = Vector3(-1.1, WALL_H - 0.45, -0.95)
+	_lamp.position = Vector3(-0.3, WALL_H - 0.35, -0.2)
 	add_child(_lamp)
 	var glass := MeshInstance3D.new()
 	var s := SphereMesh.new()
-	s.radius = 0.06
-	s.height = 0.14
+	s.radius = 0.05
+	s.height = 0.12
 	glass.mesh = s
 	var gm := StandardMaterial3D.new()
 	gm.albedo_color = Color(1.0, 0.85, 0.55)
@@ -180,89 +221,351 @@ func _build_room() -> void:
 	gm.emission = Color(1.0, 0.75, 0.4)
 	gm.emission_energy_multiplier = 3.0
 	glass.material_override = gm
-	glass.position = _lamp.position
+	glass.position = _lamp.position + Vector3(0, 0.05, 0)
 	add_child(glass)
+	_box(Vector3(0.01, 0.3, 0.01), glass.position + Vector3(0, 0.2, 0), _mat(Color(0.15, 0.12, 0.1)))
 
+
+## The small window beside the workbench: a frame with a cross bar, old glass, a deep sill
+## inside (empty, for the bonsai) and daylight falling in across the sill and the bench.
+func _build_window() -> void:
+	var hd := DEPTH * 0.5
+	var cx := (WINDOW_X.x + WINDOW_X.y) * 0.5
+	var cy := (WINDOW_Y.x + WINDOW_Y.y) * 0.5
+	var w := WINDOW_X.y - WINDOW_X.x
+	var h := WINDOW_Y.y - WINDOW_Y.x
+	var frame := _mat(Color(0.42, 0.32, 0.22), 0.85)
+	for y in [WINDOW_Y.x, WINDOW_Y.y]:
+		_box(Vector3(w + 0.08, 0.05, 0.1), Vector3(cx, y, hd), frame)
+	for x in [WINDOW_X.x, WINDOW_X.y]:
+		_box(Vector3(0.05, h, 0.1), Vector3(x, cy, hd), frame)
+	_box(Vector3(w, 0.03, 0.05), Vector3(cx, cy, hd), frame)
+	_box(Vector3(0.03, h, 0.05), Vector3(cx, cy, hd), frame)
+	# Old, slightly dusty glass.
+	var glass := StandardMaterial3D.new()
+	glass.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	glass.albedo_color = Color(0.85, 0.9, 0.85, 0.12)
+	glass.roughness = 0.15
+	_box(Vector3(w, h, 0.005), Vector3(cx, cy, hd + 0.02), glass)
+	# The sill: a deep worn board inside the window, and a small bracket below it.
+	var sill_top := WINDOW_Y.x + 0.01
+	_box(Vector3(w + 0.16, 0.035, 0.24), Vector3(cx, sill_top - 0.0175, hd - 0.1), _planks("wood_table_worn", 0.9, Color(0.85, 0.8, 0.74)))
+	_box(Vector3(0.04, 0.12, 0.14), Vector3(cx, sill_top - 0.1, hd - 0.08), frame)
+	bonsai_spot = Node3D.new()
+	bonsai_spot.name = "bonsai_spot"
+	bonsai_spot.position = Vector3(cx, sill_top, hd - 0.1)
+	add_child(bonsai_spot)
+	# Daylight through the window: a soft spot from outside, and a faint shaft of dusty air.
+	var sun := SpotLight3D.new()
+	sun.light_color = Color(1.0, 0.9, 0.72)
+	sun.light_energy = 0.45
+	sun.spot_range = 4.0
+	sun.spot_angle = 34.0
+	sun.spot_angle_attenuation = 0.5
+	sun.spot_attenuation = 0.8
+	sun.shadow_enabled = not Budgets.PHONE
+	add_child(sun)
+	sun.position = Vector3(cx + 0.25, cy + 0.9, hd + 1.1)
+	sun.look_at(to_global(Vector3(cx - 0.3, BENCH_TOP, BENCH_Z + 0.2)), Vector3.UP)
+	var shaft := MeshInstance3D.new()
+	var q := QuadMesh.new()
+	q.size = Vector2(w * 0.95, 1.25)
+	shaft.mesh = q
+	var sm := ShaderMaterial.new()
+	sm.shader = _shaft_shader()
+	shaft.material_override = sm
+	shaft.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_child(shaft)
+	shaft.position = Vector3(cx - 0.05, cy - 0.28, hd - 0.42)
+	shaft.rotation = Vector3(-0.55, PI, 0.0)
+
+
+static func _shaft_shader() -> Shader:
+	var s := Shader.new()
+	s.code = """
+shader_type spatial;
+render_mode unshaded, blend_add, cull_disabled, depth_draw_never, shadows_disabled;
+void fragment() {
+	// Brightest at the window (top), fading into the room and toward the sides.
+	float side = smoothstep(0.0, 0.3, UV.x) * smoothstep(1.0, 0.7, UV.x);
+	float a = (1.0 - UV.y) * side * 0.12;
+	ALBEDO = vec3(1.0, 0.92, 0.75) * a;
+}
+"""
+	return s
+
+
+# --- the workbench and the things on it -------------------------------------------------
 
 func _build_bench() -> void:
-	var hd := DEPTH * 0.5
 	var bench := Node3D.new()
-	# Along the right wall near the door, so the things on it are in view of the doorway.
-	# Just inside the door on the left of the view (local +x after the shed turns to face the tree).
-	bench.position = Vector3(0.62, 0, 0.62)
-	bench.rotation.y = PI
-	bench.scale = Vector3(0.6, 0.8, 0.6)
+	bench.name = "Workbench"
+	bench.position = Vector3(0.0, 0.05, BENCH_Z)
 	add_child(bench)
-	_box(Vector3(1.6, 0.06, 0.7), Vector3(0, 0.9, 0), _table, bench)
-	for x in [-0.72, 0.72]:
-		for z in [-0.28, 0.28]:
-			_box(Vector3(0.06, 0.9, 0.06), Vector3(x, 0.45, z), _table, bench)
-	# The journal: dark leather, a paper edge showing.
-	var journal := _box(Vector3(0.34, 0.012, 0.26), Vector3(-0.45, 0.936, 0.05), _leather(Paper.LEATHER), bench)
-	journal.rotation.y = 0.2
-	# The page block between the covers, and the top cover; a ribbon hangs out at the bottom.
-	_box(Vector3(0.32, 0.036, 0.245), Vector3(0.008, 0.024, 0.0), _paper_mat(), journal)
-	_box(Vector3(0.34, 0.012, 0.26), Vector3(0.0, 0.048, 0.0), _leather(Paper.LEATHER), journal)
-	_box(Vector3(0.012, 0.004, 0.09), Vector3(0.05, 0.02, 0.16), _mat(Color(0.6, 0.12, 0.1)), journal)
-	_items["journal"] = journal
-	# The photo album: green cloth.
-	var album := _box(Vector3(0.36, 0.014, 0.3), Vector3(0.05, 0.937, -0.05), _leather(Color(0.22, 0.34, 0.22)), bench)
-	_box(Vector3(0.34, 0.045, 0.285), Vector3(0.008, 0.029, 0.0), _paper_mat(Color(0.72, 0.64, 0.52)), album)
-	_box(Vector3(0.36, 0.014, 0.3), Vector3(0.0, 0.058, 0.0), _leather(Color(0.22, 0.34, 0.22)), album)
-	album.rotation.y = -0.15
-	_items["album"] = album
-	# The seed bag: a small paper sack.
-	var seeds := _box(Vector3(0.14, 0.17, 0.08), Vector3(0.5, 1.015, 0.1), _paper_mat(Color(0.78, 0.64, 0.44)), bench)
-	seeds.rotation.y = 0.4
-	# Its top folded over once.
-	var fold := _box(Vector3(0.14, 0.05, 0.02), Vector3(0.0, 0.09, 0.03), _paper_mat(Color(0.72, 0.58, 0.4)), seeds)
-	fold.rotation.x = -0.9
-	_items["seeds"] = seeds
-	# A clay pot with a seedling, and a watering can, for the feel of the place.
-	var pot := MeshInstance3D.new()
-	var cyl := CylinderMesh.new()
-	cyl.top_radius = 0.09
-	cyl.bottom_radius = 0.065
-	cyl.height = 0.14
-	pot.mesh = cyl
-	pot.material_override = _mat(Color(0.62, 0.33, 0.2))
-	pot.position = Vector3(0.7, 1.0, -0.2)
+	# An old cabinet workbench with drawers (Poly Haven "Wooden Table 03"), its drawers toward us.
+	var table := _model("WoodenTable_03", Vector3.ZERO, 1.0, PI, bench)
+	table.scale = Vector3(0.95, 1.0, 1.05)
+	var top := BENCH_TOP - 0.05  # bench-local height of the table top
+	# The journal: dark leather with an elastic band and a red ribbon, lying on the left.
+	var journal := _book(Vector3(0.16, 0.026, 0.22), _leather(Paper.LEATHER), Color(0.92, 0.88, 0.78), true)
+	journal.position = Vector3(0.2, top, -0.08)
+	journal.rotation.y = 0.25
+	bench.add_child(journal)
+	_register("journal", journal, Vector3(0, 0.02, 0), 0.12)
+	_tag("journal", journal, Vector3(0.0, 0.0, -0.08), true)
+	# The photo album: bigger, green cloth over boards, a paper label on the cover.
+	var album := _book(Vector3(0.28, 0.045, 0.22), _leather(Color(0.2, 0.3, 0.19), 6.0), Color(0.78, 0.7, 0.58), false)
+	album.position = Vector3(-0.04, top, 0.13)
+	album.rotation.y = -0.12
+	bench.add_child(album)
+	_register("album", album, Vector3(0, 0.03, 0), 0.14)
+	_tag("album", album, Vector3(0.0, 0.06, 0.1), false)
+	# The seed bag: a kraft paper sack, the top rolled over, a few seeds spilled beside it.
+	var seeds := _seed_bag()
+	seeds.position = Vector3(-0.25, top, -0.04)
+	seeds.rotation.y = -0.35
+	bench.add_child(seeds)
+	_register("seeds", seeds, Vector3(0, 0.09, 0), 0.1)
+	_tag("seeds", seeds, Vector3(0.0, 0.2, 0.0), false)
+	# The flower pot (Poly Haven clay pot) with a seedling: the player's tree, small.
+	var pot := _flower_pot()
+	pot.position = Vector3(0.3, top, 0.17)
 	bench.add_child(pot)
-	# Soil and a seedling with a few leaves.
+	_register("pot", pot, Vector3(0, 0.1, 0), 0.1)
+	_tag("pot", pot, Vector3(0.0, 0.22, 0.0), false)
+	# Garden gloves lying at the front edge: put them on and go outside.
+	var gloves := Node3D.new()
+	gloves.position = Vector3(-0.03, top, -0.17)
+	gloves.rotation.y = 1.45
+	bench.add_child(gloves)
+	_model("garden_gloves_01", Vector3.ZERO, 0.75, 0.0, gloves)
+	_register("gloves", gloves, Vector3(0, 0.03, 0), 0.1)
+	_tag("gloves", gloves, Vector3(0.0, 0.0, -0.04), true)
+	# A trowel for the feel of the place, and a watering can on the floor under the window.
+	var trowel := _model("trowel_01", Vector3(-0.36, top + 0.035, 0.2), 0.75, 0.0, bench)
+	trowel.rotation = Vector3(PI * 0.5 - 0.02, -0.6, 0.0)
+	_model("watering_can_metal_01", Vector3(0.78, 0.05, DEPTH * 0.5 - 0.3), 1.1, 2.4, self)
+
+
+func _register(name: String, node: Node3D, centre: Vector3, radius: float) -> void:
+	_items[name] = node
+	var c := Node3D.new()
+	c.position = centre
+	node.add_child(c)
+	_picks[name] = [c, radius]
+
+
+## Where a thing's handwritten label goes: `offset` from the thing in its parent's space,
+## the label above that point or (`below`) hanging under it.
+func _tag(name: String, node: Node3D, offset: Vector3, below: bool) -> void:
+	var a := Node3D.new()
+	a.position = node.position + offset
+	node.get_parent().add_child(a)
+	_tag_anchors[name] = [a, below]
+
+
+func _pick(name: String, at: Vector3, radius: float) -> void:
+	var c := Node3D.new()
+	c.position = at
+	add_child(c)
+	_picks[name] = [c, radius]
+
+
+## A book lying closed: back board, page block, rounded spine and a front board on a hinge
+## ("Cover") that a tap opens a little. `band`: an elastic band and a ribbon, like a notebook;
+## otherwise a paper label and brass corners, like an album.
+func _book(size: Vector3, cover: Material, page_tint: Color, band: bool) -> Node3D:
+	var book := Node3D.new()
+	var t := 0.004
+	var pages := _paper_mat(page_tint, false, "cream")
+	_box(Vector3(size.x, t, size.z), Vector3(0, t * 0.5, 0), cover, book)
+	_box(Vector3(size.x - 0.01, size.y - t * 2.0, size.z - 0.012), Vector3(0.004, size.y * 0.5, 0), pages, book)
+	var spine := MeshInstance3D.new()
+	var cyl := CylinderMesh.new()
+	cyl.top_radius = size.y * 0.5
+	cyl.bottom_radius = size.y * 0.5
+	cyl.height = size.z
+	cyl.radial_segments = 12
+	spine.mesh = cyl
+	spine.material_override = cover
+	spine.rotation.x = PI * 0.5
+	spine.position = Vector3(-size.x * 0.5, size.y * 0.5, 0)
+	spine.scale = Vector3(0.45, 1.0, 1.0)
+	book.add_child(spine)
+	var hinge := Node3D.new()
+	hinge.name = "Cover"
+	hinge.position = Vector3(-size.x * 0.5, size.y - t * 0.5, 0)
+	book.add_child(hinge)
+	_box(Vector3(size.x, t, size.z), Vector3(size.x * 0.5, 0, 0), cover, hinge)
+	if band:
+		var elastic := _mat(Color(0.12, 0.08, 0.06), 0.5)
+		_box(Vector3(0.008, size.y + 0.006, size.z + 0.004), Vector3(size.x * 0.32, size.y * 0.5, 0), elastic, book)
+		_box(Vector3(0.012, 0.003, 0.07), Vector3(0.02, 0.004, size.z * 0.5 + 0.03), _mat(Color(0.62, 0.12, 0.1), 0.6), book)
+	else:
+		var label := _box(Vector3(size.x * 0.45, 0.002, size.z * 0.28), Vector3(size.x * 0.55, t * 0.5 + 0.001, 0), _paper_mat(Color(0.9, 0.85, 0.72)), hinge)
+		var text := _ink_text("photos", 0.028)
+		text.position = Vector3(0, 0.002, 0)
+		text.rotation = Vector3(-PI * 0.5, PI * 0.5, 0)
+		label.add_child(text)
+		var brass := _mat(Color(0.62, 0.48, 0.24), 0.35)
+		brass.metallic = 0.8
+		for k in [-1, 1]:
+			var corner := _box(Vector3(0.03, t + 0.002, 0.03), Vector3(size.x - 0.012, 0, k * (size.z * 0.5 - 0.012)), brass, hinge)
+			corner.rotation.y = PI * 0.25
+	return book
+
+
+## Handwriting in ink on a 3D surface (the album's label, the seed bag's note, the pinboard).
+func _ink_text(text: String, height: float) -> Label3D:
+	var l := Label3D.new()
+	l.text = text
+	l.font = Paper.hand_font(true)
+	l.font_size = 64
+	l.pixel_size = height / 64.0
+	l.modulate = Paper.INK
+	l.outline_size = 0
+	l.shaded = true
+	l.alpha_cut = Label3D.ALPHA_CUT_OPAQUE_PREPASS
+	return l
+
+
+## A kraft paper seed sack with its top rolled over, a handwritten note and a few seeds.
+func _seed_bag() -> Node3D:
+	var bag := Node3D.new()
+	var kraft := _paper_mat(Color(0.8, 0.64, 0.44), true)
+	var body := Node3D.new()
+	body.name = "Body"
+	bag.add_child(body)
+	# Slightly bulging: the bag and its fuller middle.
+	_box(Vector3(0.12, 0.13, 0.075), Vector3(0, 0.065, 0), kraft, body)
+	var belly := _box(Vector3(0.126, 0.07, 0.085), Vector3(0, 0.07, 0), kraft, body)
+	belly.rotation.y = 0.03
+	var fold := Node3D.new()
+	fold.name = "Fold"
+	fold.position = Vector3(0, 0.13, 0)
+	body.add_child(fold)
+	var roll := MeshInstance3D.new()
+	var cyl := CylinderMesh.new()
+	cyl.top_radius = 0.016
+	cyl.bottom_radius = 0.016
+	cyl.height = 0.122
+	cyl.radial_segments = 10
+	roll.mesh = cyl
+	roll.material_override = _paper_mat(Color(0.74, 0.58, 0.38), true)
+	roll.rotation.z = PI * 0.5
+	roll.position = Vector3(0, 0.012, -0.012)
+	fold.add_child(roll)
+	# A paper note glued on the front with a word in ink.
+	var note := _box(Vector3(0.075, 0.05, 0.002), Vector3(0.0, 0.07, -0.044), _paper_mat(Paper.PAPER), body)
+	note.rotation.z = 0.06
+	var text := _ink_text("seeds", 0.022)
+	text.position = Vector3(0, 0, -0.0015)
+	text.rotation.y = PI
+	note.add_child(text)
+	# A few seeds spilled on the bench.
+	var seed_mat := _mat(Color(0.36, 0.25, 0.14), 0.6)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 11
+	for k in range(5):
+		var s := MeshInstance3D.new()
+		var sp := SphereMesh.new()
+		sp.radius = 0.006
+		sp.height = 0.008
+		sp.radial_segments = 6
+		sp.rings = 3
+		s.mesh = sp
+		s.material_override = seed_mat
+		s.position = Vector3(rng.randf_range(-0.09, 0.02), 0.003, rng.randf_range(-0.1, -0.06))
+		s.scale = Vector3(1.0, 1.0, 1.5)
+		s.rotation.y = rng.randf() * TAU
+		bag.add_child(s)
+	return bag
+
+
+## The clay pot (Poly Haven "Planter Pot Clay") with dark soil and a seedling with a few leaves.
+func _flower_pot() -> Node3D:
+	var pot := Node3D.new()
+	_model("planter_pot_clay", Vector3.ZERO, 0.52, 0.0, pot)
 	var soil := MeshInstance3D.new()
 	var disc := CylinderMesh.new()
-	disc.top_radius = 0.082
-	disc.bottom_radius = 0.082
+	disc.top_radius = 0.058
+	disc.bottom_radius = 0.058
 	disc.height = 0.01
 	soil.mesh = disc
-	soil.material_override = _mat(Color(0.2, 0.14, 0.1), 1.0)
-	soil.position = Vector3(0, 0.06, 0)
+	var sm := _mat(Color(0.17, 0.12, 0.09), 1.0)
+	sm.normal_enabled = true
+	sm.normal_texture = preload("res://lookdev/paper/textures/crumple_normal.png")
+	sm.uv1_scale = Vector3.ONE * 2.0
+	soil.material_override = sm
+	soil.position = Vector3(0, 0.1, 0)
 	pot.add_child(soil)
-	for k in range(4):
+	var stem := MeshInstance3D.new()
+	var sc := CylinderMesh.new()
+	sc.top_radius = 0.0018
+	sc.bottom_radius = 0.003
+	sc.height = 0.09
+	sc.radial_segments = 6
+	stem.mesh = sc
+	stem.material_override = _mat(Color(0.4, 0.3, 0.18), 0.8)
+	stem.position = Vector3(0, 0.145, 0)
+	stem.rotation.z = 0.06
+	pot.add_child(stem)
+	var leaf_mat := _mat(Color(0.3, 0.5, 0.2), 0.6)
+	leaf_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	for k in range(6):
 		var leaf := MeshInstance3D.new()
-		var sm := SphereMesh.new()
-		sm.radius = 0.03
-		sm.height = 0.012
-		leaf.mesh = sm
-		leaf.material_override = _mat(Color(0.3, 0.5, 0.2), 0.7)
-		var a := k * TAU / 4.0 + 0.3
-		leaf.position = Vector3(cos(a) * 0.03, 0.1 + k * 0.012, sin(a) * 0.03)
-		leaf.rotation = Vector3(0.4 * sin(a), a, 0.4 * cos(a))
+		var sp := SphereMesh.new()
+		sp.radius = 0.024
+		sp.height = 0.01
+		sp.radial_segments = 8
+		sp.rings = 4
+		leaf.mesh = sp
+		leaf.material_override = leaf_mat
+		var a := k * 2.4
+		leaf.position = Vector3(cos(a) * 0.026, 0.13 + k * 0.012, sin(a) * 0.026)
+		leaf.scale = Vector3(1.0, 1.0, 0.65)
+		leaf.rotation = Vector3(0.35 * sin(a), -a, 0.35 * cos(a))
 		pot.add_child(leaf)
-	var can := _box(Vector3(0.22, 0.2, 0.14), Vector3(-0.15, 0.1, 0.4), _mat(Color(0.35, 0.45, 0.42), 0.4))
-	can.position = Vector3(1.1, 0.1, -0.9)
+	return pot
 
 
+## The pinboard on the front wall, right of the door: cork in a wooden frame, the option notes
+## pinned on it and "options" written on a strip below them.
 func _build_pinboard() -> void:
-	var hw := WIDTH * 0.5
-	# On the inside of the front wall, left of the door.
-	# On the right-hand wall, near the door, in view.
-	var board := _box(Vector3(0.05, 0.62, 0.7), Vector3(-WIDTH * 0.5 + 0.07, 1.6, 0.55), _mat(Color(0.55, 0.42, 0.28), 0.95))
-	# Paper notes pinned to it.
-	for i in range(4):
-		var note := _box(Vector3(0.01, 0.2, 0.24), Vector3(0.03, 0.2 - (i / 2) * 0.32, -0.25 + (i % 2) * 0.45), _mat(Paper.PAPER), board)
-		note.rotation.x = 0.05 * (i - 1.5)
-	_items["options"] = board
+	var hd := DEPTH * 0.5
+	var board := Node3D.new()
+	board.position = Vector3(-0.63, 1.45, hd - 0.06)
+	board.rotation.y = PI
+	board.scale = Vector3.ONE * 0.72
+	add_child(board)
+	var cork := _mat(Color(0.62, 0.46, 0.3), 0.95)
+	cork.normal_enabled = true
+	cork.normal_texture = preload("res://lookdev/paper/textures/leather_normal.png")
+	cork.uv1_scale = Vector3.ONE * 3.0
+	_box(Vector3(0.46, 0.56, 0.025), Vector3.ZERO, cork, board)
+	var frame := _mat(Color(0.36, 0.26, 0.17), 0.85)
+	for y in [-0.29, 0.29]:
+		_box(Vector3(0.5, 0.03, 0.035), Vector3(0, y, 0), frame, board)
+	for x in [-0.24, 0.24]:
+		_box(Vector3(0.03, 0.6, 0.035), Vector3(x, 0, 0), frame, board)
+	var pin := _mat(Color(0.7, 0.15, 0.12), 0.4)
+	for i in range(5):
+		var small := i < 4
+		var size := Vector3(0.16, 0.13, 0.002) if small else Vector3(0.3, 0.08, 0.002)
+		var at := Vector3(-0.1 + (i % 2) * 0.2, 0.17 - (i / 2) * 0.17, 0.016) if small else Vector3(0.0, -0.19, 0.016)
+		var note := _box(size, at, _paper_mat(Paper.PAPER), board)
+		note.rotation.z = 0.05 * (i - 2)
+		note.name = "Note%d" % i
+		_box(Vector3(0.014, 0.014, 0.012), Vector3(0, size.y * 0.35, 0.006), pin, note)
+		if small:
+			# A few lines of ink on each note.
+			for l in range(3):
+				_box(Vector3(0.1 - l * 0.02, 0.004, 0.001), Vector3(-0.01, 0.01 - l * 0.025, 0.0015), _mat(Paper.FAINT_INK, 0.9), note)
+	var title := _ink_text("options", 0.05)
+	title.position = Vector3(0.0, -0.19, 0.019)
+	board.add_child(title)
+	_register("options", board, Vector3.ZERO, 0.3)
+	_tag("options", board, Vector3(0.0, 0.24, 0.0), false)
 
 
 func _build_camera() -> void:
@@ -274,11 +577,11 @@ func _build_camera() -> void:
 	_place_camera(3.0)
 
 
-## The eye stands at the back of the shed, looking out of the door at the tree.
-func _place_camera(tree_height: float) -> void:
-	camera.position = Vector3(0.1, 1.45, -DEPTH * 0.5 + 0.5)
-	# Look out through the doorway at about eye height: bench, board and door frame the tree.
-	camera.look_at(to_global(Vector3(0.0, 1.25, DEPTH * 0.5)), Vector3.UP)
+## The eye stands at the back of the shed: the workbench in the middle of the view, the tree
+## in the doorway above it, the window with its sill on the left and the pinboard on the right.
+func _place_camera(_tree_height: float) -> void:
+	camera.position = Vector3(0.0, 1.55, -0.7)
+	camera.look_at(to_global(Vector3(0.0, 1.03, DEPTH * 0.5)), Vector3.UP)
 
 
 func frame_tree(tree_height: float, env: Environment) -> void:
@@ -292,20 +595,108 @@ func _process(delta: float) -> void:
 	_lamp.light_energy = _lamp_base * (1.0 + 0.1 * sin(_time * 7.3) + 0.05 * sin(_time * 13.1))
 
 
-## Which tappable item is at this screen point ("journal", "album", "seeds", "options" or "").
+# --- taps -----------------------------------------------------------------------------
+
+## Which thing is at this screen point: one of ITEMS, "door" (go outside) or "".
+## Each thing is a sphere around its centre; the nearest one relative to its size wins,
+## the doorway only when no thing on the bench or wall is hit.
 func item_at(screen: Vector2) -> String:
 	var best := ""
-	var best_d := 70.0
-	for k in _items:
-		var n: Node3D = _items[k]
-		if camera.is_position_behind(n.global_position):
+	var best_score := 1.0
+	for k in _picks:
+		var at := (_picks[k][0] as Node3D).global_position
+		if camera.is_position_behind(at):
 			continue
-		var d := camera.unproject_position(n.global_position).distance_to(screen)
-		if d < best_d:
-			best_d = d
+		var r := _screen_radius(at, float(_picks[k][1]))
+		var score := camera.unproject_position(at).distance_to(screen) / maxf(r, 1.0)
+		if k == "door":
+			score *= 1.6
+		if score < best_score:
+			best_score = score
 			best = k
 	return best
 
 
-func item_screen_position(name: String) -> Vector2:
-	return camera.unproject_position((_items[name] as Node3D).global_position)
+func _screen_radius(at: Vector3, radius: float) -> float:
+	var side := camera.global_transform.basis.x * radius
+	return camera.unproject_position(at).distance_to(camera.unproject_position(at + side))
+
+
+## Where the handwritten label of a thing goes on screen, and whether it hangs below that point.
+func item_tag_position(name: String) -> Vector2:
+	return camera.unproject_position((_tag_anchors[name][0] as Node3D).global_position)
+
+
+func item_tag_below(name: String) -> bool:
+	return bool(_tag_anchors[name][1])
+
+
+func _build_sounds() -> void:
+	_player = AudioStreamPlayer.new()
+	_player.volume_db = -4.0
+	add_child(_player)
+	var files := {"journal": "shed_book_open.ogg", "album": "shed_book_flip.ogg", "seeds": "shed_paper_bag.wav",
+		"pot": "shed_clay_pot.ogg", "gloves": "shed_gloves.ogg", "options": "shed_pin.ogg", "door": "shed_door.ogg"}
+	for k in files:
+		var path := "res://assets/sounds/" + str(files[k])
+		if ResourceLoader.exists(path):
+			_sounds[k] = load(path)
+
+
+## A thing answers a tap: its sound and a small motion (the book lifts and opens a little, the
+## bag rustles, the pot wobbles). Returns the seconds to wait before its page opens.
+func tap(name: String) -> float:
+	if _sounds.has(name):
+		_player.stream = _sounds[name]
+		_player.pitch_scale = 0.96 + 0.08 * fposmod(_time * 7.0, 1.0)
+		_player.play()
+	var node: Node3D = _items.get(name)
+	if node == null:
+		return TAP_DELAY
+	if _busy.has(name) and (_busy[name] as Tween).is_valid():
+		(_busy[name] as Tween).kill()
+	var rest: Transform3D = node.get_meta("rest", node.transform)
+	node.set_meta("rest", rest)
+	node.transform = rest
+	var turn := rest.basis.get_euler().y
+	var tw := create_tween()
+	_busy[name] = tw
+	match name:
+		"journal", "album":
+			var cover := node.get_node("Cover") as Node3D
+			var open := 0.55 if name == "journal" else 0.4
+			tw.tween_property(node, "position:y", rest.origin.y + 0.035, 0.14).set_trans(Tween.TRANS_SINE)
+			tw.parallel().tween_property(cover, "rotation:z", open, 0.3).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+			tw.tween_interval(0.6)
+			tw.tween_property(cover, "rotation:z", 0.0, 0.3)
+			tw.parallel().tween_property(node, "position:y", rest.origin.y, 0.3)
+		"seeds":
+			var body := node.get_node("Body") as Node3D
+			var fold := body.get_node("Fold") as Node3D
+			for k in range(5):
+				var s := 1.0 if k % 2 == 0 else -1.0
+				tw.tween_property(body, "rotation:z", s * 0.07 * (1.0 - k * 0.18), 0.06)
+				tw.parallel().tween_property(fold, "rotation:x", s * 0.25, 0.06)
+			tw.tween_property(body, "rotation:z", 0.0, 0.08)
+			tw.parallel().tween_property(fold, "rotation:x", 0.0, 0.08)
+		"pot":
+			for k in range(6):
+				var s := 1.0 if k % 2 == 0 else -1.0
+				tw.tween_property(node, "rotation:z", s * 0.12 * pow(0.6, k), 0.07)
+			tw.tween_property(node, "rotation:z", 0.0, 0.06)
+		"gloves":
+			tw.tween_property(node, "position", rest.origin + Vector3(0.02, 0.04, 0.0), 0.15).set_trans(Tween.TRANS_SINE)
+			tw.parallel().tween_property(node, "rotation:y", turn + 0.15, 0.15)
+			tw.tween_property(node, "position", rest.origin, 0.2)
+			tw.parallel().tween_property(node, "rotation:y", turn, 0.2)
+		"options":
+			for i in range(5):
+				var note := node.get_node("Note%d" % i) as Node3D
+				tw.parallel().tween_property(note, "rotation:x", -0.3, 0.1).set_delay(i * 0.03)
+			tw.tween_interval(0.05)
+			for i in range(5):
+				tw.parallel().tween_property(node.get_node("Note%d" % i), "rotation:x", 0.0, 0.25)
+		"door":
+			tw.tween_property(node, "rotation:y", turn + 0.2, 0.25).set_trans(Tween.TRANS_SINE)
+			tw.tween_property(node, "rotation:y", turn, 0.4)
+	return TAP_DELAY

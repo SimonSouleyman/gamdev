@@ -20,3 +20,12 @@ All third-party assets in this project, with their licences. CC0 needs no attrib
 | `ui/fonts/PatrickHand-Regular.ttf` | Google Fonts, Patrick Hand by Patrick Wagesreiter | SIL Open Font License 1.1 (`ui/fonts/OFL-PatrickHand.txt`) |
 
 The HUD's shed and shears pictures (`ui/icons/shed.png`, `shears.png`, `shears_cursor.png`) are small models built in `tools/render_icons.gd` from the Poly Haven wood textures above. Everything else (tree, roots, meadow plants, leaf fallback, paper, the wind, the underground hum and the collect note) is generated in code.
+| `assets/shed/WoodenTable_03/*` (1k glTF) | Poly Haven, "Wooden Table 03" (https://polyhaven.com/a/WoodenTable_03): the workbench | CC0 |
+| `assets/shed/garden_gloves_01/*` (1k glTF) | Poly Haven, "Garden Gloves 01" (https://polyhaven.com/a/garden_gloves_01) | CC0 |
+| `assets/shed/planter_pot_clay/*` (1k glTF) | Poly Haven, "Planter Pot Clay" (https://polyhaven.com/a/planter_pot_clay): the flower pot | CC0 |
+| `assets/shed/watering_can_metal_01/*` (1k glTF) | Poly Haven, "Watering Can Metal 01" (https://polyhaven.com/a/watering_can_metal_01) | CC0 |
+| `assets/shed/trowel_01/*` (1k glTF) | Poly Haven, "Trowel 01" (https://polyhaven.com/a/trowel_01) | CC0 |
+| `assets/sounds/shed_book_open.ogg`, `shed_book_flip.ogg`, `shed_gloves.ogg`, `shed_pin.ogg`, `shed_door.ogg` (bookOpen, bookFlip2, cloth2, metalClick, creak1) | OpenGameArt, "50 RPG sound effects" by Kenney (https://opengameart.org/content/50-rpg-sound-effects) | CC0 |
+| `assets/sounds/shed_paper_bag.wav` (snd_use_map, cut to 1.3 s, mono) | OpenGameArt, "Opening and closing a map sounds" by spring-spring (https://opengameart.org/content/opening-and-closing-a-map-sounds) | CC0 |
+| `assets/sounds/shed_clay_pot.ogg` (item_stone_02) | OpenGameArt, "80 CC0 RPG SFX" by rubberduck (https://opengameart.org/content/80-cc0-rpg-sfx) | CC0 |
+Everything else (the shed room, the journal, album and seed bag on the workbench, tree, roots, meadow plants, leaf fallback, paper, the wind, the underground hum and the collect note) is generated in code.
