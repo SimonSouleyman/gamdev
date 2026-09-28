@@ -18,7 +18,7 @@ Design doc: `docs/design-doc.md` (the source of truth for gameplay decisions).
 - `audio/`, `ui/` as named.
 - `tests/` headless tests. Run: `godot --headless --path . -s tests/run_tests.gd` (exit code 0 = pass). After a fresh checkout run `godot --headless --path . --import` once, or class_name lookups fail.
 - `docs/` design doc and research notes.
-- `tools/` dev tools: `autoplay.gd` plays the real scene end to end (seed, first root, sapling, tap boost, the day running on, second root) and takes screenshots; `grow_shot.gd` grows a tree for N days and photographs it; `month_report.gd` prints 30 days of bot play for tuning; `root_bot.gd` is the autopilot they share.
+- `tools/` dev tools: `autoplay.gd` plays the real scene end to end (seed, first root, sapling, tap boost, the day running on, second root) and takes screenshots; `grow_shot.gd` grows a tree for N days and photographs it; `month_report.gd -- --species=<id>|all` prints bot play day by day until the tree is finished, for tuning; `root_bot.gd` is the autopilot they share.
 - `main.tscn` is the game: it owns `GameState` (shared/) and switches `TreeView` (tree/) and `RootView` (roots/).
 
 ## Workflow

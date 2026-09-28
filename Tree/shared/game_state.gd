@@ -45,21 +45,66 @@ var _events: Array[String] = []
 var _spent_announced: bool = false
 ## Seconds since sunrise until the morning event; -1 when it already happened.
 var morning_timer: float = -1.0
+## This tree has grown to its species' full size (GrowthSim.is_finished).
+var finished: bool = false
+## The trees finished before this one and this one once finished, oldest first:
+## each {"species": id, "days": int, "seed": int}. Carried from tree to tree (the grove);
+## it decides which species the seed bag offers (Species.unlocked).
+var grove: Array = []
 
 
 ## A new game: a seed is planted at sunset; the first night is the first root run.
-static func new_game(random_seed: int) -> GameState:
+static func new_game(random_seed: int, species_id: String = "linden") -> GameState:
 	var g := GameState.new()
 	g.seed = random_seed
 	g.sim = GrowthSim.new(random_seed)
+	g.sim.species = Species.from_id(species_id)
 	g.ground = Underground.new(random_seed)
 	g.roots = RootSystem.new(random_seed)
+	g.roots.species = g.sim.species
 	g.sim.clock.time_of_day = g.sim.clock.daylight_fraction
 	g.sim.resources.life_force = SEED_LIFE_FORCE
 	g.phase = Phase.SUNSET
-	g.diary.add(0, "I planted a linden seed in the clearing as the sun went down.")
+	g.diary.add(0, "I planted a %s seed in the clearing as the sun went down." % g.tree_name())
 	g._events.append("sunset")
 	return g
+
+
+## The next tree, planted from the seed bag: a new game of `species_id` that keeps the grove
+## and the journal pages already read (the player knows the game by now).
+static func new_tree(random_seed: int, species_id: String, previous: GameState) -> GameState:
+	var g := new_game(random_seed, species_id)
+	if previous != null:
+		g.grove = previous.grove.duplicate(true)
+		g.seen_pages = previous.seen_pages.duplicate()
+	return g
+
+
+func species() -> Species:
+	return sim.species
+
+
+## The species in lower case, for diary lines ("the silver birch is 4 m tall").
+func tree_name() -> String:
+	return sim.species.display_name.to_lower()
+
+
+## Species ids of the finished trees.
+func finished_species() -> Array:
+	var out: Array = []
+	for t in grove:
+		out.append(str(t.get("species", "")))
+	return out
+
+
+## Species the seed bag offers (all six with the test switch).
+func unlocked_species(any_species: bool = false) -> Array[String]:
+	return Species.unlocked(finished_species(), any_species)
+
+
+## The seed bag may plant a new tree: this one is finished, or the test switch is on.
+func can_plant_next(any_species: bool = false) -> bool:
+	return finished or any_species
 
 
 func day_number() -> int:
@@ -104,6 +149,8 @@ func tick(delta: float) -> void:
 				_event("sunset")
 			else:
 				sim.tick(delta)
+				if not finished and sim.is_finished():
+					_finish()
 				if morning_timer >= 0.0:
 					morning_timer += delta
 					if morning_timer >= MORNING_DELAY:
@@ -231,6 +278,14 @@ func _on_run_done() -> void:
 	_event("run_done")
 
 
+## Grown to the species' full size: into the grove; the seed bag offers the next seed.
+func _finish() -> void:
+	finished = true
+	grove.append({"species": sim.species.id, "days": day_number(), "seed": seed})
+	diary.add(day_number(), "The %s has grown to its full size. It dropped a seed; the seed bag in the shed is ready for the next tree." % tree_name())
+	_event("finished")
+
+
 func _sunrise() -> void:
 	phase = Phase.DAY
 	sim.clock.boost_active = false
@@ -245,6 +300,18 @@ func _sunrise() -> void:
 	var total_drawn := drawn[0] + drawn[1] + drawn[2] + drawn[3]
 	if total_drawn > 0.5:
 		diary.add(day_number(), "The old roots drew water %.1f, nitrogen %.1f, phosphorus %.1f, potassium %.1f from the soil overnight." % [drawn[0], drawn[1], drawn[2], drawn[3]])
+	# Species quirks on the night: root nodules (alder), the leaves' water, shaded twigs.
+	var fixed := roots.nodule_nitrogen(sim.resources)
+	if fixed > 0.5:
+		diary.add(day_number(), "The root nodules made nitrogen %.1f overnight." % fixed)
+	if not was_seed:
+		sim.drink_upkeep()
+		var died := sim.shade_dieback(day_number())
+		if died > 0:
+			diary.add(day_number(), "%d shaded twig%s died back in the crown." % [died, "" if died == 1 else "s"])
+	if sim.species.in_blossom(day_number()) and not sim.species.in_blossom(day_number() - 1):
+		diary.add(day_number(), "The %s is in blossom. The bees have come, and the leaves are busier than ever." % tree_name())
+		_event("blossom")
 	sim.start_dawn_burst()
 	if was_seed and not sim.nutrients_spent():
 		diary.add(day_number(), "The seed sprouted at dawn.")
@@ -256,7 +323,7 @@ func _sunrise() -> void:
 ## Called by the tree view at the end of the dawn burst, for the morning diary line.
 func write_morning_line() -> void:
 	var tips := sim.tip_count()
-	diary.add(day_number(), "The linden is %.1f m tall with %d leaf cluster%s." % [sim.height(), tips, "" if tips == 1 else "s"])
+	diary.add(day_number(), "The %s is %.1f m tall with %d leaf cluster%s." % [tree_name(), sim.height(), tips, "" if tips == 1 else "s"])
 
 
 # --- moving the day on ------------------------------------------------------
@@ -338,6 +405,8 @@ func to_dict() -> Dictionary:
 		"empty_timer": _empty_timer,
 		"morning_timer": morning_timer,
 		"spent_announced": _spent_announced,
+		"finished": finished,
+		"grove": grove,
 	}
 
 
@@ -348,6 +417,7 @@ static func from_dict(d_in: Dictionary) -> GameState:
 	g.sim = GrowthSim.from_dict(SaveData.restore_sim(d["sim"]))
 	g.ground = Underground.from_dict(d.get("underground", {"seed": g.seed}))
 	g.roots = RootSystem.from_dict(d.get("roots", {}), g.seed)
+	g.roots.species = g.sim.species
 	g.diary = Diary.from_dict(d.get("diary", {}))
 	g.phase = clampi(int(d.get("phase", Phase.DAY)), Phase.DAY, Phase.NIGHT) as Phase
 	g._empty_timer = float(d.get("empty_timer", 0.0))
@@ -357,6 +427,10 @@ static func from_dict(d_in: Dictionary) -> GameState:
 	g.night_done = bool(d.get("night_done", false))
 	g.night_empty = bool(d.get("night_empty", false))
 	g.pending_pages = Array(d.get("pending_pages", []))
+	g.finished = bool(d.get("finished", false))
+	for t in d.get("grove", []):
+		if t is Dictionary:
+			g.grove.append({"species": str(t.get("species", "linden")), "days": int(t.get("days", 0)), "seed": int(t.get("seed", 0))})
 	for k in d.get("seen_pages", []):
 		g.seen_pages[str(k)] = true
 	return g

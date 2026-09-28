@@ -14,7 +14,8 @@ signal setting_changed(key: String, value: bool)
 const MIN_PAGE_SECONDS := 0.6
 
 var state: GameState
-var settings: Dictionary = {"sound": true, "no_ui": false, "battery_saver": false, "notifications": true}
+## "any_species" is the test switch on the shed's pinboard: every species plantable now.
+var settings: Dictionary = {"sound": true, "no_ui": false, "battery_saver": false, "notifications": true, "any_species": false}
 
 var _queue: Array = []  # [{id, title, body}]
 ## Pages put aside while the player is in the shed; they come back outside.
@@ -39,6 +40,7 @@ var _toggles: Dictionary = {}
 var _open_button: Button
 var _pages_list: VBoxContainer
 var _pages_empty: Label
+var _book_title: Label
 
 
 func _ready() -> void:
@@ -311,6 +313,7 @@ func _build_book() -> void:
 	var title := Paper.ink_label("My linden", 46, Paper.INK, true)
 	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	head.add_child(title)
+	_book_title = title
 	var close := Paper.ink_button("close", 26)
 	close.pressed.connect(close_diary)
 	head.add_child(close)
@@ -503,6 +506,7 @@ func _add_note() -> void:
 func _refresh_diary() -> void:
 	if state == null:
 		return
+	_book_title.text = "My " + state.tree_name()
 	_wish_label.text = ("A wish: " + state.diary.wish) if state.diary.wish != "" else ""
 	_wish_label.visible = state.diary.wish != ""
 	var out := ""
@@ -517,7 +521,7 @@ func _refresh_diary() -> void:
 	for c in _pages_list.get_children():
 		c.queue_free()
 	var any := false
-	for id in Pages.TEXTS:
+	for id in Pages.ids():
 		if state.seen_pages.has(id):
 			var b := Paper.ink_button(Pages.title(id), 26)
 			b.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN

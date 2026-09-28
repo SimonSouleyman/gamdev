@@ -34,6 +34,8 @@ var _bark_mat: ShaderMaterial
 var _leaf_mat: ShaderMaterial
 var _ground_mat: ShaderMaterial
 var _spray_mat: ShaderMaterial
+## The forest's bark template: the linden's tint, never the hero species' (Scenery duplicates it).
+var _forest_bark: ShaderMaterial
 var _compat: bool = RenderingServer.get_current_rendering_method() == "gl_compatibility"
 var _ground: MeshInstance3D
 ## Radius of the clearing the world was last built for.
@@ -97,6 +99,7 @@ func _ready() -> void:
 
 func setup(p_state: GameState) -> void:
 	state = p_state
+	apply_species(state.sim.species)
 	_clearing = -1.0
 	refresh_clearing()
 	_built_size = -1
@@ -104,6 +107,14 @@ func setup(p_state: GameState) -> void:
 	# Nodes that already exist do not twinkle.
 	_rebuild()
 	_frame_camera(true)
+
+
+## The hero tree's look per species: bark and leaf tint on the existing materials
+## (a birch reads white-barked, an oak dark).
+func apply_species(sp: Species) -> void:
+	var b := sp.bark_tint
+	_bark_mat.set_shader_parameter("texture_tint", Vector3(b.r, b.g, b.b))
+	_spray_mat.set_shader_parameter("tint_mul", sp.leaf_tint)
 
 
 # --- world ------------------------------------------------------------------
@@ -123,7 +134,7 @@ func refresh_clearing() -> void:
 	_plant_grass(state.seed)
 	GrassLook.apply(self)
 	GrassLook.apply_meadow2(self)
-	_scenery.build(state.seed, _bark_mat, _leaf_mat, _noise_tex, r)
+	_scenery.build(state.seed, _forest_bark, _leaf_mat, _noise_tex, r)
 	ForestSprays.apply(_scenery)
 	# The haze begins further out as the clearing grows, so the forest ring is not buried.
 	_env.fog_depth_begin = r
@@ -231,6 +242,7 @@ func _build_world() -> void:
 	_bark_mat.set_shader_parameter("rim_strength", 0.12)
 	# Grey-brown linden bark instead of the warm orange (visuals thread).
 	_bark_mat.set_shader_parameter("texture_tint", Vector3(0.38, 0.36, 0.33))
+	_forest_bark = _bark_mat.duplicate()
 	add_child(_tree_mesh)
 
 	# Leaf clusters: crossed leaf cards per living tip, alpha-cut, swaying in the wind.

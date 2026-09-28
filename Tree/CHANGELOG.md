@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased: six tree species
+
+- Linden, silver birch, beech, sycamore maple, black alder and pedunculate oak (design doc section 15),
+  each with its own needs, size, growth shape, bark and leaf tint, and one quirk on an existing mechanic.
+- New small mechanics the quirks needed: shade dieback of crowded inner twigs, and the leaves' daily water upkeep.
+- A tree is finished at its species' size; the seed bag in the shed then plants the next unlocked species.
+  The options pinboard has a test switch "any species now". Each species has a journal page.
+- tools/month_report.gd runs until the tree is finished, per species (--species=<id>|all).
+
 ## v0.4 (2026-09-28)
 
 The new look from the visuals thread, and the game running well on Simon's Fairphone 6.

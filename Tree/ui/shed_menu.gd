@@ -7,6 +7,8 @@ signal continue_pressed
 signal journal_pressed
 signal new_tree_pressed
 signal setting_changed(key: String, value: bool)
+## A species was chosen from the seed bag: plant it as the next tree.
+signal plant_pressed(species_id: String)
 
 var settings: Dictionary = {}
 var _note: PanelContainer
@@ -23,6 +25,9 @@ var _album_index: int = 0
 var _photos: Array[String] = []
 var _toggles: Dictionary = {}
 var _loading: Control
+var _subtitle: Label
+var _seeds: Control
+var _seeds_box: VBoxContainer
 
 
 func _ready() -> void:
@@ -30,6 +35,7 @@ func _ready() -> void:
 	_build_note()
 	_build_options()
 	_build_album()
+	_build_seeds()
 	_build_loading()
 
 
@@ -50,7 +56,8 @@ func _build_note() -> void:
 	box.add_theme_constant_override("separation", 10)
 	_note.add_child(box)
 	box.add_child(Paper.ink_label("Tree", 52, Paper.INK, true))
-	box.add_child(Paper.ink_label("my linden", 26, Paper.FAINT_INK))
+	_subtitle = Paper.ink_label("my linden", 26, Paper.FAINT_INK)
+	box.add_child(_subtitle)
 	for pair in [["go outside", "continue"], ["read the journal", "journal"], ["look at the photos", "album"], ["options", "options"]]:
 		var b := Paper.ink_button(pair[0], 28)
 		b.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
@@ -76,17 +83,24 @@ func show_menu(on: bool) -> void:
 	if not on:
 		_options.visible = false
 		_album.visible = false
+		_seeds.visible = false
 
 
-## Esc on the options board or in the album goes back to the note.
+## The menu note names the tree ("my silver birch").
+func set_tree_name(tree_name: String) -> void:
+	_subtitle.text = "my " + tree_name
+
+
+## Esc on the options board, in the album or at the seed bag goes back to the note.
 func close_boards() -> void:
 	_options.visible = false
 	_album.visible = false
+	_seeds.visible = false
 	_note.visible = true
 
 
 func is_busy() -> bool:
-	return _options.visible or _album.visible
+	return _options.visible or _album.visible or _seeds.visible
 
 
 # --- options, pinned to the board -------------------------------------------------
@@ -107,16 +121,16 @@ func _build_options() -> void:
 	board.offset_left = 30
 	board.offset_right = -30
 	board.offset_top = 150
-	board.offset_bottom = -560
+	board.offset_bottom = -330
 	_options.add_child(board)
-	var names := {"sound": "sound", "no_ui": "no UI (pure scenery)", "battery_saver": "battery saver", "notifications": "a note each day"}
+	var names := {"sound": "sound", "no_ui": "no UI (pure scenery)", "battery_saver": "battery saver", "notifications": "a note each day", "any_species": "any species now (for testing)"}
 	var i := 0
 	for key in names:
 		var note := PanelContainer.new()
 		note.add_theme_stylebox_override("panel", Paper.paper_box(200, 90, 80 + i, "all", 18.0))
 		note.position = Vector2(60 + (i % 2) * 300, 70 + (i / 2) * 240)
 		note.custom_minimum_size = Vector2(260, 150)
-		note.rotation_degrees = [-3.0, 2.0, 1.5, -2.0][i]
+		note.rotation_degrees = [-3.0, 2.0, 1.5, -2.0, 2.5][i]
 		board.add_child(note)
 		var c := CheckBox.new()
 		c.text = names[key]
@@ -146,8 +160,8 @@ func _build_options() -> void:
 	back.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
 	back.offset_left = -60
 	back.offset_right = 60
-	back.offset_top = -540
-	back.offset_bottom = -490
+	back.offset_top = -310
+	back.offset_bottom = -260
 	back.add_theme_stylebox_override("normal", Paper.paper_box(96, 48, 90, "all", 14.0))
 	back.pressed.connect(func() -> void:
 		_options.visible = false
@@ -228,7 +242,7 @@ func _build_album() -> void:
 	page.add_child(box)
 	var head := HBoxContainer.new()
 	box.add_child(head)
-	_album_title = Paper.ink_label("My linden", 40, Paper.INK, true)
+	_album_title = Paper.ink_label("My trees", 40, Paper.INK, true)
 	_album_title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	head.add_child(_album_title)
 	var close := Paper.ink_button("close", 26)
@@ -330,6 +344,77 @@ func _show_spread() -> void:
 			tex.texture = null
 			cap.text = "(no photo yet: every morning takes one, and the camera scrap outside takes more)" if _photos.is_empty() and side == 0 else ""
 			tex.get_parent().get_parent().visible = side == 0 and _photos.is_empty()
+
+
+# --- the seed bag -------------------------------------------------------------------
+
+func _build_seeds() -> void:
+	_seeds = Control.new()
+	_seeds.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_seeds.mouse_filter = Control.MOUSE_FILTER_STOP
+	add_child(_seeds)
+	var dim := ColorRect.new()
+	dim.color = Color(0.05, 0.04, 0.02, 0.5)
+	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_seeds.add_child(dim)
+	var sheet := PanelContainer.new()
+	sheet.add_theme_stylebox_override("panel", Paper.paper_box(300, 420, 77, "top", 30.0))
+	sheet.set_anchors_preset(Control.PRESET_FULL_RECT)
+	sheet.offset_left = 50
+	sheet.offset_right = -50
+	sheet.offset_top = 170
+	sheet.offset_bottom = -540
+	sheet.rotation_degrees = 1.2
+	_seeds.add_child(sheet)
+	_seeds_box = VBoxContainer.new()
+	_seeds_box.add_theme_constant_override("separation", 12)
+	sheet.add_child(_seeds_box)
+	_seeds.visible = false
+
+
+## Opens the seed bag. When this tree is finished (or the test switch is on) it offers the next
+## seed: one button per unlocked species; otherwise it says what the bag holds.
+func open_seeds(state: GameState, any_species: bool) -> void:
+	for c in _seeds_box.get_children():
+		c.queue_free()
+	_note.visible = false
+	var head := HBoxContainer.new()
+	_seeds_box.add_child(head)
+	var title := Paper.ink_label("The seed bag", 40, Paper.INK, true)
+	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	head.add_child(title)
+	var close := Paper.ink_button("close", 26)
+	close.pressed.connect(close_boards)
+	head.add_child(close)
+	var unlocked := state.unlocked_species(any_species)
+	var names: Array[String] = []
+	for sid in unlocked:
+		names.append(Species.from_id(sid).display_name.to_lower())
+	var text := ""
+	if state.finished:
+		text = "The %s has grown to its full size and dropped a seed. Which seed goes into the ground beside it?" % state.tree_name()
+	elif any_species:
+		text = "(Test switch: every species can be planted now. The %s is not finished yet.)" % state.tree_name()
+	else:
+		text = "Seeds saved for later: %s.
+
+When this %s has grown to its full size (%d of %d segments now), one goes into the ground beside it and a new tree begins. Each finished tree brings a new kind of seed." % [
+			", ".join(names), state.tree_name(), state.sim.graph.size(), state.sim.species.finish_nodes]
+	var body := Paper.ink_label(text, 27)
+	body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_seeds_box.add_child(body)
+	if state.can_plant_next(any_species):
+		_seeds_box.add_child(Paper.ink_label("plant the next seed:", 30, Paper.INK, true))
+		for sid in unlocked:
+			var sp := Species.from_id(sid)
+			var b := Paper.ink_button(sp.display_name, 30)
+			b.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+			b.pressed.connect(func() -> void:
+				_seeds.visible = false
+				_note.visible = true
+				plant_pressed.emit(sid))
+			_seeds_box.add_child(b)
+	_seeds.visible = true
 
 
 # --- loading page -------------------------------------------------------------------

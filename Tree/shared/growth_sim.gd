@@ -46,6 +46,16 @@ var live_markers: int = 150
 var passive_steering: float = 0.2
 ## New markers never go below this height, so a seedling does not creep along the ground.
 const MARKER_MIN_Y: float = 0.25
+## The colonizer's own twig jitter; species crookedness is added to it.
+const BASE_JITTER: float = 0.08
+## An unbranched end of up to this many segments counts as a shoot tip (twin buds).
+const SHOOT_TIP_SEGMENTS: int = 3
+## Shade dieback: column width, living nodes above a tip that shade it, share dying per day.
+const SHADE_CELL: float = 1.0
+const SHADE_NODES: int = 12
+const SHADE_DIEBACK_SHARE: float = 0.05
+## Water each leaf cluster drinks per day.
+const WATER_UPKEEP_PER_LEAF: float = 0.01
 var marker_radius: float = 0.8
 
 
@@ -85,7 +95,7 @@ func tick(delta: float) -> void:
 
 	# Life force from leaves: every tip counts as a leaf cluster. Inner leaves shade each other,
 	# so a big crown yields less per leaf (a stand-in until the shadow grid exists).
-	resources.life_force += effective_leaves() * life_force_per_tip * clock.life_force_light() * delta
+	resources.life_force += effective_leaves() * life_force_per_tip * clock.life_force_light() * delta 			* species.life_force_factor(clock.day_count, clock.boost_active)
 
 	# Seed markers on the sun's side, above the current crown, capped by the species size.
 	var sun := clock.sun_direction()
@@ -100,20 +110,26 @@ func tick(delta: float) -> void:
 	# Growth budget: light x nutrient factor x species need.
 	var factor := Resources.growth_factor(resources.stock, species.needs)
 	# Light is not capped at 1: the boosted sun (up to 3x) speeds growth at any hour.
-	var pace := max_growth_per_second if day_pace <= 0.0 else minf(day_pace, max_growth_per_second)
+	var cap := max_pace()
+	var pace := cap if day_pace <= 0.0 else minf(day_pace, cap)
 	_growth_accum += pace * light * factor * delta
 	var budget := int(_growth_accum)
 	_growth_accum -= budget
 	budget += _dawn_burst_budget(delta, sun, top)
-	colonizer.bias_direction = (Vector3.UP * (1.0 - species.phototropism) + sun * species.phototropism).normalized()
+	# Gravitropism adds an upward pull (alder) or takes some away (beech's flat layers).
+	colonizer.bias_direction = (Vector3.UP * maxf(0.05, 1.0 - species.phototropism + species.gravitropism) + sun * species.phototropism).normalized()
+	# Oak's zigzag branches: an extra kink per segment.
+	colonizer.jitter = BASE_JITTER + species.crookedness
 	# Longer shoots on a bigger tree, so the node budget reaches the species size.
 	colonizer.step_length = 0.15 + top * 0.014
 	colonizer.kill_distance = colonizer.step_length * 1.6
 	# Buds sense space further away in a bigger crown, so side branches can reach its edge.
 	colonizer.influence_radius = clampf(crown_radius(top) * 0.5, 1.2, 4.0)
 	var affordable := _affordable_nodes()
+	var first_new := graph.size()
 	var grown := colonizer.step(graph, mini(budget, affordable))
 	if grown > 0:
+		_droop_twigs(first_new, top)
 		_pay_for(grown)
 		graph.update_radii()
 	graph.age_all()
@@ -153,6 +169,24 @@ func marker_center(sun: Vector3, top: float, steer: float = 1.0) -> Vector3:
 	return c
 
 
+## Growth speed cap today: the species' pace (slow start, fast start) on the common maximum.
+func max_pace() -> float:
+	return max_growth_per_second * species.pace_on(clock.day_count)
+
+
+## Birch: new shoots out in the crown hang their tips (the leader stays upright).
+func _droop_twigs(first_new: int, top: float) -> void:
+	if species.twig_droop <= 0.0:
+		return
+	var r := crown_radius(top)
+	for id in range(first_new, graph.size()):
+		var p := graph.positions[id]
+		var out := Vector2(p.x, p.z).length() / r
+		if out > 0.35:
+			p.y -= species.twig_droop * colonizer.step_length * clampf(out, 0.0, 1.0)
+			graph.positions[id] = p
+
+
 func crown_radius(top: float) -> float:
 	return clampf(0.3 + top * 0.6, 0.4, species.max_crown_radius)
 
@@ -161,7 +195,8 @@ func crown_radius(top: float) -> float:
 ## seconds of the day. It only changes when the growth happens, not how much: nutrients cap it.
 func start_dawn_burst() -> void:
 	var factor := Resources.growth_factor(resources.stock, species.needs)
-	_burst_nodes_left = mini(dawn_burst_max_nodes, int(_affordable_nodes() * dawn_burst_share * factor))
+	var burst_max := int(dawn_burst_max_nodes * species.pace_on(clock.day_count))
+	_burst_nodes_left = mini(burst_max, int(_affordable_nodes() * dawn_burst_share * factor))
 	_burst_rate = _burst_nodes_left / dawn_burst_seconds
 	_burst_accum = 0.0
 	# Spread the rest over the day: without boosting it lasts until about sunset, so a boost
@@ -225,7 +260,7 @@ func tip_count() -> int:
 ## a shortage slows growth (growth_factor) but never stops it.
 ## Leaf clusters after self-shading: grows like sqrt beyond the first 50.
 func effective_leaves() -> float:
-	var tips := float(graph.tips().size())
+	var tips := float(tip_count())
 	return tips if tips <= 50.0 else sqrt(50.0 * tips)
 
 
@@ -249,7 +284,53 @@ func _pay_for(nodes: int) -> void:
 
 ## Prune: mark a node and its whole subtree dead. The mesh builder hides dead nodes,
 ## and the colonizer ignores them, so resources go to the rest of the crown.
+## Twin buds (sycamore): cutting a shoot tip makes it fork into two new shoots at the cut.
 func prune(node_id: int) -> int:
+	var fork := species.twin_buds and is_shoot_tip(node_id)
+	var count := _kill_subtree(node_id)
+	if fork and count > 0:
+		fork_at(graph.parents[node_id], graph.positions[node_id] - graph.positions[graph.parents[node_id]])
+	return count
+
+
+## A shoot tip: an unbranched living end of at most SHOOT_TIP_SEGMENTS segments.
+func is_shoot_tip(node_id: int) -> bool:
+	if node_id <= 0 or node_id >= graph.size() or graph.get_flag(node_id, "dead", false):
+		return false
+	var cur := node_id
+	for _i in range(SHOOT_TIP_SEGMENTS):
+		var alive: Array[int] = []
+		for c in graph.children[cur]:
+			if not graph.get_flag(c, "dead", false):
+				alive.append(c)
+		if alive.is_empty():
+			return true
+		if alive.size() > 1:
+			return false
+		cur = alive[0]
+	return false
+
+
+## Two new shoots from `parent`, splayed to either side of `dir`. Returns how many grew.
+func fork_at(parent: int, dir: Vector3) -> int:
+	if dir.length_squared() < 1e-8:
+		dir = Vector3.UP
+	dir = dir.normalized()
+	var side := dir.cross(Vector3.UP)
+	if side.length_squared() < 1e-4:
+		side = Vector3.RIGHT
+	side = side.normalized()
+	var n := 0
+	for k: float in [-1.0, 1.0]:
+		var d := (dir + side * 0.75 * k + Vector3.UP * 0.15).normalized()
+		if graph.add_node(parent, graph.positions[parent] + d * colonizer.step_length) >= 0:
+			n += 1
+	if n > 0:
+		graph.update_radii()
+	return n
+
+
+func _kill_subtree(node_id: int) -> int:
 	var count := 0
 	var stack: Array[int] = [node_id]
 	while not stack.is_empty():
@@ -261,6 +342,61 @@ func prune(node_id: int) -> int:
 		for child in graph.children[id]:
 			stack.append(child)
 	return count
+
+
+## Shade dieback, once a day at sunrise: a leaf tip with much living crown right above it is
+## shaded, and some shaded tips die back each day (design doc: soft failure). The species
+## sets the speed (birch twice, beech never). Deterministic from the seed, the node and the day.
+## Returns how many tips died.
+func shade_dieback(day: int) -> int:
+	var rate := SHADE_DIEBACK_SHARE * species.shade_dieback
+	if rate <= 0.0:
+		return 0
+	var died := 0
+	for id in shaded_tips():
+		if float(posmod(hash([seed, "shade", id, day]), 1000)) < rate * 1000.0:
+			graph.set_flag(id, "dead", true)
+			died += 1
+	return died
+
+
+## Living tips with at least SHADE_NODES living nodes above them in their column of the crown.
+func shaded_tips() -> PackedInt32Array:
+	var columns := {}
+	for id in range(graph.size()):
+		if graph.get_flag(id, "dead", false):
+			continue
+		var p := graph.positions[id]
+		var key := Vector2i(floori(p.x / SHADE_CELL), floori(p.z / SHADE_CELL))
+		var ys: PackedFloat32Array = columns.get(key, PackedFloat32Array())
+		ys.append(p.y)
+		columns[key] = ys
+	var out := PackedInt32Array()
+	for id in graph.tips():
+		if graph.get_flag(id, "dead", false):
+			continue
+		var p := graph.positions[id]
+		var above := 0
+		for y in columns.get(Vector2i(floori(p.x / SHADE_CELL), floori(p.z / SHADE_CELL)), PackedFloat32Array()):
+			if y > p.y + 0.5:
+				above += 1
+		if above >= SHADE_NODES:
+			out.append(id)
+	return out
+
+
+## The leaves drink water every day (design doc section 3: water upkeep). Taken at sunrise,
+## before the day's growth; the species sets the thirst. Returns the water drunk.
+func drink_upkeep() -> float:
+	var want := effective_leaves() * WATER_UPKEEP_PER_LEAF * species.water_upkeep
+	var take := minf(want, resources.stock[Resources.Kind.WATER])
+	resources.stock[Resources.Kind.WATER] -= take
+	return take
+
+
+## Grown to the species' full size (or the node budget): the tree is finished.
+func is_finished() -> bool:
+	return graph.size() >= species.finish_nodes or graph.is_full()
 
 
 ## Offline catch-up: `real_seconds` closed become a much slower growth.
