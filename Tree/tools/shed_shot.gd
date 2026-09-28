@@ -233,6 +233,57 @@ func _wire_focus(view: BonsaiView, b: BonsaiSim, id: int) -> Vector3:
 	return view.node_in_sill(chain[chain.size() / 2])
 
 
+## The tools answer real pointer input: a wire dragged onto a branch, a pinch, a cut.
+func _input_check(view: BonsaiView, b: BonsaiSim) -> void:
+	var trunk := b.trunk_chain()
+	var id := _side_branch(b, 3)
+	var at := view.plant_screen_position(id)
+	var base := view.plant_screen_position(b.graph.parents[id])
+	view.set_tool("wire")
+	_click(at, true)
+	var motion := InputEventMouseMotion.new()
+	motion.position = root.get_final_transform() * (at + Vector2(0, 80))
+	motion.relative = root.get_final_transform().basis_xform(Vector2(0, 80))
+	Input.parse_input_event(motion)
+	_click(at + Vector2(0, 80), false)
+	await _wait(2)
+	print("wire by drag: wired ", b.wired(), " (branch ", id, ")")
+	_click(view.plant_screen_position(b.wired()[0]) if not b.wired().is_empty() else at, true)
+	_click(view.plant_screen_position(b.wired()[0]) if not b.wired().is_empty() else at, false)
+	await _wait(2)
+	print("tap removes it: wired ", b.wired())
+	view.set_tool("pinch")
+	var tip := -1
+	for t in b.living_tips():
+		if b.is_fresh_tip(t) and not trunk.has(t):
+			tip = t
+			break
+	if tip >= 0:
+		var p := view.plant_screen_position(tip)
+		_click(p, true)
+		_click(p, false)
+		await _wait(2)
+		print("pinch by tap: ", b.graph.get_flag(tip, "pinched", false), " (picked ", view.pick_tip(p), ")")
+	view.set_tool("shears")
+	var before := b.leafy_count()
+	var cut_at := view.plant_screen_position(_side_branch(b, 3))
+	_click(cut_at, true)
+	_click(cut_at, false)
+	await _wait(2)
+	print("cut by tap: %d -> %d green" % [before, b.leafy_count()])
+	view.set_tool("")
+	await _seconds(2.5)
+
+
+func _click(at: Vector2, down: bool) -> void:
+	var e := InputEventMouseButton.new()
+	e.button_index = MOUSE_BUTTON_LEFT
+	e.pressed = down
+	# Input arrives in window pixels; the views work in the 720 x 1280 canvas.
+	e.position = root.get_final_transform() * at
+	Input.parse_input_event(e)
+
+
 func _bonsai_sequence() -> void:
 	var st: GameState = main.state
 	main.shed_menu.close_boards()
@@ -250,15 +301,18 @@ func _bonsai_sequence() -> void:
 	main.state.seen_pages.erase("shed_used_bonsai")
 	await _wait(30)
 	_shot("bonsai_sill")
-	# Bonsai mode: the camera glides close to the pot.
+	# Bonsai mode: the camera glides close to the pot (a real tap on the sill finds it).
+	var sill: Vector2 = main.shed.camera.unproject_position(main.shed.bonsai_spot.global_position + Vector3(0, 0.15, 0))
+	print("a tap on the sill finds: ", main.shed.item_at(sill))
 	main.open_shed_item("bonsai")
 	await _seconds(1.3)
 	main.journal.clear_pages()
 	await _wait(3)
 	_shot("bonsai_mode")
 	var view: BonsaiView = main.bonsai_view
+	await _input_check(view, b)
 	# Watering: the can tilts over the pot, the soil darkens.
-	b.moisture = 0.12
+	b.moisture = 0.02
 	view.refresh(true)
 	await _wait(3)
 	_shot("bonsai_dry")

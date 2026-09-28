@@ -257,11 +257,14 @@ func _step(dt: float, light: float) -> void:
 	moisture = maxf(0.0, moisture - DRY_PER_SECOND * (0.4 + light) * dt)
 	if light <= 0.0:
 		return
+	_growth_accum += BASE_RATE * light * growth_factor() * species.pace_on(day()) * dt
+	# Counting the living wood only when a segment is due (this runs every frame).
+	if _growth_accum < 1.0:
+		return
 	var room := capacity() - leafy_count()
 	if room <= 0 or graph.is_full():
 		_growth_accum = 0.0
 		return
-	_growth_accum += BASE_RATE * light * growth_factor() * species.pace_on(day()) * dt
 	var budget := mini(int(_growth_accum), room)
 	_growth_accum -= int(_growth_accum)
 	if budget > 0:
@@ -316,7 +319,8 @@ func _grow_nodes(budget: int) -> void:
 	_leader_accum -= leader
 	var crown := int(_marker_accum)
 	_marker_accum -= crown
-	colonizer.seed_sphere(Vector3(0, top + 0.25, 0) + flat * 0.15, 0.3, leader, Budgets.BONSAI_MARKERS, 0.3, MAX_HEIGHT)
+	if top < MAX_HEIGHT - STEP:
+		colonizer.seed_sphere(Vector3(0, top + 0.25, 0) + flat * 0.15, 0.3, leader, Budgets.BONSAI_MARKERS, 0.3, MAX_HEIGHT)
 	var centre := Vector3(0, top * 0.6 + 0.12, 0) + flat * r * WINDOW_PULL
 	colonizer.seed_sphere(centre, r, crown, Budgets.BONSAI_MARKERS, -INF, INF)
 	# Flatten the new ones into the crown's ellipsoid, above the bare lower trunk.
