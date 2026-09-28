@@ -13,6 +13,7 @@ var _note: PanelContainer
 var _options: Control
 var _album: Control
 var _album_pages: Array[Control] = []
+var _album_cards: Array[Control] = []
 var _album_left: TextureRect
 var _album_right: TextureRect
 var _album_cap_l: Label
@@ -204,6 +205,10 @@ func _build_album() -> void:
 	cloth.shadow_color = Color(0, 0, 0, 0.5)
 	cloth.shadow_size = 16
 	cover.add_theme_stylebox_override("panel", cloth)
+	# Real bookbinding: worn cloth over boards, cream-brown pages that have been handled
+	# (Simon, play test 4: everything like real paper and a real book).
+	var leather := PaperLook.apply_leather(cover)
+	leather.set_shader_parameter("leather_color", Color(0.2, 0.3, 0.19))
 	cover.set_anchors_preset(Control.PRESET_FULL_RECT)
 	cover.offset_left = 14
 	cover.offset_right = -14
@@ -211,7 +216,7 @@ func _build_album() -> void:
 	cover.offset_bottom = -40
 	_album.add_child(cover)
 	var page := PanelContainer.new()
-	page.add_theme_stylebox_override("panel", Paper.paper_box(360, 640, 95, "", 30.0, Color(0.8, 0.72, 0.6), "beige"))
+	PaperLook.apply(page, "book_page", 95, 30.0, {"paper_color": Color(0.8, 0.72, 0.6), "crumple": 0.22, "foxing": 0.6, "mottle": 0.6, "edge_age": 0.75})
 	page.set_anchors_preset(Control.PRESET_FULL_RECT)
 	page.offset_left = 34
 	page.offset_right = -34
@@ -236,26 +241,17 @@ func _build_album() -> void:
 		holder.size_flags_vertical = Control.SIZE_EXPAND_FILL
 		box.add_child(holder)
 		var polaroid := PanelContainer.new()
-		var white := StyleBoxFlat.new()
-		white.bg_color = Color(0.97, 0.96, 0.93)
-		white.content_margin_left = 12
-		white.content_margin_right = 12
-		white.content_margin_top = 12
-		white.content_margin_bottom = 8
-		white.shadow_color = Color(0, 0, 0, 0.3)
-		white.shadow_size = 6
-		polaroid.add_theme_stylebox_override("panel", white)
-		polaroid.rotation_degrees = -5.0 if side == 0 else 4.0
-		# A strip of tape over the top edge.
-		var tape := ColorRect.new()
-		tape.color = Color(0.95, 0.92, 0.8, 0.75)
-		tape.custom_minimum_size = Vector2(90, 24)
-		tape.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		tape.position = Vector2(110, -10)
-		tape.rotation_degrees = 3.0
-		polaroid.add_child(tape)
-		tape.top_level = false
-		holder.add_child(polaroid)
+		# Slightly yellowed photo card, a little bent; glued in askew (see _show_spread).
+		PaperLook.apply(polaroid, "strip", 120 + side, 14.0, {"torn": Vector4.ZERO, "crumple": 0.12, "paper_color": Color(0.95, 0.94, 0.9), "foxing": 0.15, "edge_age": 0.35, "curl": 5.0})
+		# Containers straighten their children, so the card sits in a plain Control that only
+		# keeps its size; the card itself can then be turned freely.
+		var slot := Control.new()
+		slot.custom_minimum_size = Vector2(326, 360)
+		slot.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		holder.add_child(slot)
+		slot.add_child(polaroid)
+		polaroid.position = Vector2.ZERO
+		_album_cards.append(polaroid)
 		var v := VBoxContainer.new()
 		polaroid.add_child(v)
 		var tex := TextureRect.new()
@@ -268,6 +264,17 @@ func _build_album() -> void:
 		cap.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		cap.custom_minimum_size = Vector2(250, 0)
 		v.add_child(cap)
+		# Two strips of old tape over the corners, drawn over the photo.
+		for k in [0, 1]:
+			var tape := Panel.new()
+			tape.custom_minimum_size = Vector2(96, 30)
+			tape.size = Vector2(96, 30)
+			tape.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			PaperLook.apply(tape, "tape", 140 + side * 2 + k, 0.0)
+			tape.position = Vector2(-22.0, -16.0) if k == 0 else Vector2(246.0, -24.0)
+			tape.rotation_degrees = -38.0 if k == 0 else 36.0
+			# On the photo (a TextureRect does not lay out its children).
+			tex.add_child(tape)
 		if side == 0:
 			_album_left = tex
 			_album_cap_l = cap
@@ -311,6 +318,12 @@ func _show_spread() -> void:
 		var cap: Label = _album_cap_l if side == 0 else _album_cap_r
 		if i < _photos.size():
 			tex.texture = Photos.load_texture(_photos[i])
+			# Each photo was glued in by hand, never quite straight.
+			var r := RandomNumberGenerator.new()
+			r.seed = hash([_photos[i]])
+			var card: Control = _album_cards[side]
+			card.pivot_offset = card.size * 0.5
+			card.rotation_degrees = r.randf_range(-6.0, 6.0)
 			cap.text = Photos.caption(_photos[i])
 			tex.get_parent().get_parent().visible = true
 		else:
