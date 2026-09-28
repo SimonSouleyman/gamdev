@@ -16,17 +16,17 @@ const NUTRIENT_DOTS_LOADED: int = 4000
 ## A phone gets about half: measured on a Fairphone 6, the forest and the meadow cards cost the
 ## most (alpha-tested overdraw).
 static var PHONE: bool = OS.has_feature("mobile")
-static var FOREST_TREES: int = 36 if PHONE else 140
+static var FOREST_TREES: int = 26 if PHONE else 140
 static var FOREST_VARIANT_NODES: int = 240 if PHONE else 320
-static var FOREST_BUSHES: int = 80 if PHONE else 260
+static var FOREST_BUSHES: int = 50 if PHONE else 260
 static var MEADOW_FLOWERS: int = 500 if PHONE else 1500
 static var MEADOW_GRASS_CLUMPS: int = 2200 if PHONE else 9500
 static var MEADOW_HERB_CLUMPS: int = 350 if PHONE else 900
 static var MEADOW_VARIETY_CLUMPS: int = 450 if PHONE else 2800
 ## Leaf sprays per forest leaf cluster, and edge herb cards.
-static var FOREST_SPRAYS: int = 3 if PHONE else 5
-static var EDGE_HERBS: int = 300 if PHONE else 1100
-static var EDGE_FLOWERS: int = 250 if PHONE else 500
+static var FOREST_SPRAYS: int = 2 if PHONE else 5
+static var EDGE_HERBS: int = 160 if PHONE else 1100
+static var EDGE_FLOWERS: int = 130 if PHONE else 500
 ## Share of each shrub's leaf clusters a phone draws.
 static var SHRUB_DENSITY: float = 0.5 if PHONE else 1.0
 ## Frame cap: a steady 30 on a phone saves battery.

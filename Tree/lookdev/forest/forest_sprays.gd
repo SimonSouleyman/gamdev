@@ -82,7 +82,7 @@ static func _respray(mesh: ArrayMesh, leaf_surface: int, cards: int, template: S
 			var face := (out * 0.8 + Vector3.UP * 0.35 + Vector3(rng.randf_range(-0.35, 0.35), rng.randf_range(-0.2, 0.2), rng.randf_range(-0.35, 0.35))).normalized()
 			var dir := face.cross(Vector3.RIGHT if absf(face.x) < 0.9 else Vector3.FORWARD).normalized().rotated(face, rng.randf() * TAU)
 			var side := dir.cross(face).normalized()
-			var s := r * rng.randf_range(1.6, 2.1) * (1.0 if Budgets.FOREST_SPRAYS >= 5 else 1.2)
+			var s := r * rng.randf_range(1.6, 2.1) * (1.0 if Budgets.FOREST_SPRAYS >= 5 else sqrt(5.0 / Budgets.FOREST_SPRAYS) * 0.85)
 			var n := face.lerp(out, 0.6).normalized()
 			var occlusion := clampf(clampf(1.0 - rel.length(), 0.0, 1.0) * 0.9 + clampf(-rel.y, 0.0, 1.0) * 0.35, 0.0, 0.85)
 			var cell := rng.randi() % 4

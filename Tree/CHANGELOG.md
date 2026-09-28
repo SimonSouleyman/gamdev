@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.5.1 (2026-09-28)
+
+From Simon's recorded phone test of v0.5 (video, frame-rate log and save state).
+- The tree view on the phone runs faster (about 12-16 to about 19-23 frames a second with a
+  26 m linden): a smaller clearing on phones (30 m), fewer and larger leaf sprays on a big tree,
+  a lighter meadow, and a leaner forest ring (the forest cost the phone the most).
+- The sky on the phone is bright again and the far wood is hazed; no black band on the horizon.
+- Calmer grass and a lighter dawn and evening haze on the phone.
+- Underground, the camera no longer ends up inside thick roots.
+
 ## v0.5 (2026-09-28)
 
 Simon's play test 4 and the whole open list, then one test loop with screenshots.
