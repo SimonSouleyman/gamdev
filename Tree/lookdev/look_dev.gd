@@ -21,13 +21,15 @@ static func apply(view: TreeView) -> void:
 	_apply_light_and_grade(view)
 
 
-## Grey-brown linden bark instead of the warm orange; filmic AgX tone mapping (softer
-## highlights, no neon greens); a little less haze. (A far depth blur was tried and dropped:
+## Grey-brown linden bark instead of the warm orange; ACES tone mapping with a little more
+## contrast; a little less haze. (A far depth blur was tried and dropped:
 ## on the Mobile renderer it softened the whole crown and costs a full-screen pass.)
 static func _apply_light_and_grade(view: TreeView) -> void:
 	view._bark_mat.set_shader_parameter("texture_tint", Vector3(0.38, 0.36, 0.33))
 	var env: Environment = view._env
-	env.tonemap_mode = Environment.TONE_MAPPER_AGX
+	var tm := OS.get_environment("LOOKDEV_TONEMAP")
+	# ACES keeps the greens rich; AgX and Filmic (compared side by side) turned the crown grey.
+	env.tonemap_mode = Environment.TONE_MAPPER_AGX if tm == "agx" else (Environment.TONE_MAPPER_FILMIC if tm == "filmic" else Environment.TONE_MAPPER_ACES)
 	env.adjustment_saturation = 1.0
 	env.adjustment_contrast = 1.12
 	# Less milky haze over the hero tree; the forest wall still recedes.
@@ -44,3 +46,6 @@ static func _apply_light_and_grade(view: TreeView) -> void:
 	if not view.has_meta("lookdev_rocks"):
 		view.set_meta("lookdev_rocks", true)
 		RockLook.apply_meadow(view._meadow)
+	if not view.has_meta("lookdev_grass"):
+		view.set_meta("lookdev_grass", true)
+		GrassLook.apply(view)
