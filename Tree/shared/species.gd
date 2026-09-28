@@ -69,6 +69,11 @@ var water_draw: float = 1.0
 ## Multiplies the bark photo (TreeView._bark_mat texture_tint) and the leaf sprays (tint_mul).
 var bark_tint: Color = Color(0.38, 0.36, 0.33)
 var leaf_tint: Color = Color(1.02, 1.03, 0.95)
+## Bonsai (design doc section 16): a conifer carries scale-like foliage pads instead of leaf
+## sprays; deadwood turns cut branches into silver jin and strips the trunk below into shari
+## (the juniper's quirk). Only the juniper is a conifer; it never grows on the clearing.
+var conifer: bool = false
+var deadwood: bool = false
 ## The journal's species page: its look and its quirk, one handwritten line each.
 var look_text: String = ""
 var quirk_text: String = ""
@@ -201,6 +206,29 @@ static func oak() -> Species:
 	return s
 
 
+## The bonsai starter (section 16 E): the one conifer, never planted on the clearing (not in
+## ORDER). Its needs and shape feed BonsaiSim; the tree-size values are never used.
+static func juniper() -> Species:
+	var s := Species.new()
+	s.id = "juniper"
+	s.display_name = "Juniper"
+	s.latin = "Juniperus chinensis"
+	s.max_height = 6.0
+	s.max_crown_radius = 3.0
+	s.needs = PackedFloat32Array([0.8, 0.6, 0.4, 0.5])
+	s.apical_dominance = 0.2
+	s.phototropism = 0.45
+	s.gravitropism = -0.1
+	s.crookedness = 0.12
+	s.conifer = true
+	s.deadwood = true
+	s.bark_tint = Color(0.52, 0.36, 0.28)
+	s.leaf_tint = Color(0.92, 1.02, 0.86)
+	s.look_text = "Dense pads of tiny scale leaves, red-brown bark that peels in strips, silver deadwood."
+	s.quirk_text = "Deadwood: a cut branch stays as a silver jin, and a cut close to the trunk strips a line of bark below it into shari."
+	return s
+
+
 ## Growth pace on `day` (the first days may be slower or faster).
 func pace_on(day: int) -> float:
 	return early_pace if day < early_days else pace
@@ -243,6 +271,8 @@ static func from_id(species_id: String) -> Species:
 			return alder()
 		"oak":
 			return oak()
+		"juniper":
+			return juniper()
 		_:
 			return linden()
 

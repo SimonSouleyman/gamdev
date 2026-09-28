@@ -56,6 +56,13 @@ var grove: Array = []
 ## {"seconds", "grown" (metres), "height", "segments" (new ones), "visitors" (ids)}; empty if none.
 var away_report: Dictionary = {}
 
+## The bonsai on the shed's windowsill (design doc section 16): null until it is unlocked by the
+## first finished tree (or the test switch). Independent of the tree (no shared life force or
+## resources); it follows the same clock. Only the one on the sill grows; the others (cuttings
+## of finished trees, waiting their turn) rest on the shelf below: species id -> its save.
+var bonsai: BonsaiSim = null
+var bonsai_resting: Dictionary = {}
+
 ## An absence shorter than this gets no "while you were away" page.
 const AWAY_REPORT_SECONDS: float = 3600.0
 
@@ -88,6 +95,11 @@ static func new_tree(random_seed: int, species_id: String, previous: GameState) 
 		for k in g.seen_pages.keys():
 			if str(k).begins_with("visitor_"):
 				g.seen_pages.erase(k)
+		# The bonsai is a lifelong companion: it stays on the sill from tree to tree.
+		g.bonsai = previous.bonsai
+		g.bonsai_resting = previous.bonsai_resting.duplicate(true)
+		if g.bonsai != null:
+			g.bonsai.clock.time_of_day = g.sim.clock.time_of_day
 	return g
 
 
@@ -118,6 +130,46 @@ func can_plant_next(any_species: bool = false) -> bool:
 	return finished or any_species
 
 
+# --- the bonsai ------------------------------------------------------------------------
+
+## Bonsai mode opens after the first finished tree (section 16 H), or with the test switch.
+func bonsai_unlocked(any_species: bool = false) -> bool:
+	return bonsai != null or not grove.is_empty() or any_species
+
+
+## The juniper comes to the sill once the bonsai is unlocked. Returns it (or null while locked).
+func ensure_bonsai(any_species: bool = false) -> BonsaiSim:
+	if bonsai == null and bonsai_unlocked(any_species):
+		bonsai = BonsaiSim.starter(hash([seed, "bonsai"]))
+		bonsai.clock.time_of_day = sim.clock.time_of_day
+	return bonsai
+
+
+## What may stand on the sill: the juniper, and a cutting of every finished clearing tree
+## (all six with the test switch).
+func bonsai_choices(any_species: bool = false) -> Array[String]:
+	var out: Array[String] = ["juniper"]
+	for sid in Species.ORDER:
+		if any_species or finished_species().has(sid):
+			out.append(sid)
+	return out
+
+
+## Puts another bonsai on the sill: the one there rests on the shelf (kept as it is), the new
+## one comes from the shelf or, the first time, as a fresh cutting.
+func swap_bonsai(species_id: String, any_species: bool = false) -> bool:
+	if bonsai == null or species_id == bonsai.species.id or not bonsai_choices(any_species).has(species_id):
+		return false
+	bonsai_resting[bonsai.species.id] = bonsai.to_dict()
+	if bonsai_resting.has(species_id):
+		bonsai = BonsaiSim.from_dict(bonsai_resting[species_id])
+		bonsai_resting.erase(species_id)
+	else:
+		bonsai = BonsaiSim.cutting(hash([seed, "cutting", species_id]), species_id)
+	bonsai.clock.time_of_day = sim.clock.time_of_day
+	return true
+
+
 func day_number() -> int:
 	return sim.clock.day_count
 
@@ -139,6 +191,15 @@ func is_seed() -> bool:
 # --- the loop ---------------------------------------------------------------
 
 func tick(delta: float) -> void:
+	var clock := sim.clock
+	var before := clock.day_count + clock.time_of_day
+	_tick_loop(delta)
+	# The bonsai lives through the same days: it moves on exactly as far as the clock did.
+	if bonsai != null:
+		bonsai.follow(clock, (clock.day_count + clock.time_of_day - before) * clock.seconds_per_day)
+
+
+func _tick_loop(delta: float) -> void:
 	var clock := sim.clock
 	match phase:
 		Phase.DAY:
@@ -263,6 +324,8 @@ func apply_offline(seconds: float) -> void:
 	var height_before := sim.height()
 	var nodes_before := sim.living_nodes()
 	sim.apply_offline(seconds)
+	if bonsai != null:
+		bonsai.apply_offline(seconds)
 	if phase == Phase.NIGHT and roots.run_active:
 		sim.resources.life_force = life
 	if seconds < AWAY_REPORT_SECONDS:
@@ -319,6 +382,13 @@ func _finish() -> void:
 	grove.append({"species": sim.species.id, "days": day_number(), "seed": seed})
 	diary.add(day_number(), "The %s has grown to its full size. It dropped a seed; the seed bag in the shed is ready for the next tree." % tree_name())
 	_event("finished")
+	# The first finished tree opens bonsai mode: a juniper waits on the shed's windowsill.
+	if bonsai == null:
+		ensure_bonsai()
+		diary.add(day_number(), "A young juniper stands on the windowsill in the shed now, a bonsai to shape for as long as I like.")
+		_event("bonsai")
+	else:
+		diary.add(day_number(), "I took a cutting of the %s for the windowsill." % tree_name())
 
 
 func _sunrise() -> void:
@@ -447,6 +517,8 @@ func to_dict() -> Dictionary:
 		"spent_announced": _spent_announced,
 		"finished": finished,
 		"grove": grove,
+		"bonsai": bonsai.to_dict() if bonsai != null else null,
+		"bonsai_resting": bonsai_resting,
 	}
 
 
@@ -473,4 +545,10 @@ static func from_dict(d_in: Dictionary) -> GameState:
 			g.grove.append({"species": str(t.get("species", "linden")), "days": int(t.get("days", 0)), "seed": int(t.get("seed", 0))})
 	for k in d.get("seen_pages", []):
 		g.seen_pages[str(k)] = true
+	if d.get("bonsai") is Dictionary:
+		g.bonsai = BonsaiSim.from_dict(d["bonsai"])
+	if d.get("bonsai_resting") is Dictionary:
+		for sid in d["bonsai_resting"]:
+			if d["bonsai_resting"][sid] is Dictionary:
+				g.bonsai_resting[str(sid)] = d["bonsai_resting"][sid]
 	return g

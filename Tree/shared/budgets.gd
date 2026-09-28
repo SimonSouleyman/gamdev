@@ -31,6 +31,14 @@ static var EDGE_FLOWERS: int = 130 if PHONE else 500
 static var SHRUB_DENSITY: float = 0.5 if PHONE else 1.0
 ## Frame cap: a steady 30 on a phone saves battery.
 static var MAX_FPS: int = 30 if PHONE else 0
+## The bonsai (design doc section 16): the pot's volume sets how many living segments it carries
+## (between these two); the graph itself never holds more than BONSAI_MAX_NODES (cut wood is
+## compacted away, silver deadwood stays).
+const BONSAI_MIN_POT_NODES: int = 400
+const BONSAI_MAX_POT_NODES: int = 600
+const BONSAI_MAX_NODES: int = 800
+## Attraction markers alive around the bonsai's crown at once.
+const BONSAI_MARKERS: int = 220
 ## Max attraction markers alive in the tree canopy at once.
 const TREE_MARKERS: int = 2000
 ## Max main roots (one per night) a tree may grow; roughly a month plus spare nights.
