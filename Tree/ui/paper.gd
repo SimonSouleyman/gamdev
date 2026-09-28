@@ -13,6 +13,12 @@ const RED_INK := Color(0.6, 0.18, 0.12)
 const LEATHER := Color(0.33, 0.2, 0.12)
 
 static var _cache: Dictionary = {}
+## "clearer print" on the pinboard (0.6): one calm, legible hand everywhere, a size larger.
+static var clear_print: bool = false
+const CLEAR_PRINT_SCALE := 1.2
+const _FONT_SLOTS: Array[String] = ["font", "normal_font", "bold_font", "italics_font"]
+const _SIZE_SLOTS: Array[String] = ["font_size", "normal_font_size", "bold_font_size", "italics_font_size"]
+static var _hands: Array[Font] = []
 
 
 ## Handwriting: the bundled font once it exists, else a handwriting font Windows ships.
@@ -34,7 +40,70 @@ static func hand_font(bold: bool = false) -> Font:
 		sf.antialiasing = TextServer.FONT_ANTIALIASING_GRAY
 		f = sf
 	_cache[key] = f
+	if not _hands.has(f):
+		_hands.append(f)
 	return f
+
+
+## The hand used by "clearer print": Patrick Hand, calm and legible on a phone.
+static func clear_font() -> Font:
+	return hand_font(false)
+
+
+static func is_hand_font(f: Font) -> bool:
+	if _hands.is_empty():
+		hand_font(false)
+		hand_font(true)
+	return f != null and _hands.has(f)
+
+
+## Switches "clearer print" and rewrites every handwritten control under `root`.
+static func set_clear_print(on: bool, root: Node) -> void:
+	clear_print = on
+	apply_print(root)
+
+
+static func apply_print(n: Node) -> void:
+	if n is Control:
+		print_control(n as Control)
+	for c in n.get_children(true):
+		apply_print(c)
+
+
+## Controls made later get the print too: each new control is looked at once it is set up.
+static func watch_print(tree: SceneTree) -> void:
+	tree.node_added.connect(func(n: Node) -> void:
+		if clear_print and n is Control:
+			(func() -> void:
+				if is_instance_valid(n):
+					print_control(n as Control)).call_deferred())
+
+
+## One control in the current print: its handwriting fonts and their sizes. The original font and
+## size are kept on the control, so switching back restores them exactly.
+static func print_control(c: Control) -> void:
+	var fonts: Dictionary = c.get_meta("paper_fonts", {})
+	if not c.has_meta("paper_fonts"):
+		for slot in _FONT_SLOTS:
+			if c.has_theme_font_override(slot) and is_hand_font(c.get_theme_font(slot)):
+				fonts[slot] = c.get_theme_font(slot)
+		if fonts.is_empty():
+			return
+		c.set_meta("paper_fonts", fonts)
+		var sizes := {}
+		for slot in _SIZE_SLOTS:
+			if c.has_theme_font_size_override(slot):
+				sizes[slot] = c.get_theme_font_size(slot)
+		if sizes.is_empty():
+			sizes["font_size"] = c.get_theme_font_size("font_size")
+		c.set_meta("paper_sizes", sizes)
+	if fonts.is_empty():
+		return
+	for slot in fonts:
+		c.add_theme_font_override(slot, clear_font() if clear_print else fonts[slot])
+	var sizes: Dictionary = c.get_meta("paper_sizes", {})
+	for slot in sizes:
+		c.add_theme_font_size_override(slot, roundi(int(sizes[slot]) * (CLEAR_PRINT_SCALE if clear_print else 1.0)))
 
 
 ## A sheet of paper with fibres and faint stains; `torn` edges are ragged ("top", "bottom", "all").

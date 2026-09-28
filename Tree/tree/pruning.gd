@@ -139,6 +139,8 @@ func cut() -> int:
 	var count := view.state.sim.prune(id)
 	preview(-1)
 	_fall(mesh, cut_at, (g.positions[id] - cut_at).normalized())
+	# A short snip in the hand (0.6; the pinboard switch "vibration" turns it off).
+	Haptics.buzz("cut")
 	cut_done.emit(count)
 	return count
 

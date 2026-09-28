@@ -51,6 +51,13 @@ var finished: bool = false
 ## each {"species": id, "days": int, "seed": int}. Carried from tree to tree (the grove);
 ## it decides which species the seed bag offers (Species.unlocked).
 var grove: Array = []
+## What happened while the game was closed, for the "while you were away" diary page: set by
+## apply_offline after an absence of at least AWAY_REPORT_SECONDS, taken (once) by the scene.
+## {"seconds", "grown" (metres), "height", "segments" (new ones), "visitors" (ids)}; empty if none.
+var away_report: Dictionary = {}
+
+## An absence shorter than this gets no "while you were away" page.
+const AWAY_REPORT_SECONDS: float = 3600.0
 
 
 ## A new game: a seed is planted at sunset; the first night is the first root run.
@@ -250,11 +257,35 @@ func finish_run_early() -> void:
 ## The view grew the root itself (RootView drives RootSystem directly): record the end of the run.
 ## Time away from the game grows the tree a little. In the middle of a night's root the life
 ## force stays as it was, or the root would run on with what the leaves gathered meanwhile.
+## Visitors that are due by the tree's new size come meanwhile and are named on the away page.
 func apply_offline(seconds: float) -> void:
 	var life := sim.resources.life_force
+	var height_before := sim.height()
+	var nodes_before := sim.living_nodes()
 	sim.apply_offline(seconds)
 	if phase == Phase.NIGHT and roots.run_active:
 		sim.resources.life_force = life
+	if seconds < AWAY_REPORT_SECONDS:
+		return
+	var came: Array[String] = Visitors.arrive(self)
+	# Two absences before the page was read add up.
+	var before: Dictionary = away_report
+	var visitors: Array = before.get("visitors", []).duplicate()
+	visitors.append_array(came)
+	away_report = {
+		"seconds": seconds + float(before.get("seconds", 0.0)),
+		"grown": maxf(sim.height() - height_before, 0.0) + float(before.get("grown", 0.0)),
+		"height": sim.height(),
+		"segments": maxi(sim.living_nodes() - nodes_before, 0) + int(before.get("segments", 0)),
+		"visitors": visitors,
+	}
+
+
+## The "while you were away" report, once: empty afterwards.
+func take_away_report() -> Dictionary:
+	var r := away_report
+	away_report = {}
+	return r
 
 
 func notify_run_done() -> void:

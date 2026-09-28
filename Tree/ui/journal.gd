@@ -15,7 +15,9 @@ const MIN_PAGE_SECONDS := 0.6
 
 var state: GameState
 ## "any_species" is the test switch on the shed's pinboard: every species plantable now.
-var settings: Dictionary = {"sound": true, "no_ui": false, "battery_saver": false, "notifications": true, "any_species": false}
+## "vibration" (haptics) and "clearer print" (a larger, legible hand) are pinboard switches from 0.6.
+var settings: Dictionary = {"sound": true, "no_ui": false, "battery_saver": false, "notifications": true, "any_species": false,
+	"vibration": true, "clearer_print": false}
 
 var _queue: Array = []  # [{id, title, body}]
 ## Pages put aside while the player is in the shed; they come back outside.
