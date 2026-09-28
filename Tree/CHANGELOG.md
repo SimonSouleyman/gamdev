@@ -1,5 +1,24 @@
 # Changelog
 
+## v0.6 (2026-09-28)
+
+The whole plan of design doc section 17 in one version, then an extensive PC test (a 12-day
+scripted play-through of every menu, phase and reload, and a look review of every hour, season
+and weather). From here on: fixes as 0.6.1, 0.6.2 ...; new features start 0.7.
+- Phone: the forest ring as camera-facing painted cards (half the triangles, 4-8 draw calls).
+- HUD: pictures instead of paper scraps (journal, hut, camera, secateurs) at the middle right;
+  a brass hand compass; the secateurs as the mouse pointer while pruning.
+- Night: stars, a moon in its real phase, soft moonlight, a deep blue night sky.
+- The shed: the workbench in the middle with real objects as the menu (journal, album, seed bag,
+  pot, gloves, pinboard), each with a sound and a small motion; a windowsill; "clearer print" and
+  "vibration" switches; a "while you were away" page with an ink sketch.
+- Seasons after the real calendar (look only), weather moods (rain, mist, dew, thunder).
+- The living clearing: shade plants under the crown (anemones in spring, ferns, moss, mushrooms
+  after rain) and a journal page that collects them.
+- The album's month as a flip-book, saved as a video to the phone's gallery.
+- Bonsai mode on the windowsill (design doc section 16).
+- No bench under the tree.
+
 ## v0.6 (in progress)
 
 - The living clearing: as the crown grows, its shade changes the ground below by itself. The sun

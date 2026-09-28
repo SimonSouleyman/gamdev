@@ -96,6 +96,9 @@ func _add(mesh: Mesh, mat: Material, at: Vector3, basis: Basis = Basis.IDENTITY)
 	m.material_override = mat
 	m.transform = Transform3D(basis, at)
 	add_child(m)
+	# Hundreds of tiny hint meshes: on the phone each would cost a shadow draw call (0.6 QA).
+	if Budgets.PHONE:
+		m.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	return m
 
 

@@ -209,8 +209,12 @@ func _process(delta: float) -> void:
 	# No diary over a dive or a sunrise.
 	journal.set_button_enabled(not _transitioning)
 	tree_view.input_enabled = not paused and not _transitioning
-	_shed_button.visible = not in_shed and not _transitioning
-	_photo_button.visible = not in_shed and not _underground and not _transitioning and state.phase == GameState.Phase.DAY
+	# The "while you were away" page lies over the game: the pictures at the right would sit on
+	# it and stay live (0.6 QA).
+	var page_up := shed_menu.is_tree_page_open()
+	journal.set_button_visible(not in_shed and not page_up)
+	_shed_button.visible = not in_shed and not _transitioning and not page_up
+	_photo_button.visible = not in_shed and not _underground and not _transitioning and not page_up and state.phase == GameState.Phase.DAY
 	_shears_button.visible = _photo_button.visible and state.sim.graph.size() > 6
 	if tree_view.prune_mode and not _shears_button.visible:
 		_set_shears(false)
@@ -464,8 +468,12 @@ var _photo_busy := false
 ## In the shed with nothing open, back leaves the game (saved), as Android players expect.
 func _back() -> void:
 	if journal.is_open():
-		journal.close_page()
-		journal.close_diary()
+		# One level at a time: a page opened from the book closes back to the book.
+		if journal.current_page() != "" and journal.is_book_open():
+			journal.close_page()
+		else:
+			journal.close_page()
+			journal.close_diary()
 	elif in_bonsai:
 		if bonsai_hud.is_busy():
 			bonsai_hud.close_sheet()
