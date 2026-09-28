@@ -1,6 +1,6 @@
 # Roadmap ideas after 0.5.2 (proposal, 2026-09-28)
 
-A candidate list for 0.6, 0.7 and later, drawn from relaxed and cosy games and filtered through Tree's design. Nothing here is decided yet; Simon's answers go into the design doc as a roadmap section.
+A candidate list for 0.6, 0.7 and later, drawn from relaxed and cosy games and filtered through Tree's design. Simon answered survey batch 1 on 2026-09-28; the outcome is design doc section 17. The buckets below are the original proposal.
 
 ## The filter: Tree's pillars
 Taken from design doc sections 1, 2 and 7 and the decision log.
@@ -88,3 +88,11 @@ Effort: S small (a day of building), M medium, L large. Phone risk: how much it 
 3. Which collection direction first: field guide, living clearing, or curiosity shelf? ★ Field guide.
 4. Time-lapse of the month from the album photos: 0.7, 0.6, or not? ★ 0.7.
 5. Weather moods (rain, mist, dew): 0.7, later, or never? ★ 0.7 with a light phone version.
+
+## Answers (Simon, 2026-09-28 16:40 to 16:42 UTC)
+1. Bonsai: own version 0.7.
+2. Seasons: look in 0.7.
+3. Collection direction: living clearing first (not the recommended field guide).
+4. Time-lapse: 0.7.
+5. Weather moods: 0.7.
+The small 0.6 additions were accepted without objection.
