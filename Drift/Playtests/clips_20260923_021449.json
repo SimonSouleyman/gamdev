@@ -1,0 +1,38 @@
+{
+    "scenario": "clips",
+    "version": "0.1.0",
+    "started": "2026-09-23 02:10:07",
+    "seed": 4242,
+    "mode": "Adventure",
+    "bot": "good",
+    "directSteering": true,
+    "pipeline": "Mobile_RPAsset",
+    "screenW": 1080,
+    "screenH": 1920,
+    "realSeconds": 282.28582763671875,
+    "phases": [],
+    "events": [],
+    "levels": [],
+    "memory": [
+        {
+            "t": 0.01517349760979414,
+            "totalMb": 2994.854736328125,
+            "monoMb": 186.9296875,
+            "gfxMb": 272.748779296875,
+            "islands": 21,
+            "gameObjects": 1688,
+            "saveKb": 576.95703125
+        }
+    ],
+    "notes": [
+        "136,1s Tilda[milestone_lighthouse]: Ein <b><color=#B23F14>Leuchtturm</color></b>! Jetzt findest du auch die Inseln hinterm Horizont."
+    ],
+    "shots": [
+        "C:\\Users\\Home\\Documents\\Unity\\Drift\\Temp\\Playtest\\clips_021007\\clip_cozy_island",
+        "C:\\Users\\Home\\Documents\\Unity\\Drift\\Temp\\Playtest\\clips_021007\\clip_cozy_watch",
+        "C:\\Users\\Home\\Documents\\Unity\\Drift\\Temp\\Playtest\\clips_021007\\clip_cozy_drive",
+        "C:\\Users\\Home\\Documents\\Unity\\Drift\\Temp\\Playtest\\clips_021007\\clip_adv_level1",
+        "C:\\Users\\Home\\Documents\\Unity\\Drift\\Temp\\Playtest\\clips_021007\\clip_adv_level3"
+    ],
+    "errors": []
+}

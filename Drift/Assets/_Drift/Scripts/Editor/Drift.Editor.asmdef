@@ -1,0 +1,27 @@
+{
+    "name": "Drift.Editor",
+    "rootNamespace": "Drift.EditorTools",
+    "references": [
+        "Drift.Core",
+        "Drift.World",
+        "Drift.Islands",
+        "Drift.Life",
+        "Drift.Tectonics",
+        "Drift.Visuals",
+        "Drift.Bridge",
+        "Unity.Mathematics",
+        "Drift.SaveSystem",
+        "Drift.UI"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

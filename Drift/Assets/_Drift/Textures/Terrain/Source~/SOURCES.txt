@@ -1,0 +1,17 @@
+Terrain texture sources - all from Poly Haven (https://polyhaven.com), licence CC0 1.0 (public domain).
+Downloaded 2026-09-21 as 1k JPG from dl.polyhaven.org: diffuse + normal (OpenGL).
+This folder ends in "~" so Unity does not import it; it only keeps the originals.
+
+Array layer  Poly Haven asset      Author
+0 Sand       aerial_sand           Rob Tuytel
+1 Grass      rocky_terrain_02      Amal Kumar
+2 Forest     forest_leaves_02      Rob Tuytel
+3 Dry        dry_ground_rocks      Rob Tuytel
+4 Tundra     aerial_grass_rock     Rob Tuytel
+5 Rock       aerial_rocks_02       Rob Tuytel
+6 Snow       snow_02               Rob Tuytel
+
+TerrainDetail_Array.jpg / TerrainNormal_Array.jpg (one level up) stack the 7 layers vertically, layer 0 at the top,
+imported as Texture2DArray flipbooks (1 column x 7 rows). The detail array holds each diffuse divided by its own mean
+linear colour (stored x0.3, linear), so the shader multiplies it onto the life-system tint without shifting it; the
+snow layer's dark twig marks are compressed to 30 %. The normal array is the unmodified nor_gl maps.
