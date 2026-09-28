@@ -1,0 +1,39 @@
+plugins {
+    id "com.android.library"
+}
+
+// Must match the Godot editor version the game is exported with.
+def godotVersion = "4.7.2.stable"
+
+android {
+    namespace "de.simonsouleyman.treephone"
+    compileSdk 36
+    // The Android SDK on this PC has build-tools 36.0.0 only.
+    buildToolsVersion "36.0.0"
+
+    defaultConfig {
+        minSdk 24
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    buildFeatures {
+        buildConfig false
+    }
+}
+
+dependencies {
+    // The Godot library is supplied by the game at export time; compile against it only.
+    compileOnly "org.godotengine:godot:$godotVersion"
+}
+
+// Copies the release AAR into the Godot addon, where the export plugin picks it up.
+tasks.register("copyAarToAddon", Copy) {
+    dependsOn "assembleRelease"
+    from(layout.buildDirectory.file("outputs/aar/treephone-release.aar"))
+    into(file("../../addons/tree_phone/bin"))
+    rename { "tree_phone-release.aar" }
+}
