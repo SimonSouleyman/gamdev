@@ -15,10 +15,17 @@ const NUTRIENT_DOTS_LOADED: int = 4000
 ## The forest around the clearing (rendering budgets: every tree is instanced from a few variants).
 ## A phone gets about half: measured on a Fairphone 6, the forest and the meadow cards cost the
 ## most (alpha-tested overdraw).
-static var PHONE: bool = OS.has_feature("mobile")
-static var FOREST_TREES: int = 26 if PHONE else 140
+## A PC run with `-- --phone` takes the phone path too (add `--rendering-method gl_compatibility`
+## for the phone's renderer), so phone costs can be measured and photographed on a PC.
+static var PHONE: bool = OS.has_feature("mobile") or OS.get_cmdline_user_args().has("--phone")
+static var FOREST_TREES: int = 70 if PHONE else 140
+## A phone draws the forest ring and the shrub belt as baked cards (ForestImpostors): the 3D
+## forest cost the Fairphone 6 about 8 of its 30 frames a second (0.6 measurement).
+static var FOREST_IMPOSTORS: bool = PHONE
+## With cards, this many of the innermost trees stay real 3D trees, spread around the ring.
+static var FOREST_REAL_TREES: int = 5
 static var FOREST_VARIANT_NODES: int = 240 if PHONE else 320
-static var FOREST_BUSHES: int = 50 if PHONE else 260
+static var FOREST_BUSHES: int = 110 if PHONE else 260
 static var MEADOW_FLOWERS: int = 500 if PHONE else 1500
 static var MEADOW_GRASS_CLUMPS: int = 2200 if PHONE else 9500
 static var MEADOW_HERB_CLUMPS: int = 350 if PHONE else 900
