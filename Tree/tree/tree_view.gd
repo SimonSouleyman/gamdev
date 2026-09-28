@@ -30,6 +30,7 @@ var _bark_mat: ShaderMaterial
 var _leaf_mat: ShaderMaterial
 var _ground_mat: ShaderMaterial
 var _spray_mat: ShaderMaterial
+var _compat: bool = RenderingServer.get_current_rendering_method() == "gl_compatibility"
 var _ground: MeshInstance3D
 ## Radius of the clearing the world was last built for.
 var _clearing: float = -1.0
@@ -139,8 +140,8 @@ func _build_world() -> void:
 	sky.radiance_size = Sky.RADIANCE_SIZE_64
 	if Budgets.PHONE:
 		# The sun moves every frame; the real-time path is the cheap one on a phone.
-		sky.process_mode = Sky.PROCESS_MODE_REALTIME
 		sky.radiance_size = Sky.RADIANCE_SIZE_256
+		sky.process_mode = Sky.PROCESS_MODE_REALTIME
 	_env = Environment.new()
 	_env.background_mode = Environment.BG_SKY
 	_env.sky = sky
@@ -629,6 +630,11 @@ func _update_sun() -> void:
 		_sun_light.light_color = Color(1.0, 0.95, 0.88).lerp(Color(1.0, 0.7, 0.4), golden)
 		_sun_light.light_energy *= 1.0 + 0.25 * golden
 		_env.fog_light_color = _env.fog_light_color.lerp(Color(0.85, 0.7, 0.5), golden * 0.5)
+	# The phone's simpler renderer lights more brightly: tone it down to match the PC.
+	if _compat:
+		_sun_light.light_energy *= 0.7
+		_env.ambient_light_energy *= 0.8
+		_env.tonemap_exposure *= 0.85
 
 func _frame_camera(snap: bool, delta: float = 0.0) -> void:
 	var real_height := maxf(state.sim.height(), 0.2)

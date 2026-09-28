@@ -94,6 +94,8 @@ vec2 fold_tilt(vec4 f, vec2 p, inout float line) {
 }
 
 void fragment() {
+	// The incoming colour carries the Control's modulate (fades, dimmed buttons); keep it.
+	vec4 tint = COLOR;
 	vec2 full = sheet_size + 2.0 * pad;
 	vec2 p = UV * full - pad;
 	vec2 suv = p / sheet_size;
@@ -211,5 +213,5 @@ void fragment() {
 
 	float out_a = a * opacity + sh * (1.0 - a * opacity);
 	vec3 out_c = col * a * opacity / max(out_a, 0.0001);
-	COLOR = vec4(out_c, out_a);
+	COLOR = (vec4(out_c, out_a)) * tint;
 }

@@ -11,9 +11,13 @@ uniform float bleed_px = 1.3;
 uniform float seed = 0.0;
 
 varying vec2 local_pos;
+// The vertex colour (font colour x modulate). In fragment() COLOR is already multiplied by the
+// glyph texture, so using it again would square the coverage and thin the strokes.
+varying vec4 ink_col;
 
 void vertex() {
 	local_pos = VERTEX;
+	ink_col = COLOR;
 }
 
 void fragment() {
@@ -36,9 +40,9 @@ void fragment() {
 	dens *= 1.0 - tooth * smoothstep(0.55, 0.85, th);
 	// Ink pools at the edges of a stroke as it dries: darker rim, lighter core.
 	float rim = clamp(1.0 - abs(a - 0.5) * 2.0, 0.0, 1.0);
-	vec3 ink = COLOR.rgb * (1.0 - rim * 0.25);
+	vec3 ink = ink_col.rgb * (1.0 - rim * 0.25);
 	ink = mix(ink, ink * vec3(1.08, 1.02, 0.95), pr * 0.4);
 	float halo = clamp(b - a, 0.0, 1.0) * bleed * 0.55;
-	float out_a = max(a * dens, halo) * COLOR.a;
+	float out_a = max(a * dens, halo) * ink_col.a;
 	COLOR = vec4(ink, out_a);
 }

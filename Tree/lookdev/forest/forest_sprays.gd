@@ -26,7 +26,8 @@ static func apply(scenery: Node3D) -> void:
 		if leaf_surface < 0:
 			continue
 		if not done.has(mesh):
-			var cards := Budgets.FOREST_SPRAY_CARDS if mesh.get_surface_count() == 2 else maxi(3, Budgets.FOREST_SPRAY_CARDS - 2)
+			# Trees: bark then leaves (8-card clusters); shrubs: leaves first (6 cards), maybe flowers.
+			var cards := 8 if leaf_surface > 0 else 6
 			done[mesh] = _respray(mesh, leaf_surface, cards, template)
 		if done[mesh] != null:
 			mmi.multimesh.mesh = done[mesh]
@@ -73,14 +74,15 @@ static func _respray(mesh: ArrayMesh, leaf_surface: int, cards: int, template: S
 		for i in range(per):
 			r = maxf(r, c.distance_to(verts[k + i]))
 		var col := colors[k] if not colors.is_empty() else Color.WHITE
-		for _s in range(5):
+		# Sprays per cluster (fewer, a little larger on a phone).
+		for _s in range(Budgets.FOREST_SPRAYS):
 			var at := c + Vector3(rng.randf_range(-1, 1), rng.randf_range(-0.5, 0.5), rng.randf_range(-1, 1)) * r * 0.35
 			var rel := (at - centre) / radii
 			var out := rel.normalized()
 			var face := (out * 0.8 + Vector3.UP * 0.35 + Vector3(rng.randf_range(-0.35, 0.35), rng.randf_range(-0.2, 0.2), rng.randf_range(-0.35, 0.35))).normalized()
 			var dir := face.cross(Vector3.RIGHT if absf(face.x) < 0.9 else Vector3.FORWARD).normalized().rotated(face, rng.randf() * TAU)
 			var side := dir.cross(face).normalized()
-			var s := r * rng.randf_range(1.6, 2.1)
+			var s := r * rng.randf_range(1.6, 2.1) * (1.0 if Budgets.FOREST_SPRAYS >= 5 else 1.2)
 			var n := face.lerp(out, 0.6).normalized()
 			var occlusion := clampf(clampf(1.0 - rel.length(), 0.0, 1.0) * 0.9 + clampf(-rel.y, 0.0, 1.0) * 0.35, 0.0, 0.85)
 			var cell := rng.randi() % 4

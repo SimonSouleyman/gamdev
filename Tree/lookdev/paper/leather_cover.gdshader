@@ -20,6 +20,8 @@ float box_sdf(vec2 p, vec2 size, float r) {
 }
 
 void fragment() {
+	// The incoming colour carries the Control's modulate (fades, dimmed buttons); keep it.
+	vec4 tint = COLOR;
 	vec2 full = sheet_size + 2.0 * pad;
 	vec2 p = UV * full - pad;
 	float sdf = -box_sdf(p, sheet_size, corner_radius);
@@ -60,5 +62,5 @@ void fragment() {
 
 	float sh = shadow_alpha * (1.0 - smoothstep(-6.0, 16.0, box_sdf(p - vec2(4.0, 8.0), sheet_size, corner_radius)));
 	float out_a = a + sh * (1.0 - a);
-	COLOR = vec4(col * a / max(out_a, 0.0001), out_a);
+	COLOR = (vec4(col * a / max(out_a, 0.0001), out_a)) * tint;
 }
