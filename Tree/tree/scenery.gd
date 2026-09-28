@@ -12,12 +12,14 @@ const CLEARING_RADIUS := 18.0
 ## The clearing grows with the tree, so the camera can step back and see a grown linden whole
 ## (Simon's pick in the visuals thread: "bigger clearing").
 const CLEARING_MAX := 42.0
+## A phone keeps the clearing smaller: every metre of meadow costs it frames (0.5.1).
+static var CLEARING_MAX_PHONE: float = 30.0
 var clearing_radius: float = CLEARING_RADIUS
 
 
 ## The clearing for a tree of this height, in steps of 6 m so the world is rebuilt rarely.
 static func radius_for(tree_height: float) -> float:
-	return clampf(CLEARING_RADIUS + snappedf(maxf(0.0, tree_height - 8.0) * 1.4, 6.0), CLEARING_RADIUS, CLEARING_MAX)
+	return clampf(CLEARING_RADIUS + snappedf(maxf(0.0, tree_height - 8.0) * 1.4, 6.0), CLEARING_RADIUS, CLEARING_MAX_PHONE if Budgets.PHONE else CLEARING_MAX)
 static var BUSHES: int = Budgets.FOREST_BUSHES
 const CLOUDS := 16
 static var FLOWERS: int = Budgets.MEADOW_FLOWERS
@@ -305,6 +307,8 @@ const BACKDROP_SHADER := """
 shader_type spatial;
 render_mode cull_front, depth_draw_opaque, unshaded;
 uniform vec3 tint = vec3(1.0);
+// The haze over the far wood, drawn here because the phone renderer does not fog this wall.
+uniform vec4 haze = vec4(0.5, 0.6, 0.6, 0.0);
 uniform sampler2D noise : filter_linear_mipmap, repeat_enable;
 void fragment() {
 	vec2 uv = vec2(UV.x * 6.0, UV.y);
@@ -316,6 +320,7 @@ void fragment() {
 	float trunk = smoothstep(0.55, 0.6, texture(noise, vec2(uv.x * 14.0, 0.7)).r) * smoothstep(0.55, 0.8, UV.y);
 	vec3 leaves = mix(vec3(0.07, 0.11, 0.06), vec3(0.16, 0.24, 0.11), crowns);
 	ALBEDO = mix(leaves, vec3(0.1, 0.08, 0.06), trunk * 0.6) * mix(1.0, 0.55, UV.y) * tint;
+	ALBEDO = mix(ALBEDO, haze.rgb, haze.a);
 	ROUGHNESS = 1.0;
 }
 """
@@ -749,6 +754,12 @@ func _motes(color: Color, amount: int, extents: Vector3, center: Vector3, size: 
 # --- every frame ------------------------------------------------------------------
 
 ## `day`: the sun is up. `h`: sun height 0..1. `tree_height`: the hero tree, for butterflies and pollen.
+## The haze colour and how much of it covers the far wood (only needed on the phone renderer).
+func set_haze(c: Color, amount: float) -> void:
+	if _wall:
+		(_wall.material_override as ShaderMaterial).set_shader_parameter("haze", Color(c.r, c.g, c.b, amount))
+
+
 func update(delta: float, day: bool, h: float, sun_color: Color, tree_height: float, camera_pos: Vector3 = Vector3.ZERO) -> void:
 	_time += delta
 	# The deep wood always rises above the camera's eye line, so no view looks out over it.

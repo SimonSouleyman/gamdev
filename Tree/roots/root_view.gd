@@ -524,7 +524,7 @@ func _process_run(delta: float) -> void:
 	var flat := Vector3(h.x, 0.0, h.z)
 	var back := (h * 0.5 + (flat.normalized() if flat.length_squared() > 1e-4 else -camera.global_basis.z) * 0.5).normalized()
 	var want := _outside_rocks(roots.tip_position - back * 2.4 + Vector3.UP * 0.8)
-	camera.position = _outside_rocks(camera.position.lerp(want, 1.0 - exp(-4.0 * delta)))
+	camera.position = _outside_roots(_outside_rocks(camera.position.lerp(want, 1.0 - exp(-4.0 * delta))))
 	_look_at_safely(roots.tip_position + h * 1.2)
 	if not alive:
 		# end_run() already grew the fine roots and collected their dots.
@@ -532,6 +532,26 @@ func _process_run(delta: float) -> void:
 			_set_dot(i)
 			_flash(ground.dot_positions[i], Resources.KIND_COLORS[ground.dot_kinds[i]])
 		_settle()
+
+
+## Keeps the camera out of the thick old roots near the trunk (Simon's phone test: the screen
+## filled with root bark). Only segments thicker than a finger are checked.
+func _outside_roots(p: Vector3) -> Vector3:
+	var g := roots.graph
+	for id in range(1, g.size()):
+		var r := g.radii[id] * _builder.radius_scale
+		if r < 0.04:
+			continue
+		var a := g.positions[g.parents[id]]
+		var b := g.positions[id]
+		var c := Geometry3D.get_closest_point_to_segment(p, a, b)
+		var keep := r + 0.45
+		if p.distance_squared_to(c) < keep * keep:
+			var away := p - c
+			if away.length_squared() < 1e-6:
+				away = Vector3.UP
+			p = c + away.normalized() * keep
+	return p
 
 
 ## Keeps the camera out of rocks (and below the meadow), so it never fills the screen with stone.

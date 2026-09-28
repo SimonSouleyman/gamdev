@@ -22,6 +22,9 @@ static func apply(view: TreeView) -> void:
 		var v := rng.randf_range(0.55, 0.78)
 		var dry := clampf(0.5 + 0.5 * sin(p.x * 0.23 + 1.3) * cos(p.z * 0.19 - 0.4), 0.0, 1.0)
 		var col := Color(v, v, v).lerp(Color(1.08 * v, 1.02 * v, 0.8 * v), dry * 0.5)
+		# The phone renderer shows greens brighter and more saturated: calmer there.
+		if RenderingServer.get_current_rendering_method() == "gl_compatibility":
+			col = Color(col.r * 0.85, col.g * 0.78, col.b * 0.8)
 		var d := Vector2(p.x, p.z).length()
 		if d > 16.0:
 			col = col.darkened(clampf((d - 16.0) / 5.0, 0.0, 0.5))
