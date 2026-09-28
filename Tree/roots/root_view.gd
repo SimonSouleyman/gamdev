@@ -335,10 +335,11 @@ func _build_hud() -> void:
 	compass = Compass.new()
 	compass.camera = camera
 	compass.set_anchors_preset(Control.PRESET_TOP_RIGHT)
-	compass.offset_left = -130
-	compass.offset_right = -20
-	compass.offset_top = 80
-	compass.offset_bottom = 190
+	# The old hand compass, its ring at the top.
+	compass.offset_left = -168
+	compass.offset_right = -14
+	compass.offset_top = 68
+	compass.offset_bottom = 222
 	root.add_child(compass)
 
 

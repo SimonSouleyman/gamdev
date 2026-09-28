@@ -7,6 +7,8 @@ extends Node
 
 const SETTINGS_PATH := "user://settings.json"
 const AUTOSAVE_SECONDS := 60.0
+## The pointer while the shears are out (PC).
+const SHEARS_CURSOR := preload("res://ui/icons/shears_cursor.png")
 
 var state: GameState
 var tree_view: TreeView
@@ -27,9 +29,11 @@ var shed: Shed
 var shed_menu: ShedMenu
 var in_shed: bool = false
 var _corner: CanvasLayer
-var _shed_button: Button
-var _photo_button: Button
-var _shears_button: Button
+var _shed_button: TextureButton
+var _photo_button: TextureButton
+var _shears_button: TextureButton
+var _shears_glow: TextureRect
+var _glow_tween: Tween
 var _flash: ColorRect
 
 
@@ -439,23 +443,44 @@ func _notification(what: int) -> void:
 
 # --- the garden shed -----------------------------------------------------------------
 
-## The two scraps in the corner: back to the shed (pause), and the camera for the album.
+## The pictures at the middle right under the journal: the shed (back there, a pause), the
+## old camera for the album and the pruning shears.
 func _build_corner() -> void:
 	_corner = CanvasLayer.new()
 	_corner.layer = 19
 	add_child(_corner)
-	_shed_button = _scrap("shed", Vector2(-160, -120))
+	_shed_button = _picture("shed", -150.0, -1.5)
 	_shed_button.pressed.connect(func() -> void:
 		if not _transitioning and not journal.is_open():
 			enter_shed(true))
-	_photo_button = _scrap("photo", Vector2(-160, -60))
+	_photo_button = _picture("camera", -48.0, 1.0)
 	_photo_button.pressed.connect(func() -> void: _take_photo("camera"))
 	# The shears: while out, a tap cuts a branch instead of boosting the sun (play test 4).
-	_shears_button = _scrap("shears", Vector2(-160, 0))
+	_shears_button = _picture("shears", 54.0, -1.0)
 	_shears_button.pressed.connect(func() -> void:
 		_set_shears(not tree_view.prune_mode)
 		if tree_view.prune_mode:
 			_page_once("shears"))
+	# A warm glow behind the shears while they are out.
+	_shears_glow = TextureRect.new()
+	var g := GradientTexture2D.new()
+	g.fill = GradientTexture2D.FILL_RADIAL
+	g.fill_from = Vector2(0.5, 0.5)
+	g.fill_to = Vector2(0.5, 0.0)
+	g.gradient = Gradient.new()
+	g.gradient.set_color(0, Color(1.0, 0.88, 0.5, 1.0))
+	g.gradient.set_offset(1, 0.95)
+	g.gradient.set_color(1, Color(1.0, 0.75, 0.3, 0.0))
+	_shears_glow.texture = g
+	_shears_glow.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_shears_glow.offset_left = 10
+	_shears_glow.offset_right = -10
+	_shears_glow.offset_top = -18
+	_shears_glow.offset_bottom = 18
+	_shears_glow.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_shears_glow.show_behind_parent = true
+	_shears_glow.visible = false
+	_shears_button.add_child(_shears_glow)
 	_flash = ColorRect.new()
 	_flash.color = Color(1, 1, 1, 0)
 	_flash.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -467,30 +492,38 @@ func _set_shears(on: bool) -> void:
 	tree_view.prune_mode = on
 	if not on:
 		tree_view.pruning.preview(-1)
-	_shears_button.text = "put away" if on else "shears"
-	# The shears glow while out; on a PC the pointer turns into a cross (a scissor picture comes
-	# with the picture symbols in 0.6).
-	_shears_button.modulate = Color(1.35, 1.2, 0.8) if on else Color.WHITE
-	Input.set_default_cursor_shape(Input.CURSOR_CROSS if on else Input.CURSOR_ARROW)
+	# The shears glow while out, and on a PC the pointer becomes a small pair of secateurs.
+	_shears_button.modulate = Color(1.3, 1.18, 0.85) if on else Color.WHITE
+	_shears_glow.visible = on
+	if _glow_tween != null:
+		_glow_tween.kill()
+		_glow_tween = null
+	if on:
+		_glow_tween = create_tween().set_loops()
+		_glow_tween.tween_property(_shears_glow, "modulate:a", 0.45, 0.8).from(1.0)
+		_glow_tween.tween_property(_shears_glow, "modulate:a", 1.0, 0.8)
+	Input.set_default_cursor_shape(Input.CURSOR_ARROW)
+	if on:
+		Input.set_custom_mouse_cursor(SHEARS_CURSOR, Input.CURSOR_ARROW, shears_hotspot())
+	else:
+		Input.set_custom_mouse_cursor(null, Input.CURSOR_ARROW)
 
 
-func _scrap(text: String, at: Vector2) -> Button:
-	var b := Button.new()
-	b.text = text
-	b.focus_mode = Control.FOCUS_NONE
-	b.add_theme_font_override("font", Paper.hand_font(true))
-	b.add_theme_font_size_override("font_size", 24)
-	for k in ["font_color", "font_hover_color", "font_pressed_color"]:
-		b.add_theme_color_override(k, Paper.INK)
-	for k in ["normal", "hover", "pressed"]:
-		b.add_theme_stylebox_override(k, Paper.paper_box(96, 48, 110 + absi(int(at.y)), "all", 12.0))
-	# Middle right (at.y is relative to the screen's middle), clear of compass and sun arc.
-	b.set_anchors_preset(Control.PRESET_CENTER_RIGHT)
-	b.offset_left = at.x
-	b.offset_right = -20
-	b.offset_top = at.y
-	b.offset_bottom = at.y + 46
-	b.rotation_degrees = -1.5
+## The pointer's hot spot: the point of the blade (the opaque pixel nearest the top left corner).
+static func shears_hotspot() -> Vector2:
+	var img := SHEARS_CURSOR.get_image()
+	var best := Vector2.ZERO
+	var best_d := INF
+	for y in range(img.get_height()):
+		for x in range(img.get_width()):
+			if img.get_pixel(x, y).a > 0.6 and x + y < best_d:
+				best_d = x + y
+				best = Vector2(x, y)
+	return best
+
+
+func _picture(icon: String, top: float, tilt: float) -> TextureButton:
+	var b := Paper.picture_button(load("res://ui/icons/%s.png" % icon), top, tilt)
 	_corner.add_child(b)
 	return b
 

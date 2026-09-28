@@ -13,7 +13,10 @@ All third-party assets in this project, with their licences. CC0 needs no attrib
 | `assets/sounds/birds.ogg` | OpenGameArt, "Ambient Bird Sounds" by isaiah658 (https://opengameart.org/content/ambient-bird-sounds) | CC0 |
 | `assets/sounds/crickets.mp3` | OpenGameArt, "Crickets Ambient Noise - loopable" by Wolfgang_ (https://opengameart.org/content/crickets-ambient-noise-loopable) | CC0 |
 | `assets/sounds/water_flowing.ogg` | OpenGameArt, "30 CC0 SFX loops" by rubberduck (https://opengameart.org/content/30-cc0-sfx-loops) | CC0 |
+| `tools/icon_models/Camera_01/` (rendered to `ui/icons/camera.png`) | Poly Haven, "Camera 01" by Rajil Jose Macatangay (https://polyhaven.com/a/Camera_01) | CC0 |
+| `tools/icon_models/seadogs_compass/` (rendered to `ui/icons/compass_*.png`) | Poly Haven, "Seadogs Compass" by Benny Weimer (https://polyhaven.com/a/seadogs_compass) | CC0 |
+| `tools/icon_models/book_encyclopedia_set_01/` (one volume rendered to `ui/icons/journal.png`) | Poly Haven, "Book Encyclopedia Set 01" by John Malcolm (https://polyhaven.com/a/book_encyclopedia_set_01) | CC0 |
 | `ui/fonts/Caveat-Regular.ttf` | Google Fonts, Caveat by Impallari Type | SIL Open Font License 1.1 (`ui/fonts/OFL-Caveat.txt`) |
 | `ui/fonts/PatrickHand-Regular.ttf` | Google Fonts, Patrick Hand by Patrick Wagesreiter | SIL Open Font License 1.1 (`ui/fonts/OFL-PatrickHand.txt`) |
 
-Everything else (tree, roots, meadow plants, leaf fallback, paper, the wind, the underground hum and the collect note) is generated in code.
+The HUD's shed and shears pictures (`ui/icons/shed.png`, `shears.png`, `shears_cursor.png`) are small models built in `tools/render_icons.gd` from the Poly Haven wood textures above. Everything else (tree, roots, meadow plants, leaf fallback, paper, the wind, the underground hum and the collect note) is generated in code.

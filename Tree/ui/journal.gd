@@ -37,7 +37,7 @@ var _diary_text: RichTextLabel
 var _wish_label: Label
 var _note: LineEdit
 var _toggles: Dictionary = {}
-var _open_button: Button
+var _open_button: TextureButton
 var _pages_list: VBoxContainer
 var _pages_empty: Label
 var _book_title: Label
@@ -204,26 +204,9 @@ func _rule() -> Control:
 # --- the button that opens the book ------------------------------------------------
 
 func _build_open_button() -> void:
-	_open_button = Button.new()
-	_open_button.text = "journal"
-	_open_button.focus_mode = Control.FOCUS_NONE
-	_open_button.add_theme_font_override("font", Paper.hand_font(true))
-	_open_button.add_theme_font_size_override("font_size", 26)
-	for k in ["font_color", "font_hover_color", "font_pressed_color", "font_disabled_color"]:
-		_open_button.add_theme_color_override(k, Paper.INK)
-	# A small notebook: leather with a paper label.
-	for k in ["normal", "hover", "pressed", "disabled"]:
-		var sb := Paper.paper_box(96, 64, 7, "", 14.0)
-		sb.content_margin_top = 4
-		sb.content_margin_bottom = 6
-		_open_button.add_theme_stylebox_override(k, sb)
-	# Middle right with the other scraps, clear of the compass and the sun's arc (Simon, 0.5.1).
-	_open_button.set_anchors_preset(Control.PRESET_CENTER_RIGHT)
-	_open_button.offset_left = -160
-	_open_button.offset_right = -20
-	_open_button.offset_top = -190
-	_open_button.offset_bottom = -138
-	_open_button.rotation_degrees = 2.0
+	# A small leather notebook, the top of the column of pictures at the middle right, clear of
+	# the compass and the sun's arc (Simon, 0.5.1 and 0.6).
+	_open_button = Paper.picture_button(preload("res://ui/icons/journal.png"), -252.0, 2.0)
 	_open_button.pressed.connect(open_diary)
 	add_child(_open_button)
 

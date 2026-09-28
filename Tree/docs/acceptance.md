@@ -66,3 +66,10 @@ Each criterion has a test in `tests/` unless marked (visual), which Simon judges
 - Each species has a journal page (look and quirk), shown once when it is planted, kept in the pages tab.
 - (visual) The hero tree's bark and leaf tint follow the species (white birch, dark oak); the forest ring is unchanged.
 - tools/month_report.gd --species=<id>|all: growth every day, finished near 30 days (birch 25, oak 35).
+
+## 0.6 part 2: HUD pictures and the hand compass
+- The HUD buttons at the middle right are pictures of the real things, top to bottom: a leather journal, a small wooden hut (the shed), an old camera (takes a photo for the album) and hand pruning shears; no words. Each picture's tap area is at least as large as the old paper scraps (150 x 96 canvas units), and they stay clear of the compass and the sun's arc.
+- The pictures are rendered by `tools/render_icons.gd` (CC0 Poly Haven models in `tools/icon_models`, the hut and the shears built there) and can be regenerated.
+- The compass is an old brass hand compass: the case stays, the dial turns so its N points to north in the world, the needle swings after it under a glass; still turning with the camera above and below ground.
+- While the shears are out their picture glows; on a PC the pointer is a small secateurs picture with its hot spot at the blade's point.
+- (visual) `tools/hud_shot.gd` shows the real HUD (docs/screenshots/0.6-hud).

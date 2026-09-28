@@ -11,6 +11,8 @@ const INK := Color(0.2, 0.16, 0.12)
 const FAINT_INK := Color(0.42, 0.34, 0.25)
 const RED_INK := Color(0.6, 0.18, 0.12)
 const LEATHER := Color(0.33, 0.2, 0.12)
+## Tap area of a picture button on the HUD (about 110 px tall on a 1080x2400 phone).
+const PICTURE_TAP := Vector2(150, 96)
 
 static var _cache: Dictionary = {}
 
@@ -236,4 +238,27 @@ static func ink_button(text: String, size: int = 26) -> Button:
 		sb.expand_margin_left = 2
 		sb.expand_margin_top = 1
 		b.add_theme_stylebox_override(k, sb)
+	return b
+
+
+## A HUD button that is a picture of the real thing (ui/icons, rendered by tools/render_icons.gd),
+## at the middle of the right edge: `top` is its top edge relative to the screen's middle. The
+## tap area is wider than the picture (at least the old paper scraps' size); it dips when pressed.
+static func picture_button(tex: Texture2D, top: float, tilt: float = 0.0) -> TextureButton:
+	var b := TextureButton.new()
+	b.texture_normal = tex
+	b.ignore_texture_size = true
+	b.stretch_mode = TextureButton.STRETCH_KEEP_ASPECT_CENTERED
+	b.focus_mode = Control.FOCUS_NONE
+	b.set_anchors_preset(Control.PRESET_CENTER_RIGHT)
+	b.offset_left = -PICTURE_TAP.x - 14
+	b.offset_right = -14
+	b.offset_top = top
+	b.offset_bottom = top + PICTURE_TAP.y
+	b.pivot_offset = PICTURE_TAP * 0.5
+	b.rotation_degrees = tilt
+	b.button_down.connect(func() -> void: b.scale = Vector2.ONE * 0.9)
+	b.button_up.connect(func() -> void: b.scale = Vector2.ONE)
+	b.mouse_entered.connect(func() -> void: b.self_modulate = Color(1.12, 1.08, 1.0))
+	b.mouse_exited.connect(func() -> void: b.self_modulate = Color.WHITE)
 	return b
