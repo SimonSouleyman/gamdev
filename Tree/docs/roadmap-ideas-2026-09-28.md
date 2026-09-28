@@ -96,3 +96,5 @@ Effort: S small (a day of building), M medium, L large. Phone risk: how much it 
 4. Time-lapse: 0.7.
 5. Weather moods: 0.7.
 The small 0.6 additions were accepted without objection.
+
+**Change at 16:48 UTC (Simon):** everything planned for 0.7 moves into 0.6 as well, so 0.6 carries the whole plan (look and shed, small additions, bonsai, seasons look, weather moods, living clearing, time-lapse). Fixes after the 0.6 test are 0.6.1, 0.6.2 and so on. The final plan is design doc section 17.

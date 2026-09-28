@@ -30,7 +30,7 @@ Design doc: `docs/design-doc.md` (the source of truth for gameplay decisions).
 - Sun steering is three-dimensional (east / south+up / west) and boosting trades life force for growth speed; keep both when touching `DayCycle` or `GrowthSim`.
 
 ## Versions
-- Releases are tagged `tree-vX.Y(.Z)` and built into `GameDev/tree-releases`. From v0.5 on (Simon, 2026-09-28): fixes and improvements found in tests go out as 0.5.1, 0.5.2 and so on; only new features justify 0.6.
+- Releases are tagged `tree-vX.Y(.Z)` and built into `GameDev/tree-releases`. From v0.5 on (Simon, 2026-09-28): fixes and improvements found in tests go out as 0.5.1, 0.5.2 and so on; only new features justify 0.6. From 0.6 on the same rule applies: fixes after the 0.6 test are 0.6.1, 0.6.2 and so on; the next set of new features starts 0.7. The plan for 0.6 is design doc section 17.
 - Phone builds use the Gradle build (the TreePhone plugin): `godot --headless --path . --export-debug "Android" <apk>`. The Android build template in `android/` is gitignored; after reinstalling it, set `buildTools` to `'36.0.0'` in `android/build/config.gradle` (see `android_plugin/README.md`).
 
 ## Style

@@ -1,34 +1,34 @@
-# Tree: Design Doc (v2.0, 2026-09-27)
+# Tree: Design Doc (v2.1, 2026-09-28)
 
-Working title: **Tree**. UI language: English. Status: planning complete, Prototype 1 in progress. Engine: Godot 4.7, GDScript. Target: Android only for now (APK and F-Droid style stores, no Google services), minimum a Fairphone 6 class phone (2022 or newer, Vulkan). Developed and prototyped on PC.
+Working title: **Tree**. UI language: English. Status: v0.5.1 is on the test phone, 0.5.2 (fixes) is being built, 0.6 is planned (section 17). Engine: Godot 4.7, GDScript. Target: Android only for now (APK and F-Droid style stores, no Google services), minimum a Fairphone 6 class phone (2022 or newer, Vulkan). Developed and prototyped on PC.
 
-This version consolidates every decision from the interviews (2026-09-26), the two surveys and the feel review (2026-09-27) into one text. Older drafts kept the decisions as dated tables; here each topic is stated once. Companion files: research-tree-growth.md (algorithm and sources), asset-research-2026-09-27.md (free assets and licences), game-feel-review-2026-09-27.md (feel review and play-test plan), review-2026-09-26.md (historical plan review), concepts/ (UI and style mockups).
+Version 2.0 consolidated every decision from the interviews (2026-09-26), the two surveys and the feel review (2026-09-27) into one text. Older drafts kept the decisions as dated tables; here each topic is stated once. Version 2.1 (2026-09-28) brings the text in line with what was built up to 0.5.2 and adds the roadmap (section 17). Companion files: research-tree-growth.md (algorithm and sources), asset-research-2026-09-27.md (free assets and licences), game-feel-review-2026-09-27.md (feel review and play-test plan), review-2026-09-26.md (historical plan review), concepts/ (UI and style mockups).
 
 ## 1. Vision
 A calm idle game about one realistic tree in a small forest clearing. It grows through sunlight and nutrients. Two linked worlds:
 - **Tree (above ground, by day):** the tree grows procedurally, steered by the timing of the sun, and produces **life force**.
 - **Roots (underground, by night):** the player steers a root through a space-like void to collect **nutrients**, paying with life force.
 
-Each world feeds the other. One in-game day is one session of at most ten minutes. One tree takes about a month of casual play, then it moves to the grove and a new seed is planted beside it. The tree never dies. Nothing in the game rushes the player.
+Each world feeds the other. One in-game day is one session of at most ten minutes. One tree takes about a month of casual play, then it moves to the photo album (a double page per finished tree) and a new seed from the seed bag is planted. The tree never dies. Nothing in the game rushes the player.
 
 ## 2. Look and feel
 - **Visual style:** realistic 3D, photorealistic is the goal. One hero tree, a mostly fixed camera, portrait orientation. Four style mockups were compared (concepts/styles/); realism won.
 - **Growth is always algorithmic:** the tree grows from a plant graph, never by swapping pre-made models. See research-tree-growth.md and section 4.
-- **Journal UI:** every menu, card and hint is a page of one notebook. Torn-out pages (from a squared notebook) for small menus and hints; the big menus open the book itself, a leather-bound notebook with ribbon bookmarks (diary, pages to read again, settings; later grove and species). The HUD readouts (life force, nutrients, day) are handwritten on paper scraps in the same style. Handwritten text (fonts Caveat, Patrick Hand, Kalam, all OFL, self-hosted) with small drawings and scribbles; buttons are circled words or sketched boxes. The HUD in tree mode is a few small pills (day, life force, four resources), paper or glass, to be tried. A "no UI" toggle shows pure scenery for testing, screenshots and the wallpaper.
-- **A living, cohesive world:** butterflies, wildflowers and bushes on the meadow; wind in leaves and grass, drifting clouds, occasional rain, snow in a later winter. All of it is mood and follows the same seed and clock. Gameplay effects of weather come later, only if cheap.
-- **Growth feedback:** parts that are growing right now twinkle a little.
+- **Journal UI:** every menu, card and hint is a page of one notebook. Torn-out pages (from a squared notebook) for small menus and hints; the big menus open the book itself, a leather-bound notebook with ribbon bookmarks (diary, pages to read again, species). The HUD readouts (life force, nutrients, day) are handwritten on paper scraps in the same style. Handwritten text (fonts Caveat, Patrick Hand, Kalam, all OFL, self-hosted) with small drawings and scribbles; buttons are circled words or sketched boxes. In tree mode the readouts sit on small paper scraps; from 0.6 the buttons (journal, shed, shears, album) are pictures of the real objects (a book, a small wooden hut, hand pruning shears, a closed photo album) at the middle right, so compass and sun arc stay free, and the compass is an old hand compass. A "no UI" toggle shows pure scenery for testing, screenshots and the wallpaper.
+- **A living, cohesive world:** butterflies, wildflowers and bushes on the meadow; wind in leaves and grass, drifting clouds; from 0.6 rain showers, misty mornings, dew and distant thunder, the moon in its real phase and a starry sky at night, and the seasons as a look (section 17); snow only with a later winter. All of it is mood and follows the same seed and clock. Gameplay effects of weather come later, only if cheap.
+- **Growth feedback:** parts that are growing right now twinkle a little (kept soft since 0.5.2 so it does not flicker on the phone).
 - **Sound:** very important from day one and peaceful. Ambience only, no music: wind, birds and insects above, a deep calm hum below, crossfaded on the dive.
 - **Language:** English.
 
 ## 3. The day: tree mode
 - **Scene:** a single tree in a small forest clearing. Trees and bushes close in all around, so the view never reaches far: the world stays small, and that small part is richly animated (wind, butterflies, pollen, fireflies, drifting clouds overhead). The trees around are grown by the same algorithm. Camera fixed on the tree, slow orbit by dragging, pinch to zoom. Looking at the tree from all sides is part of the day.
 - **The sun** follows its real arc for Germany: it rises in the east, stands in the south and high at noon, sets in the west. Later, seasons tilt the arc.
-- **Boost:** tap anywhere and the sun shines brighter for one game hour (tap again for more, up to three hours ahead); growth speeds up while the clock keeps running. Once pruning exists, a small tool switch chooses boost or prune.
+- **Boost:** tap anywhere and the sun shines brighter for one game hour (tap again for more, up to three hours ahead); growth speeds up while the clock keeps running. The shears button switches to cut mode and back.
 - **Sun steering in three dimensions:** the timing of the boost shapes the tree. Morning grows the crown east, noon grows it south and taller, evening grows it west. A low sun grows sideways, a high sun grows up. The north side stays sparser by nature.
 - **Boost is a trade, not a limit:** there is no cap on holding. Boosting grows faster but the leaves turn light into less life force, so a boosted day shapes a bigger tree and a calm day fills the night's tank. Nutrients cap growth either way.
 - **Life force** comes from leaf area and light, accrues during the day and is spent underground at night.
 - **Water upkeep:** leaves drink water every day. Too little and they droop and drop, so the roots must keep finding water.
-- **Pruning:** tap a branch and confirm. Free; the cut wood is gone and its resources go to the rest of the crown. Dying or shaded branches are marked so the reason is visible. A journal page explains it the first time, later only a scissors mark.
+- **Pruning:** in cut mode the camera is anchored to the trunk (drag up and down slides along it, left and right orbits); touching a branch previews the cut point and highlights the part that would fall, releasing cuts, and the branch tips over into the grass. Never the trunk, never more than a fifth of the tree at once. On PC the shears are the mouse cursor, on the phone the shears button glows. Free; pruned wood no longer counts for height, life force or finishing. A journal page explains it the first time.
 - **Soft failure only:** drought makes leaves droop and fall, shaded branches die back slowly. Both come from the growth model. Nothing kills the tree.
 - **Read the meadow:** the surface hints at what lies below, placed by the same seeded generator as the underground. Rushes and a damp patch over water, clover and nettles over nitrogen, a scatter of stones over rock, moss on the north side of the trunk. The player studies the meadow by day to plan the night's root run.
 - **Day length:** up to five minutes. The sun can be dragged along its arc at any time to move the day on (during the skipped time the tree rests and the leaves still gather life force; the dawn burst always plays out first), so the player can pick the hour to boost, for example wait for the afternoon to grow the crown west. Once nutrients are spent the sun glows and the hint says so. Dragging elsewhere orbits the camera.
@@ -39,7 +39,7 @@ Palubicki's self-organizing tree model with space-colonization markers seeded on
 
 ## 5. The night: root mode
 - **Scene:** a black void with glowing coloured nutrient dots. Nearby dots glow, distant ones fade like a soft fog. Third-person camera behind the root tip.
-- **The dive:** only at sunset. The day ends, the player taps the ground, the camera dives down and the sound changes. Sunrise brings the camera back up.
+- **The dive:** only at sunset. The player swipes down, the camera falls into the ground with a slight turn and zoom, and the sound changes. After the night's root a short pause shows the fine roots spreading; a swipe up (or sunrise) brings the camera back to the tree.
 - **One run per night:** pick any point on an existing root (not only a tip), then steer a new main root with a virtual joystick. The root sinks slowly on its own; hold to dive faster. The run ends when life force is used up, or earlier when the player ends it ("end root here"). Each night still spends everything: whatever life force is left goes into more and longer fine roots around the new root, in proportion to the leftover. There is no marker at the tip; the growing root itself shows where you are.
 - **Cost:** life force per metre, rising with distance from the trunk and with depth.
 - **Rocks:** hard walls, steer around them. Deeper down there are more rocks.
@@ -65,21 +65,21 @@ Four underground resources, each a colour of dot.
 - **Clock:** one in-game day is one session. It runs only while the app is open. Starting values: up to 5 minutes of day, 3 minutes of night (480 s cycle, daylight fraction 0.625), to be tuned while playing.
 - **Offline:** while the app is closed the tree keeps growing very slowly, and life force accrues at the same slow rate. Starting value: one real day away is about 20 s of game time. The player always returns with a little life force.
 - **Every day must show visible growth**, for all 30 or so days.
-- **Visitors as milestones:** butterflies at the first leaves, bees at the linden blossom (around day 20), a bird's nest in the crown, a fox in the shade, finally a bench under the tree. Each gets a diary line. Cosmetic.
-- **A tree is finished** when it reaches its species size. It moves to the grove.
+- **Visitors as milestones:** butterflies at the first leaves, bees at the linden blossom (around day 20), a bird's nest in the crown, a fox in the shade, later more (section 17). Each gets a diary line. Cosmetic. The bench under the tree is removed in 0.6 (Simon did not like it); nothing man-made stands by the tree.
+- **A tree is finished** when it reaches its species size. It gets a double page in the photo album; from 0.6 the album plays the month's daily photos as a time-lapse.
 - **Seed hand-off:** the last diary page shows the finished tree dropping a seed. That seed is the next tree, planted beside the old one.
-- **Grove:** the finished trees stand on the meadow around the new one and the player can walk along them in 3D (later milestone; a list is the fallback).
+- **Grove:** a 3D grove of finished trees around the clearing is a later candidate (too costly on the phone for now); the photo album is the grove today.
 - **Species unlock:** finishing one tree unlocks one species. Order: linden, birch, beech, sycamore maple, black alder, pedunculate oak (section 15). That is the whole prestige system; there is no forced end to playing.
-- **Notification:** at most one per day, local only, one calm line about the tree ("your linden grew a new branch", "the roots are ready"). Can be switched off.
+- **Notification:** at most one per day, local only, one calm line about the tree ("your linden grew a new branch", "the roots are ready"). Built as "a note each day" on the pinboard, at 9:00, off by default (Android asks for permission once).
 
 ## 8. The journal
-Pages: **diary** (the game writes one line per day: growth, visitors, finds, a night without life force; the player can add a note), **grove**, **species**, **settings**. Each morning the diary opens with an optional **wish** ("today, reach the damp patch in the west"), no reward or penalty. The tutorial lives in the diary too.
+Pages: **diary** (the game writes one line per day: growth, visitors, finds, a night without life force; the player can add a note; from 0.6 a "while you were away" page after time away), **species**, and the first-time pages (pruning, later bonsai care). The album and the options pinboard live in the shed as their own objects. Each morning the diary opens with an optional **wish** ("today, reach the damp patch in the west"), no reward or penalty. The tutorial lives in the diary too.
 
 ## 9. Start and tutorial
 A seed is planted. The first night is the first root run, from the seed. The nutrients from that run grow the first sapling at dawn. No explanation outside the journal.
 
-## 10. Settings from day one
-Sound on/off, battery saver (lower frame rate), wallpaper mode, no-UI toggle, notification on/off.
+## 10. Settings
+Handwritten notes and switches on the pinboard in the shed: sound on/off, battery saver (lower frame rate), no-UI toggle, "a note each day", the test switch "any species now"; from 0.6 a readable print hand and haptics on/off. The still wallpaper is set from the album ("as wallpaper").
 
 ## 11. Platform, device and later milestones
 - Android only for now, iOS later if ever. APK direct or through F-Droid style stores. Nothing that depends on Google Play Services.
@@ -87,7 +87,7 @@ Sound on/off, battery saver (lower frame rate), wallpaper mode, no-UI toggle, no
 - Realism budget: one hero tree, fixed camera, leaf-cluster cards in MultiMesh, instanced grass fading with distance, one directional shadow.
 - Assets: CC0 textures and skies (Poly Haven, ambientCG) for bark, grass, leaf atlases and sky; paper textures and handwriting fonts for the journal; CC0 wind and hum sounds. Full list in asset-research-2026-09-27.md.
 - **Live wallpaper (later):** the current tree as an Android live wallpaper via the TheOathMan/Godot-Android-Live-Wallpaper plugin, with a low-power mode (few frames per second, no shadows).
-- **Seasons (later):** follow the real calendar at the player's location (default Germany) and tilt the sun's arc. Plan the data model for it now. Winter is parked: a linden is bare from November to April, and what the player does then is undecided.
+- **Seasons (look in 0.6):** spring, summer and autumn follow the real calendar at the player's location (default Germany) as a look only; growth rules and the sun's arc stay as they are. Tilting the arc with the season is a later option. Winter is parked: a linden is bare from November to April, and what the player does then is undecided; until then the late autumn look holds.
 - **Money:** free, no ads.
 - **Saving:** local only for now; a backup option later.
 
@@ -107,7 +107,7 @@ Status 2026-09-27: all eleven steps are built as a grey-box loop on PC; 213 head
 10. **Day/night loop:** the clock drives the mode; dawn burst; dragging the sun to shorten the day; a night without life force as a short visit.
 11. **Read the meadow:** surface hints rendered from the generator data; the orbit camera to study them.
 
-Later milestones, in rough order: realistic assets (bark, leaf atlases, grass, sky) and the full light model (shadow grid, Borchert-Honda); mobile export and a performance pass on the Fairphone; the journal art; visitors and finds art; grove and seed hand-off; sound design; live wallpaper; seasons; more species.
+Later milestones as planned in 2026-09 (historical; the current plan is section 17), in rough order: realistic assets (bark, leaf atlases, grass, sky) and the full light model (shadow grid, Borchert-Honda); mobile export and a performance pass on the Fairphone; the journal art; visitors and finds art; grove and seed hand-off; sound design; live wallpaper; seasons; more species.
 
 ## 13. Agentic build rules (also in the repo's CLAUDE.md)
 - Simulation separate from rendering: `shared/` is plain GDScript with no scene dependency, tested headless with `godot --headless --path . -s tests/run_tests.gd` (small custom runner). After a fresh checkout run `godot --headless --path . --import` once.
@@ -154,7 +154,7 @@ Values are first guesses to tune while playing, like everything in section 13. L
 4. About a month per tree; birch a little shorter (about 25 days), oak a little longer (about 35 days).
 5. All six quirks kept as listed in the table.
 
-## 16. Bonsai mode (decided 2026-09-28, later milestone)
+## 16. Bonsai mode (decided 2026-09-28, planned for 0.6)
 A second, smaller game in the garden shed: one bonsai in a pot that the player grows and shapes over many weeks, next to the tree on the clearing. Reference: a juniper in informal upright style on a wooden bench (docs/references/bonsai/juniper-reference.png). Nothing here is built yet; the letters in brackets point to the survey answers at the end of this section.
 
 **Where it lives.** The bonsai stands on the windowsill beside the workbench (A), so it is always visible in the shed menu and grows while the player looks at it. Tapping it moves the camera close to the pot: that is bonsai mode. The shed "back" gesture returns to the workbench. The window is its sun: light comes from one fixed side, which gives the bonsai its own version of sun steering (turning the pot, below).
@@ -207,24 +207,24 @@ Planned from a candidate list drawn from relaxed and cosy games (Animal Crossing
 
 **Pillars used as the filter.** Calm with no pressure (soft failure only, at most one notification a day); one realistic tree in a small living clearing; every menu a real object or a handwritten page; a daily ritual of about one day and night per real day; free and self-contained (no ads, no purchases, no Google services, local only); runs on the Fairphone at 30 fps.
 
-**0.6: the look, the shed and the bonsai.**
-- Already decided: picture icons in the HUD (book, small wooden hut, hand pruning shears, closed album); the compass as an old hand compass; moon and starry sky with few clouds at night; the workbench in the centre of the shed with real models of journal, seed bag and flower pot as the menu (every menu item is a table object); a simpler forest on the phone for 30 fps; the bench visitor removed.
-- Small additions: the moon shows today's real phase; after time away the diary opens on a short "while you were away" page (growth, visitors, a sketch); the shed objects answer a tap with a real sound and a small motion; a pinboard switch for a clearer, larger print hand instead of the handwriting; light haptics on a cut, a dive and a finished tree (with a switch).
-- **Bonsai mode** as in section 16, built last in 0.6 on top of the new shed workbench.
+**0.6: the whole plan in one version.** Simon's call (2026-09-28): everything below goes into 0.6. Fixes and adjustments found when testing 0.6 go out as 0.6.1, 0.6.2 and so on; the next set of new features starts 0.7. Suggested build order, each part tested on PC before the next, one phone build and test at the end:
+1. **Phone performance:** a simpler forest on the phone for 30 fps (first, because everything else adds cost).
+2. **HUD and sky:** picture icons (book, small wooden hut, hand pruning shears, closed album) at the middle right; the compass as an old hand compass; the bench visitor removed; moon in its real phase and a starry sky with few clouds at night.
+3. **The shed:** the workbench in the centre with real models of journal, seed bag and flower pot as the menu (every menu item is a table object); the objects answer a tap with a real sound and a small motion; a pinboard switch for a clearer, larger print hand; haptics on a cut, a dive and a finished tree (with a switch); the "while you were away" diary page (growth, visitors, a sketch).
+4. **Seasons as a look:** spring green, summer and autumn colour with falling leaves follow the real calendar (Germany default). Mood only: growth rules and the sun's arc are unchanged. Winter stays parked; the late autumn look holds until spring.
+5. **Weather moods:** now and then a light rain shower, a misty morning, dew on the grass, distant thunder. Mood only (section 2); a lighter version on the phone.
+6. **Living clearing:** as the crown grows, the ground below changes by itself: the sun meadow gives way to shade plants (wood anemone, fern, moss), mushrooms appear after rain. The first collection direction (chosen over the field guide and the curiosity shelf).
+7. **Month time-lapse:** the album's daily photos play as a flip-book on the finished tree's double page and can be saved as a short video to the phone's gallery.
+8. **Bonsai mode** as in section 16, on the new windowsill beside the workbench.
 
-**0.7: seasons and a living world.**
-- **Seasons as a look:** spring green, summer and autumn colour with falling leaves follow the real calendar (Germany default). Mood only: growth rules are unchanged. Winter stays parked; the late autumn look holds until spring.
-- **Living clearing:** as the crown grows, the ground below changes by itself: the sun meadow gives way to shade plants (wood anemone, fern, moss), mushrooms appear after rain. This is the first collection direction.
-- **Month time-lapse:** the album's daily photos play as a flip-book on the finished tree's double page and can be saved as a short video to the phone's gallery.
-- **Weather moods:** now and then a light rain shower, a misty morning, dew on the grass, distant thunder. Mood only (section 2); a lighter version on the phone.
-- If 0.7 gets too big while building, it may be split into 0.7 and 0.8, asked first.
+0.6 is by far the biggest version so far, and seasons, weather and the living clearing all add cost on the phone; the 30 fps goal is checked on the Fairphone at the end, and anything too expensive gets a lighter phone version in 0.6.x.
 
 **Later candidates (not decided).** Field guide (photograph visitors to fill sketch pages, more visitors); brush pile from pruned branches that a hedgehog moves into; share a photo through the Android share sheet; save backup to a file; colour-blind shapes for the nutrient dots; a curiosity shelf in the shed with the old gardener's things; 3D grove; live wallpaper; winter; night sky events; naming the tree; more species; placed habitat objects (only if Simon wants man-made things near the tree).
 
 **Never (they break a pillar).** Daily streaks, login rewards and "come back or it withers"; a shop, currency or ads; online leaderboards and cloud save; background music (ambience only, decided); quest lists; conifers in the clearing.
 
 ## Decision log
-- 2026-09-28 roadmap after 0.5.2 (Simon, section 17, survey on cards): bonsai mode stays in 0.6 (Simon first picked its own 0.7, then changed back to 0.6 at 16:43 UTC), built last on the new shed workbench; seasons come in 0.7 as a calendar look only (growth unchanged, winter parked); the living clearing is the first collection direction (not the field guide or the curiosity shelf); the month time-lapse from the album photos comes in 0.7; weather moods (rain, mist, dew) come in 0.7, lighter on the phone; the small 0.6 additions (real moon phase, "while you were away" page, tap answers in the shed, readable text switch, haptics) were accepted without objection.
+- 2026-09-28 roadmap after 0.5.2 (Simon, section 17): survey on cards, then two changes the same hour. Final: everything planned goes into 0.6 (look and shed, small additions, bonsai mode, seasons as a calendar look with winter parked, weather moods, the living clearing as the first collection direction, the month time-lapse); fixes after the 0.6 test are 0.6.1, 0.6.2 and so on, new features start 0.7. The field guide, curiosity shelf and other ideas stay later candidates; streaks, shop, leaderboards, music and quest lists are ruled out. Design doc brought in line with 0.5.2 (pruning, dive, HUD, settings, album instead of grove, bench removed) as v2.1.
 - 2026-09-28 bonsai mode (Simon, section 16): a later game mode in the garden shed with a loop like the tree; every survey recommendation taken: windowsill beside the workbench, repotting every seventh day instead of a root run, wire with wire bite, one lifelong bonsai, roster cuttings plus juniper as the only conifer and starter, free styling, independent of the clearing tree, unlocked after the first finished tree.
 - 2026-09-28 species build (Simon: all six, quirks as in section 15; the seed bag offers the next unlocked species after a finished tree; an options-pinboard test switch "any species now" makes all six plantable). Numbers picked in code (shared/species.gd, shared/growth_sim.gd), first guesses to tune: a tree is **finished** when it carries its species' finish size in segments (linden 1800, birch 1740, beech 2080, sycamore 2150, alder 1740, oak 1970; or the 3000-node budget), tuned with tools/month_report.gd to about 30 days (birch 25, oak 35). Growth pace factors: beech 0.6 for ten days then 1.1, birch 1.15 and sycamore 1.1 for eight days, oak 0.85. Shade dieback (new, smallest version): once a day at sunrise 5 % of the tips with at least 12 living nodes above them in their 1 m column die back (birch 10 %, beech none). Water upkeep (new, smallest version): each leaf cluster drinks 0.01 water at sunrise (beech x1.3). Linden blossom days 18 to 22. Birch twig droop 0.5 of a segment out in the crown, life force x0.9. Sycamore: a shoot tip is an unbranched end of up to three segments. Alder: nodules make 0.01 nitrogen per metre of root per night; water deposits give 1.5x per contact. Oak: "downward" means a root heading below -0.5 (about 30 degrees down); extra jitter 0.22 per segment. A new tree keeps the photo album (captions name the tree), the grove and the pages already read; the diary starts fresh.
 - 2026-09-27 menus (Simon): the start menu is the garden shed at the south edge of the clearing, looking out through the open door at the player's tree; journal, photo album and seed bag lie on the workbench, the options are notes on a pinboard, the menu is a handwritten note; in play a "shed" scrap pauses and returns there. The album gets a photo every morning plus camera photos; a drawn journal page covers loading. One tree after another, no save slots.
