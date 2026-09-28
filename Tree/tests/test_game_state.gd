@@ -101,7 +101,7 @@ func test_night_without_life_force_is_a_short_visit() -> void:
 	t.check(waited < GameState.EMPTY_NIGHT_VISIT + 15.0, "after a short visit (%f s)" % waited)
 
 
-func test_dawn_burst_front_loads_growth_but_not_the_total() -> void:
+func test_dawn_burst_front_loads_growth_and_never_costs_growth() -> void:
 	# Acceptance: part of the night's growth is released in the first ten seconds after sunrise.
 	var a := _morning_after_first_night(9)
 	var b := _morning_after_first_night(9)
@@ -117,8 +117,8 @@ func test_dawn_burst_front_loads_growth_but_not_the_total() -> void:
 			a.tick(0.5)
 		if b.phase == GameState.Phase.DAY:
 			b.tick(0.5)
-	var diff := absi(a.sim.graph.size() - b.sim.graph.size())
-	t.check(diff <= maxi(8, a.sim.graph.size() / 10), "the daily total is about the same (%d vs %d)" % [a.sim.graph.size(), b.sim.graph.size()])
+	# The calm pace is capped (QA round 2), so the burst is a real head start, never a loss.
+	t.check(a.sim.graph.size() >= b.sim.graph.size() - 8, "the daily total is at least as big (%d vs %d)" % [a.sim.graph.size(), b.sim.graph.size()])
 
 
 func _morning_after_first_night(seed: int) -> GameState:
@@ -279,3 +279,65 @@ func test_an_unsteered_first_night_still_brings_all_four_nutrients() -> void:
 			weak_days.append(seed)
 	t.check(missing.is_empty(), "the starter patch feeds every kind: missing %s" % str(missing))
 	t.check(weak_days.is_empty(), "day 1 grows a real sapling (weak seeds %s)" % str(weak_days))
+
+
+func test_a_tap_boosts_one_game_hour_and_time_runs_on() -> void:
+	# Simon, play test 3: tap to boost for about an hour; the clock never stops.
+	var g := _morning_after_first_night(19)
+	while g.sim.dawn_burst_active():
+		g.tick(0.5)
+	var t0 := g.sim.clock.time_of_day
+	g.boost_hour()
+	t.check(g.sim.clock.boost_active, "a tap boosts")
+	var hour := g.sim.clock.hour_seconds()
+	var waited := 0.0
+	while g.sim.clock.boost_active and waited < hour * 3.0:
+		g.tick(0.25)
+		waited += 0.25
+	t.check_near(waited, hour, 0.3, "for one game hour")
+	t.check(g.sim.clock.time_of_day > t0 + 0.9 * hour / g.sim.clock.seconds_per_day, "while the clock ran on")
+	g.boost_hour()
+	g.boost_hour()
+	g.boost_hour()
+	g.boost_hour()
+	t.check(g.sim.clock.boost_remaining <= hour * 3.0 + 1e-3, "at most three hours ahead")
+
+
+func test_a_boost_ends_with_the_day_and_survives_a_save() -> void:
+	# QA round 1: a late tap must not carry into the next morning, and a save keeps the boost.
+	var g := _morning_after_first_night(23)
+	while g.sim.dawn_burst_active():
+		g.tick(0.5)
+	g.boost_hour()
+	var back := DayCycle.from_dict(g.sim.clock.to_dict())
+	t.check_near(back.boost_remaining, g.sim.clock.boost_remaining, 1e-3, "boost time is saved")
+	t.check(back.boost_active, "and still boosting after a load")
+	g.sim.clock.time_of_day = g.sim.clock.daylight_fraction - 0.001
+	g.boost_hour()
+	var guard := 0
+	while g.phase == GameState.Phase.DAY and guard < 100:
+		g.tick(0.25)
+		guard += 1
+	t.check(g.phase != GameState.Phase.DAY, "the sun set")
+	t.check_near(g.sim.clock.boost_remaining, 0.0, 1e-6, "and the boost ended with it")
+
+
+func test_visitors_come_once_as_the_tree_grows() -> void:
+	# Game feel: butterflies at the first leaves, a nest once the tree is tall, each once.
+	var g := GameState.new_game(31)
+	t.check(Visitors.arrive(g).is_empty(), "nobody visits a seed")
+	for _day in range(8):
+		g.dive()
+		g.start_run(0 if g.roots.graph.size() <= 1 else g.roots.graph.size() - 1)
+		var bot := RootBot.new()
+		var guard := 0
+		while g.steer(bot.stick_for(g.roots, g.ground), false, 1.0 / 30.0) and guard < 20000:
+			guard += 1
+		while g.phase == GameState.Phase.NIGHT:
+			g.tick(0.25)
+		while g.phase == GameState.Phase.DAY:
+			g.tick(0.5)
+	var first := Visitors.arrive(g)
+	t.check(first.has("butterflies"), "butterflies have come (%s, %.1f m)" % [str(first), g.sim.height()])
+	t.check(g.sim.height() < 8.0 or first.has("nest"), "a tall tree gets a nest")
+	t.check(not Visitors.arrive(g).has("butterflies"), "each visitor comes once")

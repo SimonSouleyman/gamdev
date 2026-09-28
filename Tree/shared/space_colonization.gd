@@ -41,6 +41,9 @@ func seed_sphere(center: Vector3, radius: float, count: int, limit: int = Budget
 		while v.length_squared() > 1.0:
 			v = Vector3(rng.randf_range(-1, 1), rng.randf_range(-1, 1), rng.randf_range(-1, 1))
 		var p := center + v * radius
+		# Markers below the floor are mirrored up, not flattened into a layer at the floor.
+		if p.y < min_y:
+			p.y = min_y + (min_y - p.y)
 		p.y = clampf(p.y, min_y, max_y)
 		markers.append(p)
 

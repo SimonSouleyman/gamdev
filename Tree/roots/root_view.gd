@@ -9,6 +9,8 @@ signal run_started(from_id: int)
 signal run_finished(totals: PackedFloat32Array)
 signal find_touched(find: Dictionary)
 signal dots_collected(count: int)
+## A quick swipe up once the night's root is done: back up to the tree (play test 4).
+signal swipe_up
 
 enum Mode { IDLE, PICK, RUN, DONE }
 
@@ -44,6 +46,7 @@ var _orbit_pitch: float = 0.45
 var _orbit_distance: float = 7.0
 var _look: Vector3 = Vector3(0, -1.5, 0)
 var _press_pos: Vector2 = Vector2.ZERO
+var _press_msec: int = 0
 var _pressing: bool = false
 var _dragged: bool = false
 
@@ -91,6 +94,8 @@ func setup(p_ground: Underground, p_roots: RootSystem, p_res: Resources) -> void
 	_find_nodes.clear()
 	_fill_dots()
 	_build_rocks()
+	# Fractured boulders instead of spheres (visuals thread).
+	RockLook.apply_roots(self)
 	_build_finds()
 	_rebuild_all()
 
@@ -199,9 +204,13 @@ func _fill_dots() -> void:
 
 func _set_dot(i: int) -> void:
 	var mm := _dots.multimesh
-	var s := 0.0 if ground.dot_collected[i] != 0 else 0.22 + 0.08 * ground.dot_amounts[i]
+	# The glow shrinks as a deposit is drawn down; tapped deposits keep glowing until empty.
+	var s := 0.0 if ground.dot_collected[i] != 0 else (0.16 + 0.16 * ground.fullness(i)) * (0.8 + 0.2 * ground.dot_capacity[i] / Underground.DEPOSIT_SHARES)
 	mm.set_instance_transform(i, Transform3D(Basis.from_scale(Vector3.ONE * s), ground.dot_positions[i]))
-	mm.set_instance_color(i, Resources.KIND_COLORS[ground.dot_kinds[i]])
+	# Deposits the roots already reach are dimmed, so the player looks for fresh ones.
+	var reached := roots != null and roots.tapped.has(i)
+	mm.set_instance_transform(i, Transform3D(Basis.from_scale(Vector3.ONE * s * (0.7 if reached else 1.0)), ground.dot_positions[i]))
+	mm.set_instance_color(i, Resources.KIND_COLORS[ground.dot_kinds[i]] * (0.4 if reached else 1.0))
 
 
 func _build_rocks() -> void:
@@ -288,8 +297,9 @@ func _build_hud() -> void:
 	_hint = PaperNote.new(27, 62)
 	_hint.set_anchors_preset(Control.PRESET_TOP_WIDE)
 	_hint.offset_left = 50
-	_hint.offset_right = -50
-	_hint.offset_top = 190
+	# Clear of the corner scraps (shed, photo) on the right.
+	_hint.offset_right = -190
+	_hint.offset_top = 268
 	root.add_child(_hint)
 
 	joystick = ThumbStick.new()
@@ -384,7 +394,7 @@ func _update_hud() -> void:
 		Mode.RUN:
 			_hint.text = "Move the stick (or WASD) to grow the root." if _waiting_for_input else ""
 		Mode.DONE:
-			_hint.text = "A quiet night below. Morning comes soon." if quiet_night else "The new root settles. Fine roots reach for what is near."
+			_hint.text = ("A quiet night below. Swipe up to wake the tree." if quiet_night else "The new root settles. Fine roots reach for what is near.") if is_settling() or quiet_night else "Swipe up to wake the tree, or wait for the morning."
 		_:
 			_hint.text = ""
 
@@ -470,6 +480,8 @@ func _process(delta: float) -> void:
 			(_dots.material_override as ShaderMaterial).set_shader_parameter("fog_far", 15.0)
 			_process_run(delta)
 		Mode.PICK, Mode.DONE:
+			if _settle_t >= 0.0:
+				_process_settle(delta)
 			# From the overview the whole underground glows; up close only the near dots do.
 			(_dots.material_override as ShaderMaterial).set_shader_parameter("fog_far", _orbit_distance + 12.0)
 			if not _pressing:
@@ -512,16 +524,34 @@ func _process_run(delta: float) -> void:
 	var flat := Vector3(h.x, 0.0, h.z)
 	var back := (h * 0.5 + (flat.normalized() if flat.length_squared() > 1e-4 else -camera.global_basis.z) * 0.5).normalized()
 	var want := _outside_rocks(roots.tip_position - back * 2.4 + Vector3.UP * 0.8)
-	camera.position = _outside_rocks(camera.position.lerp(want, 1.0 - exp(-4.0 * delta)))
+	camera.position = _outside_roots(_outside_rocks(camera.position.lerp(want, 1.0 - exp(-4.0 * delta))))
 	_look_at_safely(roots.tip_position + h * 1.2)
 	if not alive:
 		# end_run() already grew the fine roots and collected their dots.
 		for i in roots.last_collected:
 			_set_dot(i)
 			_flash(ground.dot_positions[i], Resources.KIND_COLORS[ground.dot_kinds[i]])
-		_rebuild_all()
-		begin_idle_overview()
-		run_finished.emit(roots.run_totals)
+		_settle()
+
+
+## Keeps the camera out of the thick old roots near the trunk (Simon's phone test: the screen
+## filled with root bark). Only segments thicker than a finger are checked.
+func _outside_roots(p: Vector3) -> Vector3:
+	var g := roots.graph
+	for id in range(1, g.size()):
+		var r := g.radii[id] * _builder.radius_scale
+		if r < 0.04:
+			continue
+		var a := g.positions[g.parents[id]]
+		var b := g.positions[id]
+		var c := Geometry3D.get_closest_point_to_segment(p, a, b)
+		var keep := r + 0.45
+		if p.distance_squared_to(c) < keep * keep:
+			var away := p - c
+			if away.length_squared() < 1e-6:
+				away = Vector3.UP
+			p = c + away.normalized() * keep
+	return p
 
 
 ## Keeps the camera out of rocks (and below the meadow), so it never fills the screen with stone.
@@ -553,9 +583,58 @@ func end_early() -> void:
 		_flash(ground.dot_positions[i], Resources.KIND_COLORS[ground.dot_kinds[i]])
 	if not roots.last_collected.is_empty():
 		dots_collected.emit(roots.last_collected.size())
-	_rebuild_all()
+	_settle()
+
+
+## After a run, a short pause on what grew tonight while the fine roots spread out from the
+## new root (Simon, play test 4); only then does the night move on to the morning.
+const SETTLE_GROW := 2.8
+const SETTLE_HOLD := 1.8
+var _settle_t: float = -1.0
+var _settle_first_fine: int = 0
+var _settle_step: float = 0.0
+
+
+func is_settling() -> bool:
+	return _settle_t >= 0.0
+
+
+func _settle() -> void:
 	begin_idle_overview()
-	run_finished.emit(roots.run_totals)
+	var g := roots.graph
+	var start := clampi(roots.run_first_new_id, 1, g.size())
+	_settle_first_fine = g.size()
+	for id in range(start, g.size()):
+		if g.get_flag(id, "fine", -1) != -1:
+			_settle_first_fine = id
+			break
+	# Frame tonight's root.
+	if start < g.size():
+		var lo := g.positions[start]
+		var hi := lo
+		for id in range(start, g.size()):
+			lo = lo.min(g.positions[id])
+			hi = hi.max(g.positions[id])
+		_look = (lo + hi) * 0.5
+		_orbit_distance = clampf((hi - lo).length() * 0.9 + 3.0, 4.0, 16.0)
+	_static_roots.mesh = _builder.build(g, 1, _settle_first_fine)
+	_live_roots.mesh = null
+	_settle_t = 0.0
+	_settle_step = 0.0
+
+
+func _process_settle(delta: float) -> void:
+	_settle_t += delta
+	_settle_step += delta
+	var g := roots.graph
+	if _settle_t < SETTLE_GROW + 0.15 and _settle_step >= 0.12:
+		_settle_step = 0.0
+		var k := smoothstep(0.0, SETTLE_GROW, _settle_t)
+		_static_roots.mesh = _builder.build(g, 1, _settle_first_fine + int(ceil((g.size() - _settle_first_fine) * k)))
+	if _settle_t >= SETTLE_GROW + SETTLE_HOLD:
+		_settle_t = -1.0
+		_rebuild_all()
+		run_finished.emit(roots.run_totals)
 
 
 func _look_at_safely(target: Vector3) -> void:
@@ -653,6 +732,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		_pressing = true
 		_dragged = false
 		_press_pos = pos
+		_press_msec = Time.get_ticks_msec()
 	elif is_move:
 		if _pressing:
 			var rel := (event as InputEventMouseMotion).relative
@@ -668,6 +748,10 @@ func _unhandled_input(event: InputEvent) -> void:
 				_hover.position = roots.graph.positions[id]
 	elif is_release:
 		_pressing = false
+		var swipe := _press_pos - pos
+		if mode == Mode.DONE and not is_settling() and swipe.y > 160.0 and absf(swipe.x) < swipe.y * 0.7 				and Time.get_ticks_msec() - _press_msec < 900:
+			swipe_up.emit()
+			return
 		if not _dragged and mode == Mode.PICK:
 			var id := pick_node_at(pos)
 			if id >= 0:

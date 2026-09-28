@@ -60,7 +60,8 @@ static func paper_texture(w: int, h: int, seed: int, torn: String = "", tint: Co
 	if ResourceLoader.exists(photo_path):
 		# Read once from the file (not back from the GPU) and kept for every page.
 		if not _cache.has(photo_path):
-			var raw := Image.load_from_file(ProjectSettings.globalize_path(photo_path))
+			# The raw file only exists in the editor; an exported game (the phone) reads the import.
+			var raw: Image = Image.load_from_file(ProjectSettings.globalize_path(photo_path)) if OS.has_feature("editor") else null
 			if raw == null or raw.is_empty():
 				raw = (load(photo_path) as Texture2D).get_image()
 			if raw.is_compressed():
@@ -205,6 +206,8 @@ static func ink_label(text: String, size: int, color: Color = INK, bold: bool = 
 	l.add_theme_font_size_override("font_size", size)
 	l.add_theme_color_override("font_color", color)
 	l.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	# Ink that sits in the paper: pressure, skips and a slight bleed (visuals thread).
+	l.material = PaperLook.ink_material()
 	return l
 
 

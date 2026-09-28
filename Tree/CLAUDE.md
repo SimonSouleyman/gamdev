@@ -18,7 +18,7 @@ Design doc: `docs/design-doc.md` (the source of truth for gameplay decisions).
 - `audio/`, `ui/` as named.
 - `tests/` headless tests. Run: `godot --headless --path . -s tests/run_tests.gd` (exit code 0 = pass). After a fresh checkout run `godot --headless --path . --import` once, or class_name lookups fail.
 - `docs/` design doc and research notes.
-- `tools/` dev tools: `autoplay.gd` plays the real scene end to end (seed, first root, sapling, boost, sun drag, second root) and takes screenshots; `grow_shot.gd` grows a tree for N days and photographs it; `month_report.gd` prints 30 days of bot play for tuning; `root_bot.gd` is the autopilot they share.
+- `tools/` dev tools: `autoplay.gd` plays the real scene end to end (seed, first root, sapling, tap boost, the day running on, second root) and takes screenshots; `grow_shot.gd` grows a tree for N days and photographs it; `month_report.gd -- --species=<id>|all` prints bot play day by day until the tree is finished, for tuning; `root_bot.gd` is the autopilot they share.
 - `main.tscn` is the game: it owns `GameState` (shared/) and switches `TreeView` (tree/) and `RootView` (roots/).
 
 ## Workflow
@@ -28,6 +28,10 @@ Design doc: `docs/design-doc.md` (the source of truth for gameplay decisions).
 - Visual judgement (does it look natural) is Simon's: post a screenshot in the project thread. After each step, ask the play-test questions from `docs/game-feel-review-2026-09-27.md`.
 - Before handing a step over, run `godot --path . -s tools/autoplay.gd -- --shots=<folder>` and look at the screenshots.
 - Sun steering is three-dimensional (east / south+up / west) and boosting trades life force for growth speed; keep both when touching `DayCycle` or `GrowthSim`.
+
+## Versions
+- Releases are tagged `tree-vX.Y(.Z)` and built into `GameDev/tree-releases`. From v0.5 on (Simon, 2026-09-28): fixes and improvements found in tests go out as 0.5.1, 0.5.2 and so on; only new features justify 0.6.
+- Phone builds use the Gradle build (the TreePhone plugin): `godot --headless --path . --export-debug "Android" <apk>`. The Android build template in `android/` is gitignored; after reinstalling it, set `buildTools` to `'36.0.0'` in `android/build/config.gradle` (see `android_plugin/README.md`).
 
 ## Style
 - `snake_case` files and functions, `PascalCase` classes via `class_name`.

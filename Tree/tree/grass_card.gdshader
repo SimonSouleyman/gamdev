@@ -6,8 +6,8 @@ render_mode cull_disabled, diffuse_lambert_wrap;
 
 uniform sampler2D clump_texture : source_color, filter_linear_mipmap, repeat_disable;
 uniform float wind_strength = 1.0;
-uniform float fade_start = 14.0;
-uniform float fade_end = 30.0;
+uniform float fade_start = 24.0;
+uniform float fade_end = 42.0;
 
 void vertex() {
 	vec3 world = (MODEL_MATRIX * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
@@ -28,7 +28,7 @@ void fragment() {
 	ALPHA = tex.a;
 	ALPHA_SCISSOR_THRESHOLD = 0.4;
 	ALPHA_ANTIALIASING_EDGE = 0.3;
-	ROUGHNESS = 0.85;
-	SPECULAR = 0.2;
+	ROUGHNESS = 0.95;
+	SPECULAR = 0.05;
 	BACKLIGHT = tex.rgb * 0.15 * (1.0 - UV.y);
 }

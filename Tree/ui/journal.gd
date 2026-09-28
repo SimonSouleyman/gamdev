@@ -14,9 +14,12 @@ signal setting_changed(key: String, value: bool)
 const MIN_PAGE_SECONDS := 0.6
 
 var state: GameState
-var settings: Dictionary = {"sound": true, "no_ui": false, "battery_saver": false, "notifications": true}
+## "any_species" is the test switch on the shed's pinboard: every species plantable now.
+var settings: Dictionary = {"sound": true, "no_ui": false, "battery_saver": false, "notifications": true, "any_species": false}
 
 var _queue: Array = []  # [{id, title, body}]
+## Pages put aside while the player is in the shed; they come back outside.
+var _held: Array = []
 var _page: Control
 var _page_sheet: PanelContainer
 var _page_title: Label
@@ -37,6 +40,7 @@ var _toggles: Dictionary = {}
 var _open_button: Button
 var _pages_list: VBoxContainer
 var _pages_empty: Label
+var _book_title: Label
 
 
 func _ready() -> void:
@@ -76,7 +80,8 @@ func _next_page() -> void:
 	# Each page is torn a little differently and lies a little askew.
 	_pages_torn += 1
 	# Torn from a squared notebook.
-	_page_sheet.add_theme_stylebox_override("panel", Paper.paper_box(320, 260, 40 + _pages_torn % 5, "top", 34.0, Paper.PAPER, "grid"))
+	# Crumpled, torn paper lit like a real sheet (visuals thread).
+	PaperLook.apply(_page_sheet, "torn_page", 40 + _pages_torn % 5, 34.0)
 	_page.visible = true
 	# Above the book, when a page is opened from its "pages" tab.
 	move_child(_page, -1)
@@ -94,9 +99,39 @@ func _next_page() -> void:
 ## Drops every open or queued page (a new game or a load starts clean).
 func clear_pages() -> void:
 	_queue.clear()
+	_held.clear()
 	_page.visible = false
 	_page_id = ""
 	_book.visible = false
+
+
+## Puts the open and queued pages aside without marking them read (entering the shed).
+func hold_pages() -> void:
+	if _page.visible:
+		_held.append({"id": _page_id, "title": _page_title.text, "body": _page_body.text})
+		_page.visible = false
+		_page_id = ""
+	_held.append_array(_queue)
+	_queue.clear()
+	opened_changed.emit(is_open())
+
+
+## Brings the pages put aside back (leaving the shed).
+func release_pages() -> void:
+	_queue = _held + _queue
+	_held.clear()
+	if not _page.visible and not _queue.is_empty():
+		_next_page()
+
+
+## Ids of the page on screen, the queued and the held ones, in order (saved with the game).
+func pending_ids() -> Array[String]:
+	var out: Array[String] = []
+	if _page.visible and _page_id != "":
+		out.append(_page_id)
+	for p in _held + _queue:
+		out.append(str(p["id"]))
+	return out
 
 
 func current_page() -> String:
@@ -220,6 +255,7 @@ func _build_book() -> void:
 	# The leather cover, a little larger than the page.
 	var cover := Panel.new()
 	cover.add_theme_stylebox_override("panel", Paper.cover_box())
+	PaperLook.apply_leather(cover)
 	cover.set_anchors_preset(Control.PRESET_FULL_RECT)
 	cover.offset_left = 8
 	cover.offset_right = -40
@@ -243,7 +279,7 @@ func _build_book() -> void:
 
 	_book_page = PanelContainer.new()
 	# The book's pages: smooth cream paper.
-	_book_page.add_theme_stylebox_override("panel", Paper.paper_box(512, 736, 11, "", 34.0, Paper.PAPER, "cream"))
+	PaperLook.apply(_book_page, "book_page", 11, 34.0)
 	_book_page.set_anchors_preset(Control.PRESET_FULL_RECT)
 	_book_page.offset_left = 40
 	_book_page.offset_right = -70
@@ -277,6 +313,7 @@ func _build_book() -> void:
 	var title := Paper.ink_label("My linden", 46, Paper.INK, true)
 	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	head.add_child(title)
+	_book_title = title
 	var close := Paper.ink_button("close", 26)
 	close.pressed.connect(close_diary)
 	head.add_child(close)
@@ -294,7 +331,7 @@ func _build_book() -> void:
 		content.add_child(c)
 
 	# Cloth ribbon bookmarks sticking out of the right edge of the book, with forked ends.
-	var ribbons := {"diary": Color(0.62, 0.2, 0.16), "pages": Color(0.25, 0.38, 0.22), "settings": Color(0.25, 0.3, 0.5)}
+	var ribbons := {"diary": Color(0.62, 0.2, 0.16), "pages": Color(0.25, 0.38, 0.22)}
 	var y := 120
 	for k in ribbons:
 		var b := Button.new()
@@ -304,8 +341,12 @@ func _build_book() -> void:
 		b.add_theme_font_size_override("font_size", 22)
 		for fc in ["font_color", "font_hover_color", "font_pressed_color"]:
 			b.add_theme_color_override(fc, Color(0.98, 0.95, 0.88))
+		# The text sits clear of the V cut in the ribbon's end.
+		var pad := StyleBoxEmpty.new()
+		pad.content_margin_left = 10
+		pad.content_margin_right = 20
 		for s in ["normal", "hover", "pressed", "focus"]:
-			b.add_theme_stylebox_override(s, StyleBoxEmpty.new())
+			b.add_theme_stylebox_override(s, pad)
 		var cloth := Control.new()
 		cloth.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		cloth.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -321,7 +362,7 @@ func _build_book() -> void:
 				cloth.draw_line(Vector2(12, i + 2), Vector2(12, i + 6), col.lightened(0.35), 1.0))
 		b.add_child(cloth)
 		b.set_anchors_preset(Control.PRESET_TOP_RIGHT)
-		b.offset_left = -76
+		b.offset_left = -92
 		b.offset_right = -2
 		b.offset_top = y
 		b.offset_bottom = y + 110
@@ -465,6 +506,7 @@ func _add_note() -> void:
 func _refresh_diary() -> void:
 	if state == null:
 		return
+	_book_title.text = "My " + state.tree_name()
 	_wish_label.text = ("A wish: " + state.diary.wish) if state.diary.wish != "" else ""
 	_wish_label.visible = state.diary.wish != ""
 	var out := ""
@@ -479,7 +521,7 @@ func _refresh_diary() -> void:
 	for c in _pages_list.get_children():
 		c.queue_free()
 	var any := false
-	for id in Pages.TEXTS:
+	for id in Pages.ids():
 		if state.seen_pages.has(id):
 			var b := Paper.ink_button(Pages.title(id), 26)
 			b.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN

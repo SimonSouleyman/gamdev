@@ -15,7 +15,7 @@ var text: String = "":
 
 
 func _init(font_size: int = 28, seed: int = 60) -> void:
-	add_theme_stylebox_override("panel", Paper.paper_box(256, 64, seed, "all", 18.0))
+	PaperLook.apply(self, "strip", seed, 18.0)
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	label = Paper.ink_label("", font_size, Paper.INK, true)
 	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER

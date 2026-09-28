@@ -1,0 +1,5 @@
+// Same Android Gradle Plugin version as Godot 4.7.2's Android build template,
+// so both builds share one Gradle/AGP download.
+plugins {
+    id "com.android.library" version "8.6.1" apply false
+}

@@ -4,13 +4,18 @@ extends RefCounted
 ## The clock only runs while the app is open (offline growth is applied separately on load).
 
 ## Real seconds for a full in-game day (day + night). Design doc: at most 10 minutes.
-var seconds_per_day: float = 480.0
+## Simon, play test 3: the day runs on its own and quickly (2 min of daylight, 1.2 min of night).
+var seconds_per_day: float = 192.0
 ## 0..1 within the day. 0.0 = sunrise, 0.5 = sunset, 1.0 = next sunrise.
 var time_of_day: float = 0.0
 ## Whole days completed since this tree was planted.
 var day_count: int = 0
 ## Fraction of the day that is daylight.
-var daylight_fraction: float = 0.625  # 5 min day, 3 min night (survey 2, to tune)
+var daylight_fraction: float = 0.625  # 120 s day, 72 s night (play test 3, to tune)
+## Hours of daylight the arc stands for (sunrise 6:00 to sunset 20:00).
+const DAYLIGHT_HOURS: float = 14.0
+## Seconds of boost left: a tap boosts the sun for one game hour while the clock runs on.
+var boost_remaining: float = 0.0
 ## Sun boost: brighter sun, faster growth, while active.
 var boost_active: bool = false
 var boost_multiplier: float = 3.0
@@ -18,6 +23,16 @@ var boost_multiplier: float = 3.0
 var boost_life_force_factor: float = 0.4
 ## Height of the sun at noon. Germany in summer is about 60 degrees; seasons will tilt this later.
 var noon_elevation: float = deg_to_rad(55.0)
+
+
+## Real seconds of one game hour of daylight.
+func hour_seconds() -> float:
+	return seconds_per_day * daylight_fraction / DAYLIGHT_HOURS
+
+
+## Game hour on a clock face, 6.0 at sunrise, 20.0 at sunset.
+func clock_hour() -> float:
+	return 6.0 + DAYLIGHT_HOURS * time_of_day / daylight_fraction
 
 
 func advance(delta_seconds: float) -> void:
@@ -63,12 +78,14 @@ func light_level() -> float:
 
 
 func to_dict() -> Dictionary:
-	return {"time_of_day": time_of_day, "day_count": day_count, "seconds_per_day": seconds_per_day}
+	return {"time_of_day": time_of_day, "day_count": day_count, "seconds_per_day": seconds_per_day, "boost_remaining": boost_remaining}
 
 
 static func from_dict(d: Dictionary) -> DayCycle:
 	var c := DayCycle.new()
 	c.time_of_day = float(d.get("time_of_day", 0.0))
 	c.day_count = int(d.get("day_count", 0))
-	c.seconds_per_day = float(d.get("seconds_per_day", 480.0))
+	c.seconds_per_day = 192.0  # the day length is a design value, not part of a save
+	c.boost_remaining = float(d.get("boost_remaining", 0.0))
+	c.boost_active = c.boost_remaining > 0.0
 	return c

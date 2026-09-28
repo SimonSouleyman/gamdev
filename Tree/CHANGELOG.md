@@ -1,5 +1,112 @@
 # Changelog
 
+## v0.5.1 (2026-09-28)
+
+From Simon's recorded phone test of v0.5 (video, frame-rate log and save state).
+- The tree view on the phone runs faster (about 12-16 to about 19-23 frames a second with a
+  26 m linden): a smaller clearing on phones (30 m), fewer and larger leaf sprays on a big tree,
+  a lighter meadow, and a leaner forest ring (the forest cost the phone the most).
+- The sky on the phone is bright again and the far wood is hazed; no black band on the horizon.
+- Calmer grass and a lighter dawn and evening haze on the phone.
+- Underground, the camera no longer ends up inside thick roots.
+
+## v0.5 (2026-09-28)
+
+Simon's play test 4 and the whole open list, then one test loop with screenshots.
+From here on: fixes go out as 0.5.1, 0.5.2 ...; only new features start 0.6.
+
+### Play test 4
+- Drag the sun along the arc to let the day pass; a tap anywhere else still boosts (a boost
+  already bought waits for after the skip).
+- After a root run, a short pause frames tonight's root while its fine roots spread out.
+- The dive falls into the ground (down, a little turn and zoom); swipe down at sunset to dive,
+  swipe up after the night's root to wake the tree.
+- The tree stands out: lighter, warmer leaves with a soft rim; darker forest; calmer meadow.
+- The meadow: fine grass, blue-green sedge, clover patches and drifts of meadow flowers.
+- Pruning: a "shears" scrap; the cut point and the part that would fall show under the finger
+  or mouse; the cut branch tips over and sinks into the grass. Never the trunk, never more than
+  a fifth of the tree. Pruned wood no longer counts for height, life force or finishing.
+- The shed in real weathered wood, a worn workbench, leather books, a folded seed bag, a seedling.
+- The album like a real book: cloth binding, handled pages, photos glued in askew with old tape.
+
+### Also on the list
+- Real nature sounds (CC0): forest with birds by day, crickets at dusk, water trickling below.
+- Visitors: butterflies, a blackbird nest in the crown, a fox in the shade, a bench under the tree.
+- Phone: "as wallpaper" in the album sets the home-screen wallpaper; "a note each day" on the
+  pinboard is a daily reminder at 9:00 (plain Android, no Google services). Photos in wallpaper size.
+- The HUD names a missing nutrient and its dot colour; no offline life force in the middle of a
+  night's root; the day-1 camera shows the sapling, not the forest wall; dawn is never black; the
+  sky is out of the haze; scraps clear of the compass and the hints; journal ribbons readable.
+
+### Six tree species
+- Linden, silver birch, beech, sycamore maple, black alder and pedunculate oak (design doc section 15),
+  each with its own needs, size, growth shape, bark and leaf tint, and one quirk on an existing mechanic.
+- New small mechanics the quirks needed: shade dieback of crowded inner twigs, and the leaves' daily water upkeep.
+- A tree is finished at its species' size; the seed bag in the shed then plants the next unlocked species.
+  The options pinboard has a test switch "any species now". Each species has a journal page.
+- tools/month_report.gd runs until the tree is finished, per species (--species=<id>|all).
+
+## v0.4 (2026-09-28)
+
+The new look from the visuals thread, and the game running well on Simon's Fairphone 6.
+One test loop with screenshots on PC and phone (Simon's call for this version).
+
+### Look
+- The linden's crown is made of painted leaf sprays that shade as one volume; grey-brown bark.
+- Forest trees and shrubs use the same sprays; painted meadow grass; fractured, mossy boulders
+  underground and stones in the meadow.
+- Golden hour: warm low sun, real light and shade by day, softer glare; more contrast.
+- Paper UI: crumpled torn pages, a bound book page with a leather cover, paper notes and ink
+  that sits in the paper.
+
+### Phone
+- Fixed a crash in the sound after a few seconds on Android.
+- From 4 to about 20 frames per second on the Fairphone: a simpler renderer (which also removed
+  flickering lines), half-resolution 3D, fewer forest trees, shrubs, grass and flowers, cheaper
+  leaves, a 30 fps cap to save battery.
+- The back gesture closes the journal or a board, goes to the shed, and in the shed leaves the game.
+
+### Fixes from the test loop
+- Handwriting no longer thin and grey; pages and the book fade in properly.
+
+## v0.3 (2026-09-28)
+
+From Simon's play test 3 and his menu wishes, then three rounds of independent review
+(each with a play/robustness tester and a look/realism tester).
+
+### Gameplay (play test 3)
+- The day runs by itself (about three minutes). A tap boosts the sun for one game hour while the
+  clock keeps running; taps stack up to three hours; a boost ends with the day and is saved.
+- Resources are deposits: the new root's first contact takes 40 %, and every root that reached a
+  deposit keeps drinking a share of it each night until it is empty. Reached deposits are dimmed
+  underground, so fresh ones stand out. Nitrogen comes back faster (clover and nettles).
+- Growth is steady over the whole month: visible every day, the tree reaches its size near day 30.
+- When one nutrient runs out, a page says which one and what colour its dots are.
+
+### Menus (Simon's answers 1A 2A 3A 4A)
+- The start menu is the garden shed: the tree seen through the open door, journal, album and seed
+  bag on the bench, a handwritten note as the menu. A "shed" scrap pauses the game and goes there.
+- Options on a cork pinboard, a photo album with a photo every morning plus a camera scrap,
+  a drawn journal page while loading. One tree at a time, no save slots.
+
+### Look
+- Uneven natural ground (it is now actually drawn), gentle swells, rising toward the forest.
+- The clearing edge in three layers: herbs, ferns and flowers in front, a belt of hazel, hawthorn,
+  elder, holly and blackthorn, then the trees. The shed is only seen from inside.
+- The clearing grows with the tree (18 m up to 42 m), so the camera can step back and show a grown
+  linden whole.
+- The crown starts above a clear trunk, fuller leaves, fuller darker forest crowns, depth fog that
+  keeps the tree crisp, less glare in the evening.
+
+### Fixes
+- No softlock from Esc during a dive or sunrise; no HUD over the shed or scraps over loading.
+- Unread tutorial pages survive entering the shed and closing the game.
+- Album in the order taken, opens on the newest photo; one photo at a time, never through a fade.
+
+### Phone
+- Android export (arm64, portrait, debug-signed, no Google services needed), app icon from an
+  in-game shot of a half-grown linden.
+
 ## v0.2 (2026-09-27)
 
 Everything since v0.1, from Simon's play tests and seven rounds of independent review

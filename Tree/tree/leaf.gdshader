@@ -49,7 +49,7 @@ void fragment() {
 	}
 	ALPHA_SCISSOR_THRESHOLD = 0.45;
 	ALPHA_ANTIALIASING_EDGE = 0.3;
-	ROUGHNESS = 0.8;
-	SPECULAR = 0.12;
+	ROUGHNESS = 0.9;
+	SPECULAR = 0.03;
 	BACKLIGHT = translucency * COLOR.rgb;
 }
