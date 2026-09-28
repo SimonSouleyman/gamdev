@@ -23,6 +23,9 @@ static var MEADOW_FLOWERS: int = 500 if PHONE else 1500
 static var MEADOW_GRASS_CLUMPS: int = 2200 if PHONE else 9500
 static var MEADOW_HERB_CLUMPS: int = 350 if PHONE else 900
 static var MEADOW_VARIETY_CLUMPS: int = 450 if PHONE else 2800
+## Shade plants under the crown (the living clearing) and mushroom groups after rain.
+static var UNDERSTORY_PLANTS: int = 300 if PHONE else 1100
+static var UNDERSTORY_MUSHROOMS: int = 12 if PHONE else 30
 ## Leaf sprays per forest leaf cluster, and edge herb cards.
 static var FOREST_SPRAYS: int = 2 if PHONE else 5
 static var EDGE_HERBS: int = 160 if PHONE else 1100

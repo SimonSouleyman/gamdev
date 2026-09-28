@@ -144,8 +144,8 @@ func start(p_state: GameState) -> void:
 func _show_underground(on: bool) -> void:
 	_underground = on
 	# By night the tree scene is hidden: the time to widen the clearing for a grown tree.
-	if on:
-		tree_view.refresh_clearing()
+	# At sunrise (behind the black fade) the ground under the crown catches up (mushrooms).
+	tree_view.refresh_clearing()
 	tree_view.visible = not on
 	tree_view.hud.visible = not on and not journal.settings["no_ui"]
 	root_view.visible = on

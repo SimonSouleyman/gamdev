@@ -77,7 +77,7 @@ func _mat(c: Color) -> StandardMaterial3D:
 
 
 ## Radius of the bare earth around the trunk.
-const BARE_RADIUS := 0.9
+const BARE_RADIUS := Clearing.BARE_RADIUS
 
 
 func _scatter(center: Vector3, radius: float, count: int, make: Callable) -> void:
