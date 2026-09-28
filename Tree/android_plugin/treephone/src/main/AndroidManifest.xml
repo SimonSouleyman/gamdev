@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-permission android:name="android.permission.SET_WALLPAPER" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
+    <application>
+        <!-- Godot Android plugin v2 registration: singleton "TreePhone". -->
+        <meta-data
+            android:name="org.godotengine.plugin.v2.TreePhone"
+            android:value="de.simonsouleyman.treephone.TreePhonePlugin" />
+
+        <!-- Fired by AlarmManager once a day; posts the reminder and arms the next one. -->
+        <receiver
+            android:name="de.simonsouleyman.treephone.ReminderReceiver"
+            android:exported="false" />
+
+        <!-- Alarms are lost on reboot, time change and app update: re-arm them. -->
+        <receiver
+            android:name="de.simonsouleyman.treephone.BootReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+                <action android:name="android.intent.action.TIME_SET" />
+                <action android:name="android.intent.action.TIMEZONE_CHANGED" />
+            </intent-filter>
+        </receiver>
+    </application>
+</manifest>
