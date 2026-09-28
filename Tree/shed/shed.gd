@@ -26,6 +26,7 @@ var _floor: Material
 var _table: Material
 var _time: float = 0.0
 var _lamp: OmniLight3D
+var _lamp_base: float = 1.0
 var menu: Control  # 2D handwritten menu note, added to a CanvasLayer by the owner
 
 
@@ -161,6 +162,10 @@ func _build_room() -> void:
 	_lamp = OmniLight3D.new()
 	_lamp.light_color = Color(1.0, 0.78, 0.5)
 	_lamp.light_energy = 1.1
+	# The phone's simpler renderer lights the room more dimly.
+	if RenderingServer.get_current_rendering_method() == "gl_compatibility":
+		_lamp_base = 2.0
+		_lamp.omni_range = 5.5
 	_lamp.omni_range = 4.5
 	_lamp.position = Vector3(-1.1, WALL_H - 0.45, -0.95)
 	add_child(_lamp)
@@ -284,7 +289,7 @@ func frame_tree(tree_height: float, env: Environment) -> void:
 func _process(delta: float) -> void:
 	_time += delta
 	# The lantern flickers a little.
-	_lamp.light_energy = 1.0 + 0.1 * sin(_time * 7.3) + 0.05 * sin(_time * 13.1)
+	_lamp.light_energy = _lamp_base * (1.0 + 0.1 * sin(_time * 7.3) + 0.05 * sin(_time * 13.1))
 
 
 ## Which tappable item is at this screen point ("journal", "album", "seeds", "options" or "").

@@ -197,6 +197,15 @@ func finish_run_early() -> void:
 
 
 ## The view grew the root itself (RootView drives RootSystem directly): record the end of the run.
+## Time away from the game grows the tree a little. In the middle of a night's root the life
+## force stays as it was, or the root would run on with what the leaves gathered meanwhile.
+func apply_offline(seconds: float) -> void:
+	var life := sim.resources.life_force
+	sim.apply_offline(seconds)
+	if phase == Phase.NIGHT and roots.run_active:
+		sim.resources.life_force = life
+
+
 func notify_run_done() -> void:
 	if phase == Phase.NIGHT and run_used and not night_done:
 		_on_run_done()

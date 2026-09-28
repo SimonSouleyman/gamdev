@@ -338,8 +338,12 @@ func _build_book() -> void:
 		b.add_theme_font_size_override("font_size", 22)
 		for fc in ["font_color", "font_hover_color", "font_pressed_color"]:
 			b.add_theme_color_override(fc, Color(0.98, 0.95, 0.88))
+		# The text sits clear of the V cut in the ribbon's end.
+		var pad := StyleBoxEmpty.new()
+		pad.content_margin_left = 10
+		pad.content_margin_right = 20
 		for s in ["normal", "hover", "pressed", "focus"]:
-			b.add_theme_stylebox_override(s, StyleBoxEmpty.new())
+			b.add_theme_stylebox_override(s, pad)
 		var cloth := Control.new()
 		cloth.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		cloth.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -355,7 +359,7 @@ func _build_book() -> void:
 				cloth.draw_line(Vector2(12, i + 2), Vector2(12, i + 6), col.lightened(0.35), 1.0))
 		b.add_child(cloth)
 		b.set_anchors_preset(Control.PRESET_TOP_RIGHT)
-		b.offset_left = -76
+		b.offset_left = -92
 		b.offset_right = -2
 		b.offset_top = y
 		b.offset_bottom = y + 110

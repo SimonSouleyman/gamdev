@@ -172,6 +172,8 @@ func _build_world() -> void:
 	_env.fog_depth_end = 70.0
 	_env.fog_depth_curve = 1.0
 	_env.fog_density = 0.6
+	# The haze lies over the land, not the sky (on the phone renderer it turned the sky grey).
+	_env.fog_sky_affect = 0.15
 	_env.fog_light_color = Color(0.45, 0.55, 0.5)
 	_env.fog_aerial_perspective = 0.25
 	_env.fog_sky_affect = 0.05
@@ -476,6 +478,20 @@ func set_hud_visible(on: bool) -> void:
 	hud.visible = on
 
 
+## Names and dot colours of the nutrients the tree lacks right now, for the hint.
+func _missing_nutrients() -> Array:
+	var names := ["water", "nitrogen", "phosphorus", "potassium"]
+	var colours := ["blue", "green", "orange", "violet"]
+	var n: Array[String] = []
+	var c: Array[String] = []
+	var sim := state.sim
+	for k in range(4):
+		if sim.species.needs[k] > 0.0 and sim.resources.stock[k] < sim.cost_per_node * sim.species.needs[k]:
+			n.append(names[k])
+			c.append(colours[k])
+	return [" and ".join(n), " and ".join(c)]
+
+
 func _update_hud() -> void:
 	var s := state.sim
 	_day_label.text = "the seed" if state.is_seed() and state.day_number() == 0 else "day %d" % state.day_number()
@@ -499,6 +515,11 @@ func _update_hud() -> void:
 		GameState.Phase.DAY:
 			if state.day_is_spent():
 				_hint.text = ("Almost nothing left to grow with today" if state.sim.nutrient_missing() and not state.sim.graph.is_full() and state.sim.resources.stock[0] >= state.sim.cost_per_node else "Nothing left to grow with today") + ". The leaves still gather life force for tonight."
+			elif prune_mode:
+				_hint.text = "Touch a branch to see where the shears would cut; lift the finger to cut."
+			elif state.sim.nutrient_missing() and not state.is_seed():
+				# Which nutrient is short, and which dots to steer for tonight (play test review).
+				_hint.text = "Short of %s: steer tonight's root toward the %s dots." % _missing_nutrients()
 			elif state.day_number() <= 3 and not state.is_seed():
 				# The first days: a quiet reminder of what can be done while the tree grows.
 				_hint.text = "Tap to let the sun shine brighter for an hour."
@@ -640,7 +661,8 @@ func _update_sun() -> void:
 	# that stays warm until it is well up, and haze that takes its colour.
 	_env.fog_sun_scatter *= 0.35
 	if h > 0.0:
-		_env.ambient_light_energy *= 0.6
+		# Less flat fill by day, but never a black dawn.
+		_env.ambient_light_energy *= lerpf(0.95, 0.6, smoothstep(0.0, 0.2, h))
 		_sun_light.light_energy *= 1.45
 		var golden := 1.0 - smoothstep(0.03, 0.55, h)
 		_sun_light.light_color = Color(1.0, 0.95, 0.88).lerp(Color(1.0, 0.7, 0.4), golden)
@@ -678,7 +700,10 @@ func _frame_camera(snap: bool, delta: float = 0.0) -> void:
 	var k := 1.0 if snap else 1.0 - exp(-2.0 * delta)
 	_focus = _focus.lerp(want_focus, k)
 	_distance = lerpf(_distance, want_distance, k)
-	var orbit := _focus + Vector3(sin(_yaw) * cos(_pitch), sin(_pitch), cos(_yaw) * cos(_pitch)) * _distance
+	# A small tree is seen from a little above, so the young plant and the meadow fill the frame
+	# rather than the forest wall behind it (review: day 1 showed mostly forest).
+	var pitch := maxf(_pitch, lerpf(0.5, 0.02, clampf(height / 5.0, 0.0, 1.0)))
+	var orbit := _focus + Vector3(sin(_yaw) * cos(pitch), sin(pitch), cos(_yaw) * cos(pitch)) * _distance
 	orbit.y = maxf(orbit.y, 0.25)
 	# The dive: the camera falls straight down into the ground beside the tree, turning a little
 	# and closing in (Simon, play test 4). Sunrise plays the same move backwards, rising out.

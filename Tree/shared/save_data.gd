@@ -69,7 +69,7 @@ static func load_game(path: String = GAME_PATH, now_unix: float = -1.0) -> GameS
 	# At most a week counts: after that the tree simply waited for the player.
 	var away := clampf(now_unix - float(data.get("saved_at_unix", now_unix)), 0.0, 7.0 * 86400.0)
 	if away > 0.0:
-		state.sim.apply_offline(away)
+		state.apply_offline(away)
 	return state
 
 

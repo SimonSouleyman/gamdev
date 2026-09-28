@@ -416,7 +416,7 @@ func _notification(what: int) -> void:
 		var away := clampf(Time.get_unix_time_from_system() - _paused_at, 0.0, 7.0 * 86400.0)
 		_paused_at = -1.0
 		if away > 1.0:
-			state.sim.apply_offline(away)
+			state.apply_offline(away)
 
 
 # --- the garden shed -----------------------------------------------------------------
@@ -426,14 +426,14 @@ func _build_corner() -> void:
 	_corner = CanvasLayer.new()
 	_corner.layer = 19
 	add_child(_corner)
-	_shed_button = _scrap("shed", Vector2(-160, 150))
+	_shed_button = _scrap("shed", Vector2(-160, 205))
 	_shed_button.pressed.connect(func() -> void:
 		if not _transitioning and not journal.is_open():
 			enter_shed(true))
-	_photo_button = _scrap("photo", Vector2(-160, 210))
+	_photo_button = _scrap("photo", Vector2(-160, 265))
 	_photo_button.pressed.connect(func() -> void: _take_photo("camera"))
 	# The shears: while out, a tap cuts a branch instead of boosting the sun (play test 4).
-	_shears_button = _scrap("shears", Vector2(-160, 270))
+	_shears_button = _scrap("shears", Vector2(-160, 325))
 	_shears_button.pressed.connect(func() -> void:
 		_set_shears(not tree_view.prune_mode)
 		if tree_view.prune_mode:
