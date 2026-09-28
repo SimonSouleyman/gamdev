@@ -1,9 +1,8 @@
 class_name SunArc
 extends Control
-## The sun's arc as a small sky chart at the top of the screen, shown once nutrients are spent:
-## sunrise on the left, sunset on the right, the glowing sun at the time of day.
-## Dragging the sun along the arc moves the day on (design doc "Day length"). The real sun in
-## the 3D sky can be dragged as well, but it is often above the portrait frame at noon.
+## The sun's arc as a small sky chart at the top of the screen: sunrise on the left, sunset on
+## the right, the glowing sun at the time of day. Grab the sun and drag it along the arc to let
+## the day pass (Simon, play test 4); a tap anywhere else still boosts the sun for an hour.
 
 signal dragged(fraction_of_day: float)
 
@@ -16,8 +15,13 @@ var _time: float = 0.0
 
 
 func _ready() -> void:
-	# Only a press on the sun itself is taken; anything else passes on (hold to boost, orbit).
-	mouse_filter = Control.MOUSE_FILTER_IGNORE
+	# Only a press on the sun itself is taken (see _has_point); anything else passes on
+	# to the tree view (tap to boost, orbit).
+	mouse_filter = Control.MOUSE_FILTER_STOP
+
+
+func _has_point(point: Vector2) -> bool:
+	return _dragging or point.distance_to(knob_position()) < 70.0
 
 
 func _process(delta: float) -> void:

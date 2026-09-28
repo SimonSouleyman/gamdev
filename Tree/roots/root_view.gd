@@ -476,6 +476,8 @@ func _process(delta: float) -> void:
 			(_dots.material_override as ShaderMaterial).set_shader_parameter("fog_far", 15.0)
 			_process_run(delta)
 		Mode.PICK, Mode.DONE:
+			if _settle_t >= 0.0:
+				_process_settle(delta)
 			# From the overview the whole underground glows; up close only the near dots do.
 			(_dots.material_override as ShaderMaterial).set_shader_parameter("fog_far", _orbit_distance + 12.0)
 			if not _pressing:
@@ -525,9 +527,7 @@ func _process_run(delta: float) -> void:
 		for i in roots.last_collected:
 			_set_dot(i)
 			_flash(ground.dot_positions[i], Resources.KIND_COLORS[ground.dot_kinds[i]])
-		_rebuild_all()
-		begin_idle_overview()
-		run_finished.emit(roots.run_totals)
+		_settle()
 
 
 ## Keeps the camera out of rocks (and below the meadow), so it never fills the screen with stone.
@@ -559,9 +559,58 @@ func end_early() -> void:
 		_flash(ground.dot_positions[i], Resources.KIND_COLORS[ground.dot_kinds[i]])
 	if not roots.last_collected.is_empty():
 		dots_collected.emit(roots.last_collected.size())
-	_rebuild_all()
+	_settle()
+
+
+## After a run, a short pause on what grew tonight while the fine roots spread out from the
+## new root (Simon, play test 4); only then does the night move on to the morning.
+const SETTLE_GROW := 2.8
+const SETTLE_HOLD := 1.8
+var _settle_t: float = -1.0
+var _settle_first_fine: int = 0
+var _settle_step: float = 0.0
+
+
+func is_settling() -> bool:
+	return _settle_t >= 0.0
+
+
+func _settle() -> void:
 	begin_idle_overview()
-	run_finished.emit(roots.run_totals)
+	var g := roots.graph
+	var start := clampi(roots.run_first_new_id, 1, g.size())
+	_settle_first_fine = g.size()
+	for id in range(start, g.size()):
+		if g.get_flag(id, "fine", -1) != -1:
+			_settle_first_fine = id
+			break
+	# Frame tonight's root.
+	if start < g.size():
+		var lo := g.positions[start]
+		var hi := lo
+		for id in range(start, g.size()):
+			lo = lo.min(g.positions[id])
+			hi = hi.max(g.positions[id])
+		_look = (lo + hi) * 0.5
+		_orbit_distance = clampf((hi - lo).length() * 0.9 + 3.0, 4.0, 16.0)
+	_static_roots.mesh = _builder.build(g, 1, _settle_first_fine)
+	_live_roots.mesh = null
+	_settle_t = 0.0
+	_settle_step = 0.0
+
+
+func _process_settle(delta: float) -> void:
+	_settle_t += delta
+	_settle_step += delta
+	var g := roots.graph
+	if _settle_t < SETTLE_GROW + 0.15 and _settle_step >= 0.12:
+		_settle_step = 0.0
+		var k := smoothstep(0.0, SETTLE_GROW, _settle_t)
+		_static_roots.mesh = _builder.build(g, 1, _settle_first_fine + int(ceil((g.size() - _settle_first_fine) * k)))
+	if _settle_t >= SETTLE_GROW + SETTLE_HOLD:
+		_settle_t = -1.0
+		_rebuild_all()
+		run_finished.emit(roots.run_totals)
 
 
 func _look_at_safely(target: Vector3) -> void:

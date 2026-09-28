@@ -283,6 +283,9 @@ func _enter_night_view() -> void:
 	if state.roots.run_active:
 		root_view.resume_run()
 	elif state.night_empty or state.run_used:
+		# Closed during the pause after a run: the night still has to move on.
+		if state.run_used and not state.night_done and not state.night_empty:
+			state.notify_run_done()
 		root_view.quiet_night = state.night_empty
 		root_view.begin_idle_overview()
 	else:
