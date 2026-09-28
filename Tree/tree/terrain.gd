@@ -23,6 +23,15 @@ static func _n() -> FastNoiseLite:
 
 
 static func height(x: float, z: float) -> float:
+	# Level under the garden shed, so the slope never shows through its floor.
+	var o: Vector3 = Shed.origin
+	var k := smoothstep(2.4, 4.2, Vector2(x - o.x, z - o.z).length())
+	if k >= 1.0:
+		return _raw(x, z)
+	return lerpf(_raw(o.x, o.z), _raw(x, z), k)
+
+
+static func _raw(x: float, z: float) -> float:
 	var d := Vector2(x, z).length()
 	var open := smoothstep(FLAT_RADIUS, FLAT_RADIUS + 6.0, d)
 	var swell := _n().get_noise_2d(x, z) * 1.4

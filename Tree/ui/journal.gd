@@ -78,7 +78,8 @@ func _next_page() -> void:
 	# Each page is torn a little differently and lies a little askew.
 	_pages_torn += 1
 	# Torn from a squared notebook.
-	_page_sheet.add_theme_stylebox_override("panel", Paper.paper_box(320, 260, 40 + _pages_torn % 5, "top", 34.0, Paper.PAPER, "grid"))
+	# Crumpled, torn paper lit like a real sheet (visuals thread).
+	PaperLook.apply(_page_sheet, "torn_page", 40 + _pages_torn % 5, 34.0)
 	_page.visible = true
 	# Above the book, when a page is opened from its "pages" tab.
 	move_child(_page, -1)
@@ -252,6 +253,7 @@ func _build_book() -> void:
 	# The leather cover, a little larger than the page.
 	var cover := Panel.new()
 	cover.add_theme_stylebox_override("panel", Paper.cover_box())
+	PaperLook.apply_leather(cover)
 	cover.set_anchors_preset(Control.PRESET_FULL_RECT)
 	cover.offset_left = 8
 	cover.offset_right = -40
@@ -275,7 +277,7 @@ func _build_book() -> void:
 
 	_book_page = PanelContainer.new()
 	# The book's pages: smooth cream paper.
-	_book_page.add_theme_stylebox_override("panel", Paper.paper_box(512, 736, 11, "", 34.0, Paper.PAPER, "cream"))
+	PaperLook.apply(_book_page, "book_page", 11, 34.0)
 	_book_page.set_anchors_preset(Control.PRESET_FULL_RECT)
 	_book_page.offset_left = 40
 	_book_page.offset_right = -70
