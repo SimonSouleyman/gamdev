@@ -41,3 +41,6 @@ static func _apply_light_and_grade(view: TreeView) -> void:
 	if not view.has_meta("lookdev_forest"):
 		view.set_meta("lookdev_forest", true)
 		ForestSprays.apply(view._scenery)
+	if not view.has_meta("lookdev_rocks"):
+		view.set_meta("lookdev_rocks", true)
+		RockLook.apply_meadow(view._meadow)
