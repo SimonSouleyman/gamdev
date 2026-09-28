@@ -6,6 +6,8 @@ extends Node3D
 ## Reads GameState; the only things it writes are boost, time skips and the ground tap.
 
 signal ground_tapped
+## A branch was cut with the shears (segments cut).
+signal pruned(segments: int)
 
 const REBUILD_INTERVAL := 0.5
 const TWINKLE_SECONDS := 2.5
@@ -25,11 +27,15 @@ var _sun_disc: MeshInstance3D
 var _sky_mat: PhysicalSkyMaterial
 var _grass: MultiMeshInstance3D
 var _herbs: MultiMeshInstance3D
+## Fine grass, sedge, clover and meadow flowers (GrassLook.apply_meadow2).
+var _meadow2: MultiMeshInstance3D
 var _noise_tex: NoiseTexture2D
 var _bark_mat: ShaderMaterial
 var _leaf_mat: ShaderMaterial
 var _ground_mat: ShaderMaterial
 var _spray_mat: ShaderMaterial
+## The forest's bark template: the linden's tint, never the hero species' (Scenery duplicates it).
+var _forest_bark: ShaderMaterial
 var _compat: bool = RenderingServer.get_current_rendering_method() == "gl_compatibility"
 var _ground: MeshInstance3D
 ## Radius of the clearing the world was last built for.
@@ -38,6 +44,9 @@ var _scenery: Scenery
 var _env: Environment
 var _meadow: Meadow
 var _builder := BranchMeshBuilder.new()
+## The shears: while on, taps cut branches instead of boosting (Pruning).
+var prune_mode: bool = false
+var pruning: Pruning
 var _rebuild_timer: float = 0.0
 var _built_size: int = -1
 var _births: Dictionary = {}  # node id -> time it appeared
@@ -90,13 +99,23 @@ func _ready() -> void:
 
 func setup(p_state: GameState) -> void:
 	state = p_state
+	apply_species(state.sim.species)
 	_clearing = -1.0
 	refresh_clearing()
 	_built_size = -1
 	_births.clear()
 	# Nodes that already exist do not twinkle.
 	_rebuild()
+	update_visitors()
 	_frame_camera(true)
+
+
+## The hero tree's look per species: bark and leaf tint on the existing materials
+## (a birch reads white-barked, an oak dark).
+func apply_species(sp: Species) -> void:
+	var b := sp.bark_tint
+	_bark_mat.set_shader_parameter("texture_tint", Vector3(b.r, b.g, b.b))
+	_spray_mat.set_shader_parameter("tint_mul", sp.leaf_tint)
 
 
 # --- world ------------------------------------------------------------------
@@ -115,11 +134,71 @@ func refresh_clearing() -> void:
 	RockLook.apply_meadow(_meadow)
 	_plant_grass(state.seed)
 	GrassLook.apply(self)
-	_scenery.build(state.seed, _bark_mat, _leaf_mat, _noise_tex, r)
+	GrassLook.apply_meadow2(self)
+	_scenery.build(state.seed, _forest_bark, _leaf_mat, _noise_tex, r)
 	ForestSprays.apply(_scenery)
 	# The haze begins further out as the clearing grows, so the forest ring is not buried.
 	_env.fog_depth_begin = r
 	_env.fog_depth_end = r * 2.0 + 34.0
+
+
+## The nest in the crown and the bench under the tree, once they have come (Visitors).
+var _nest: MeshInstance3D
+var _bench: Node3D
+
+
+func update_visitors() -> void:
+	if _nest == null:
+		_nest = MeshInstance3D.new()
+		var t := TorusMesh.new()
+		t.inner_radius = 0.12
+		t.outer_radius = 0.26
+		t.rings = 10
+		t.ring_segments = 8
+		_nest.mesh = t
+		var nm := StandardMaterial3D.new()
+		nm.albedo_color = Color(0.36, 0.28, 0.18)
+		nm.roughness = 1.0
+		nm.albedo_texture = load(Assets.BARK_DIFF)
+		nm.uv1_scale = Vector3(4, 1, 1)
+		_nest.material_override = nm
+		_nest.scale = Vector3(1, 0.7, 1)
+		add_child(_nest)
+	_nest.visible = Visitors.has_come(state, "nest")
+	if _nest.visible:
+		# In a fork about two thirds up, on a living branch with a few children.
+		var g := state.sim.graph
+		var want := state.sim.height() * 0.62
+		var best := 1
+		var best_d := INF
+		for id in range(2, g.size()):
+			if g.children[id].size() >= 2 and not g.get_flag(id, "dead", false):
+				var d := absf(g.positions[id].y - want)
+				if d < best_d:
+					best_d = d
+					best = id
+		_nest.position = g.positions[best] + Vector3(0, 0.05, 0)
+	if _bench == null:
+		_bench = Node3D.new()
+		var wood := StandardMaterial3D.new()
+		wood.albedo_texture = load("res://assets/wood/weathered_planks_diff_1k.jpg")
+		wood.uv1_triplanar = true
+		wood.uv1_world_triplanar = true
+		wood.roughness = 0.9
+		for part in [[Vector3(1.6, 0.05, 0.4), Vector3(0, 0.45, 0)], [Vector3(1.6, 0.3, 0.05), Vector3(0, 0.75, -0.2)], [Vector3(0.06, 0.45, 0.35), Vector3(-0.7, 0.22, 0)], [Vector3(0.06, 0.45, 0.35), Vector3(0.7, 0.22, 0)]]:
+			var m := MeshInstance3D.new()
+			var b := BoxMesh.new()
+			b.size = part[0]
+			m.mesh = b
+			m.position = part[1]
+			m.material_override = wood
+			_bench.add_child(m)
+		add_child(_bench)
+	_bench.visible = Visitors.has_come(state, "bench")
+	if _bench.visible:
+		var p := Vector3(2.6, 0, 1.8)
+		_bench.position = Terrain.at(p)
+		_bench.rotation.y = atan2(p.x, p.z)
 
 
 func _build_world() -> void:
@@ -164,6 +243,8 @@ func _build_world() -> void:
 	_env.fog_depth_end = 70.0
 	_env.fog_depth_curve = 1.0
 	_env.fog_density = 0.6
+	# The haze lies over the land, not the sky (on the phone renderer it turned the sky grey).
+	_env.fog_sky_affect = 0.15
 	_env.fog_light_color = Color(0.45, 0.55, 0.5)
 	_env.fog_aerial_perspective = 0.25
 	_env.fog_sky_affect = 0.05
@@ -221,6 +302,7 @@ func _build_world() -> void:
 	_bark_mat.set_shader_parameter("rim_strength", 0.12)
 	# Grey-brown linden bark instead of the warm orange (visuals thread).
 	_bark_mat.set_shader_parameter("texture_tint", Vector3(0.38, 0.36, 0.33))
+	_forest_bark = _bark_mat.duplicate()
 	add_child(_tree_mesh)
 
 	# Leaf clusters: crossed leaf cards per living tip, alpha-cut, swaying in the wind.
@@ -237,6 +319,10 @@ func _build_world() -> void:
 	Assets.apply_leaf(_leaf_mat)
 	# The forest keeps _leaf_mat as its template; the player's crown uses the spray material.
 	_spray_mat = CrownSprays.material()
+	# The player's tree stands out (Simon, play test 4): lighter, warmer leaves with a rim of light,
+	# against a darker, cooler forest and a calmer meadow.
+	_spray_mat.set_shader_parameter("tint_mul", Color(1.02, 1.03, 0.95))
+	_spray_mat.set_shader_parameter("rim_strength", 0.12)
 	_leaves.material_override = _spray_mat
 	# The player's tree catches the light at its edges, so it reads against the forest wall.
 	_leaf_mat.set_shader_parameter("rim_strength", 0.1)
@@ -246,8 +332,12 @@ func _build_world() -> void:
 	# in between (Simon, play test: single blades did not fit the picture).
 	_grass = _clump_layer(Foliage.clump_texture(false, 11))
 	_herbs = _clump_layer(Foliage.clump_texture(true, 12))
+	_meadow2 = _clump_layer(Foliage.clump_texture(false, 13))
 	add_child(_leaves)
 
+	pruning = Pruning.new()
+	pruning.view = self
+	add_child(pruning)
 	_twinkles = MultiMeshInstance3D.new()
 	var tmm := MultiMesh.new()
 	tmm.transform_format = MultiMesh.TRANSFORM_3D
@@ -460,6 +550,20 @@ func set_hud_visible(on: bool) -> void:
 	hud.visible = on
 
 
+## Names and dot colours of the nutrients the tree lacks right now, for the hint.
+func _missing_nutrients() -> Array:
+	var names := ["water", "nitrogen", "phosphorus", "potassium"]
+	var colours := ["blue", "green", "orange", "violet"]
+	var n: Array[String] = []
+	var c: Array[String] = []
+	var sim := state.sim
+	for k in range(4):
+		if sim.species.needs[k] > 0.0 and sim.resources.stock[k] < sim.cost_per_node * sim.species.needs[k]:
+			n.append(names[k])
+			c.append(colours[k])
+	return [" and ".join(n), " and ".join(c)]
+
+
 func _update_hud() -> void:
 	var s := state.sim
 	_day_label.text = "the seed" if state.is_seed() and state.day_number() == 0 else "day %d" % state.day_number()
@@ -479,10 +583,15 @@ func _update_hud() -> void:
 	sun_arc.progress = s.clock.time_of_day / s.clock.daylight_fraction
 	match state.phase:
 		GameState.Phase.SUNSET:
-			_hint.text = "The sun has set. Tap the ground to follow the roots down."
+			_hint.text = "The sun has set. Tap the ground or swipe down to follow the roots."
 		GameState.Phase.DAY:
 			if state.day_is_spent():
 				_hint.text = ("Almost nothing left to grow with today" if state.sim.nutrient_missing() and not state.sim.graph.is_full() and state.sim.resources.stock[0] >= state.sim.cost_per_node else "Nothing left to grow with today") + ". The leaves still gather life force for tonight."
+			elif prune_mode:
+				_hint.text = "Touch a branch to see where the shears would cut; lift the finger to cut."
+			elif state.sim.nutrient_missing() and not state.is_seed():
+				# Which nutrient is short, and which dots to steer for tonight (play test review).
+				_hint.text = "Short of %s: steer tonight's root toward the %s dots." % _missing_nutrients()
 			elif state.day_number() <= 3 and not state.is_seed():
 				# The first days: a quiet reminder of what can be done while the tree grows.
 				_hint.text = "Tap to let the sun shine brighter for an hour."
@@ -624,7 +733,8 @@ func _update_sun() -> void:
 	# that stays warm until it is well up, and haze that takes its colour.
 	_env.fog_sun_scatter *= 0.35
 	if h > 0.0:
-		_env.ambient_light_energy *= 0.6
+		# Less flat fill by day, but never a black dawn.
+		_env.ambient_light_energy *= lerpf(0.95, 0.6, smoothstep(0.0, 0.2, h))
 		_sun_light.light_energy *= 1.45
 		var golden := 1.0 - smoothstep(0.03, 0.55, h)
 		_sun_light.light_color = Color(1.0, 0.95, 0.88).lerp(Color(1.0, 0.7, 0.4), golden)
@@ -655,19 +765,27 @@ func _frame_camera(snap: bool, delta: float = 0.0) -> void:
 	# The meadow grass fades out beyond the tree, however far back the camera stands.
 	# (A phone lets it fade sooner: meadow cards are what it pays most for.)
 	var fade := maxf(14.0 if Budgets.PHONE else 24.0, want_distance + (8.0 if Budgets.PHONE else 22.0))
-	for layer in [_grass, _herbs]:
+	for layer in [_grass, _herbs, _meadow2]:
 		var gm := (layer as MultiMeshInstance3D).material_override as ShaderMaterial
 		gm.set_shader_parameter("fade_start", fade)
 		gm.set_shader_parameter("fade_end", fade + 18.0)
 	var k := 1.0 if snap else 1.0 - exp(-2.0 * delta)
 	_focus = _focus.lerp(want_focus, k)
 	_distance = lerpf(_distance, want_distance, k)
-	var orbit := _focus + Vector3(sin(_yaw) * cos(_pitch), sin(_pitch), cos(_yaw) * cos(_pitch)) * _distance
+	# A small tree is seen from a little above, so the young plant and the meadow fill the frame
+	# rather than the forest wall behind it (review: day 1 showed mostly forest).
+	var pitch := maxf(_pitch, lerpf(0.5, 0.02, clampf(height / 5.0, 0.0, 1.0)))
+	var orbit := _focus + Vector3(sin(_yaw) * cos(pitch), sin(pitch), cos(_yaw) * cos(pitch)) * _distance
 	orbit.y = maxf(orbit.y, 0.25)
-	# The dive ends low beside the trunk looking into the soil; sunrise starts there and rises.
-	var dive_point := Vector3(sin(_yaw), 0.0, cos(_yaw)) * 1.0 + Vector3(0, 0.8, 0)
-	camera.position = orbit.lerp(dive_point, dive_amount)
-	var look := _focus.lerp(Vector3(0, -1.0, 0), dive_amount)
+	# The dive: the camera falls straight down into the ground beside the tree, turning a little
+	# and closing in (Simon, play test 4). Sunrise plays the same move backwards, rising out.
+	var fall := dive_amount * dive_amount
+	var spin := dive_amount * 0.55
+	var r := Vector2(orbit.x - _focus.x, orbit.z - _focus.z).length() * lerpf(1.0, 0.6, dive_amount)
+	var a := _yaw + spin
+	camera.position = Vector3(_focus.x + sin(a) * r, lerpf(orbit.y, -1.6, fall), _focus.z + cos(a) * r)
+	camera.fov *= lerpf(1.0, 0.8, dive_amount)
+	var look := Vector3(_focus.x, lerpf(_focus.y, -4.0, fall), _focus.z)
 	var d := look - camera.position
 	if d.length_squared() > 1e-6:
 		camera.look_at(look, Vector3.UP if absf(d.normalized().y) < 0.98 else Vector3.FORWARD)
@@ -712,6 +830,9 @@ func _unhandled_input(event: InputEvent) -> void:
 				_end_press(true, m.position)
 	elif event is InputEventMouseMotion and _pressing:
 		_drag((event as InputEventMouseMotion).position, (event as InputEventMouseMotion).relative)
+	elif event is InputEventMouseMotion and prune_mode and state.phase == GameState.Phase.DAY:
+		# Hovering with the mouse shows where the shears would cut.
+		pruning.preview(pruning.pick((event as InputEventMouseMotion).position))
 
 
 func _start_pinch() -> void:
@@ -729,9 +850,16 @@ func _begin_press(pos: Vector2) -> void:
 	_press_time = _time
 	_drag_mode = ""
 	# (Play test 3: no holding and no dragging the sun; a tap boosts, see _end_press.)
+	if prune_mode and state.phase == GameState.Phase.DAY:
+		_drag_mode = "prune"
+		pruning.preview(pruning.pick(pos))
 
 
 func _drag(pos: Vector2, rel: Vector2) -> void:
+	if _drag_mode == "prune":
+		# The finger slides along the tree; the mark follows. Off the tree, nothing is cut.
+		pruning.preview(pruning.pick(pos))
+		return
 	if _drag_mode != "orbit" and pos.distance_to(_press_pos) > DRAG_THRESHOLD:
 		_drag_mode = "orbit"
 		state.sim.clock.boost_active = false
@@ -744,9 +872,26 @@ func _end_press(is_release: bool, pos: Vector2 = Vector2.ZERO) -> void:
 	if not _pressing:
 		return
 	_pressing = false
+	if _drag_mode == "prune":
+		_drag_mode = ""
+		if is_release and state.phase == GameState.Phase.DAY:
+			var cut := pruning.cut()
+			if cut > 0:
+				_rebuild()
+				update_visitors()
+				pruned.emit(cut)
+		else:
+			pruning.preview(-1)
+		return
 	# A short tap by day boosts the sun for one game hour; the clock keeps running.
 	if is_release and _drag_mode != "orbit" and state.phase == GameState.Phase.DAY and _press_phase == GameState.Phase.DAY and _time - _press_time < 0.6:
 		state.boost_hour()
+	# A quick swipe down at sunset dives too: the tree above, the roots below (play test 4).
+	var swipe := pos - _press_pos
+	if is_release and state.phase == GameState.Phase.SUNSET and _press_phase == GameState.Phase.SUNSET 			and swipe.y > 160.0 and absf(swipe.x) < swipe.y * 0.7 and _time - _press_time < 0.9:
+		_drag_mode = ""
+		ground_tapped.emit()
+		return
 	# Only a short tap that began at sunset dives (not the end of a boost held through sunset).
 	if is_release and _drag_mode != "orbit" and state.phase == GameState.Phase.SUNSET 			and _press_phase == GameState.Phase.SUNSET and _time - _press_time < 0.6:
 		if _hits_ground(pos):

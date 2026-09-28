@@ -35,6 +35,10 @@ var leftover_spent: float = 0.0
 
 var graph: PlantGraph
 var main_root_count: int = 0
+## The tree's species (set by GameState): its quirks on root cost, deposits and nodules.
+var species: Species = Species.linden()
+## A root counts as pointing downward (oak's taproot) below this heading.y.
+const DOWNWARD_HEADING: float = -0.5
 var rng := RandomNumberGenerator.new()
 
 # Run state.
@@ -66,9 +70,18 @@ func _init(random_seed: int = 1) -> void:
 
 
 ## Life force for one metre of root at `p`: rises with distance from the trunk and with depth.
-func cost_per_metre(p: Vector3) -> float:
+## `dir` is where the root points: a taproot species (oak) pays less depth surcharge going
+## down; a pioneer (birch) pays less in the topsoil.
+func cost_per_metre(p: Vector3, dir: Vector3 = Vector3.ZERO) -> float:
 	var horizontal := Vector2(p.x, p.z).length()
-	return base_cost_per_metre * (1.0 + distance_cost * horizontal + depth_cost * maxf(0.0, -p.y))
+	var depth := maxf(0.0, -p.y)
+	var depth_term := depth_cost * depth
+	if dir.y < DOWNWARD_HEADING:
+		depth_term *= species.down_depth_cost
+	var cost := base_cost_per_metre * (1.0 + distance_cost * horizontal + depth_term)
+	if depth < Underground.TOPSOIL:
+		cost *= species.topsoil_root_cost
+	return cost
 
 
 func can_start_run() -> bool:
@@ -121,7 +134,7 @@ func advance(stick: Vector2, dive: bool, delta: float, ground: Underground, res:
 	var start_of_frame := tip_position
 	for _i in range(steps):
 		var before := tip_position
-		var cost_rate := cost_per_metre(tip_position)
+		var cost_rate := cost_per_metre(tip_position, heading)
 		var step := want / steps
 		if res.life_force < step * cost_rate:
 			step = res.life_force / cost_rate
@@ -357,7 +370,7 @@ func _grow_fine_roots(ground: Underground, res: Resources) -> void:
 
 
 func _collect_ids(ids: PackedInt32Array, ground: Underground, res: Resources) -> void:
-	var got := ground.collect(ids, res)
+	var got := ground.collect(ids, res, Underground.FIRST_SHARE, species.water_draw)
 	for j in range(got.size()):
 		var i := got[j]
 		run_totals[ground.dot_kinds[i]] += ground.last_drawn[j]
@@ -376,10 +389,20 @@ func drink_tapped(ground: Underground, res: Resources) -> PackedFloat32Array:
 			ids.append(i)
 		else:
 			tapped.erase(i)
-	var got := ground.collect(ids, res, NIGHTLY_SHARE)
+	var got := ground.collect(ids, res, NIGHTLY_SHARE, species.water_draw)
 	for j in range(got.size()):
 		totals[ground.dot_kinds[got[j]]] += ground.last_drawn[j]
 	return totals
+
+
+## Root nodules (alder): nitrogen made overnight, per metre of the whole root network.
+## Returns the nitrogen added.
+func nodule_nitrogen(res: Resources) -> float:
+	if species.nodule_nitrogen <= 0.0:
+		return 0.0
+	var n := graph.total_length() * species.nodule_nitrogen
+	res.add(Resources.Kind.NITROGEN, n)
+	return n
 
 
 ## Nearest root node to `p` (for picking a start point). -1 if none within `max_distance`.

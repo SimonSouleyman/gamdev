@@ -29,6 +29,7 @@ var in_shed: bool = false
 var _corner: CanvasLayer
 var _shed_button: Button
 var _photo_button: Button
+var _shears_button: Button
 var _flash: ColorRect
 
 
@@ -73,6 +74,7 @@ func _build() -> void:
 	shed_menu.show_menu(false)
 	shed_menu.continue_pressed.connect(leave_shed)
 	shed_menu.journal_pressed.connect(func() -> void: journal.open_diary())
+	shed_menu.plant_pressed.connect(plant_next)
 	shed_menu.setting_changed.connect(func(k: String, on: bool) -> void:
 		journal.set_setting(k, on)
 		_apply_setting(k, on))
@@ -94,8 +96,15 @@ func _build() -> void:
 	fade_layer.add_child(_dev_label)
 
 	tree_view.ground_tapped.connect(_on_ground_tapped)
+	tree_view.pruned.connect(func(n: int) -> void:
+		state.diary.add(state.day_number(), "I cut off a branch (%d segments)." % n))
 	root_view.can_start = func() -> bool: return state.can_start_run()
 	root_view.run_started.connect(func(_id: int) -> void: state.mark_run_started())
+	# Swipe up after the night's root: straight on to the morning.
+	root_view.swipe_up.connect(func() -> void:
+		if state.phase == GameState.Phase.NIGHT and (state.night_done or state.night_empty) and not _transitioning:
+			state.night_done = true
+			state.tick(9999.0))
 	root_view.run_finished.connect(func(_t: PackedFloat32Array) -> void: state.notify_run_done())
 	root_view.find_touched.connect(func(f: Dictionary) -> void: state.notify_find(f))
 	root_view.dots_collected.connect(func(n: int) -> void: ambience.play_collect(n))
@@ -110,6 +119,7 @@ func start(p_state: GameState) -> void:
 	state = p_state
 	journal.clear_pages()
 	journal.state = state
+	shed_menu.set_tree_name(state.tree_name())
 	tree_view.setup(state)
 	root_view.setup(state.ground, state.roots, state.sim.resources)
 	# A new game or a load in the middle of a dive or sunrise: stop that transition.
@@ -127,7 +137,7 @@ func start(p_state: GameState) -> void:
 	_handle_events()
 	# Pages that were open when the game was saved come back.
 	for id in state.pending_pages:
-		if Pages.TEXTS.has(id) and not journal.pending_ids().has(id):
+		if Pages.has(id) and not journal.pending_ids().has(id):
 			journal.show_page(id, Pages.title(id), Pages.body(id))
 
 
@@ -167,6 +177,9 @@ func _process(delta: float) -> void:
 	tree_view.input_enabled = not paused and not _transitioning
 	_shed_button.visible = not in_shed and not _transitioning
 	_photo_button.visible = not in_shed and not _underground and not _transitioning and state.phase == GameState.Phase.DAY
+	_shears_button.visible = _photo_button.visible and state.sim.graph.size() > 6
+	if tree_view.prune_mode and not _shears_button.visible:
+		_set_shears(false)
 	root_view.input_enabled = not paused and not _transitioning
 	root_view.process_mode = Node.PROCESS_MODE_DISABLED if paused else Node.PROCESS_MODE_INHERIT
 	if not paused:
@@ -193,6 +206,8 @@ func _handle_events() -> void:
 			"sunset":
 				if state.is_seed() and state.day_number() == 0:
 					_page_once("planted")
+					# Each species introduces itself once, the first time it is planted.
+					_page_once(Pages.species_page(state.sim.species.id))
 				else:
 					_page_once("first_sunset")
 			"spent":
@@ -206,6 +221,9 @@ func _handle_events() -> void:
 				_rise()
 			"morning":
 				_morning()
+			"finished":
+				state.seen_pages["finished"] = true
+				journal.show_page("finished", Pages.title("finished"), Pages.body("finished"))
 			_:
 				if e.begins_with("find:"):
 					var kind := e.substr(5)
@@ -283,6 +301,9 @@ func _enter_night_view() -> void:
 	if state.roots.run_active:
 		root_view.resume_run()
 	elif state.night_empty or state.run_used:
+		# Closed during the pause after a run: the night still has to move on.
+		if state.run_used and not state.night_done and not state.night_empty:
+			state.notify_run_done()
 		root_view.quiet_night = state.night_empty
 		root_view.begin_idle_overview()
 	else:
@@ -323,6 +344,9 @@ func _new_tween() -> Tween:
 func _morning() -> void:
 	# A photo for the album every morning, after the dawn burst.
 	await _take_photo("morning")
+	# Visitors come as the tree grows (diary lines; the nest and the bench stay in view).
+	if not Visitors.arrive(state).is_empty():
+		tree_view.update_visitors()
 	if state.day_number() == 1:
 		_page_once("sapling")
 	elif state.diary.wish != "":
@@ -331,7 +355,7 @@ func _morning() -> void:
 
 # --- settings, saving, dev keys -----------------------------------------------
 
-func _apply_setting(key: String, on: bool) -> void:
+func _apply_setting(key: String, on: bool, from_player: bool = true) -> void:
 	match key:
 		"sound":
 			ambience.set_enabled(on)
@@ -340,7 +364,15 @@ func _apply_setting(key: String, on: bool) -> void:
 			tree_view.hud.visible = not on and not _underground and not in_shed
 			journal.set_button_faint(on)
 		"battery_saver":
-			Engine.max_fps = 30 if on else 0
+			Engine.max_fps = 30 if on else Budgets.MAX_FPS
+		"notifications":
+			# A daily reminder on the phone (plain Android, no Google services), re-armed at start.
+			if on:
+				if from_player:
+					Phone.ask_notification_permission()
+				Phone.schedule_daily_reminder(9, 0, "Tree", "A new morning in the clearing. See what grew overnight.")
+			else:
+				Phone.cancel_daily_reminder()
 	_save_settings()
 
 
@@ -353,7 +385,7 @@ func _load_settings() -> void:
 		for k in (d as Dictionary):
 			if journal.settings.has(k):
 				journal.set_setting(k, bool(d[k]))
-				_apply_setting(k, bool(d[k]))
+				_apply_setting(k, bool(d[k]), false)
 
 
 func _save_settings() -> void:
@@ -367,7 +399,7 @@ func _save_settings() -> void:
 func save() -> void:
 	if not ephemeral and state != null:
 		# An unread tutorial page must not be lost when the game closes while it is open.
-		state.pending_pages = journal.pending_ids().filter(func(id: String) -> bool: return Pages.TEXTS.has(id))
+		state.pending_pages = journal.pending_ids().filter(func(id: String) -> bool: return Pages.has(id))
 		SaveData.save_game(state)
 
 
@@ -402,7 +434,7 @@ func _notification(what: int) -> void:
 		var away := clampf(Time.get_unix_time_from_system() - _paused_at, 0.0, 7.0 * 86400.0)
 		_paused_at = -1.0
 		if away > 1.0:
-			state.sim.apply_offline(away)
+			state.apply_offline(away)
 
 
 # --- the garden shed -----------------------------------------------------------------
@@ -412,17 +444,30 @@ func _build_corner() -> void:
 	_corner = CanvasLayer.new()
 	_corner.layer = 19
 	add_child(_corner)
-	_shed_button = _scrap("shed", Vector2(-160, 150))
+	_shed_button = _scrap("shed", Vector2(-160, 205))
 	_shed_button.pressed.connect(func() -> void:
 		if not _transitioning and not journal.is_open():
 			enter_shed(true))
-	_photo_button = _scrap("photo", Vector2(-160, 210))
+	_photo_button = _scrap("photo", Vector2(-160, 265))
 	_photo_button.pressed.connect(func() -> void: _take_photo("camera"))
+	# The shears: while out, a tap cuts a branch instead of boosting the sun (play test 4).
+	_shears_button = _scrap("shears", Vector2(-160, 325))
+	_shears_button.pressed.connect(func() -> void:
+		_set_shears(not tree_view.prune_mode)
+		if tree_view.prune_mode:
+			_page_once("shears"))
 	_flash = ColorRect.new()
 	_flash.color = Color(1, 1, 1, 0)
 	_flash.set_anchors_preset(Control.PRESET_FULL_RECT)
 	_flash.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_corner.add_child(_flash)
+
+
+func _set_shears(on: bool) -> void:
+	tree_view.prune_mode = on
+	if not on:
+		tree_view.pruning.preview(-1)
+	_shears_button.text = "put away" if on else "shears"
 
 
 func _scrap(text: String, at: Vector2) -> Button:
@@ -513,7 +558,21 @@ func _unhandled_input(event: InputEvent) -> void:
 		"options":
 			shed_menu.open_options()
 		"seeds":
-			journal.show_page("seeds", "The seed bag", "A handful of linden seeds, saved for later.\n\nWhen this linden has grown to its full size, one of them goes into the ground beside it and a new tree begins.")
+			shed_menu.open_seeds(state, bool(journal.settings.get("any_species", false)))
+
+
+## The seed bag planted the next tree: a new game of that species beside the old one. The grove
+## (finished trees, which unlock the species) and the pages already read carry over; the photo
+## album is kept, each photo captioned with its tree. Only when this tree is finished, or with
+## the test switch "any species now" on the options pinboard.
+func plant_next(species_id: String) -> void:
+	if state == null or not state.can_plant_next(bool(journal.settings.get("any_species", false))):
+		return
+	if not state.unlocked_species(bool(journal.settings.get("any_species", false))).has(species_id):
+		return
+	start(GameState.new_tree(int(Time.get_unix_time_from_system()), species_id, state))
+	in_shed = false
+	enter_shed(false)
 
 
 ## Saves a photo of the tree for the album (without the HUD), with a camera flash.
@@ -533,7 +592,7 @@ func _take_photo(tag: String) -> void:
 		was.append((h as CanvasLayer).visible)
 		(h as CanvasLayer).visible = false
 	await RenderingServer.frame_post_draw
-	Photos.save_from(get_viewport(), state.day_number(), tag)
+	Photos.save_from(get_viewport(), state.day_number(), tag, state.sim.species.id)
 	for i in range(huds.size()):
 		(huds[i] as CanvasLayer).visible = was[i]
 	_photo_busy = false

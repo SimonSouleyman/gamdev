@@ -10,13 +10,15 @@ uniform float wind_strength = 1.0;
 uniform float fade_start = 14.0;
 uniform float fade_end = 30.0;
 uniform vec3 translucency : source_color = vec3(0.3, 0.38, 0.08);
+// The second meadow layer picks its cell per clump (in the instance colour's alpha).
+uniform bool cell_from_alpha = false;
 
 varying float root_shade;
 
 void vertex() {
 	vec3 world = (MODEL_MATRIX * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
 	float h = fract(sin(dot(world.xz, vec2(12.9898, 78.233))) * 43758.5453);
-	float cell = floor(h * 4.0);
+	float cell = cell_from_alpha ? floor(COLOR.a * 4.0) : floor(h * 4.0);
 	float top = 1.0 - UV.y;
 	UV = UV * 0.5 + vec2(mod(cell, 2.0), floor(cell / 2.0)) * 0.5;
 	float cam_dist = length(world - (INV_VIEW_MATRIX * vec4(0.0, 0.0, 0.0, 1.0)).xyz);

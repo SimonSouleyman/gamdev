@@ -19,6 +19,8 @@ uniform bool baked = false;
 uniform float near_fade = 0.0;
 // Phones skip the leaf normal map (one texture read and a TBN per fragment less).
 uniform bool cheap = false;
+// A light rim on the crown's outline, so the player's tree reads against ground and forest.
+uniform float rim_strength = 0.0;
 
 
 void vertex() {
@@ -72,4 +74,6 @@ void fragment() {
 	SPECULAR = 0.06;
 	// Leaves are thin: the sun shines through them, stronger on the crown's shaded side.
 	BACKLIGHT = translucency * COLOR.rgb * (1.0 - COLOR.a * 0.6);
+	RIM = rim_strength;
+	RIM_TINT = 0.6;
 }

@@ -11,7 +11,7 @@ static func apply(scenery: Node3D) -> void:
 	var template := CrownSprays.material()
 	template.set_shader_parameter("baked", true)
 	# Darker, cooler and without the hero tree's glow, so the player's tree stands out.
-	template.set_shader_parameter("tint_mul", Color(0.78, 0.84, 0.82))
+	template.set_shader_parameter("tint_mul", Color(0.62, 0.7, 0.72))
 	template.set_shader_parameter("translucency", Color(0.25, 0.3, 0.06))
 	template.set_shader_parameter("near_fade", 9.0)
 	var done := {}

@@ -1,5 +1,41 @@
 # Changelog
 
+## v0.5 (2026-09-28)
+
+Simon's play test 4 and the whole open list, then one test loop with screenshots.
+From here on: fixes go out as 0.5.1, 0.5.2 ...; only new features start 0.6.
+
+### Play test 4
+- Drag the sun along the arc to let the day pass; a tap anywhere else still boosts (a boost
+  already bought waits for after the skip).
+- After a root run, a short pause frames tonight's root while its fine roots spread out.
+- The dive falls into the ground (down, a little turn and zoom); swipe down at sunset to dive,
+  swipe up after the night's root to wake the tree.
+- The tree stands out: lighter, warmer leaves with a soft rim; darker forest; calmer meadow.
+- The meadow: fine grass, blue-green sedge, clover patches and drifts of meadow flowers.
+- Pruning: a "shears" scrap; the cut point and the part that would fall show under the finger
+  or mouse; the cut branch tips over and sinks into the grass. Never the trunk, never more than
+  a fifth of the tree. Pruned wood no longer counts for height, life force or finishing.
+- The shed in real weathered wood, a worn workbench, leather books, a folded seed bag, a seedling.
+- The album like a real book: cloth binding, handled pages, photos glued in askew with old tape.
+
+### Also on the list
+- Real nature sounds (CC0): forest with birds by day, crickets at dusk, water trickling below.
+- Visitors: butterflies, a blackbird nest in the crown, a fox in the shade, a bench under the tree.
+- Phone: "as wallpaper" in the album sets the home-screen wallpaper; "a note each day" on the
+  pinboard is a daily reminder at 9:00 (plain Android, no Google services). Photos in wallpaper size.
+- The HUD names a missing nutrient and its dot colour; no offline life force in the middle of a
+  night's root; the day-1 camera shows the sapling, not the forest wall; dawn is never black; the
+  sky is out of the haze; scraps clear of the compass and the hints; journal ribbons readable.
+
+### Six tree species
+- Linden, silver birch, beech, sycamore maple, black alder and pedunculate oak (design doc section 15),
+  each with its own needs, size, growth shape, bark and leaf tint, and one quirk on an existing mechanic.
+- New small mechanics the quirks needed: shade dieback of crowded inner twigs, and the leaves' daily water upkeep.
+- A tree is finished at its species' size; the seed bag in the shed then plants the next unlocked species.
+  The options pinboard has a test switch "any species now". Each species has a journal page.
+- tools/month_report.gd runs until the tree is finished, per species (--species=<id>|all).
+
 ## v0.4 (2026-09-28)
 
 The new look from the visuals thread, and the game running well on Simon's Fairphone 6.

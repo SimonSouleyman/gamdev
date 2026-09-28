@@ -8,14 +8,16 @@ extends RefCounted
 static var DIR := "user://photos"
 
 
-static func save_from(viewport: Viewport, day: int, tag: String) -> String:
+## The file name starts with the species, so one album holds every tree, one after another.
+static func save_from(viewport: Viewport, day: int, tag: String, species_id: String = "linden") -> String:
 	var img := viewport.get_texture().get_image()
 	if img == null or img.is_empty():
 		return ""
-	var w := 360
+	# Big enough to serve as the phone's wallpaper (album: "as wallpaper").
+	var w := 1080
 	img.resize(w, int(float(w) * img.get_height() / img.get_width()), Image.INTERPOLATE_BILINEAR)
 	DirAccess.make_dir_recursive_absolute(DIR)
-	var path := "%s/linden_day%03d_%s_%d.png" % [DIR, day, tag, int(Time.get_unix_time_from_system() * 1000.0)]
+	var path := "%s/%s_day%03d_%s_%d.png" % [DIR, species_id, day, tag, int(Time.get_unix_time_from_system() * 1000.0)]
 	img.save_png(path)
 	return path
 
@@ -46,10 +48,11 @@ static func caption(path: String) -> String:
 	var f := path.get_file()
 	var day := int(f.substr(f.find("day") + 3, 3))
 	var own := f.contains("_camera_")
-	return ("Day %d" % day) + (", my photo" if own else ", morning")
+	var tree := Species.from_id(f.get_slice("_day", 0)).display_name
+	return ("%s, day %d" % [tree, day]) + (", my photo" if own else ", morning")
 
 
-## Removes every photo (a new game starts a new album page... later: per tree).
+## Removes every photo (the new-game dev key; a new tree from the seed bag keeps the album).
 static func clear() -> void:
 	var d := DirAccess.open(DIR)
 	if d == null:

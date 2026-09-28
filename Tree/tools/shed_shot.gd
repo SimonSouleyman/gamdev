@@ -1,10 +1,11 @@
 extends SceneTree
 ## Screenshots of the garden shed (start menu), its options board, album and loading page.
-## Run: godot --path . -s tools/shed_shot.gd -- --shots=C:/some/folder [--days=6]
+## Run: godot --path . -s tools/shed_shot.gd -- --shots=C:/some/folder [--days=6] [--species=linden]
 
 var main: Node
 var shots := ""
 var days := 6
+var species := "linden"
 var frame := 0
 
 
@@ -14,6 +15,8 @@ func _initialize() -> void:
 			shots = a.substr(8)
 		elif a.begins_with("--days="):
 			days = int(a.substr(7))
+		elif a.begins_with("--species="):
+			species = a.substr(10)
 	DirAccess.make_dir_recursive_absolute(shots)
 	main = load("res://main.tscn").instantiate()
 	main.ephemeral = true
@@ -29,7 +32,7 @@ func _process(_d: float) -> bool:
 	frame += 1
 	if frame == 2:
 		# A tree grown for a few days, at mid-morning.
-		var g := GameState.new_game(42)
+		var g := GameState.new_game(42, species)
 		for _day in range(days):
 			g.dive()
 			g.start_run(0 if g.roots.graph.size() <= 1 else g.roots.graph.size() - 1)
@@ -76,8 +79,15 @@ func _process(_d: float) -> bool:
 	if frame == 90:
 		_shot("shed_journal")
 		main.journal.close_diary()
-		main.shed_menu.show_loading(true)
+		# The seed bag of a finished tree: plant the next seed.
+		main.state.finished = true
+		main.state.grove.append({"species": main.state.sim.species.id, "days": days, "seed": 42})
+		main.shed_menu.open_seeds(main.state, false)
 	if frame == 100:
+		_shot("shed_seeds")
+		main.shed_menu.close_boards()
+		main.shed_menu.show_loading(true)
+	if frame == 110:
 		_shot("loading")
 		quit()
 	return false
