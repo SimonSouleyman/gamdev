@@ -64,8 +64,8 @@ void fragment() {
 	AO_LIGHT_AFFECT = 0.35;
 	NORMAL_MAP = texture(spray_normal, UV).rgb;
 	NORMAL_MAP_DEPTH = 0.7;
-	ROUGHNESS = 0.62;
-	SPECULAR = 0.2;
+	ROUGHNESS = 0.85;
+	SPECULAR = 0.06;
 	// Leaves are thin: the sun shines through them, stronger on the crown's shaded side.
 	BACKLIGHT = translucency * COLOR.rgb * (1.0 - COLOR.a * 0.6);
 }

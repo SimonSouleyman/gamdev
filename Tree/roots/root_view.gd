@@ -91,6 +91,8 @@ func setup(p_ground: Underground, p_roots: RootSystem, p_res: Resources) -> void
 	_find_nodes.clear()
 	_fill_dots()
 	_build_rocks()
+	# Fractured boulders instead of spheres (visuals thread).
+	RockLook.apply_roots(self)
 	_build_finds()
 	_rebuild_all()
 

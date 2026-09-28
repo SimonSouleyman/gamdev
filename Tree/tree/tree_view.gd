@@ -29,6 +29,7 @@ var _noise_tex: NoiseTexture2D
 var _bark_mat: ShaderMaterial
 var _leaf_mat: ShaderMaterial
 var _ground_mat: ShaderMaterial
+var _spray_mat: ShaderMaterial
 var _ground: MeshInstance3D
 ## Radius of the clearing the world was last built for.
 var _clearing: float = -1.0
@@ -110,8 +111,11 @@ func refresh_clearing() -> void:
 	Shed.origin = Vector3(0.0, 0.0, r - 2.5)
 	_ground.mesh = Terrain.ground_mesh(160.0 + (r - Scenery.CLEARING_RADIUS) * 2.0, 110)
 	_meadow.build(state.ground)
+	RockLook.apply_meadow(_meadow)
 	_plant_grass(state.seed)
+	GrassLook.apply(self)
 	_scenery.build(state.seed, _bark_mat, _leaf_mat, _noise_tex, r)
+	ForestSprays.apply(_scenery)
 	# The haze begins further out as the clearing grows, so the forest ring is not buried.
 	_env.fog_depth_begin = r
 	_env.fog_depth_end = r * 2.0 + 34.0
@@ -155,11 +159,11 @@ func _build_world() -> void:
 	_env.fog_depth_curve = 1.0
 	_env.fog_density = 0.6
 	_env.fog_light_color = Color(0.45, 0.55, 0.5)
-	_env.fog_aerial_perspective = 0.4
+	_env.fog_aerial_perspective = 0.25
 	_env.fog_sky_affect = 0.05
 	_env.adjustment_enabled = true
 	_env.adjustment_saturation = 1.0
-	_env.adjustment_contrast = 1.05
+	_env.adjustment_contrast = 1.12
 	camera.environment = _env
 	add_child(camera)
 
@@ -209,6 +213,8 @@ func _build_world() -> void:
 	Assets.apply_bark(_bark_mat)
 	_tree_mesh.material_override = _bark_mat
 	_bark_mat.set_shader_parameter("rim_strength", 0.12)
+	# Grey-brown linden bark instead of the warm orange (visuals thread).
+	_bark_mat.set_shader_parameter("texture_tint", Vector3(0.38, 0.36, 0.33))
 	add_child(_tree_mesh)
 
 	# Leaf clusters: crossed leaf cards per living tip, alpha-cut, swaying in the wind.
@@ -216,12 +222,16 @@ func _build_world() -> void:
 	var lmm := MultiMesh.new()
 	lmm.transform_format = MultiMesh.TRANSFORM_3D
 	lmm.use_colors = true
-	lmm.mesh = Foliage.cluster_mesh(8, 1.0, Assets.has_leaf_atlas())
+	# Painted leaf sprays (visuals thread, approved by Simon): a dozen small leaves per card.
+	lmm.use_custom_data = true
+	lmm.mesh = CrownSprays.card_mesh()
 	_leaves.multimesh = lmm
 	_leaf_mat = ShaderMaterial.new()
 	_leaf_mat.shader = preload("res://tree/leaf.gdshader")
 	Assets.apply_leaf(_leaf_mat)
-	_leaves.material_override = _leaf_mat
+	# The forest keeps _leaf_mat as its template; the player's crown uses the spray material.
+	_spray_mat = CrownSprays.material()
+	_leaves.material_override = _spray_mat
 	# The player's tree catches the light at its edges, so it reads against the forest wall.
 	_leaf_mat.set_shader_parameter("rim_strength", 0.1)
 	_leaves.extra_cull_margin = 4.0
@@ -512,44 +522,10 @@ func _rebuild() -> void:
 	_built_size = g.size()
 	_tree_mesh.mesh = _builder.build(g)
 	_seed.visible = state.is_seed()
-	# Leaves gather toward the branch ends (within a few nodes of a living tip), as sprays of
-	# several smaller clusters, so the crown reads as masses of foliage rather than beads.
-	var near_tip := {}
-	for tip in g.tips():
-		if tip <= 1 or g.get_flag(tip, "dead", false):
-			continue
-		var cur := tip
-		for _k in range(4):
-			if cur <= 1:
-				break
-			near_tip[cur] = true
-			cur = g.parents[cur]
-	var spots := PackedInt32Array()
-	for id in near_tip.keys():
-		spots.append(id)
-	spots.sort()
-	var per := 1 if state.sim.height() < 3.0 else (2 if state.sim.height() < 10.0 else 3)
-	var mm := _leaves.multimesh
-	mm.instance_count = spots.size() * per
-	var rng := RandomNumberGenerator.new()
-	rng.seed = hash([state.seed, "leaf clusters"])
-	var grow := 1.0 + state.sim.height() * 0.06
-	var centre := state.sim.centroid()
-	var crown_r := maxf(0.5, state.sim.height() * 0.35)
-	var n := 0
-	for id in spots:
-		for k in range(per):
-			var s := (0.09 + 0.05 * rng.randf()) * grow
-			var off := Vector3(rng.randf_range(-1, 1), rng.randf_range(-0.6, 0.8), rng.randf_range(-1, 1)) * s * 1.4 * float(k > 0)
-			var basis := Basis(Vector3.UP, rng.randf() * TAU) * Basis(Vector3.RIGHT, rng.randf_range(-0.4, 0.4))
-			var p := g.positions[id] + off
-			mm.set_instance_transform(n, Transform3D(basis.scaled(Vector3.ONE * s), p))
-			var tint := rng.randf_range(0.85, 1.12)
-			# Leaves deep inside the crown are in shade.
-			var inner := clampf(1.0 - p.distance_to(centre) / crown_r, 0.0, 1.0)
-			tint *= lerpf(1.0, 0.55, inner)
-			mm.set_instance_color(n, Color(tint * rng.randf_range(0.9, 1.05), tint, tint * rng.randf_range(0.85, 1.0)))
-			n += 1
+	# Leaf sprays around the living twigs; the crown's shape feeds the shading of its interior.
+	var crown := CrownSprays.populate(_leaves.multimesh, state.sim, state.seed)
+	_spray_mat.set_shader_parameter("crown_centre", crown.get_center())
+	_spray_mat.set_shader_parameter("crown_radii", crown.size * 0.5 + Vector3.ONE * 0.5)
 
 
 func _update_twinkles() -> void:
@@ -616,6 +592,16 @@ func _update_sun() -> void:
 
 
 # --- camera -----------------------------------------------------------------
+	# Golden hour (visuals thread): less sun glare in the haze, real sun and shade by day, a sun
+	# that stays warm until it is well up, and haze that takes its colour.
+	_env.fog_sun_scatter *= 0.35
+	if h > 0.0:
+		_env.ambient_light_energy *= 0.6
+		_sun_light.light_energy *= 1.45
+		var golden := 1.0 - smoothstep(0.03, 0.55, h)
+		_sun_light.light_color = Color(1.0, 0.95, 0.88).lerp(Color(1.0, 0.7, 0.4), golden)
+		_sun_light.light_energy *= 1.0 + 0.25 * golden
+		_env.fog_light_color = _env.fog_light_color.lerp(Color(0.85, 0.7, 0.5), golden * 0.5)
 
 func _frame_camera(snap: bool, delta: float = 0.0) -> void:
 	var real_height := maxf(state.sim.height(), 0.2)

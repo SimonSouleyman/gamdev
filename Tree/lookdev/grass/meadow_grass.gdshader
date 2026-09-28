@@ -36,7 +36,7 @@ void fragment() {
 	// Blades shade each other near the ground.
 	AO = mix(0.35, 1.0, smoothstep(0.0, 0.6, root_shade));
 	AO_LIGHT_AFFECT = 0.5;
-	ROUGHNESS = 0.7;
-	SPECULAR = 0.3;
+	ROUGHNESS = 0.95;
+	SPECULAR = 0.05;
 	BACKLIGHT = translucency * smoothstep(0.3, 1.0, root_shade);
 }
