@@ -215,13 +215,15 @@ func dots_near(p: Vector3, radius: float) -> PackedInt32Array:
 var last_drawn: PackedFloat32Array = PackedFloat32Array()
 
 
-func collect(ids: PackedInt32Array, into: Resources, share: float = FIRST_SHARE) -> PackedInt32Array:
+## `water_share` multiplies the share drawn from water deposits (alder drains them faster).
+func collect(ids: PackedInt32Array, into: Resources, share: float = FIRST_SHARE, water_share: float = 1.0) -> PackedInt32Array:
 	var out := PackedInt32Array()
 	last_drawn = PackedFloat32Array()
 	for i in ids:
 		if dot_collected[i] != 0:
 			continue
-		var take := minf(dot_amounts[i], dot_capacity[i] * share)
+		var k := share * (water_share if dot_kinds[i] == Resources.Kind.WATER else 1.0)
+		var take := minf(dot_amounts[i], dot_capacity[i] * k)
 		if take <= 0.0:
 			continue
 		dot_amounts[i] -= take

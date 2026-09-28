@@ -57,3 +57,12 @@ Each criterion has a test in `tests/` unless marked (visual), which Simon judges
 ## Step 11: read the meadow — done
 - Surface hints (rushes and damp patch, clover or nettles, stones, moss) come from the underground generator and match what is below at that spot (same seed).
 - (visual) The player can orbit and see the hints from every side.
+
+## Species (design doc section 15) — done
+- Six profiles (linden, birch, beech, sycamore maple, black alder, pedunculate oak) with the table's needs and sizes; the species is saved with the game.
+- Unlock order: the linden always; each species once the one before it has finished; the options pinboard's "any species now" offers all six (saved with the settings).
+- Each quirk is one hook switched by a species field: linden blossom week (days 18 to 22, +20 % life force, a diary line with the bees); birch topsoil roots -30 %, shade dieback x2, life force x0.9; beech no shade dieback, calm hours +25 %, boost less, water upkeep x1.3, slow first ten days; sycamore a cut shoot tip forks into two; alder root nodules make nitrogen per metre of root, water deposits drain 1.5x; oak downward roots pay half the depth surcharge, slow, wide and crooked.
+- A tree is finished at its species' finish size (or the node budget): a diary line and a page, it joins the grove, and the seed bag in the shed offers "plant the next seed" with the unlocked species. A new tree keeps the grove, the pages read and the album.
+- Each species has a journal page (look and quirk), shown once when it is planted, kept in the pages tab.
+- (visual) The hero tree's bark and leaf tint follow the species (white birch, dark oak); the forest ring is unchanged.
+- tools/month_report.gd --species=<id>|all: growth every day, finished near 30 days (birch 25, oak 35).

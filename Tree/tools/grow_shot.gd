@@ -1,12 +1,13 @@
 extends SceneTree
 ## Grows a tree for N in-game days with the root bot and calm days, then takes screenshots of
 ## the tree view at noon from three sides. For judging the look of the growth.
-## Run: godot --path . -s tools/grow_shot.gd -- --days=10 --shots=C:/some/folder [--seed=42] [--boost] [--dive]
+## Run: godot --path . -s tools/grow_shot.gd -- --days=10 --shots=C:/some/folder [--seed=42] [--species=oak] [--boost] [--dive]
 ## --dive: instead, five frames of the fall into the ground (dive_amount 0 to 1) from the south.
 
 var shots_dir := ""
 var days := 10
 var seed := 42
+var species := "linden"
 var boost := false
 var hour := 0.5  # fraction of the daylight, 0.5 = noon
 var view: TreeView
@@ -23,6 +24,8 @@ func _initialize() -> void:
 			days = int(a.substr(7))
 		elif a.begins_with("--seed="):
 			seed = int(a.substr(7))
+		elif a.begins_with("--species="):
+			species = a.substr(10)
 		elif a.begins_with("--hour="):
 			hour = float(a.substr(7))
 		elif a == "--prune":
@@ -32,7 +35,7 @@ func _initialize() -> void:
 		elif a == "--boost":
 			boost = true
 	DirAccess.make_dir_recursive_absolute(shots_dir)
-	var g := GameState.new_game(seed)
+	var g := GameState.new_game(seed, species)
 	for day in range(days):
 		g.dive()
 		var start := 0 if g.roots.graph.size() <= 1 else g.roots.graph.size() - 1

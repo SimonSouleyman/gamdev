@@ -74,6 +74,7 @@ func _build() -> void:
 	shed_menu.show_menu(false)
 	shed_menu.continue_pressed.connect(leave_shed)
 	shed_menu.journal_pressed.connect(func() -> void: journal.open_diary())
+	shed_menu.plant_pressed.connect(plant_next)
 	shed_menu.setting_changed.connect(func(k: String, on: bool) -> void:
 		journal.set_setting(k, on)
 		_apply_setting(k, on))
@@ -118,6 +119,7 @@ func start(p_state: GameState) -> void:
 	state = p_state
 	journal.clear_pages()
 	journal.state = state
+	shed_menu.set_tree_name(state.tree_name())
 	tree_view.setup(state)
 	root_view.setup(state.ground, state.roots, state.sim.resources)
 	# A new game or a load in the middle of a dive or sunrise: stop that transition.
@@ -135,7 +137,7 @@ func start(p_state: GameState) -> void:
 	_handle_events()
 	# Pages that were open when the game was saved come back.
 	for id in state.pending_pages:
-		if Pages.TEXTS.has(id) and not journal.pending_ids().has(id):
+		if Pages.has(id) and not journal.pending_ids().has(id):
 			journal.show_page(id, Pages.title(id), Pages.body(id))
 
 
@@ -204,6 +206,8 @@ func _handle_events() -> void:
 			"sunset":
 				if state.is_seed() and state.day_number() == 0:
 					_page_once("planted")
+					# Each species introduces itself once, the first time it is planted.
+					_page_once(Pages.species_page(state.sim.species.id))
 				else:
 					_page_once("first_sunset")
 			"spent":
@@ -217,6 +221,9 @@ func _handle_events() -> void:
 				_rise()
 			"morning":
 				_morning()
+			"finished":
+				state.seen_pages["finished"] = true
+				journal.show_page("finished", Pages.title("finished"), Pages.body("finished"))
 			_:
 				if e.begins_with("find:"):
 					var kind := e.substr(5)
@@ -384,7 +391,7 @@ func _save_settings() -> void:
 func save() -> void:
 	if not ephemeral and state != null:
 		# An unread tutorial page must not be lost when the game closes while it is open.
-		state.pending_pages = journal.pending_ids().filter(func(id: String) -> bool: return Pages.TEXTS.has(id))
+		state.pending_pages = journal.pending_ids().filter(func(id: String) -> bool: return Pages.has(id))
 		SaveData.save_game(state)
 
 
@@ -543,7 +550,21 @@ func _unhandled_input(event: InputEvent) -> void:
 		"options":
 			shed_menu.open_options()
 		"seeds":
-			journal.show_page("seeds", "The seed bag", "A handful of linden seeds, saved for later.\n\nWhen this linden has grown to its full size, one of them goes into the ground beside it and a new tree begins.")
+			shed_menu.open_seeds(state, bool(journal.settings.get("any_species", false)))
+
+
+## The seed bag planted the next tree: a new game of that species beside the old one. The grove
+## (finished trees, which unlock the species) and the pages already read carry over; the photo
+## album is kept, each photo captioned with its tree. Only when this tree is finished, or with
+## the test switch "any species now" on the options pinboard.
+func plant_next(species_id: String) -> void:
+	if state == null or not state.can_plant_next(bool(journal.settings.get("any_species", false))):
+		return
+	if not state.unlocked_species(bool(journal.settings.get("any_species", false))).has(species_id):
+		return
+	start(GameState.new_tree(int(Time.get_unix_time_from_system()), species_id, state))
+	in_shed = false
+	enter_shed(false)
 
 
 ## Saves a photo of the tree for the album (without the HUD), with a camera flash.
@@ -563,7 +584,7 @@ func _take_photo(tag: String) -> void:
 		was.append((h as CanvasLayer).visible)
 		(h as CanvasLayer).visible = false
 	await RenderingServer.frame_post_draw
-	Photos.save_from(get_viewport(), state.day_number(), tag)
+	Photos.save_from(get_viewport(), state.day_number(), tag, state.sim.species.id)
 	for i in range(huds.size()):
 		(huds[i] as CanvasLayer).visible = was[i]
 	_photo_busy = false
