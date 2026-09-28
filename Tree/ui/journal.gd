@@ -217,11 +217,12 @@ func _build_open_button() -> void:
 		sb.content_margin_top = 4
 		sb.content_margin_bottom = 6
 		_open_button.add_theme_stylebox_override(k, sb)
-	_open_button.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+	# Middle right with the other scraps, clear of the compass and the sun's arc (Simon, 0.5.1).
+	_open_button.set_anchors_preset(Control.PRESET_CENTER_RIGHT)
 	_open_button.offset_left = -160
 	_open_button.offset_right = -20
-	_open_button.offset_top = 18
-	_open_button.offset_bottom = 70
+	_open_button.offset_top = -190
+	_open_button.offset_bottom = -138
 	_open_button.rotation_degrees = 2.0
 	_open_button.pressed.connect(open_diary)
 	add_child(_open_button)

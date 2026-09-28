@@ -444,14 +444,14 @@ func _build_corner() -> void:
 	_corner = CanvasLayer.new()
 	_corner.layer = 19
 	add_child(_corner)
-	_shed_button = _scrap("shed", Vector2(-160, 205))
+	_shed_button = _scrap("shed", Vector2(-160, -120))
 	_shed_button.pressed.connect(func() -> void:
 		if not _transitioning and not journal.is_open():
 			enter_shed(true))
-	_photo_button = _scrap("photo", Vector2(-160, 265))
+	_photo_button = _scrap("photo", Vector2(-160, -60))
 	_photo_button.pressed.connect(func() -> void: _take_photo("camera"))
 	# The shears: while out, a tap cuts a branch instead of boosting the sun (play test 4).
-	_shears_button = _scrap("shears", Vector2(-160, 325))
+	_shears_button = _scrap("shears", Vector2(-160, 0))
 	_shears_button.pressed.connect(func() -> void:
 		_set_shears(not tree_view.prune_mode)
 		if tree_view.prune_mode:
@@ -468,6 +468,10 @@ func _set_shears(on: bool) -> void:
 	if not on:
 		tree_view.pruning.preview(-1)
 	_shears_button.text = "put away" if on else "shears"
+	# The shears glow while out; on a PC the pointer turns into a cross (a scissor picture comes
+	# with the picture symbols in 0.6).
+	_shears_button.modulate = Color(1.35, 1.2, 0.8) if on else Color.WHITE
+	Input.set_default_cursor_shape(Input.CURSOR_CROSS if on else Input.CURSOR_ARROW)
 
 
 func _scrap(text: String, at: Vector2) -> Button:
@@ -479,8 +483,9 @@ func _scrap(text: String, at: Vector2) -> Button:
 	for k in ["font_color", "font_hover_color", "font_pressed_color"]:
 		b.add_theme_color_override(k, Paper.INK)
 	for k in ["normal", "hover", "pressed"]:
-		b.add_theme_stylebox_override(k, Paper.paper_box(96, 48, 110 + int(at.y), "all", 12.0))
-	b.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+		b.add_theme_stylebox_override(k, Paper.paper_box(96, 48, 110 + absi(int(at.y)), "all", 12.0))
+	# Middle right (at.y is relative to the screen's middle), clear of compass and sun arc.
+	b.set_anchors_preset(Control.PRESET_CENTER_RIGHT)
 	b.offset_left = at.x
 	b.offset_right = -20
 	b.offset_top = at.y

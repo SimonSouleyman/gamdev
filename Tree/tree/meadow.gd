@@ -36,7 +36,8 @@ func build(ground: Underground) -> void:
 			"stones":
 				_scatter(p, r, 7, _stone)
 			"moss":
-				_wet_patch(p + Vector3(0, 0.0, -0.1), 0.22, Color(0.2, 0.3, 0.1), 0.9)
+				# A small bare patch of earth around the trunk; nothing else grows there (Simon).
+				_wet_patch(Terrain.at(Vector3.ZERO), BARE_RADIUS, Color(0.2, 0.15, 0.1), 0.95)
 
 
 const WET_SHADER := """
@@ -75,11 +76,18 @@ func _mat(c: Color) -> StandardMaterial3D:
 	return m
 
 
+## Radius of the bare earth around the trunk.
+const BARE_RADIUS := 0.9
+
+
 func _scatter(center: Vector3, radius: float, count: int, make: Callable) -> void:
 	for _i in range(count):
 		var a := _rng.randf() * TAU
 		var d := radius * sqrt(_rng.randf())
-		make.call(Terrain.at(center + Vector3(cos(a) * d, 0.0, sin(a) * d)))
+		var q := center + Vector3(cos(a) * d, 0.0, sin(a) * d)
+		if Vector2(q.x, q.z).length() < BARE_RADIUS + 0.1:
+			continue
+		make.call(Terrain.at(q))
 
 
 func _add(mesh: Mesh, mat: Material, at: Vector3, basis: Basis = Basis.IDENTITY) -> MeshInstance3D:

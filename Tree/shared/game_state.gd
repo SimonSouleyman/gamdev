@@ -77,6 +77,10 @@ static func new_tree(random_seed: int, species_id: String, previous: GameState) 
 	if previous != null:
 		g.grove = previous.grove.duplicate(true)
 		g.seen_pages = previous.seen_pages.duplicate()
+		# Visitors come anew to each tree (the nest was already there on a new seedling).
+		for k in g.seen_pages.keys():
+			if str(k).begins_with("visitor_"):
+				g.seen_pages.erase(k)
 	return g
 
 

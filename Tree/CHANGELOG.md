@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.5.2 (2026-09-28)
+
+From Simon's feedback on 0.5.1.
+- A small patch of bare earth around the trunk; nothing grows there.
+- The journal, shed, photo and shears scraps sit in the middle of the right edge, clear of the
+  compass and the sun's arc.
+- No more flickering yellow points in the crown (new-growth sparkles are few, soft and steady;
+  a few calm pollen motes); softer grass edges and 2x anti-aliasing on phones.
+- With the shears out the camera rides the trunk: drag beside the tree to move up and down along
+  it and around it (mouse wheel on a PC); the shears glow while out.
+- No bench under the tree; visitors come anew to each tree.
+
 ## v0.5.1 (2026-09-28)
 
 From Simon's recorded phone test of v0.5 (video, frame-rate log and save state).

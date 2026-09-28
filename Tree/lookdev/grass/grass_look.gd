@@ -53,7 +53,7 @@ static func apply_meadow2(view: TreeView) -> void:
 		var d := radius * pow(rng.randf(), 0.6)
 		var a := rng.randf() * TAU
 		var p := Vector3(cos(a) * d, 0.0, sin(a) * d)
-		if d < 0.6 or Vector2(p.x - Shed.origin.x, p.z - Shed.origin.z).length() < 2.6:
+		if d < Meadow.BARE_RADIUS + 0.1 or Vector2(p.x - Shed.origin.x, p.z - Shed.origin.z).length() < 2.6:
 			p = Vector3(cos(a) * (d + 3.0), 0.0, sin(a) * (d + 3.0))
 		var clover := sin(p.x * 0.31 + 2.0) * cos(p.z * 0.27 - 1.0)
 		var bloom := sin(p.x * 0.19 - 0.7) * cos(p.z * 0.23 + 1.9)

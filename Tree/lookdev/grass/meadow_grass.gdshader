@@ -33,7 +33,11 @@ void vertex() {
 
 void fragment() {
 	vec4 tex = texture(clump_texture, UV);
-	if (tex.a < 0.4) { discard; }
+	// Alpha to coverage with the phone's MSAA: soft blade edges instead of hard ones that
+	// pop in and out between frames (the meadow shimmered, Simon 0.5.1).
+	ALPHA = tex.a;
+	ALPHA_SCISSOR_THRESHOLD = 0.4;
+	ALPHA_ANTIALIASING_EDGE = 0.25;
 	ALBEDO = tex.rgb * COLOR.rgb;
 	// Blades shade each other near the ground.
 	AO = mix(0.35, 1.0, smoothstep(0.0, 0.6, root_shade));
