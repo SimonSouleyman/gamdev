@@ -320,3 +320,24 @@ func test_a_boost_ends_with_the_day_and_survives_a_save() -> void:
 		guard += 1
 	t.check(g.phase != GameState.Phase.DAY, "the sun set")
 	t.check_near(g.sim.clock.boost_remaining, 0.0, 1e-6, "and the boost ended with it")
+
+
+func test_visitors_come_once_as_the_tree_grows() -> void:
+	# Game feel: butterflies at the first leaves, a nest once the tree is tall, each once.
+	var g := GameState.new_game(31)
+	t.check(Visitors.arrive(g).is_empty(), "nobody visits a seed")
+	for _day in range(8):
+		g.dive()
+		g.start_run(0 if g.roots.graph.size() <= 1 else g.roots.graph.size() - 1)
+		var bot := RootBot.new()
+		var guard := 0
+		while g.steer(bot.stick_for(g.roots, g.ground), false, 1.0 / 30.0) and guard < 20000:
+			guard += 1
+		while g.phase == GameState.Phase.NIGHT:
+			g.tick(0.25)
+		while g.phase == GameState.Phase.DAY:
+			g.tick(0.5)
+	var first := Visitors.arrive(g)
+	t.check(first.has("butterflies"), "butterflies have come (%s, %.1f m)" % [str(first), g.sim.height()])
+	t.check(g.sim.height() < 8.0 or first.has("nest"), "a tall tree gets a nest")
+	t.check(not Visitors.arrive(g).has("butterflies"), "each visitor comes once")

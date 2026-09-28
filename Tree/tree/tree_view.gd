@@ -103,6 +103,7 @@ func setup(p_state: GameState) -> void:
 	_births.clear()
 	# Nodes that already exist do not twinkle.
 	_rebuild()
+	update_visitors()
 	_frame_camera(true)
 
 
@@ -128,6 +129,65 @@ func refresh_clearing() -> void:
 	# The haze begins further out as the clearing grows, so the forest ring is not buried.
 	_env.fog_depth_begin = r
 	_env.fog_depth_end = r * 2.0 + 34.0
+
+
+## The nest in the crown and the bench under the tree, once they have come (Visitors).
+var _nest: MeshInstance3D
+var _bench: Node3D
+
+
+func update_visitors() -> void:
+	if _nest == null:
+		_nest = MeshInstance3D.new()
+		var t := TorusMesh.new()
+		t.inner_radius = 0.12
+		t.outer_radius = 0.26
+		t.rings = 10
+		t.ring_segments = 8
+		_nest.mesh = t
+		var nm := StandardMaterial3D.new()
+		nm.albedo_color = Color(0.36, 0.28, 0.18)
+		nm.roughness = 1.0
+		nm.albedo_texture = load(Assets.BARK_DIFF)
+		nm.uv1_scale = Vector3(4, 1, 1)
+		_nest.material_override = nm
+		_nest.scale = Vector3(1, 0.7, 1)
+		add_child(_nest)
+	_nest.visible = Visitors.has_come(state, "nest")
+	if _nest.visible:
+		# In a fork about two thirds up, on a living branch with a few children.
+		var g := state.sim.graph
+		var want := state.sim.height() * 0.62
+		var best := 1
+		var best_d := INF
+		for id in range(2, g.size()):
+			if g.children[id].size() >= 2 and not g.get_flag(id, "dead", false):
+				var d := absf(g.positions[id].y - want)
+				if d < best_d:
+					best_d = d
+					best = id
+		_nest.position = g.positions[best] + Vector3(0, 0.05, 0)
+	if _bench == null:
+		_bench = Node3D.new()
+		var wood := StandardMaterial3D.new()
+		wood.albedo_texture = load("res://assets/wood/weathered_planks_diff_1k.jpg")
+		wood.uv1_triplanar = true
+		wood.uv1_world_triplanar = true
+		wood.roughness = 0.9
+		for part in [[Vector3(1.6, 0.05, 0.4), Vector3(0, 0.45, 0)], [Vector3(1.6, 0.3, 0.05), Vector3(0, 0.75, -0.2)], [Vector3(0.06, 0.45, 0.35), Vector3(-0.7, 0.22, 0)], [Vector3(0.06, 0.45, 0.35), Vector3(0.7, 0.22, 0)]]:
+			var m := MeshInstance3D.new()
+			var b := BoxMesh.new()
+			b.size = part[0]
+			m.mesh = b
+			m.position = part[1]
+			m.material_override = wood
+			_bench.add_child(m)
+		add_child(_bench)
+	_bench.visible = Visitors.has_come(state, "bench")
+	if _bench.visible:
+		var p := Vector3(2.6, 0, 1.8)
+		_bench.position = Terrain.at(p)
+		_bench.rotation.y = atan2(p.x, p.z)
 
 
 func _build_world() -> void:

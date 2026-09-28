@@ -337,6 +337,9 @@ func _new_tween() -> Tween:
 func _morning() -> void:
 	# A photo for the album every morning, after the dawn burst.
 	await _take_photo("morning")
+	# Visitors come as the tree grows (diary lines; the nest and the bench stay in view).
+	if not Visitors.arrive(state).is_empty():
+		tree_view.update_visitors()
 	if state.day_number() == 1:
 		_page_once("sapling")
 	elif state.diary.wish != "":
