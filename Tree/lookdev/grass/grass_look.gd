@@ -19,7 +19,7 @@ static func apply(view: TreeView) -> void:
 		# Taller, a little narrower: meadow grass stands 30 to 60 cm.
 		xf.basis = xf.basis.scaled(Vector3(0.9, 1.6, 0.9))
 		mm.set_instance_transform(i, xf)
-		var v := rng.randf_range(0.62, 0.85)
+		var v := rng.randf_range(0.55, 0.78)
 		var dry := clampf(0.5 + 0.5 * sin(p.x * 0.23 + 1.3) * cos(p.z * 0.19 - 0.4), 0.0, 1.0)
 		var col := Color(v, v, v).lerp(Color(1.08 * v, 1.02 * v, 0.8 * v), dry * 0.5)
 		var d := Vector2(p.x, p.z).length()

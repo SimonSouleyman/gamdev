@@ -237,6 +237,10 @@ func _build_world() -> void:
 	Assets.apply_leaf(_leaf_mat)
 	# The forest keeps _leaf_mat as its template; the player's crown uses the spray material.
 	_spray_mat = CrownSprays.material()
+	# The player's tree stands out (Simon, play test 4): lighter, warmer leaves with a rim of light,
+	# against a darker, cooler forest and a calmer meadow.
+	_spray_mat.set_shader_parameter("tint_mul", Color(1.02, 1.03, 0.95))
+	_spray_mat.set_shader_parameter("rim_strength", 0.12)
 	_leaves.material_override = _spray_mat
 	# The player's tree catches the light at its edges, so it reads against the forest wall.
 	_leaf_mat.set_shader_parameter("rim_strength", 0.1)
