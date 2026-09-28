@@ -29,6 +29,8 @@ var _noise_tex: NoiseTexture2D
 var _bark_mat: ShaderMaterial
 var _leaf_mat: ShaderMaterial
 var _ground_mat: ShaderMaterial
+var _spray_mat: ShaderMaterial
+var _compat: bool = RenderingServer.get_current_rendering_method() == "gl_compatibility"
 var _ground: MeshInstance3D
 ## Radius of the clearing the world was last built for.
 var _clearing: float = -1.0
@@ -110,8 +112,11 @@ func refresh_clearing() -> void:
 	Shed.origin = Vector3(0.0, 0.0, r - 2.5)
 	_ground.mesh = Terrain.ground_mesh(160.0 + (r - Scenery.CLEARING_RADIUS) * 2.0, 110)
 	_meadow.build(state.ground)
+	RockLook.apply_meadow(_meadow)
 	_plant_grass(state.seed)
+	GrassLook.apply(self)
 	_scenery.build(state.seed, _bark_mat, _leaf_mat, _noise_tex, r)
+	ForestSprays.apply(_scenery)
 	# The haze begins further out as the clearing grows, so the forest ring is not buried.
 	_env.fog_depth_begin = r
 	_env.fog_depth_end = r * 2.0 + 34.0
@@ -133,6 +138,10 @@ func _build_world() -> void:
 	var sky := Sky.new()
 	sky.sky_material = _sky_mat
 	sky.radiance_size = Sky.RADIANCE_SIZE_64
+	if Budgets.PHONE:
+		# The sun moves every frame; the real-time path is the cheap one on a phone.
+		sky.radiance_size = Sky.RADIANCE_SIZE_256
+		sky.process_mode = Sky.PROCESS_MODE_REALTIME
 	_env = Environment.new()
 	_env.background_mode = Environment.BG_SKY
 	_env.sky = sky
@@ -143,7 +152,8 @@ func _build_world() -> void:
 	_env.reflected_light_source = Environment.REFLECTION_SOURCE_SKY
 	_env.tonemap_mode = Environment.TONE_MAPPER_ACES
 	_env.tonemap_exposure = 1.1
-	_env.glow_enabled = true
+	# Glow costs a phone more than it gives.
+	_env.glow_enabled = not Budgets.PHONE
 	_env.glow_intensity = 0.35
 	_env.glow_bloom = 0.05
 	_env.fog_enabled = true
@@ -155,11 +165,11 @@ func _build_world() -> void:
 	_env.fog_depth_curve = 1.0
 	_env.fog_density = 0.6
 	_env.fog_light_color = Color(0.45, 0.55, 0.5)
-	_env.fog_aerial_perspective = 0.4
+	_env.fog_aerial_perspective = 0.25
 	_env.fog_sky_affect = 0.05
 	_env.adjustment_enabled = true
 	_env.adjustment_saturation = 1.0
-	_env.adjustment_contrast = 1.05
+	_env.adjustment_contrast = 1.12
 	camera.environment = _env
 	add_child(camera)
 
@@ -209,6 +219,8 @@ func _build_world() -> void:
 	Assets.apply_bark(_bark_mat)
 	_tree_mesh.material_override = _bark_mat
 	_bark_mat.set_shader_parameter("rim_strength", 0.12)
+	# Grey-brown linden bark instead of the warm orange (visuals thread).
+	_bark_mat.set_shader_parameter("texture_tint", Vector3(0.38, 0.36, 0.33))
 	add_child(_tree_mesh)
 
 	# Leaf clusters: crossed leaf cards per living tip, alpha-cut, swaying in the wind.
@@ -216,12 +228,16 @@ func _build_world() -> void:
 	var lmm := MultiMesh.new()
 	lmm.transform_format = MultiMesh.TRANSFORM_3D
 	lmm.use_colors = true
-	lmm.mesh = Foliage.cluster_mesh(8, 1.0, Assets.has_leaf_atlas())
+	# Painted leaf sprays (visuals thread, approved by Simon): a dozen small leaves per card.
+	lmm.use_custom_data = true
+	lmm.mesh = CrownSprays.card_mesh()
 	_leaves.multimesh = lmm
 	_leaf_mat = ShaderMaterial.new()
 	_leaf_mat.shader = preload("res://tree/leaf.gdshader")
 	Assets.apply_leaf(_leaf_mat)
-	_leaves.material_override = _leaf_mat
+	# The forest keeps _leaf_mat as its template; the player's crown uses the spray material.
+	_spray_mat = CrownSprays.material()
+	_leaves.material_override = _spray_mat
 	# The player's tree catches the light at its edges, so it reads against the forest wall.
 	_leaf_mat.set_shader_parameter("rim_strength", 0.1)
 	_leaves.extra_cull_margin = 4.0
@@ -286,8 +302,8 @@ func _build_world() -> void:
 	add_child(_sun_disc)
 
 
-const GRASS_CLUMPS := Budgets.MEADOW_GRASS_CLUMPS
-const HERB_CLUMPS := Budgets.MEADOW_HERB_CLUMPS
+static var GRASS_CLUMPS: int = Budgets.MEADOW_GRASS_CLUMPS
+static var HERB_CLUMPS: int = Budgets.MEADOW_HERB_CLUMPS
 
 
 func _clump_layer(tex: Texture2D) -> MultiMeshInstance3D:
@@ -496,11 +512,33 @@ func _process(delta: float) -> void:
 	_rebuild_timer += delta
 	if _rebuild_timer >= REBUILD_INTERVAL and state.sim.graph.size() != _built_size:
 		_rebuild_timer = 0.0
+		var t0 := Time.get_ticks_usec()
 		_rebuild()
+		_perf_rebuild_ms = maxf(_perf_rebuild_ms, (Time.get_ticks_usec() - t0) / 1000.0)
+	_perf_log(delta)
 	_update_twinkles()
 	_update_sun()
 	_frame_camera(false, delta)
 	_update_hud()
+
+
+## Debug builds (the phone test APK) log the frame rate and the slowest tree rebuild every
+## five seconds, so performance can be read over adb logcat.
+var _perf_rebuild_ms: float = 0.0
+var _perf_timer: float = 0.0
+var _perf_worst: float = 0.0
+
+
+func _perf_log(delta: float) -> void:
+	if not OS.is_debug_build() or OS.has_feature("editor"):
+		return
+	_perf_timer += delta
+	_perf_worst = maxf(_perf_worst, delta)
+	if _perf_timer >= 5.0:
+		print("perf: fps %d, worst frame %.0f ms, slowest rebuild %.0f ms, nodes %d, clearing %.0f m" % [Engine.get_frames_per_second(), _perf_worst * 1000.0, _perf_rebuild_ms, state.sim.graph.size(), _clearing])
+		_perf_timer = 0.0
+		_perf_worst = 0.0
+		_perf_rebuild_ms = 0.0
 
 
 func _rebuild() -> void:
@@ -512,44 +550,10 @@ func _rebuild() -> void:
 	_built_size = g.size()
 	_tree_mesh.mesh = _builder.build(g)
 	_seed.visible = state.is_seed()
-	# Leaves gather toward the branch ends (within a few nodes of a living tip), as sprays of
-	# several smaller clusters, so the crown reads as masses of foliage rather than beads.
-	var near_tip := {}
-	for tip in g.tips():
-		if tip <= 1 or g.get_flag(tip, "dead", false):
-			continue
-		var cur := tip
-		for _k in range(4):
-			if cur <= 1:
-				break
-			near_tip[cur] = true
-			cur = g.parents[cur]
-	var spots := PackedInt32Array()
-	for id in near_tip.keys():
-		spots.append(id)
-	spots.sort()
-	var per := 1 if state.sim.height() < 3.0 else (2 if state.sim.height() < 10.0 else 3)
-	var mm := _leaves.multimesh
-	mm.instance_count = spots.size() * per
-	var rng := RandomNumberGenerator.new()
-	rng.seed = hash([state.seed, "leaf clusters"])
-	var grow := 1.0 + state.sim.height() * 0.06
-	var centre := state.sim.centroid()
-	var crown_r := maxf(0.5, state.sim.height() * 0.35)
-	var n := 0
-	for id in spots:
-		for k in range(per):
-			var s := (0.09 + 0.05 * rng.randf()) * grow
-			var off := Vector3(rng.randf_range(-1, 1), rng.randf_range(-0.6, 0.8), rng.randf_range(-1, 1)) * s * 1.4 * float(k > 0)
-			var basis := Basis(Vector3.UP, rng.randf() * TAU) * Basis(Vector3.RIGHT, rng.randf_range(-0.4, 0.4))
-			var p := g.positions[id] + off
-			mm.set_instance_transform(n, Transform3D(basis.scaled(Vector3.ONE * s), p))
-			var tint := rng.randf_range(0.85, 1.12)
-			# Leaves deep inside the crown are in shade.
-			var inner := clampf(1.0 - p.distance_to(centre) / crown_r, 0.0, 1.0)
-			tint *= lerpf(1.0, 0.55, inner)
-			mm.set_instance_color(n, Color(tint * rng.randf_range(0.9, 1.05), tint, tint * rng.randf_range(0.85, 1.0)))
-			n += 1
+	# Leaf sprays around the living twigs; the crown's shape feeds the shading of its interior.
+	var crown := CrownSprays.populate(_leaves.multimesh, state.sim, state.seed)
+	_spray_mat.set_shader_parameter("crown_centre", crown.get_center())
+	_spray_mat.set_shader_parameter("crown_radii", crown.size * 0.5 + Vector3.ONE * 0.5)
 
 
 func _update_twinkles() -> void:
@@ -616,6 +620,21 @@ func _update_sun() -> void:
 
 
 # --- camera -----------------------------------------------------------------
+	# Golden hour (visuals thread): less sun glare in the haze, real sun and shade by day, a sun
+	# that stays warm until it is well up, and haze that takes its colour.
+	_env.fog_sun_scatter *= 0.35
+	if h > 0.0:
+		_env.ambient_light_energy *= 0.6
+		_sun_light.light_energy *= 1.45
+		var golden := 1.0 - smoothstep(0.03, 0.55, h)
+		_sun_light.light_color = Color(1.0, 0.95, 0.88).lerp(Color(1.0, 0.7, 0.4), golden)
+		_sun_light.light_energy *= 1.0 + 0.25 * golden
+		_env.fog_light_color = _env.fog_light_color.lerp(Color(0.85, 0.7, 0.5), golden * 0.5)
+	# The phone's simpler renderer lights more brightly: tone it down to match the PC.
+	if _compat:
+		_sun_light.light_energy *= 0.7
+		_env.ambient_light_energy *= 0.8
+		_env.tonemap_exposure *= 0.85
 
 func _frame_camera(snap: bool, delta: float = 0.0) -> void:
 	var real_height := maxf(state.sim.height(), 0.2)
@@ -634,7 +653,8 @@ func _frame_camera(snap: bool, delta: float = 0.0) -> void:
 	# Just wide enough to hold the whole tree at this distance.
 	camera.fov = clampf(rad_to_deg(2.0 * atan(height * 0.62 / maxf(want_distance, 0.1))) + 10.0, 50.0, 80.0)
 	# The meadow grass fades out beyond the tree, however far back the camera stands.
-	var fade := maxf(24.0, want_distance + 22.0)
+	# (A phone lets it fade sooner: meadow cards are what it pays most for.)
+	var fade := maxf(14.0 if Budgets.PHONE else 24.0, want_distance + (8.0 if Budgets.PHONE else 22.0))
 	for layer in [_grass, _herbs]:
 		var gm := (layer as MultiMeshInstance3D).material_override as ShaderMaterial
 		gm.set_shader_parameter("fade_start", fade)

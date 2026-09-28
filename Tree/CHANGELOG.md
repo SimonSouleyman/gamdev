@@ -1,5 +1,28 @@
 # Changelog
 
+## v0.4 (2026-09-28)
+
+The new look from the visuals thread, and the game running well on Simon's Fairphone 6.
+One test loop with screenshots on PC and phone (Simon's call for this version).
+
+### Look
+- The linden's crown is made of painted leaf sprays that shade as one volume; grey-brown bark.
+- Forest trees and shrubs use the same sprays; painted meadow grass; fractured, mossy boulders
+  underground and stones in the meadow.
+- Golden hour: warm low sun, real light and shade by day, softer glare; more contrast.
+- Paper UI: crumpled torn pages, a bound book page with a leather cover, paper notes and ink
+  that sits in the paper.
+
+### Phone
+- Fixed a crash in the sound after a few seconds on Android.
+- From 4 to about 20 frames per second on the Fairphone: a simpler renderer (which also removed
+  flickering lines), half-resolution 3D, fewer forest trees, shrubs, grass and flowers, cheaper
+  leaves, a 30 fps cap to save battery.
+- The back gesture closes the journal or a board, goes to the shed, and in the shed leaves the game.
+
+### Fixes from the test loop
+- Handwriting no longer thin and grey; pages and the book fade in properly.
+
 ## v0.3 (2026-09-28)
 
 From Simon's play test 3 and his menu wishes, then three rounds of independent review

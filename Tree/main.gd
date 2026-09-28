@@ -36,6 +36,8 @@ func _ready() -> void:
 	if OS.get_cmdline_user_args().has("--ephemeral"):
 		ephemeral = true
 	_build()
+	if Budgets.MAX_FPS > 0:
+		Engine.max_fps = Budgets.MAX_FPS
 	if ephemeral:
 		return  # tools start their own seeded game
 	# A drawn page covers the first frames while the forest grows.
@@ -373,7 +375,25 @@ var _paused_at: float = -1.0
 var _photo_busy := false
 
 
+## Esc on a PC, the back gesture on a phone: close what is open, else go to the shed.
+## In the shed with nothing open, back leaves the game (saved), as Android players expect.
+func _back() -> void:
+	if journal.is_open():
+		journal.close_page()
+		journal.close_diary()
+	elif shed_menu.is_busy():
+		shed_menu.close_boards()
+	elif not in_shed and not _transitioning:
+		enter_shed(true)
+	elif in_shed and not _transitioning and Budgets.PHONE:
+		save()
+		get_tree().quit()
+
+
 func _notification(what: int) -> void:
+	if what == NOTIFICATION_WM_GO_BACK_REQUEST:
+		_back()
+		return
 	if what == NOTIFICATION_WM_CLOSE_REQUEST or what == NOTIFICATION_APPLICATION_PAUSED:
 		save()
 		_paused_at = Time.get_unix_time_from_system()
@@ -544,10 +564,4 @@ func _unhandled_key_input(event: InputEvent) -> void:
 			elif not _transitioning:
 				journal.open_diary()
 		KEY_ESCAPE:
-			if journal.is_open():
-				journal.close_page()
-				journal.close_diary()
-			elif shed_menu.is_busy():
-				shed_menu.close_boards()
-			elif not in_shed and not _transitioning:
-				enter_shed(true)
+			_back()

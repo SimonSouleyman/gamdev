@@ -10,7 +10,9 @@ const SILENT_DB := -60.0
 var _wind: AudioStreamPlayer
 var _insects: AudioStreamPlayer
 var _hum: AudioStreamPlayer
-var _bird: AudioStreamPlayer
+## One player per chirp: the stream of a playing player is never swapped (that crashed the
+## audio thread on the phone).
+var _birds: Array[AudioStreamPlayer] = []
 var _chirps: Array[AudioStreamWAV] = []
 var _rng := RandomNumberGenerator.new()
 var _bird_timer: float = 3.0
@@ -30,9 +32,8 @@ func _ready() -> void:
 	_hum = _player(AmbienceSynth.hum(), SILENT_DB)
 	for v in range(4):
 		_chirps.append(AmbienceSynth.chirp(v))
-	_bird = AudioStreamPlayer.new()
-	_bird.volume_db = ABOVE_DB - 4.0
-	add_child(_bird)
+		var b := _player(_chirps[v], ABOVE_DB - 4.0)
+		_birds.append(b)
 	_collect = AudioStreamPlayer.new()
 	_collect.stream = AmbienceSynth.pling()
 	_collect.volume_db = -14.0
@@ -88,6 +89,7 @@ func _process(delta: float) -> void:
 	_bird_timer -= delta
 	if _bird_timer <= 0.0:
 		_bird_timer = _rng.randf_range(2.5, 9.0)
-		_bird.stream = _chirps[_rng.randi_range(0, _chirps.size() - 1)]
-		_bird.pitch_scale = _rng.randf_range(0.9, 1.15)
-		_bird.play()
+		var bird := _birds[_rng.randi_range(0, _birds.size() - 1)]
+		if not bird.playing:
+			bird.pitch_scale = _rng.randf_range(0.9, 1.15)
+			bird.play()

@@ -206,6 +206,8 @@ static func ink_label(text: String, size: int, color: Color = INK, bold: bool = 
 	l.add_theme_font_size_override("font_size", size)
 	l.add_theme_color_override("font_color", color)
 	l.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	# Ink that sits in the paper: pressure, skips and a slight bleed (visuals thread).
+	l.material = PaperLook.ink_material()
 	return l
 
 
