@@ -167,6 +167,9 @@ func tick(delta: float) -> void:
 				clock.boost_remaining = 0.0
 				phase = Phase.SUNSET
 				_weather_note("evening")
+				# A shower today: mushrooms come up under the crown for a few days (living clearing).
+				if bool(weather_today().get("rain", false)) and day_number() > 0:
+					after_rain()
 				_event("sunset")
 			else:
 				sim.tick(delta)
