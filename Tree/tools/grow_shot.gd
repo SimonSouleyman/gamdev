@@ -6,7 +6,7 @@ extends SceneTree
 ## Mood (section 17): --season=spring|summer|autumn|late_autumn, --weather=rain|mist|dew|clear,
 ## --moon=<phase 0..1>, --date=YYYY-MM-DD (Almanac.read_cmdline); --night=<0..1> photographs the
 ## sunset hold that far into the night instead of noon; --yaw=<radians> and --pitch= one view only;
-## --face_moon turns the view toward the moon; --look_up=<radians> tilts the camera toward the sky; --tag=<name> prefixes the file names.
+## --settle=<frames> waits before the first photo; --face_moon turns the view toward the moon; --look_up=<radians> tilts the camera toward the sky; --tag=<name> prefixes the file names.
 
 var shots_dir := ""
 var days := 10
@@ -24,6 +24,7 @@ var pitch := 0.12
 var tag := ""
 var look_up := 0.0
 var face_moon := false
+var settle := 0
 
 
 func _initialize() -> void:
@@ -50,6 +51,8 @@ func _initialize() -> void:
 			only_yaw = float(a.substr(6))
 		elif a.begins_with("--pitch="):
 			pitch = float(a.substr(8))
+		elif a.begins_with("--settle="):
+			settle = int(a.substr(9))
 		elif a == "--face_moon":
 			face_moon = true
 		elif a.begins_with("--look_up="):
@@ -107,8 +110,14 @@ func _process(_delta: float) -> bool:
 	if only_yaw > -99.0:
 		names = ["view"]
 		yaws = [only_yaw]
-	var i := frame / 20
-	if frame % 20 == 0 and i - 1 < names.size():
+	# --settle: let rain and falling leaves fill the air before the first photo.
+	var f := frame - settle
+	if f < 1:
+		view._yaw = yaws[0]
+		view._pitch = pitch
+		return false
+	var i := f / 20
+	if f % 20 == 0 and i - 1 < names.size():
 		RenderingServer.force_draw(false)
 		root.get_viewport().get_texture().get_image().save_png(shots_dir.path_join("%stree_day%d_h%d_%s.png" % [tag, days, int(hour * 100), names[i - 1]]))
 	if i < names.size():

@@ -66,3 +66,14 @@ Each criterion has a test in `tests/` unless marked (visual), which Simon judges
 - Each species has a journal page (look and quirk), shown once when it is planted, kept in the pages tab.
 - (visual) The hero tree's bark and leaf tint follow the species (white birch, dark oak); the forest ring is unchanged.
 - tools/month_report.gd --species=<id>|all: growth every day, finished near 30 days (birch 25, oak 35).
+
+## 0.6 sky, seasons and weather (design doc section 17, parts 2, 4, 5)
+- The moon's phase comes from the real date (mean synodic month from the new moon of 2000-01-06): new moon at the 2024-04-08 and 2025-09-21 solar eclipses, full moon at the 2025-09-07 lunar eclipse; a waxing moon is lit on the right (tests/test_almanac.gd).
+- At night the moon stands where it would during the night: a full moon high in the south, a young crescent low in the west, an old one low in the east, none around new moon.
+- The season follows the German calendar: spring from 20 March, summer from 1 June, autumn from 1 September, and from 20 November the late autumn look holds until 19 March (winter parked). The look eases from day to day (no jumps within the growing year).
+- `--season=`, `--weather=`, `--moon=` and `--date=` on the command line (after `--`) force a look for screenshots and PC tests; no UI.
+- Weather per game day is deterministic from the save seed, the game day and the real date; showers now and then (not every day), misty mornings common in autumn, thunder rare and never in the parked winter. A notable morning (mist, dew) and evening (shower, thunder) writes one diary line.
+- (visual) After sunset the sky deepens over half a minute from dusk to a deep blue starry night with the moon and a weak bluish moonlight; few clouds at night; the tree and meadow stay readable (tree view, dive, shed at night).
+- (visual) Spring light green, summer deep green, autumn yellow/orange/red with leaves drifting from the crown, late autumn browner and thinner; forest, shrubs, herbs and meadow tinted to match. Growth and the sun's arc are unchanged.
+- (visual) A shower: rain streaks, a grey sky, wet sheen, rain sound, birds quiet. Mist: the haze comes into the clearing and lifts by mid-morning. Dew: glints on the grass in the first sun. Thunder: a distant roll, sound only.
+- Phone: fewer stars (500), rain drops (450) and falling leaves (36); no moon shadow.

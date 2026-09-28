@@ -23,6 +23,7 @@ var _moon: MeshInstance3D
 var _moon_mat: ShaderMaterial
 var moonlight: DirectionalLight3D
 var _phase: float = 0.0
+var _compat: bool = RenderingServer.get_current_rendering_method() == "gl_compatibility"
 var _moon_dir: Vector3 = Vector3.UP
 
 
@@ -76,7 +77,8 @@ func update(eye: Vector3, night: float, veil: float = 0.0) -> void:
 	_stars.visible = show
 	_dome.visible = show
 	_dome.global_position = eye
-	_dome_mat.set_shader_parameter("night", night)
+	# The phone's renderer shows the night blue darker.
+	_dome_mat.set_shader_parameter("night", night * (1.6 if _compat else 1.0))
 	_moon.visible = show and moon_up()
 	moonlight.visible = show
 	if not show:

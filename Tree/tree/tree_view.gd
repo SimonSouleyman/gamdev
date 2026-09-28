@@ -123,6 +123,7 @@ func _ready() -> void:
 
 func setup(p_state: GameState) -> void:
 	state = p_state
+	_mood_day = -1
 	apply_species(state.sim.species)
 	_clearing = -1.0
 	refresh_clearing()
@@ -781,6 +782,7 @@ func _update_sun() -> void:
 # --- night, weather and season (design doc section 17) ------------------------------
 
 var _fog_begin: float = 18.0
+var _mood_day: int = -1
 var _fog_end: float = 70.0
 
 
@@ -802,6 +804,11 @@ func _update_mood(_h: float) -> void:
 	if night_override >= 0.0:
 		night_amount = night_override
 	var n := night_amount
+	# Once a game day: the calendar's season and the moon's phase (the real date moves on).
+	if state.day_number() != _mood_day:
+		_mood_day = state.day_number()
+		apply_season()
+		_night_sky.set_phase(Almanac.moon_phase_now())
 	weather = state.weather_today()
 	var t := clock.time_of_day / clock.daylight_fraction if state.phase == GameState.Phase.DAY else -1.0
 	rain_now = Almanac.rain_amount(weather, t) if t >= 0.0 else 0.0
@@ -830,19 +837,19 @@ func _update_mood(_h: float) -> void:
 	_env.adjustment_saturation = 1.0 - 0.4 * n
 	if r > 0.0:
 		# A shower: an overcast, greyer sky, flat light, the haze closer.
-		_sky_mat.energy_multiplier *= 1.0 - 0.45 * r
+		_sky_mat.energy_multiplier *= 1.0 - (0.25 if _compat else 0.45) * r
 		_sun_light.light_energy *= 1.0 - 0.6 * r
 		_sun_light.shadow_opacity = 0.8 * (1.0 - 0.7 * r)
-		_env.fog_light_color = _env.fog_light_color.lerp(Color(0.5, 0.54, 0.58), r * 0.7)
+		_env.fog_light_color = _env.fog_light_color.lerp(Color(0.36, 0.4, 0.43), r * 0.7)
 		_env.adjustment_saturation *= 1.0 - 0.25 * r
 	# Mist: the haze comes down into the clearing, soft and pale, and lifts as the morning goes on.
-	var m := maxf(mist, r * 0.4)
-	_env.fog_depth_begin = lerpf(_fog_begin, 2.0, m)
-	_env.fog_depth_end = lerpf(_fog_end, 34.0, m)
-	_env.fog_density = lerpf(0.6, 0.85, m)
+	var m := maxf(mist, r * 0.25)
+	_env.fog_depth_begin = lerpf(_fog_begin, 4.0, m)
+	_env.fog_depth_end = lerpf(_fog_end, _fog_begin + 40.0, m)
+	_env.fog_density = lerpf(0.6, 0.72, m)
 	if mist > 0.0:
-		_env.fog_light_color = _env.fog_light_color.lerp(Color(0.8, 0.82, 0.8), mist * 0.75)
-		_env.fog_sun_scatter += 0.15 * mist
+		_env.fog_light_color = _env.fog_light_color.lerp(Color(0.66, 0.7, 0.7), mist * 0.6)
+		_env.fog_sun_scatter += 0.08 * mist
 		if _compat:
 			_scenery.set_haze(_env.fog_light_color, lerpf(0.55, 0.85, mist))
 	_scenery.set_mood(n, r)
@@ -855,8 +862,9 @@ func _update_mood(_h: float) -> void:
 	if absf(wet - _wet_set) > 0.02:
 		_wet_set = wet
 		_spray_mat.set_shader_parameter("wet", wet)
+		# The wood only a little: far wet leaves glinting read as snow.
 		for mat in _forest_leaf_mats:
-			mat.set_shader_parameter("wet", wet)
+			mat.set_shader_parameter("wet", wet * 0.25)
 		for mat in _grass_mats:
 			mat.set_shader_parameter("wet", wet)
 	if absf(dew - _dew_set) > 0.02:

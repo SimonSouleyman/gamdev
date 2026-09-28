@@ -13,7 +13,9 @@ All third-party assets in this project, with their licences. CC0 needs no attrib
 | `assets/sounds/birds.ogg` | OpenGameArt, "Ambient Bird Sounds" by isaiah658 (https://opengameart.org/content/ambient-bird-sounds) | CC0 |
 | `assets/sounds/crickets.mp3` | OpenGameArt, "Crickets Ambient Noise - loopable" by Wolfgang_ (https://opengameart.org/content/crickets-ambient-noise-loopable) | CC0 |
 | `assets/sounds/water_flowing.ogg` | OpenGameArt, "30 CC0 SFX loops" by rubberduck (https://opengameart.org/content/30-cc0-sfx-loops) | CC0 |
+| `assets/sounds/rain.ogg` (track 1 of the pack) | OpenGameArt, "Rain (loopable)" by Ylmir (https://opengameart.org/content/rain-loopable) | CC0 |
+| `assets/sounds/thunder.ogg` (`sfx100v2_thunder_01.ogg`) | OpenGameArt, "100 CC0 SFX #2" by rubberduck (https://opengameart.org/content/100-cc0-sfx-2) | CC0 |
 | `ui/fonts/Caveat-Regular.ttf` | Google Fonts, Caveat by Impallari Type | SIL Open Font License 1.1 (`ui/fonts/OFL-Caveat.txt`) |
 | `ui/fonts/PatrickHand-Regular.ttf` | Google Fonts, Patrick Hand by Patrick Wagesreiter | SIL Open Font License 1.1 (`ui/fonts/OFL-PatrickHand.txt`) |
 
-Everything else (tree, roots, meadow plants, leaf fallback, paper, the wind, the underground hum and the collect note) is generated in code.
+Everything else (tree, roots, meadow plants, leaf fallback, paper, the wind, the underground hum, the collect note, the stars, the moon and the falling leaves) is generated in code.

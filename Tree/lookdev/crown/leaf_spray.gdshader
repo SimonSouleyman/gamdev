@@ -103,8 +103,8 @@ void fragment() {
 		NORMAL_MAP = texture(spray_normal, UV).rgb;
 		NORMAL_MAP_DEPTH = 0.7;
 	}
-	ROUGHNESS = mix(0.85, 0.35, wet);
-	SPECULAR = mix(0.06, 0.4, wet);
+	ROUGHNESS = mix(0.85, 0.5, wet);
+	SPECULAR = mix(0.06, 0.22, wet);
 	ALBEDO *= 1.0 - 0.2 * wet;
 	// Leaves are thin: the sun shines through them, stronger on the crown's shaded side.
 	BACKLIGHT = translucency * COLOR.rgb * (1.0 - COLOR.a * 0.6);

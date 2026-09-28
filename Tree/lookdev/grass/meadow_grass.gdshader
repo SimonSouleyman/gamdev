@@ -53,12 +53,14 @@ void fragment() {
 	ALBEDO *= 1.0 - 0.15 * wet;
 	if (dew > 0.001) {
 		// Dew: a few tiny drops on the blades catch the light and glint as the eye moves.
-		vec2 cell = floor(UV * 150.0);
+		vec2 cell = floor(UV * 48.0);
 		float h = fract(sin(dot(cell + clump_pos.xz * 3.1, vec2(12.9898, 78.233))) * 43758.5453);
-		vec2 f = fract(UV * 150.0) - 0.5;
-		float drop = step(0.93, h) * smoothstep(0.25, 0.0, length(f)) * step(0.5, tex.a);
-		float glint = pow(0.5 + 0.5 * sin(TIME * 1.7 + h * 40.0 + dot(VIEW, vec3(9.0, 5.0, 7.0))), 6.0);
-		EMISSION = vec3(1.0, 0.98, 0.9) * drop * (0.25 + 1.6 * glint) * dew;
+		vec2 f = fract(UV * 48.0) - 0.5;
+		float drop = step(0.9, h) * smoothstep(0.45, 0.05, length(f)) * step(0.5, tex.a);
+		float glint = pow(0.5 + 0.5 * sin(TIME * 1.7 + h * 40.0 + dot(VIEW, vec3(9.0, 5.0, 7.0))), 4.0);
+		EMISSION = vec3(1.0, 0.98, 0.92) * drop * (0.35 + 2.2 * glint) * dew;
+		// A cool silvery film over the dewy blades.
+		ALBEDO = mix(ALBEDO, ALBEDO * vec3(0.9, 1.0, 1.08) + vec3(0.03), dew * 0.5);
 	}
 	BACKLIGHT = translucency * smoothstep(0.3, 1.0, root_shade);
 }

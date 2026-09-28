@@ -9,7 +9,7 @@ extends Node3D
 signal thunder
 
 static var RAIN_DROPS: int = 450 if Budgets.PHONE else 1800
-static var FALLING_LEAVES: int = 24 if Budgets.PHONE else 80
+static var FALLING_LEAVES: int = 36 if Budgets.PHONE else 120
 
 var _rain: GPUParticles3D
 var _leaves: GPUParticles3D
@@ -25,11 +25,11 @@ func _ready() -> void:
 ## `t`: point of the daylight (0 sunrise, 1 sunset; -1 while the sun is down).
 ## `rain`: shower strength 0..1. `fall`: how many leaves drift down (Almanac.season_look).
 func update(eye: Vector3, forward: Vector3, t: float, w: Dictionary, rain: float, fall: float) -> void:
-	_rain.emitting = rain > 0.02
+	_start(_rain, rain > 0.02)
 	_rain.amount_ratio = clampf(rain, 0.05, 1.0)
 	var ahead := Vector3(forward.x, 0.0, forward.z).normalized() * 6.0 if Vector2(forward.x, forward.z).length() > 0.01 else Vector3.ZERO
 	_rain.global_position = eye + ahead + Vector3(0, 7.0, 0)
-	_leaves.emitting = fall > 0.02
+	_start(_leaves, fall > 0.02)
 	_leaves.amount_ratio = clampf(fall, 0.05, 1.0)
 	# Thunder rolls at its two moments of the afternoon, once each.
 	if t >= 0.0 and w.get("thunder", false):
@@ -37,6 +37,13 @@ func update(eye: Vector3, forward: Vector3, t: float, w: Dictionary, rain: float
 			if _last_t >= 0.0 and _last_t < float(at) and t >= float(at):
 				thunder.emit()
 	_last_t = t
+
+
+## Switches a particle system on already filled (its preprocess), or off.
+func _start(p: GPUParticles3D, on: bool) -> void:
+	if on and not p.emitting:
+		p.restart()
+	p.emitting = on
 
 
 ## Leaves fall from the crown's bounds (TreeView, after each rebuild).
@@ -52,7 +59,7 @@ func set_crown(crown: AABB) -> void:
 	# Long enough to drift all the way to the grass; only reset when the crown grew a lot.
 	if absf(top - _leaf_top) > 1.5:
 		_leaf_top = top
-		_leaves.lifetime = clampf(top / 0.75, 4.0, 30.0)
+		_leaves.lifetime = clampf(top / 0.6, 4.0, 30.0)
 		_leaves.preprocess = _leaves.lifetime
 		_leaves.visibility_aabb = AABB(-crown.size * 0.5 - Vector3(4, top + 2.0, 4), crown.size + Vector3(8, top + 4.0, 8))
 
@@ -110,19 +117,15 @@ func _build_leaves() -> void:
 	var pm := ParticleProcessMaterial.new()
 	pm.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_BOX
 	pm.emission_box_extents = Vector3(2, 2, 2)
-	pm.direction = Vector3(0.4, -0.3, 0.2)
-	pm.spread = 60.0
-	pm.initial_velocity_min = 0.1
-	pm.initial_velocity_max = 0.4
-	# Light leaves: a little gravity against a lot of air, so they sail down at under a metre a second.
-	pm.gravity = Vector3(0.15, -1.2, 0.05)
-	pm.damping_min = 1.2
-	pm.damping_max = 1.8
-	pm.turbulence_enabled = true
-	pm.turbulence_noise_strength = 0.9
-	pm.turbulence_noise_scale = 2.5
-	pm.turbulence_influence_min = 0.05
-	pm.turbulence_influence_max = 0.15
+	pm.direction = Vector3(0.3, -1.0, 0.15)
+	pm.spread = 30.0
+	pm.initial_velocity_min = 0.5
+	pm.initial_velocity_max = 0.9
+	# Light leaves: the air holds them against gravity (damping as strong as gravity), so they keep
+	# sailing down at the speed they left the twig with, spinning. (Turbulence would stop them.)
+	pm.gravity = Vector3(0.1, -1.0, 0.04)
+	pm.damping_min = 1.0
+	pm.damping_max = 1.0
 	pm.angle_min = 0.0
 	pm.angle_max = 360.0
 	pm.angular_velocity_min = -160.0
@@ -139,7 +142,7 @@ func _build_leaves() -> void:
 	pm.color_initial_ramp = ramp
 	_leaves.process_material = pm
 	var quad := QuadMesh.new()
-	quad.size = Vector2(0.08, 0.08)
+	quad.size = Vector2(0.22, 0.22)
 	var mat := StandardMaterial3D.new()
 	mat.billboard_mode = BaseMaterial3D.BILLBOARD_PARTICLES
 	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA_SCISSOR

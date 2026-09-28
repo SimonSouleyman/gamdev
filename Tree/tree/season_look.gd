@@ -13,8 +13,8 @@ const AUTUMN_HUE := {"linden": 0.12, "birch": 0.02, "beech": 0.5, "sycamore": 0.
 static func grass_tint(look: Dictionary) -> Color:
 	var c := Color(0.92, 0.98, 0.9)
 	c = c.lerp(Color(1.05, 1.12, 0.8), float(look["fresh"]))
-	c = c.lerp(Color(1.06, 0.98, 0.74), float(look["autumn"]) * 0.7)
-	c = c.lerp(Color(1.02, 0.86, 0.6), float(look["late"]) * 0.8)
+	c = c.lerp(Color(1.1, 0.97, 0.66), float(look["autumn"]) * 0.8)
+	c = c.lerp(Color(1.1, 0.86, 0.52), float(look["late"]))
 	return c
 
 
