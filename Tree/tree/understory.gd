@@ -70,6 +70,11 @@ func set_fade(start: float, end: float) -> void:
 	m.set_shader_parameter("fade_end", end)
 
 
+## By night the white anemones dim (the eye sees little white in the dark), 0 day .. 1 night.
+func set_night(n: float) -> void:
+	(_cards.material_override as ShaderMaterial).set_shader_parameter("night_dim", lerpf(1.0, 0.3, n))
+
+
 ## The meadow was planted anew (a wider clearing): thin it from its new full state next time.
 func forget_grass() -> void:
 	_grass_base.clear()
@@ -104,8 +109,13 @@ func shade_texture() -> ImageTexture:
 func _place(p: Array) -> void:
 	var cards: Array = []
 	var moss: Array = []
+	# Wood anemones flower in spring only; the rest of the year their spots are leaf litter
+	# (0.6 look review: they were in bloom in autumn).
+	var anemones := Almanac.season_now() == Almanac.Season.SPRING
 	for e in p:
 		var pos: Vector2 = e["pos"]
+		if e["kind"] == "anemone" and not anemones:
+			continue
 		# Nothing grows inside the garden shed.
 		if Vector2(pos.x - Shed.origin.x, pos.y - Shed.origin.z).length() < 2.6:
 			continue

@@ -90,6 +90,10 @@ func _build_rain() -> void:
 	mat.billboard_keep_scale = true
 	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	mat.albedo_color = Color(0.78, 0.82, 0.9, 0.22)
+	# Drops right at the lens would be long bright poles: fade them in from 2 to 5 m.
+	mat.distance_fade_mode = BaseMaterial3D.DISTANCE_FADE_PIXEL_ALPHA
+	mat.distance_fade_min_distance = 2.0
+	mat.distance_fade_max_distance = 5.0
 	var fade := GradientTexture2D.new()
 	fade.fill_from = Vector2(0.5, 0.0)
 	fade.fill_to = Vector2(0.5, 1.0)

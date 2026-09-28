@@ -16,15 +16,19 @@ uniform bool cell_from_alpha = false;
 uniform vec3 season_tint = vec3(1.0);
 uniform float dew = 0.0;
 uniform float wet = 0.0;
+// Understory only: dims the white anemone cards by night (they read as glowing stars).
+uniform float night_dim = 1.0;
 
 varying float root_shade;
 varying vec3 clump_pos;
+varying float cell_v;
 
 void vertex() {
 	vec3 world = (MODEL_MATRIX * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
 	float h = fract(sin(dot(world.xz, vec2(12.9898, 78.233))) * 43758.5453);
 	float cell = cell_from_alpha ? floor(COLOR.a * 4.0) : floor(h * 4.0);
 	float top = 1.0 - UV.y;
+	cell_v = cell;
 	UV = UV * 0.5 + vec2(mod(cell, 2.0), floor(cell / 2.0)) * 0.5;
 	float cam_dist = length(world - (INV_VIEW_MATRIX * vec4(0.0, 0.0, 0.0, 1.0)).xyz);
 	VERTEX *= 1.0 - smoothstep(fade_start, fade_end, cam_dist);
@@ -38,6 +42,10 @@ void vertex() {
 }
 
 void fragment() {
+	// Back faces of a card: the phone renderer flips the normal there, which turns the upward-bent
+	// meadow normal downward and the clump black (0.6 look review). Keep it pointing up.
+	vec3 view_up = (VIEW_MATRIX * vec4(0.0, 1.0, 0.0, 0.0)).xyz;
+	if (dot(NORMAL, view_up) < 0.0) { NORMAL = -NORMAL; }
 	vec4 tex = texture(clump_texture, UV);
 	// Alpha to coverage with the phone's MSAA: soft blade edges instead of hard ones that
 	// pop in and out between frames (the meadow shimmered, Simon 0.5.1).
@@ -63,4 +71,8 @@ void fragment() {
 		ALBEDO = mix(ALBEDO, ALBEDO * vec3(0.9, 1.0, 1.08) + vec3(0.03), dew * 0.5);
 	}
 	BACKLIGHT = translucency * smoothstep(0.3, 1.0, root_shade);
+	if (cell_from_alpha && cell_v < 0.5) {
+		ALBEDO *= night_dim;
+		BACKLIGHT *= night_dim;
+	}
 }

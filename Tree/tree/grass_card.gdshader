@@ -26,6 +26,10 @@ void vertex() {
 }
 
 void fragment() {
+	// Back faces of a card: the phone renderer flips the normal there, which turns the upward-bent
+	// meadow normal downward and the clump black (0.6 look review). Keep it pointing up.
+	vec3 view_up = (VIEW_MATRIX * vec4(0.0, 1.0, 0.0, 0.0)).xyz;
+	if (dot(NORMAL, view_up) < 0.0) { NORMAL = -NORMAL; }
 	vec4 tex = texture(clump_texture, UV);
 	ALBEDO = tex.rgb * COLOR.rgb * season_tint * (1.0 - 0.15 * wet);
 	ALPHA = tex.a;

@@ -108,8 +108,8 @@ render_mode unshaded, blend_add, depth_draw_never, cull_front, fog_disabled, sha
 uniform float night = 0.0;
 uniform vec3 moon_dir = vec3(0.0, 0.5, 0.8);
 uniform float moon_glow = 0.0;
-uniform vec3 horizon : source_color = vec3(0.06, 0.08, 0.14);
-uniform vec3 zenith : source_color = vec3(0.012, 0.02, 0.055);
+uniform vec3 horizon : source_color = vec3(0.16, 0.2, 0.32);
+uniform vec3 zenith : source_color = vec3(0.07, 0.1, 0.2);
 varying vec3 dir;
 void vertex() {
 	dir = normalize(VERTEX);

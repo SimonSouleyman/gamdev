@@ -354,6 +354,7 @@ func _build_book() -> void:
 		b.set_anchors_preset(Control.PRESET_TOP_RIGHT)
 		b.offset_left = -92
 		b.offset_right = -2
+		b.grow_horizontal = Control.GROW_DIRECTION_BEGIN
 		b.offset_top = y
 		b.offset_bottom = y + 110
 		b.rotation_degrees = 0

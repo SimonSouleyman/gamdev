@@ -5,6 +5,8 @@ shader_type spatial;
 uniform sampler2D noise : filter_linear_mipmap, repeat_enable;
 uniform sampler2D ground_albedo : source_color, filter_linear_mipmap, repeat_enable;
 uniform bool use_texture = false;
+// The phone renderer shows this ground brighter and more saturated: calmer there.
+uniform float brightness = 1.0;
 uniform vec3 lush : source_color = vec3(0.38, 0.54, 0.19);
 uniform vec3 dry : source_color = vec3(0.42, 0.46, 0.2);
 uniform vec3 earth : source_color = vec3(0.27, 0.24, 0.15);
@@ -32,7 +34,7 @@ void fragment() {
 	col = mix(col, earth, smoothstep(0.65, 0.9, mid) * 0.3);
 	col *= 0.9 + 0.2 * fine;
 	if (use_texture) {
-		col *= texture(ground_albedo, p * 0.5).rgb * 1.6;
+		col *= texture(ground_albedo, p * 0.5).rgb * 1.6 * brightness;
 	}
 	if (use_shade) {
 		vec2 suv = p / (2.0 * shade_half) + 0.5;

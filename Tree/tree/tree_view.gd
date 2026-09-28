@@ -297,6 +297,8 @@ func _build_world() -> void:
 	_ground_mat = ShaderMaterial.new()
 	_ground_mat.shader = preload("res://tree/ground.gdshader")
 	_ground_mat.set_shader_parameter("noise", _noise_tex)
+	if _compat:
+		_ground_mat.set_shader_parameter("brightness", 0.72)
 	Assets.apply_ground(_ground_mat)
 	ground.material_override = _ground_mat
 	var gmat := _ground_mat
@@ -740,7 +742,7 @@ func _update_sun() -> void:
 	_sun_disc.visible = skippable and dir.y > -0.1
 	# The light stays on at the sunset hold, just under the horizon, so the physical sky glows.
 	# At the sunset hold the sun rests right on the western horizon: the sky keeps its afterglow.
-	var light_dir := dir if h > 0.0 else Vector3(-1, 0.012, 0.1).normalized()
+	var light_dir := dir if h > 0.0 else Vector3(-1, 0.06, 0.1).normalized()
 	_sun_light.visible = true
 	_sun_light.look_at_from_position(light_dir * 20.0, Vector3.ZERO, Vector3.UP if absf(light_dir.y) < 0.99 else Vector3.FORWARD)
 	# A low sun still lights the clearing warmly (dawn burst, evening): at least 0.9.
@@ -864,6 +866,7 @@ func _update_mood(_h: float) -> void:
 		if _compat:
 			_scenery.set_haze(_env.fog_light_color, lerpf(0.55, 0.85, mist))
 	_scenery.set_mood(n, r)
+	_understory.set_night(n)
 	var cam := get_viewport().get_camera_3d()
 	var eye := cam.global_position if cam != null else camera.global_position
 	_night_sky.update(eye, n, maxf(r, mist * 0.5))
