@@ -14,11 +14,11 @@ signal plant_pressed(species_id: String)
 
 ## The words on the labels of the things in the shed (Shed.ITEMS); the pot names the tree.
 const TAG_TEXTS := {"journal": "journal", "album": "photo album", "seeds": "seed bag",
-	"pot": "my linden", "gloves": "go outside", "options": "options"}
+	"pot": "my linden", "gloves": "go outside", "options": "options", "bonsai": "my bonsai"}
 ## The switches on the options pinboard, in their order.
 const OPTION_NAMES := {"sound": "sound", "no_ui": "no UI (pure scenery)", "battery_saver": "battery saver",
 	"notifications": "a note each day", "vibration": "vibration", "clearer_print": "clearer print",
-	"any_species": "any species now (testing: planting replaces the current tree)"}
+	"any_species": "any species now (testing: planting replaces the current tree; opens the bonsai)"}
 
 var settings: Dictionary = {}
 var _tags_layer: Control
@@ -73,7 +73,7 @@ func _build_tags() -> void:
 		var l := Paper.ink_label(TAG_TEXTS[item], 24)
 		l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		tag.add_child(l)
-		tag.rotation_degrees = [-3.0, 2.0, -1.5, 2.5, -2.0, 1.5][i]
+		tag.rotation_degrees = [-3.0, 2.0, -1.5, 2.5, -2.0, 1.5, -2.5][i % 7]
 		tag.visible = false
 		_tags_layer.add_child(tag)
 		_tags[item] = tag

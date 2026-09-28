@@ -28,6 +28,12 @@ var _underground: bool = false
 var shed: Shed
 var shed_menu: ShedMenu
 var in_shed: bool = false
+## The bonsai on the windowsill (design doc section 16) and bonsai mode, its close-up.
+var bonsai_view: BonsaiView
+var bonsai_hud: BonsaiHud
+var in_bonsai: bool = false
+## A milestone came while the bonsai was not in view: its album photo waits for the next visit.
+var _bonsai_photo_due: bool = false
 var _corner: CanvasLayer
 var _shed_button: TextureButton
 var _photo_button: TextureButton
@@ -76,6 +82,15 @@ func _build() -> void:
 	tree_view.add_child(shed)
 	# The shed is only seen from inside, in the shed scene, never in the tree scene (Simon).
 	shed.visible = false
+	bonsai_view = BonsaiView.new()
+	shed.bonsai_spot.add_child(bonsai_view)
+	bonsai_view.tool_used.connect(_on_bonsai_tool)
+	bonsai_hud = BonsaiHud.new()
+	add_child(bonsai_hud)
+	bonsai_hud.view = bonsai_view
+	bonsai_hud.any_species = func() -> bool: return bool(journal.settings.get("any_species", false))
+	bonsai_hud.first_page = func(id: String) -> void: _page_once("bonsai_" + id)
+	bonsai_hud.back_pressed.connect(leave_bonsai)
 	shed_menu = ShedMenu.new()
 	add_child(shed_menu)
 	shed_menu.settings = journal.settings
@@ -129,6 +144,10 @@ func start(p_state: GameState) -> void:
 	journal.state = state
 	shed_menu.set_tree_name(state.tree_name())
 	tree_view.setup(state)
+	# The test switch "any species now" also opens the bonsai.
+	state.ensure_bonsai(bool(journal.settings.get("any_species", false)))
+	bonsai_view.setup(state)
+	bonsai_hud.state = state
 	root_view.setup(state.ground, state.roots, state.sim.resources)
 	# A new game or a load in the middle of a dive or sunrise: stop that transition.
 	if _tween:
@@ -180,6 +199,10 @@ func _process(delta: float) -> void:
 		return
 	# A journal page pauses the game; transitions only block input (the dawn burst runs while the camera rises).
 	var paused := journal.is_open() or in_shed or shed_menu.is_tree_page_open()
+	# In bonsai mode the day runs on (the bonsai lives through the same days as the tree), but
+	# only by day: the evening holds, as it does on the clearing, until the player dives.
+	var bonsai_live := in_bonsai and not journal.is_open() and state.phase == GameState.Phase.DAY
+	bonsai_view.input_enabled = not journal.is_open() and not bonsai_hud.is_busy() and not _transitioning
 	# No diary over a dive or a sunrise.
 	journal.set_button_enabled(not _transitioning)
 	tree_view.input_enabled = not paused and not _transitioning
@@ -190,7 +213,7 @@ func _process(delta: float) -> void:
 		_set_shears(false)
 	root_view.input_enabled = not paused and not _transitioning
 	root_view.process_mode = Node.PROCESS_MODE_DISABLED if paused else Node.PROCESS_MODE_INHERIT
-	if not paused:
+	if not paused or bonsai_live:
 		_sim_accum += delta * time_scale
 		var steps := 0
 		while _sim_accum >= SIM_STEP and steps < 40:
@@ -200,13 +223,16 @@ func _process(delta: float) -> void:
 		if steps == 40:
 			_sim_accum = 0.0  # a long hitch: drop the rest rather than spiral
 	_handle_events()
+	if state.bonsai != null:
+		for e in state.bonsai.take_events():
+			_bonsai_event(e)
 	ambience.daylight = state.phase == GameState.Phase.DAY
 	_autosave_timer += delta
 	if _autosave_timer >= AUTOSAVE_SECONDS:
 		_autosave_timer = 0.0
 		save()
 	_dev_label.text = ("speed x%d" % int(time_scale)) if time_scale != 1.0 else ""
-	if in_shed:
+	if in_shed and not in_bonsai:
 		_update_shed_tags()
 
 
@@ -383,6 +409,11 @@ func _apply_setting(key: String, on: bool, from_player: bool = true) -> void:
 			Haptics.enabled = on
 		"clearer_print":
 			Paper.set_clear_print(on, get_tree().root)
+		"any_species":
+			# The test switch also opens the bonsai on the windowsill.
+			if on and state != null and state.ensure_bonsai(true) != null:
+				shed.bonsai_ready = true
+				bonsai_view.refresh(true)
 		"notifications":
 			# A daily reminder on the phone (plain Android, no Google services), re-armed at start.
 			if on:
@@ -431,6 +462,13 @@ func _back() -> void:
 	if journal.is_open():
 		journal.close_page()
 		journal.close_diary()
+	elif in_bonsai:
+		if bonsai_hud.is_busy():
+			bonsai_hud.close_sheet()
+		elif bonsai_view.tool != "":
+			bonsai_view.set_tool("")
+		else:
+			leave_bonsai()
 	elif shed_menu.is_busy():
 		shed_menu.close_boards()
 	elif not in_shed and not _transitioning:
@@ -562,6 +600,9 @@ func enter_shed(animate: bool) -> void:
 		tree_view.set_shed_open(true)
 		shed.frame_tree(state.sim.height(), tree_view.camera.environment)
 		shed.camera.make_current()
+		state.ensure_bonsai(bool(journal.settings.get("any_species", false)))
+		shed.bonsai_ready = state.bonsai != null
+		bonsai_view.refresh(true)
 		shed_menu.show_menu(true)
 		ambience.set_world(true, 0.8)
 	if animate:
@@ -578,7 +619,7 @@ func enter_shed(animate: bool) -> void:
 
 ## Out of the shed and back into the day (or the night, if the game was left underground).
 func leave_shed() -> void:
-	if not in_shed or _transitioning:
+	if not in_shed or _transitioning or in_bonsai:
 		return
 	_transitioning = true
 	shed_menu.show_menu(false)
@@ -598,7 +639,7 @@ func leave_shed() -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
-	if not in_shed or _transitioning or journal.is_open() or shed_menu.is_busy() or _shed_tapped != "":
+	if not in_shed or in_bonsai or _transitioning or journal.is_open() or shed_menu.is_busy() or _shed_tapped != "":
 		_shed_hover = ""
 		return
 	# A pointer resting on a thing shows its label (PC; on a phone the first visits show them).
@@ -643,6 +684,8 @@ func open_shed_item(item: String) -> void:
 			shed_menu.show_tree_page(state)
 		"gloves", "door":
 			leave_shed()
+		"bonsai":
+			enter_bonsai()
 
 
 ## The labels beside the things: shown until a thing was used once, and while hovered.
@@ -655,7 +698,86 @@ func _update_shed_tags() -> void:
 		at[item] = shed.item_tag_position(item)
 		below[item] = shed.item_tag_below(item)
 		shown[item] = free and (_shed_hover == item or not state.seen_pages.has("shed_used_" + item))
+		if item == "bonsai" and not shed.bonsai_ready:
+			shown[item] = false
 	shed_menu.place_tags(at, below, shown)
+
+
+# --- bonsai mode ------------------------------------------------------------------------
+
+## Tapping the bonsai on the sill: the camera glides close to the pot and the tools come out.
+func enter_bonsai() -> void:
+	if in_bonsai or _transitioning or state == null or state.bonsai == null:
+		return
+	in_bonsai = true
+	shed_menu.show_menu(false)
+	bonsai_view.enter(shed.camera)
+	bonsai_hud.show_hud(true)
+	_page_once("bonsai")
+	if state.bonsai.repot_due:
+		_page_once("bonsai_repot")
+	if _bonsai_photo_due:
+		await get_tree().create_timer(1.2).timeout
+		_bonsai_photo()
+
+
+## Back to the workbench.
+func leave_bonsai() -> void:
+	if not in_bonsai or _transitioning:
+		return
+	if bonsai_view.busy or bonsai_view.is_lifted():
+		return  # the tree is out of its pot: finish repotting first
+	_transitioning = true
+	bonsai_hud.show_hud(false)
+	bonsai_view.leave(shed.camera, func() -> void:
+		in_bonsai = false
+		shed_menu.show_menu(true)
+		_transitioning = false)
+	save()
+
+
+func _on_bonsai_tool(kind: String) -> void:
+	match kind:
+		"water":
+			_page_once("bonsai_water")
+		"fertiliser":
+			_page_once("bonsai_fertiliser")
+		"burn":
+			_page_once("bonsai_fertiliser")
+			_page_once("bonsai_burn")
+		"wire":
+			_page_once("bonsai_wire")
+		"repot":
+			save()
+
+
+func _bonsai_event(e: String) -> void:
+	match e:
+		"milestone":
+			# The bonsai's album grows by milestones: a photo when it happens in view, else next visit.
+			if in_bonsai:
+				_bonsai_photo()
+			else:
+				_bonsai_photo_due = true
+		"repot_due":
+			if in_bonsai:
+				_page_once("bonsai_repot")
+
+
+func _bonsai_photo() -> void:
+	_bonsai_photo_due = false
+	if ephemeral or not in_bonsai or _photo_busy:
+		return
+	_photo_busy = true
+	while bonsai_view.busy or _transitioning:
+		await get_tree().process_frame
+	var was := bonsai_hud.visible
+	bonsai_hud.visible = false
+	await RenderingServer.frame_post_draw
+	if in_bonsai:
+		Photos.save_from(get_viewport(), state.bonsai.day(), "bonsai", state.bonsai.species.id)
+	bonsai_hud.visible = was and in_bonsai
+	_photo_busy = false
 
 
 ## The "while you were away" page, once, when the game comes back after a while.

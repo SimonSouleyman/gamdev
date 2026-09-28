@@ -83,3 +83,21 @@ Each criterion has a test in `tests/` unless marked (visual), which Simon judges
 - With vibration on, a cut, a dive and a finished tree buzz the phone (Input.vibrate_handheld; VIBRATE permission added by the TreePhone export plugin); off, nothing buzzes (test).
 - After the game was closed for an hour or more, a torn "while you were away" page shows once: how long, the growth in metres, the visitors that came meanwhile and an ink sketch of the tree drawn from its plant graph (tests: report once, none for a short absence, absences add up, the page's words).
 - (visual) tools/shed_shot.gd photographs the shed, each thing hovered and mid-tap, the pinboard (also in clearer print), the pot's page and the away page.
+## 0.6 part 8: bonsai mode (design doc sections 16 and 17 item 8)
+- Unlock (H): the windowsill stays empty until the first clearing tree is finished; then a young juniper in a clay nursery pot stands there (diary line). The pinboard's "any species now" also opens it (test).
+- Where (A): the bonsai stands on the sill beside the workbench and is a thing in the shed with its label "my bonsai"; a tap glides the camera close to the pot (bonsai mode); "back" (or Esc / the back gesture) glides back to the workbench.
+- Same clock: `BonsaiSim` follows the tree's clock exactly (same hour, its own count of care days); it grows by day in the window light, not at night, while the player plays the tree or looks at the bonsai; offline growth like the tree (tests).
+- Independent (G): no shared life force or resources; its care costs the tree nothing (test).
+- Window light and turning: markers are seeded on the window side, so that side grows; "< turn" / "turn >" turn the pot a quarter and the growth moves round (test). Nothing grows through the glass.
+- Water: soil moisture dries over the day (faster in the sun); the soil is darker when wet; too dry droops the leaves and slows growth, too wet slows it; never fatal (tests).
+- Fertiliser: nitrogen, phosphorus or potassium pellets from the tin lie on the soil; the soft Liebig rule (floor 0.35); too much of one burns a few tips brown, which rest three days and grow on (tests).
+- Pot cap: each pot (clay nursery 560, grey rectangle 600, blue oval 500, green round 450, cream cascade 420 green segments) caps the living segments; cut wood leaves the graph, so pruning makes the crown denser, not bigger (tests). Finer segments (1.7 cm) than the tree.
+- Shears: tree/pruning.gd with its preview, at most a third of the tree, never the trunk base (test). The juniper keeps a cut branch as a silver jin; a cut at the trunk strips a line of shari below it (test).
+- Pinching: a tip grown today or yesterday stops when tapped; the buds behind it get its markers (test).
+- Wire: touch a branch in wire mode and drag it to its new line; a copper coil appears and the branch bends half way at once, the rest over four days, then it is set; left on after six days the wire bites and leaves a spiral scar that stays; a tap removes the wire (early: the branch springs back part of the way) (tests). While wiring or cutting the foliage thins so the wood shows.
+- Repotting (B): about every seventh day the bonsai asks to be repotted; lift it out with its root ball, snip the circling roots, pick a pot, fresh soil; until then it grows a little slower (root bound), never stops (tests).
+- Nothing dies, no end (D): the album page ("album page") lists the milestones and sketches the bonsai; each milestone in view adds a photo to the photo album ("Juniper bonsai, care day N").
+- Species (E): the juniper (the only conifer, scale-like foliage pads from a painted atlas) plus a cutting of every finished clearing tree ("cuttings"); one stands on the sill and grows, the others rest on the shelf unchanged (test).
+- Style (F): five style pages as ink drawings (formal upright, informal upright, slanting, cascade, broom), for inspiration only.
+- Save: the bonsai on the sill and the resting ones are in the same save file (graph, pot, turn, wires, scars, moisture, soil, milestones) and survive a new tree (tests).
+- (visual) `tools/shed_shot.gd [--bonsai-only]` photographs the sill, bonsai mode, watering, pellets, a wire and a wire scar, repotting, a juniper after 14 care days, a linden cutting, the style pages and the album page.

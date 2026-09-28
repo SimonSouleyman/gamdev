@@ -19,10 +19,19 @@ const STEP: float = 0.17
 ## Segments per second at full light, full water and full soil (about 35 a day).
 const BASE_RATE: float = 0.5
 ## The tallest the crown grows, and its widest radius (units).
-const MAX_HEIGHT: float = 3.4
-const MAX_RADIUS: float = 1.9
+const MAX_HEIGHT: float = 2.8
+const MAX_RADIUS: float = 1.6
+## The window glass, this far from the pot's centre toward the window: nothing grows through it.
+const GLASS: float = 1.25
 ## The window: pot-local +Z at turn 0, a little from above.
 const WINDOW := Vector3(0.0, 0.35, 1.0)
+## The crown is a flattened ball (a bonsai is wider than tall), and its apex is weaker than a
+## tree's in the open (APICAL_SHARE of the species' apical dominance).
+const CROWN_FLAT: float = 0.62
+const APICAL_SHARE: float = 0.55
+## Wood keeps thickening a little every day (secondary growth), up to a trunk of this radius.
+const THICKEN_PER_DAY: float = 1.012
+const MAX_RADIUS_UNITS: float = 0.3
 ## How far the crown's markers sit toward the window (share of the crown radius).
 const WINDOW_PULL: float = 0.5
 
@@ -124,6 +133,11 @@ static func starter(random_seed: int) -> BonsaiSim:
 	for p in trunk:
 		last = b.graph.add_node(last, p)
 	b._pregrow(90)
+	# Nursery stock: an old, thick trunk that tapers into the young crown.
+	var trunk_ids := b.trunk_chain()
+	for i in range(trunk_ids.size()):
+		var id := trunk_ids[i]
+		b.graph.radii[id] = maxf(b.graph.radii[id], lerpf(0.13, 0.035, clampf(float(i) / 11.0, 0.0, 1.0)))
 	b.note("A young juniper came to the windowsill in a clay nursery pot.")
 	return b
 
@@ -295,7 +309,7 @@ func _grow_nodes(budget: int) -> void:
 	# Markers: a few above the leader (apical dominance, fading near the full height), the rest
 	# in the crown, pulled toward the window: the side facing it grows, the back stays sparse.
 	var amount := budget * 3.0
-	var leader_share := species.apical_dominance * pow(clampf(1.0 - top / MAX_HEIGHT, 0.0, 1.0), 1.5)
+	var leader_share := species.apical_dominance * APICAL_SHARE * pow(clampf(1.0 - top / MAX_HEIGHT, 0.0, 1.0), 1.5)
 	_leader_accum += amount * leader_share
 	_marker_accum += amount * (1.0 - leader_share)
 	var leader := int(_leader_accum)
@@ -303,13 +317,46 @@ func _grow_nodes(budget: int) -> void:
 	var crown := int(_marker_accum)
 	_marker_accum -= crown
 	colonizer.seed_sphere(Vector3(0, top + 0.25, 0) + flat * 0.15, 0.3, leader, Budgets.BONSAI_MARKERS, 0.3, MAX_HEIGHT)
-	colonizer.seed_sphere(Vector3(0, top * 0.62 + 0.15, 0) + flat * r * WINDOW_PULL, r, crown, Budgets.BONSAI_MARKERS, maxf(0.3, top * 0.25), MAX_HEIGHT)
+	var centre := Vector3(0, top * 0.6 + 0.12, 0) + flat * r * WINDOW_PULL
+	colonizer.seed_sphere(centre, r, crown, Budgets.BONSAI_MARKERS, -INF, INF)
+	# Flatten the new ones into the crown's ellipsoid, above the bare lower trunk.
+	var n := colonizer.markers.size()
+	for i in range(maxi(0, n - crown), n):
+		var m := colonizer.markers[i]
+		m.y = clampf(centre.y + (m.y - centre.y) * CROWN_FLAT, maxf(0.3, top * 0.25), MAX_HEIGHT)
+		colonizer.markers[i] = m
+	_drop_glass_markers()
 	colonizer.bias_direction = (Vector3.UP * maxf(0.05, 1.0 - species.phototropism + species.gravitropism) + win * species.phototropism).normalized()
-	colonizer.jitter = 0.1 + species.crookedness * 0.6
+	colonizer.jitter = 0.1 + species.crookedness * 0.4
 	var grown := colonizer.step(graph, budget)
 	if grown > 0:
+		_steady(graph.size() - grown)
 		_use_soil(grown)
 		_droop_new(graph.size() - grown, r)
+
+
+## A shoot keeps some of its heading (the markers alone would curl the fine segments into
+## rings): each new continuation segment turns at most part of the way toward its pull.
+const HEADING_KEEP: float = 0.45
+
+
+func _steady(first: int) -> void:
+	for id in range(maxi(first, 2), graph.size()):
+		var p := graph.parents[id]
+		if graph.parents[p] < 0 or (graph.children[p] as Array).size() != 1:
+			continue
+		var d := (graph.positions[id] - graph.positions[p]).normalized()
+		var keep := graph.direction_of(p)
+		graph.positions[id] = graph.positions[p] + (d * (1.0 - HEADING_KEEP) + keep * HEADING_KEEP).normalized() * STEP
+
+
+## Markers beyond the window glass (in the sill's frame, whichever way the pot is turned).
+func _drop_glass_markers() -> void:
+	var kept := PackedVector3Array()
+	for m in colonizer.markers:
+		if m.rotated(Vector3.UP, turn * PI * 0.5).z < GLASS:
+			kept.append(m)
+	colonizer.markers = kept
 
 
 ## Birch-like species hang their new twig tips a little (the quirk carries over).
@@ -343,6 +390,10 @@ func _update_radii() -> void:
 ## Once a day at sunrise: the roots fill the pot, wires set and bite, burnt tips recover.
 func _new_day() -> void:
 	graph.age_all()
+	# The wood thickens a little (a lifelong bonsai gets its old trunk).
+	for id in range(graph.size()):
+		if not is_dead(id) and not is_jin(id) and not (graph.children[id] as Array).is_empty():
+			graph.radii[id] = minf(MAX_RADIUS_UNITS, graph.radii[id] * THICKEN_PER_DAY)
 	root_fill += 1.0 / REPOT_DAYS
 	if not repot_due and day() - last_repot_day >= REPOT_DAYS:
 		repot_due = true
@@ -682,7 +733,9 @@ func _wire_day(id: int) -> void:
 	if int(w["days"]) <= WIRE_SET_DAYS:
 		_bend(id, _unvec(w["to"]), WIRE_DAILY)
 	if int(w["days"]) > WIRE_BITE_DAYS:
-		graph.set_flag(id, "scar", minf(1.0, scar(id) + 0.34))
+		# The wire bites along its whole length.
+		for n in wire_chain(id):
+			graph.set_flag(n, "scar", minf(1.0, scar(n) + 0.34))
 		_first("scar", "A wire stayed on too long and bit into the bark. The scar will stay.")
 
 

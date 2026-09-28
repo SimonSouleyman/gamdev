@@ -49,6 +49,9 @@ static func caption(path: String) -> String:
 	var day := int(f.substr(f.find("day") + 3, 3))
 	var own := f.contains("_camera_")
 	var tree := Species.from_id(f.get_slice("_day", 0)).display_name
+	# The bonsai's album grows by milestones (section 16 D).
+	if f.contains("_bonsai_"):
+		return "%s bonsai, care day %d" % [tree, day]
 	return ("%s, day %d" % [tree, day]) + (", my photo" if own else ", morning")
 
 

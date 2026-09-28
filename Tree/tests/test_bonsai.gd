@@ -386,3 +386,39 @@ func test_offline_growth() -> void:
 	b.apply_offline(2.0 * 86400.0)
 	t.check(b.leafy_count() > n, "grows while the game is closed")
 	t.check_eq(b.day(), day, "the day does not move while closed")
+
+
+func test_view_draws_pot_wood_foliage_and_wire() -> void:
+	var g := GameState.new_game(41)
+	g.ensure_bonsai(true)
+	var v := BonsaiView.new()
+	v._ready()
+	v.setup(g)
+	t.check(v._wood.mesh != null and v._wood.mesh.get_surface_count() > 0, "the wood is drawn")
+	t.check(v._foliage.multimesh.instance_count >= g.bonsai.living_tips().size(), "juniper pads on the twigs")
+	t.check_eq(v._shown_pot, "nursery", "in the nursery pot")
+	var id := _side_branch(g.bonsai)
+	g.bonsai.wire(id, Vector3(1, -0.5, 0))
+	v.refresh(true)
+	t.check(v._wires.mesh.get_surface_count() > 0, "a copper coil on the wired branch")
+	g.bonsai.repot("oval", 0.3)
+	v.refresh(true)
+	t.check_eq(v._shown_pot, "oval", "the new pot is drawn")
+	t.check(BonsaiView.soil_height("oval") > 0.0 and BonsaiView.soil_height("cascade") > BonsaiView.soil_height("oval"), "soil heights by pot")
+	g.bonsai.moisture = 0.0
+	v.refresh(true)
+	t.check(g.bonsai.droop() > 0.9, "dry: the view draws drooping leaves")
+	v.free()
+
+
+func test_style_pages_and_bonsai_pages_exist() -> void:
+	for id in BonsaiHud.STYLES:
+		t.check(ResourceLoader.exists("res://ui/bonsai_styles/%s.png" % id), "style drawing " + id)
+		t.check(BonsaiHud.STYLE_TEXTS.has(id), "style words " + id)
+	for id in ["bonsai", "bonsai_water", "bonsai_fertiliser", "bonsai_wire", "bonsai_repot", "bonsai_pinch", "bonsai_shears"]:
+		t.check(Pages.has(id), "journal page " + id)
+	t.check(ResourceLoader.exists(BonsaiView.JUNIPER_COLOR), "the painted juniper atlas")
+	t.check(Shed.ITEMS.has("bonsai") and ShedMenu.TAG_TEXTS.has("bonsai"), "the bonsai is a thing in the shed")
+	var b := BonsaiSim.starter(3)
+	b._new_day_passed()
+	t.check(BonsaiHud.album_lines(b)[0].begins_with("Day 0:"), "the album page starts on day 0")

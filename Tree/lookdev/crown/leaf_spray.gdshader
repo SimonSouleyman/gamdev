@@ -17,6 +17,8 @@ uniform vec3 tint_mul : source_color = vec3(1.0);
 uniform bool baked = false;
 // > 0: fragments closer to the camera than this dissolve (forest trees in front of the camera).
 uniform float near_fade = 0.0;
+// 0..1: this share of the leaves dissolves (the bonsai's foliage thins while wiring or cutting).
+uniform float fade = 0.0;
 // Phones skip the leaf normal map (one texture read and a TBN per fragment less).
 uniform bool cheap = false;
 // A light rim on the crown's outline, so the player's tree reads against ground and forest.
@@ -57,6 +59,10 @@ void fragment() {
 		float keep = smoothstep(near_fade * 0.6, near_fade, length(VERTEX));
 		float d2 = fract(sin(dot(floor(FRAGCOORD.xy), vec2(39.3468, 11.1353))) * 24634.6345);
 		if (d2 > keep) { discard; }
+	}
+	if (fade > 0.0) {
+		float d3 = fract(sin(dot(floor(FRAGCOORD.xy * 0.5), vec2(27.119, 61.917))) * 31337.77);
+		if (d3 < fade) { discard; }
 	}
 	vec4 tex = texture(spray_color, UV);
 	// Dithered alpha: soft, sort-free edges that also cast matching shadows.

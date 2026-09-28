@@ -223,7 +223,7 @@ static func juniper() -> Species:
 	s.conifer = true
 	s.deadwood = true
 	s.bark_tint = Color(0.52, 0.36, 0.28)
-	s.leaf_tint = Color(0.92, 1.02, 0.86)
+	s.leaf_tint = Color(0.78, 0.9, 0.76)
 	s.look_text = "Dense pads of tiny scale leaves, red-brown bark that peels in strips, silver deadwood."
 	s.quirk_text = "Deadwood: a cut branch stays as a silver jin, and a cut close to the trunk strips a line of bark below it into shari."
 	return s

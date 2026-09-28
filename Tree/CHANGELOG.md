@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.6 (in progress): bonsai mode
+- After the first finished tree a young juniper stands on the shed's windowsill. Tap it: the
+  camera comes close to the pot. Water it, give it pellets (N, P or K), turn the pot toward the
+  window, shape it with the shears (a third at most), pinch fresh tips and wire branches into new
+  lines. About every seventh day it asks to be repotted. It follows the same days as the tree,
+  costs the tree nothing and never dies; its album page grows by milestones.
+- Each finished clearing tree leaves a cutting for the sill; style pages show the classic shapes.
+
 ## v0.5.2 (2026-09-28)
 
 From Simon's feedback on 0.5.1.

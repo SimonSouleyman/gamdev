@@ -37,6 +37,8 @@ static var MAX_FPS: int = 30 if PHONE else 0
 const BONSAI_MIN_POT_NODES: int = 400
 const BONSAI_MAX_POT_NODES: int = 600
 const BONSAI_MAX_NODES: int = 800
+## Juniper sprays per green twig (a phone draws fewer).
+static var BONSAI_SPRAYS_PER_TWIG: int = 2 if PHONE else 3
 ## Attraction markers alive around the bonsai's crown at once.
 const BONSAI_MARKERS: int = 220
 ## Max attraction markers alive in the tree canopy at once.
