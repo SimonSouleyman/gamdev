@@ -2,6 +2,7 @@ extends Node
 ## The game: owns the GameState and switches between tree mode (day) and root mode (night).
 ## Sunset: tap the ground and the camera dives, the sound crossfades to the hum.
 ## Sunrise: the camera rises out of the ground while the dawn burst twinkles.
+## The game starts in the garden shed (start menu and pause scene) with the tree in the doorway.
 ## Dev keys (PC): T cycles time speed 1x/5x/20x, H hides the UI, F9 starts a new game.
 
 const SETTINGS_PATH := "user://settings.json"
@@ -22,6 +23,13 @@ var _transitioning: bool = false
 var _autosave_timer: float = 0.0
 var _tween: Tween
 var _underground: bool = false
+var shed: Shed
+var shed_menu: ShedMenu
+var in_shed: bool = false
+var _corner: CanvasLayer
+var _shed_button: Button
+var _photo_button: Button
+var _flash: ColorRect
 
 
 func _ready() -> void:
@@ -30,8 +38,17 @@ func _ready() -> void:
 	_build()
 	if ephemeral:
 		return  # tools start their own seeded game
+	# A drawn page covers the first frames while the forest grows.
+	shed_menu.show_loading(true)
+	_corner.visible = false
+	journal.set_button_visible(false)
+	await get_tree().process_frame
+	await get_tree().process_frame
 	var loaded: GameState = SaveData.load_game()
 	start(loaded if loaded != null else GameState.new_game(int(Time.get_unix_time_from_system())))
+	enter_shed(false)
+	_corner.visible = true
+	shed_menu.show_loading(false)
 
 
 func _build() -> void:
@@ -43,6 +60,21 @@ func _build() -> void:
 	add_child(ambience)
 	journal = Journal.new()
 	add_child(journal)
+	tree_view.page_open = func() -> bool: return journal.current_page() != ""
+	shed = Shed.new()
+	tree_view.add_child(shed)
+	# The shed is only seen from inside, in the shed scene, never in the tree scene (Simon).
+	shed.visible = false
+	shed_menu = ShedMenu.new()
+	add_child(shed_menu)
+	shed_menu.settings = journal.settings
+	shed_menu.show_menu(false)
+	shed_menu.continue_pressed.connect(leave_shed)
+	shed_menu.journal_pressed.connect(func() -> void: journal.open_diary())
+	shed_menu.setting_changed.connect(func(k: String, on: bool) -> void:
+		journal.set_setting(k, on)
+		_apply_setting(k, on))
+	_build_corner()
 	var fade_layer := CanvasLayer.new()
 	fade_layer.layer = 30
 	add_child(fade_layer)
@@ -91,10 +123,17 @@ func start(p_state: GameState) -> void:
 		_show_underground(false)
 	# Events from before the scenes existed (the planting sunset) are handled like live ones.
 	_handle_events()
+	# Pages that were open when the game was saved come back.
+	for id in state.pending_pages:
+		if Pages.TEXTS.has(id) and not journal.pending_ids().has(id):
+			journal.show_page(id, Pages.title(id), Pages.body(id))
 
 
 func _show_underground(on: bool) -> void:
 	_underground = on
+	# By night the tree scene is hidden: the time to widen the clearing for a grown tree.
+	if on:
+		tree_view.refresh_clearing()
 	tree_view.visible = not on
 	tree_view.hud.visible = not on and not journal.settings["no_ui"]
 	root_view.visible = on
@@ -120,10 +159,12 @@ func _process(delta: float) -> void:
 	if state == null:
 		return
 	# A journal page pauses the game; transitions only block input (the dawn burst runs while the camera rises).
-	var paused := journal.is_open()
+	var paused := journal.is_open() or in_shed
 	# No diary over a dive or a sunrise.
 	journal.set_button_enabled(not _transitioning)
 	tree_view.input_enabled = not paused and not _transitioning
+	_shed_button.visible = not in_shed and not _transitioning
+	_photo_button.visible = not in_shed and not _underground and not _transitioning and state.phase == GameState.Phase.DAY
 	root_view.input_enabled = not paused and not _transitioning
 	root_view.process_mode = Node.PROCESS_MODE_DISABLED if paused else Node.PROCESS_MODE_INHERIT
 	if not paused:
@@ -206,8 +247,8 @@ func _on_journal_opened(_open: bool) -> void:
 	if _open:
 		root_view.release_controls()
 	var book := journal.is_book_open()
-	tree_view.hud.visible = not book and not _underground and not journal.settings["no_ui"]
-	root_view.hud.visible = not book and _underground
+	tree_view.hud.visible = not book and not _underground and not in_shed and not journal.settings["no_ui"]
+	root_view.hud.visible = not book and _underground and not in_shed
 
 
 # --- switching --------------------------------------------------------------
@@ -278,6 +319,8 @@ func _new_tween() -> Tween:
 
 ## After the dawn burst (GameState wrote the diary line): the first-morning page or the daily wish.
 func _morning() -> void:
+	# A photo for the album every morning, after the dawn burst.
+	await _take_photo("morning")
 	if state.day_number() == 1:
 		_page_once("sapling")
 	elif state.diary.wish != "":
@@ -292,7 +335,7 @@ func _apply_setting(key: String, on: bool) -> void:
 			ambience.set_enabled(on)
 		"no_ui":
 			# The journal button stays (faint), or the setting could never be switched back.
-			tree_view.hud.visible = not on and not _underground
+			tree_view.hud.visible = not on and not _underground and not in_shed
 			journal.set_button_faint(on)
 		"battery_saver":
 			Engine.max_fps = 30 if on else 0
@@ -321,10 +364,13 @@ func _save_settings() -> void:
 
 func save() -> void:
 	if not ephemeral and state != null:
+		# An unread tutorial page must not be lost when the game closes while it is open.
+		state.pending_pages = journal.pending_ids().filter(func(id: String) -> bool: return Pages.TEXTS.has(id))
 		SaveData.save_game(state)
 
 
 var _paused_at: float = -1.0
+var _photo_busy := false
 
 
 func _notification(what: int) -> void:
@@ -339,6 +385,143 @@ func _notification(what: int) -> void:
 			state.sim.apply_offline(away)
 
 
+# --- the garden shed -----------------------------------------------------------------
+
+## The two scraps in the corner: back to the shed (pause), and the camera for the album.
+func _build_corner() -> void:
+	_corner = CanvasLayer.new()
+	_corner.layer = 19
+	add_child(_corner)
+	_shed_button = _scrap("shed", Vector2(-160, 150))
+	_shed_button.pressed.connect(func() -> void:
+		if not _transitioning and not journal.is_open():
+			enter_shed(true))
+	_photo_button = _scrap("photo", Vector2(-160, 210))
+	_photo_button.pressed.connect(func() -> void: _take_photo("camera"))
+	_flash = ColorRect.new()
+	_flash.color = Color(1, 1, 1, 0)
+	_flash.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_flash.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_corner.add_child(_flash)
+
+
+func _scrap(text: String, at: Vector2) -> Button:
+	var b := Button.new()
+	b.text = text
+	b.focus_mode = Control.FOCUS_NONE
+	b.add_theme_font_override("font", Paper.hand_font(true))
+	b.add_theme_font_size_override("font_size", 24)
+	for k in ["font_color", "font_hover_color", "font_pressed_color"]:
+		b.add_theme_color_override(k, Paper.INK)
+	for k in ["normal", "hover", "pressed"]:
+		b.add_theme_stylebox_override(k, Paper.paper_box(96, 48, 110 + int(at.y), "all", 12.0))
+	b.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+	b.offset_left = at.x
+	b.offset_right = -20
+	b.offset_top = at.y
+	b.offset_bottom = at.y + 46
+	b.rotation_degrees = -1.5
+	_corner.add_child(b)
+	return b
+
+
+## Into the shed: the game pauses, the tree stands in the doorway, the menu note is on the wall.
+func enter_shed(animate: bool) -> void:
+	if in_shed:
+		return
+	in_shed = true
+	journal.hold_pages()
+	journal.close_diary()
+	journal.set_button_visible(false)
+	var switch := func() -> void:
+		tree_view.visible = true
+		root_view.visible = false
+		root_view.hud.visible = false
+		tree_view.hud.visible = false
+		shed.visible = true
+		shed.place()
+		tree_view.set_shed_open(true)
+		shed.frame_tree(state.sim.height(), tree_view.camera.environment)
+		shed.camera.make_current()
+		shed_menu.show_menu(true)
+		ambience.set_world(true, 0.8)
+	if animate:
+		_transitioning = true
+		var tw := _new_tween()
+		tw.tween_property(_fade, "color:a", 1.0, 0.35)
+		tw.tween_callback(switch)
+		tw.tween_property(_fade, "color:a", 0.0, 0.45)
+		tw.tween_callback(func() -> void: _transitioning = false)
+	else:
+		switch.call()
+	save()
+
+
+## Out of the shed and back into the day (or the night, if the game was left underground).
+func leave_shed() -> void:
+	if not in_shed or _transitioning:
+		return
+	_transitioning = true
+	shed_menu.show_menu(false)
+	var tw := _new_tween()
+	tw.tween_property(_fade, "color:a", 1.0, 0.35)
+	tw.tween_callback(func() -> void:
+		in_shed = false
+		shed.visible = false
+		tree_view.set_shed_open(false)
+		tree_view.dive_amount = 0.0
+		journal.set_button_visible(true)
+		# Pages that were waiting (the first tutorial page) show now, in the game.
+		journal.release_pages()
+		_show_underground(state.phase == GameState.Phase.NIGHT))
+	tw.tween_property(_fade, "color:a", 0.0, 0.45)
+	tw.tween_callback(func() -> void: _transitioning = false)
+
+
+func _unhandled_input(event: InputEvent) -> void:
+	if not in_shed or _transitioning or journal.is_open() or shed_menu.is_busy():
+		return
+	var m := event as InputEventMouseButton
+	if m == null or m.pressed or m.button_index != MOUSE_BUTTON_LEFT:
+		return
+	# Tapping the things in the shed.
+	match shed.item_at(m.position):
+		"journal":
+			journal.open_diary()
+		"album":
+			shed_menu.open_album()
+		"options":
+			shed_menu.open_options()
+		"seeds":
+			journal.show_page("seeds", "The seed bag", "A handful of linden seeds, saved for later.\n\nWhen this linden has grown to its full size, one of them goes into the ground beside it and a new tree begins.")
+
+
+## Saves a photo of the tree for the album (without the HUD), with a camera flash.
+func _take_photo(tag: String) -> void:
+	if ephemeral or in_shed or _underground or _photo_busy:
+		return
+	_photo_busy = true
+	# Never through the black fade of a sunrise or a trip to the shed.
+	while _transitioning:
+		await get_tree().process_frame
+	if in_shed or _underground:
+		_photo_busy = false
+		return
+	var huds: Array = [tree_view.hud, journal, _corner]
+	var was: Array = []
+	for h in huds:
+		was.append((h as CanvasLayer).visible)
+		(h as CanvasLayer).visible = false
+	await RenderingServer.frame_post_draw
+	Photos.save_from(get_viewport(), state.day_number(), tag)
+	for i in range(huds.size()):
+		(huds[i] as CanvasLayer).visible = was[i]
+	_photo_busy = false
+	if tag == "camera":
+		_flash.color.a = 0.8
+		create_tween().tween_property(_flash, "color:a", 0.0, 0.4)
+
+
 func _unhandled_key_input(event: InputEvent) -> void:
 	var k := event as InputEventKey
 	if k == null or not k.pressed or k.echo:
@@ -351,12 +534,20 @@ func _unhandled_key_input(event: InputEvent) -> void:
 			journal.set_setting("no_ui", on)
 			_apply_setting("no_ui", on)
 		KEY_F9:
+			Photos.clear()
 			start(GameState.new_game(int(Time.get_unix_time_from_system())))
+			in_shed = false
+			enter_shed(false)
 		KEY_J:
 			if journal.is_open():
 				journal.close_diary()
 			elif not _transitioning:
 				journal.open_diary()
 		KEY_ESCAPE:
-			journal.close_page()
-			journal.close_diary()
+			if journal.is_open():
+				journal.close_page()
+				journal.close_diary()
+			elif shed_menu.is_busy():
+				shed_menu.close_boards()
+			elif not in_shed and not _transitioning:
+				enter_shed(true)

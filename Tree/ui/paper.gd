@@ -60,7 +60,8 @@ static func paper_texture(w: int, h: int, seed: int, torn: String = "", tint: Co
 	if ResourceLoader.exists(photo_path):
 		# Read once from the file (not back from the GPU) and kept for every page.
 		if not _cache.has(photo_path):
-			var raw := Image.load_from_file(ProjectSettings.globalize_path(photo_path))
+			# The raw file only exists in the editor; an exported game (the phone) reads the import.
+			var raw: Image = Image.load_from_file(ProjectSettings.globalize_path(photo_path)) if OS.has_feature("editor") else null
 			if raw == null or raw.is_empty():
 				raw = (load(photo_path) as Texture2D).get_image()
 			if raw.is_compressed():

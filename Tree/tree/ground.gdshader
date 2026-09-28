@@ -5,7 +5,7 @@ shader_type spatial;
 uniform sampler2D noise : filter_linear_mipmap, repeat_enable;
 uniform sampler2D ground_albedo : source_color, filter_linear_mipmap, repeat_enable;
 uniform bool use_texture = false;
-uniform vec3 lush : source_color = vec3(0.33, 0.48, 0.16);
+uniform vec3 lush : source_color = vec3(0.38, 0.54, 0.19);
 uniform vec3 dry : source_color = vec3(0.42, 0.46, 0.2);
 uniform vec3 earth : source_color = vec3(0.27, 0.24, 0.15);
 
