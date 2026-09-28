@@ -120,7 +120,56 @@ Later milestones, in rough order: realistic assets (bark, leaf atlases, grass, s
 ## 14. Not in Prototype 1
 Realistic assets, the full light model, seasons, live wallpaper, extra species, mobile export, sound beyond placeholders, visitor and find art, the 3D grove.
 
+## 16. Bonsai mode (proposal, 2026-09-28, waiting for Simon's survey)
+A second, smaller game in the garden shed: one bonsai in a pot that the player grows and shapes over many weeks, next to the tree on the clearing. Reference: a juniper in informal upright style on a wooden bench (docs/references/bonsai/juniper-reference.png). Nothing here is built yet; the letters in brackets point to the open survey questions at the end of this section.
+
+**Where it lives.** The bonsai stands on the windowsill beside the workbench (A), so it is always visible in the shed menu and grows while the player looks at it. Tapping it moves the camera close to the pot: that is bonsai mode. The shed "back" gesture returns to the workbench. The window is its sun: light comes from one fixed side, which gives the bonsai its own version of sun steering (turning the pot, below).
+
+**The loop, mirrored from the tree.**
+
+| | Tree on the clearing | Bonsai in the shed |
+|---|---|---|
+| Clock | In-game day and night, about one cycle per real day | The same clock; the bonsai lives through the same days (no own clock) |
+| Sun | Real arc, boost by tap, drag the sun | Fixed window light; **turn the pot** a quarter at a time; the side facing the window grows, the back stays sparse |
+| Water | Roots find blue deposits at night | **Watering can**: the soil dries over the day, the pot surface darkens when wet; too dry means drooping, too wet slows growth (soft failure only) |
+| N, P, K | Root run to deposits | **Fertiliser**: a spoon of pellets on the soil, choose which one; same soft Liebig rule; too much burns leaf tips a little |
+| Night | Root run, one per night | **No root run.** About every seventh day the bonsai asks to be **repotted**: lift it out, trim the root ball with the shears, pick the pot, fresh soil. The only underground moment (B) |
+| Shaping | Shears, no more than a fifth at once | Shears plus **pinching** (tap a fresh tip to stop it) plus **wire** (C) |
+| Size | Grows to its species size | **The pot caps it**: pot volume sets the node budget; pruning moves vigour back into the inner buds, so the tree grows denser, not bigger |
+| End | Finished at species size, goes to the album | **No end**: the bonsai is a lifelong companion; its album page grows by milestones (D) |
+
+**Wire.** Tap a branch in wire mode, drag it into a new direction; a copper coil appears along it. Over the next days the branch sets in the new angle. If the wire stays on too long it bites in and leaves a visible scar in the bark (soft failure, never fatal). Removing it is a tap. In the simulation this is a per-node target angle that the pipe-model mesh bends toward a little each day.
+
+**Species (E).** Bonsai species come from the roster: each finished clearing tree gives a cutting for the bonsai, so linden, birch, beech, sycamore maple, black alder and oak all appear as bonsai (all six are real bonsai trees in Europe). Juniper, like in the reference, would be the one conifer and the starter, with deadwood (silver jin and shari) as its quirk. The species' needs and shape parameters from section 15 are reused, scaled down; the quirks carry over where they make sense (maple twin buds, alder's own nitrogen, beech's patience).
+
+**Style (F).** No score. The journal gets a few pages of classic styles as drawings (formal upright, informal upright, slanting, cascade, broom), as inspiration only.
+
+**Relation to the tree (G).** The two games are independent: no shared life force, no shared resources, no penalty for ignoring one of them. The bonsai costs nothing to care for. The link is the unlock (H) and the cutting.
+
+**Time scale.** A real bonsai takes years. In the game one care day shows small visible change (a new flush, a thickening wire branch), and a recognisable shape after about two weeks of care. It keeps refining without end. Once seasons exist (section 11), the bonsai is where they show first: a pot is a small, cheap place for spring flush, autumn colour and bare winter branches.
+
+**What it needs from the existing systems.**
+- Plant graph, space colonization and pipe model (section 4) with a small node budget (about 400 to 600) and a finer segment length; markers seeded on the window side.
+- `shared/species.gd` profiles plus a bonsai scale; a new juniper profile if chosen.
+- The shears and the cut preview from 0.5 (the one-fifth rule relaxed to a third for a bonsai), the 0.5.2 trunk-anchored cut camera, orbiting around the pot.
+- The day clock and save file (a second plant graph, pot, wires, soil moisture, fertiliser in the soil); offline growth as for the tree.
+- The 0.6 shed with the workbench in the centre and table objects as menu; the windowsill beside it.
+- Album and journal pages (bonsai double page, style pages, first-time pages for watering, wire and repotting).
+- New: pot models (a few shapes and glazes), watering can, fertiliser tin, wire coil mesh, root-ball mesh for repotting, moss and fine gravel on the soil.
+- Performance: the shed already holds 30 fps on the Fairphone; one small tree close up is cheaper than the clearing.
+
+**Open decisions (survey to Simon, 2026-09-28).**
+- (A) Where it stands: windowsill beside the workbench (recommended), on the workbench, or outside on a board by the shed door.
+- (B) Night: no root run, repotting every seventh day (recommended); a small root run in the pot every night; or nothing underground at all.
+- (C) Wire: yes, with wire bite as the soft failure (recommended); or shears and pinching only.
+- (D) End: one lifelong bonsai (recommended); finished when a style is reached, then album and a new one; or a shelf of several at once.
+- (E) Species: roster species plus juniper as the only conifer and starter (recommended); roster only; or a separate bonsai list (juniper, Japanese maple, pine, ficus).
+- (F) Style: free with style pages as inspiration (recommended); or style templates with a calm hint how close the tree is.
+- (G) Link: independent, no shared life force (recommended); or fertiliser bought with the clearing tree's life force.
+- (H) Unlock: after the first finished clearing tree (recommended); from the start; or only after all six species.
+
 ## Decision log
+- 2026-09-28 **proposal, not decided:** bonsai mode (section 16), Simon asked for it as a later game mode in the garden shed with a loop like the tree; open decisions A to H wait for his survey.
 - 2026-09-27 play test 2 and QA rounds (Simon): the meadow is dense soft grass with herbs and wildflowers (no single blades); the clearing is closed in by a dense wall of mixed trees (oak, beech, birch, linden, spruce) and undergrowth; reference photos in docs/references/clearing. Moving the sun on rests the tree (life force still gathers) so the nutrients wait for the hour the player picks; a missing N, P or K slows growth to about a third instead of stopping it (soft Liebig floor 0.35); the simulation runs in fixed steps.
 - 2026-09-27 play test 1 (Simon): the sun can be moved on at any time of the day; a root can end early and the leftover life force feeds more fine roots (replaces "leftover carries over"); no ball at the root tip; brighter start at dusk; the scene is a small forest clearing, not an open meadow; the journal is a book (big menus) and torn pages (small), with the HUD in the same handwritten paper style; CC0 photo textures (bark, leaves, ground, paper) and OFL handwriting fonts (Caveat, Patrick Hand) approved.
 - 2026-09-26 interviews: vision, realism, algorithm, sun steering, roots, resources, pacing, soft failure, notifications, portrait, wallpaper wish, linden first.
