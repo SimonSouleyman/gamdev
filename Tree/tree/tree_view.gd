@@ -430,7 +430,7 @@ func _plant_grass(seed: int) -> void:
 			if Vector2(cos(a) * d - Shed.origin.x, sin(a) * d - Shed.origin.z).length() < 2.4:
 				d = maxf(0.3, d - 4.0)
 			# A wider clearing spreads the same clumps further: they grow fuller to keep it a meadow.
-			var fuller := sqrt(_clearing / Scenery.CLEARING_RADIUS)
+			var fuller := 1.0 if Budgets.PHONE else sqrt(_clearing / Scenery.CLEARING_RADIUS)
 			var w := rng.randf_range(layer[2].x, layer[2].y) * fuller
 			var h := rng.randf_range(layer[3].x, layer[3].y) * lerpf(1.0, fuller, 0.5)
 			var basis := Basis(Vector3.UP, rng.randf() * TAU).scaled(Vector3(w, h, w))
@@ -739,9 +739,13 @@ func _update_sun() -> void:
 		var golden := 1.0 - smoothstep(0.03, 0.55, h)
 		_sun_light.light_color = Color(1.0, 0.95, 0.88).lerp(Color(1.0, 0.7, 0.4), golden)
 		_sun_light.light_energy *= 1.0 + 0.25 * golden
-		_env.fog_light_color = _env.fog_light_color.lerp(Color(0.85, 0.7, 0.5), golden * 0.5)
+		_env.fog_light_color = _env.fog_light_color.lerp(Color(0.85, 0.7, 0.5), golden * (0.2 if _compat else 0.5))
 	# The phone's simpler renderer lights more brightly: tone it down to match the PC.
 	if _compat:
+		# The phone renderer shows the sky darker and does not fog the far wood: lift the sky, haze
+		# the wall by hand (0.5.1, from Simon's phone test).
+		_sky_mat.energy_multiplier *= 1.8
+		_scenery.set_haze(_env.fog_light_color * 0.9, 0.55)
 		_sun_light.light_energy *= 0.7
 		_env.ambient_light_energy *= 0.8
 		_env.tonemap_exposure *= 0.85

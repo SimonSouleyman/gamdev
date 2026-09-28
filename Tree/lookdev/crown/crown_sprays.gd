@@ -59,6 +59,10 @@ static func populate(mm: MultiMesh, sim: GrowthSim, seed: int) -> AABB:
 	var per_twig := 2 + int(height * 0.2)
 	var spread := 0.1 + height * 0.016
 	var size := 0.3 + height * 0.03
+	# A phone draws fewer, larger sprays on a big tree (each spray is overdraw it pays for).
+	if Budgets.PHONE and per_twig > 4:
+		size *= sqrt(float(per_twig) / 4.0)
+		per_twig = 4
 	var rng := RandomNumberGenerator.new()
 	rng.seed = hash([seed, "crown sprays"])
 	mm.instance_count = spots.size() * per_twig
