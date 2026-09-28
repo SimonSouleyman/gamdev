@@ -60,6 +60,10 @@ var away_report: Dictionary = {}
 
 ## An absence shorter than this gets no "while you were away" page.
 const AWAY_REPORT_SECONDS: float = 3600.0
+## Today's weather (Almanac.weather_for), fixed once per game day so a real midnight in the
+## middle of a game day does not change it. Mood only; not saved (a load asks again).
+var _weather: Dictionary = {}
+var _weather_day: int = -1
 
 
 ## A new game: a seed is planted at sunset; the first night is the first root run.
@@ -162,6 +166,7 @@ func tick(delta: float) -> void:
 				clock.boost_active = false
 				clock.boost_remaining = 0.0
 				phase = Phase.SUNSET
+				_weather_note("evening")
 				_event("sunset")
 			else:
 				sim.tick(delta)
@@ -361,8 +366,26 @@ func _sunrise() -> void:
 	if was_seed and not sim.nutrients_spent():
 		diary.add(day_number(), "The seed sprouted at dawn.")
 	diary.wish = Diary.make_wish(ground, day_number(), seed)
+	_weather_note("morning")
 	morning_timer = 0.0
 	_event("sunrise")
+
+
+## The weather of the current game day (design doc section 17: mood only).
+func weather_today() -> Dictionary:
+	if _weather_day != day_number() or _weather.is_empty():
+		_weather_day = day_number()
+		_weather = Almanac.weather_for(seed, _weather_day, Almanac.today())
+	return _weather
+
+
+## A diary line when the weather was worth noting: mist and dew at sunrise, a shower at sunset.
+func _weather_note(part: String) -> void:
+	if day_number() == 0:
+		return
+	var line := Almanac.diary_line(weather_today(), part)
+	if line != "":
+		diary.add(day_number(), line)
 
 
 ## Called by the tree view at the end of the dawn burst, for the morning diary line.

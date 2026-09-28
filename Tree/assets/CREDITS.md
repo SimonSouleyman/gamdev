@@ -31,3 +31,6 @@ The HUD's shed and shears pictures (`ui/icons/shed.png`, `shears.png`, `shears_c
 | `assets/sounds/shed_clay_pot.ogg` (item_stone_02) | OpenGameArt, "80 CC0 RPG SFX" by rubberduck (https://opengameart.org/content/80-cc0-rpg-sfx) | CC0 |
 Everything else (the shed room, the journal, album and seed bag on the workbench, tree, roots, meadow plants, leaf fallback, paper, the wind, the underground hum and the collect note) is generated in code.
 Everything else (tree, roots, meadow plants, the shade plants and mushrooms of `lookdev/grass/understory_atlas.png`, leaf fallback, paper, the wind, the underground hum and the collect note) is generated in code.
+| `assets/sounds/rain.ogg` (track 1 of the pack) | OpenGameArt, "Rain (loopable)" by Ylmir (https://opengameart.org/content/rain-loopable) | CC0 |
+| `assets/sounds/thunder.ogg` (`sfx100v2_thunder_01.ogg`) | OpenGameArt, "100 CC0 SFX #2" by rubberduck (https://opengameart.org/content/100-cc0-sfx-2) | CC0 |
+Everything else (tree, roots, meadow plants, leaf fallback, paper, the wind, the underground hum, the collect note, the stars, the moon and the falling leaves) is generated in code.

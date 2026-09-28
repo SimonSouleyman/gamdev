@@ -29,6 +29,7 @@ const BIRDS := 5
 var _rng := RandomNumberGenerator.new()
 var _clouds: Array[MeshInstance3D] = []
 var _cloud_mats: Array[ShaderMaterial] = []
+var _cloud_coverage: Array[float] = []
 var _butterflies: MultiMeshInstance3D
 var _birds: MultiMeshInstance3D
 var _pollen: GPUParticles3D
@@ -59,6 +60,7 @@ func build(seed: int, bark: Material, leaf: Material, noise: Texture2D, radius: 
 		c.queue_free()
 	_clouds.clear()
 	_cloud_mats.clear()
+	_cloud_coverage.clear()
 	_rng.seed = hash([seed, "scenery"])
 	_noise = noise
 	_build_distant_trees(seed, bark, leaf)
@@ -646,7 +648,9 @@ func _build_clouds(noise: Texture2D) -> void:
 		mat.shader = preload("res://tree/cloud.gdshader")
 		mat.set_shader_parameter("noise", noise)
 		mat.set_shader_parameter("seed", _rng.randf() * 10.0)
-		mat.set_shader_parameter("coverage", _rng.randf_range(0.42, 0.52))
+		var coverage := _rng.randf_range(0.42, 0.52)
+		mat.set_shader_parameter("coverage", coverage)
+		_cloud_coverage.append(coverage)
 		m.material_override = mat
 		m.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		var a := _rng.randf() * TAU
@@ -860,6 +864,23 @@ func update(delta: float, day: bool, h: float, sun_color: Color, tree_height: fl
 	_pollen.emitting = day and h > 0.15
 	_pollen.position = Vector3(0, maxf(1.5, tree_height * 0.5), 0)
 	_fireflies.emitting = not day
+
+
+## Night and weather (TreeView, after update): at night only every fourth cloud stays, dim and
+## moonlit, so the stars show; a shower closes the sky with heavier grey clouds.
+func set_mood(night: float, rain: float) -> void:
+	for i in range(_cloud_mats.size()):
+		var m := _cloud_mats[i]
+		m.set_shader_parameter("opacity", maxf(1.0 if i % 4 == 0 else 1.0 - night * 0.95, rain))
+		m.set_shader_parameter("grey", rain * 0.85)
+		m.set_shader_parameter("coverage", _cloud_coverage[i] - rain * 0.16)
+		if night > 0.0:
+			m.set_shader_parameter("sun_color", Color(1.0, 0.72, 0.55).lerp(Color(0.6, 0.66, 0.82), night))
+			m.set_shader_parameter("brightness", lerpf(0.3, 0.12, night))
+	# No butterflies or pollen in the rain.
+	if rain > 0.3:
+		_butterflies.visible = false
+		_pollen.emitting = false
 
 
 func _update_birds(delta: float, day: bool) -> void:
