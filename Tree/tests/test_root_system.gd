@@ -437,3 +437,20 @@ func test_the_bot_aims_at_fresh_deposits_ahead() -> void:
 	var stick := bot.stick_for(r, u)
 	t.check_eq(bot.target_id, 1, "the bot skips the tapped deposit and the one behind")
 	t.check(stick.x > 0.0, "and turns toward the fresh one (right)")
+
+
+func test_groundwater_seeps_into_main_roots_more_than_fine_roots() -> void:
+	# 0.6.x soft: even a root that found no deposit keeps the tree watered a little each night.
+	var s := _setup(40.0, 9)
+	var u: Underground = s[0]
+	var r: RootSystem = s[1]
+	var res: Resources = s[2]
+	r.start_run(0)
+	_run(r, u, res, Vector2(0.4, 0.0))
+	t.check(r.seep_length() > 5.0, "the run left metres of root (%.1f)" % r.seep_length())
+	t.check(r.seep_length() < r.graph.total_length(), "fine roots count for less than main roots")
+	r.tapped.clear()
+	var before := res.amount(Resources.Kind.WATER)
+	var got := r.drink_tapped(u, res)
+	t.check_near(got[Resources.Kind.WATER], r.seep_length() * r.seep_per_metre, 1e-3, "no deposits: only the seep")
+	t.check_near(res.amount(Resources.Kind.WATER) - before, got[Resources.Kind.WATER], 1e-3, "the seep lands in the stock")

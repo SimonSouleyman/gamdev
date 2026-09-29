@@ -201,3 +201,20 @@ func test_seedling_grows_up_not_along_the_ground() -> void:
 		if p.y > top.y:
 			top = p
 	t.check(Vector2(top.x, top.z).length() < top.y, "the top stands more up than sideways (%s)" % top)
+
+
+func test_boost_cannot_make_up_for_a_missing_nutrient() -> void:
+	# 0.6.x soft: without nitrogen the boosted sun grows no faster than the calm one (soft floor).
+	var grown := {}
+	for boosted in [false, true]:
+		var s := _fed_sim(5)
+		s.resources.add(Resources.Kind.WATER, 200.0)
+		s.resources.stock[Resources.Kind.NITROGEN] = 0.0
+		for _i in range(40):
+			s.clock.time_of_day = 0.2
+			s.clock.boost_active = boosted
+			s.resources.stock[Resources.Kind.NITROGEN] = 0.0
+			s.tick(0.5)
+		grown[boosted] = s.graph.size()
+	t.check(int(grown[false]) > 2, "the soft floor still grows without nitrogen (%d)" % grown[false])
+	t.check(int(grown[true]) <= int(grown[false]) + 2, "boost adds nothing without nitrogen (%s)" % str(grown))
