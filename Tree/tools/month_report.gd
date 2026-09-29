@@ -1,7 +1,11 @@
 extends SceneTree
 ## Prints one line per in-game day of bot play until the tree is finished (or 45 days), for
 ## tuning growth and costs, then a summary line.
-## Run: godot --headless --path . -s tools/month_report.gd -- [--species=<id>|all] [--seed=14]
+## Run: godot --headless --path . -s tools/month_report.gd -- [--species=<id>|all] [--seed=14] [--boost]
+## --boost: the sun is boosted all day long (a tap every tick), the hardest case for pacing.
+var boost := false
+
+
 func _init():
 	var species_arg := "linden"
 	var seed := 14
@@ -10,6 +14,8 @@ func _init():
 			species_arg = a.substr(10)
 		elif a.begins_with("--seed="):
 			seed = int(a.substr(7))
+		elif a == "--boost":
+			boost = true
 	var ids: Array = Species.ORDER if species_arg == "all" else [species_arg]
 	var summaries: Array[String] = []
 	for sid in ids:
@@ -40,11 +46,14 @@ func _report(species_id: String, seed: int) -> String:
 		while g.phase == GameState.Phase.NIGHT: g.tick(0.2)
 		var before := g.sim.graph.size()
 		var st := g.sim.resources.stock
-		while g.phase == GameState.Phase.DAY: g.tick(1.0)
+		while g.phase == GameState.Phase.DAY:
+			if boost:
+				g.boost_hour()
+			g.tick(1.0)
 		var t2 := Time.get_ticks_msec()
 		var grown := g.sim.graph.size() - before
 		least = mini(least, grown)
-		print("day %d lf %.1f run %.1fm stock [%.0f %.0f %.0f %.0f] grown %d nodes %d h %.1f tips %d | run %dms day %dms" % [day+1, lf, g.roots.run_length, st[0], st[1], st[2], st[3], grown, g.sim.graph.size(), g.sim.height(), g.sim.tip_count(), t1-t0, t2-t1])
+		print("day %d lf %.1f run %.1fm stock [%.0f %.0f %.0f %.0f] grown %d nodes %d (living %d) h %.1f tips %d | run %dms day %dms" % [day+1, lf, g.roots.run_length, st[0], st[1], st[2], st[3], grown, g.sim.graph.size(), g.sim.living_nodes(), g.sim.height(), g.sim.tip_count(), t1-t0, t2-t1])
 		if g.finished:
 			finished_day = day + 1
 			break

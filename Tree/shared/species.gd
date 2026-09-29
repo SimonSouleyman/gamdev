@@ -28,6 +28,9 @@ var gravitropism: float = 0.0
 var twig_droop: float = 0.0
 ## Extra random kink per segment (oak's zigzag branches), added to the colonizer's jitter.
 var crookedness: float = 0.0
+## Share of its height a grown tree stands on a bare trunk: the crown lifts as the lower
+## branches are shaded out and shed (oak low and spreading, birch high).
+var crown_base: float = 0.3
 
 # --- pace and size ----------------------------------------------------------------
 ## Growth speed factor on GrowthSim.max_growth_per_second and the dawn burst.
@@ -81,7 +84,7 @@ var quirk_text: String = ""
 
 static func linden() -> Species:
 	var s := Species.new()
-	s.finish_nodes = 1800
+	s.finish_nodes = 2100
 	s.blossom_from = 18
 	s.blossom_to = 22
 	s.blossom_life_force = 1.2
@@ -101,9 +104,10 @@ static func birch() -> Species:
 	s.apical_dominance = 0.3
 	s.phototropism = 0.45
 	s.twig_droop = 0.5
+	s.crown_base = 0.36
 	s.early_pace = 1.15
 	s.early_days = 8
-	s.finish_nodes = 1740
+	s.finish_nodes = 1880
 	s.target_days = 25
 	s.life_force = 0.9
 	s.shade_dieback = 2.0
@@ -153,7 +157,7 @@ static func sycamore() -> Species:
 	s.phototropism = 0.65
 	s.early_pace = 1.1
 	s.early_days = 8
-	s.finish_nodes = 2150
+	s.finish_nodes = 1800
 	s.twin_buds = true
 	s.bark_tint = Color(0.5, 0.45, 0.39)
 	s.leaf_tint = Color(0.97, 1.03, 0.88)
@@ -195,6 +199,7 @@ static func oak() -> Species:
 	s.phototropism = 0.4
 	s.gravitropism = -0.05
 	s.crookedness = 0.22
+	s.crown_base = 0.2
 	s.pace = 0.85
 	s.finish_nodes = 1970
 	s.target_days = 35

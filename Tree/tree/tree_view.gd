@@ -364,8 +364,8 @@ func _build_world() -> void:
 	_leaf_mat = ShaderMaterial.new()
 	_leaf_mat.shader = preload("res://tree/leaf.gdshader")
 	Assets.apply_leaf(_leaf_mat)
-	# The forest keeps _leaf_mat as its template; the player's crown uses the spray material.
-	_spray_mat = CrownSprays.material()
+	# The forest keeps _leaf_mat as its template; the player's crown has its own leaf masses.
+	_spray_mat = HeroCrown.material()
 	# The player's tree stands out (Simon, play test 4): lighter, warmer leaves with a rim of light,
 	# against a darker, cooler forest and a calmer meadow.
 	_spray_mat.set_shader_parameter("tint_mul", Color(1.02, 1.03, 0.95))
@@ -713,13 +713,18 @@ func _rebuild() -> void:
 		for id in range(_built_size, g.size()):
 			_births[id] = _time
 	_built_size = g.size()
+	# Wood as thick as the tree is big: a sapling's whip is a finger thick, not a pole.
+	_builder.radius_scale = wood_scale(state.sim.height())
 	_tree_mesh.mesh = _builder.build(g)
 	_seed.visible = state.is_seed()
-	# Leaf sprays around the living twigs; the crown's shape feeds the shading of its interior.
-	var crown := CrownSprays.populate(_leaves.multimesh, state.sim, state.seed)
-	_spray_mat.set_shader_parameter("crown_centre", crown.get_center())
-	_spray_mat.set_shader_parameter("crown_radii", crown.size * 0.5 + Vector3.ONE * 0.5)
+	# Leaf masses at the twig ends, shaded dark inside and light at the sunny rim.
+	var crown := HeroCrown.populate(_leaves.multimesh, state.sim, state.seed)
 	weather_fx.set_crown(crown)
+
+
+## Scale from the pipe-model radii to the drawn wood: thin for a young tree, 3.2 for a grown one.
+static func wood_scale(height: float) -> float:
+	return clampf(0.9 + height * 0.1, 1.0, 3.2)
 
 
 func _update_twinkles() -> void:
@@ -927,6 +932,42 @@ func _update_mood(_h: float) -> void:
 		for mat in _grass_mats:
 			mat.set_shader_parameter("dew", dew)
 
+## Vertical field of view the camera prefers; it only widens when the clearing is too small.
+const FRAME_FOV := 50.0
+## The album's morning photos all look from here (the default view: from the north, sun behind).
+const ALBUM_YAW := PI
+var _framed_width: float = 1.0
+var _album: bool = false
+
+
+## The height to frame for a tree this tall: at least a few metres, so a sapling stands small
+## in the clearing with the forest beside it, and the tree's height once it is grown.
+static func frame_height(tree_height: float) -> float:
+	return maxf(tree_height, 0.2) + 3.0 * (1.0 - smoothstep(0.0, 12.0, tree_height))
+
+
+## About the height this species reaches when finished (the album frames it from day one).
+func album_height() -> float:
+	return state.sim.species.max_height * 0.85
+
+
+## Width of the crown (living wood), for framing on a narrow screen.
+func crown_width() -> float:
+	var g := state.sim.graph
+	var r := 0.3
+	for id in range(g.size()):
+		if not g.get_flag(id, "dead", false):
+			r = maxf(r, Vector2(g.positions[id].x, g.positions[id].z).length())
+	return r * 2.0
+
+
+## The album's morning photo: a camera framed for the species' grown size, from the same spot
+## every day, so the flip-book shows the tree growing (on) and back to the player's view (off).
+func album_pose(on: bool) -> void:
+	_album = on
+	_frame_camera(true)
+
+
 func _frame_camera(snap: bool, delta: float = 0.0) -> void:
 	var real_height := maxf(state.sim.height(), 0.2)
 	# Re-framed at snap, when the tree outgrows the frame, and once the day is over (sunset),
@@ -934,20 +975,42 @@ func _frame_camera(snap: bool, delta: float = 0.0) -> void:
 	var day_over := state.phase != GameState.Phase.DAY and state.day_number() != _framed_day
 	if snap or day_over or real_height > _framed_height * 1.35:
 		_framed_height = real_height
+		_framed_width = crown_width()
 		_framed_day = state.day_number()
-	var height := _framed_height
-	var want_focus := Vector3(0, clampf(height * 0.5, 0.25, 30.0), 0)
+	# The frame is sized by the tree's real height (0.6.2): a young tree stands small in its
+	# clearing, the forest ring beside it for scale; a grown one fills the frame from further
+	# back. The album's morning photo frames the species' final size instead (album_pose).
+	var height := frame_height(_framed_height)
+	var width := _framed_width
+	if _album:
+		height = frame_height(album_height())
+		width = height * 0.8
+	var want_focus := Vector3(0, clampf(height * 0.47, 0.25, 30.0), 0)
+	if _album:
+		# A little lower and from a little above, so a seedling's foot is never behind the swell.
+		want_focus.y = height * 0.4
 	if prune_mode:
 		want_focus = Vector3(0, prune_height, 0)
 	# The camera stays inside the clearing, which grows with the tree (refresh_clearing), so a
 	# grown linden is seen whole from further back rather than through a wide lens.
 	var room := maxf(_clearing, Scenery.CLEARING_RADIUS) - 3.0
-	var want_distance := clampf(clampf(height * 1.35 + 2.2, 2.4, room) * _zoom, 1.5, room + 0.5)
+	# The extent to hold on screen: the height, or the crown's width on a narrow portrait screen.
+	var vp := get_viewport().get_visible_rect().size if is_inside_tree() else Vector2(720, 1280)
+	var aspect := clampf(vp.x / maxf(vp.y, 1.0), 0.3, 2.0)
+	var half := maxf(height * 0.56, width * 0.55 / aspect)
+	var want_distance := clampf(half / tan(deg_to_rad(FRAME_FOV * 0.5)), 3.0, room) * _zoom
+	want_distance = clampf(want_distance, 1.5, room + 0.5)
+	if _album:
+		# Always from the same spot at the clearing's edge; the lens holds the grown tree.
+		want_distance = room + 0.5
 	if prune_mode:
 		# Closer in, looking at the part of the crown around prune_height.
-		want_distance = clampf((height * 0.45 + 2.0) * _zoom, 1.5, room + 0.5)
-	# Just wide enough to hold the whole tree at this distance.
-	camera.fov = clampf(rad_to_deg(2.0 * atan(height * 0.62 / maxf(want_distance, 0.1))) + 10.0, 50.0, 80.0)
+		want_distance = clampf((_framed_height * 0.45 + 2.0) * _zoom, 1.5, room + 0.5)
+	# Wide enough to hold the frame at this distance (a lens, not a step back, once the clearing
+	# is too small to step back in).
+	camera.fov = clampf(rad_to_deg(2.0 * atan(half / maxf(want_distance, 0.1))), FRAME_FOV, 86.0 if _album else 78.0)
+	if prune_mode:
+		camera.fov = FRAME_FOV
 	# The meadow grass fades out beyond the tree, however far back the camera stands.
 	# (A phone lets it fade sooner: meadow cards are what it pays most for.)
 	var fade := maxf(14.0 if Budgets.PHONE else 24.0, want_distance + (8.0 if Budgets.PHONE else 22.0))
@@ -961,7 +1024,9 @@ func _frame_camera(snap: bool, delta: float = 0.0) -> void:
 	_distance = lerpf(_distance, want_distance, k)
 	# A small tree is seen from a little above, so the young plant and the meadow fill the frame
 	# rather than the forest wall behind it (review: day 1 showed mostly forest).
-	var pitch := maxf(_pitch, lerpf(0.5, 0.02, clampf(height / 5.0, 0.0, 1.0)))
+	var pitch := maxf(_pitch, lerpf(0.34, 0.02, clampf(height / 8.0, 0.0, 1.0)))
+	if _album:
+		pitch = 0.2
 	var orbit := _focus + Vector3(sin(_yaw) * cos(pitch), sin(pitch), cos(_yaw) * cos(pitch)) * _distance
 	orbit.y = maxf(orbit.y, 0.25)
 	# The dive: the camera falls straight down into the ground beside the tree, turning a little
@@ -969,7 +1034,7 @@ func _frame_camera(snap: bool, delta: float = 0.0) -> void:
 	var fall := dive_amount * dive_amount
 	var spin := dive_amount * 0.55
 	var r := Vector2(orbit.x - _focus.x, orbit.z - _focus.z).length() * lerpf(1.0, 0.6, dive_amount)
-	var a := _yaw + spin
+	var a := (ALBUM_YAW if _album else _yaw) + spin
 	camera.position = Vector3(_focus.x + sin(a) * r, lerpf(orbit.y, -1.6, fall), _focus.z + cos(a) * r)
 	camera.fov *= lerpf(1.0, 0.8, dive_amount)
 	var look := Vector3(_focus.x, lerpf(_focus.y, -4.0, fall), _focus.z)

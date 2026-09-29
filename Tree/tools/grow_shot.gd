@@ -167,6 +167,18 @@ func _print_stats(label: String) -> void:
 	var bare := _render_info()
 	for n in forest:
 		(n as Node3D).visible = true
+	if OS.get_cmdline_user_args().has("--objects"):
+		# Where the objects come from: visible geometry per parent node.
+		var by := {}
+		var stack: Array[Node] = [view]
+		while not stack.is_empty():
+			var n: Node = stack.pop_back()
+			stack.append_array(n.get_children())
+			var gi := n as GeometryInstance3D
+			if gi != null and gi.is_visible_in_tree():
+				var key := "%s/%s" % [gi.get_parent().name, gi.get_class()]
+				by[key] = int(by.get(key, 0)) + 1
+		print(by)
 	print("%s  %s: draw calls %d (shadow %d), primitives %d (shadow %d), objects %d | without forest: draw calls %d, primitives %d | forest: %d draw calls, %d primitives" % [
 		RenderingServer.get_current_rendering_method(), label, all[0], all[2], all[1], all[3], all[4], bare[0], bare[1], all[0] - bare[0], all[1] - bare[1]])
 

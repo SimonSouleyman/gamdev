@@ -57,6 +57,11 @@ const SHADE_DIEBACK_SHARE: float = 0.05
 ## Water each leaf cluster drinks per day.
 const WATER_UPKEEP_PER_LEAF: float = 0.01
 var marker_radius: float = 0.8
+## The game's own trees follow a real growth curve (0.6.2): a thin whip for the first days, one
+## clear leader, the height after the species' curve over its month (target_height), the pace
+## rising as the tree grows (growth_ramp) and the crown lifting (shed_lower_branches). Off for
+## the bare simulation (the forest's trees, the colonizer's tests).
+var natural_form: bool = false
 
 
 func _init(random_seed: int = 1) -> void:
@@ -106,7 +111,7 @@ func tick(delta: float) -> void:
 
 	# Life force from leaves: every tip counts as a leaf cluster. Inner leaves shade each other,
 	# so a big crown yields less per leaf (a stand-in until the shadow grid exists).
-	resources.life_force += effective_leaves() * life_force_per_tip * clock.life_force_light() * delta 			* species.life_force_factor(clock.day_count, clock.boost_active)
+	resources.life_force += effective_leaves() * life_force_per_tip * clock.life_force_light() * delta 			* species.life_force_factor(clock.day_count, clock.boost_active) * young_leaf_bonus()
 
 	# Seed markers on the sun's side, above the current crown, capped by the species size.
 	var sun := clock.sun_direction()
@@ -133,9 +138,15 @@ func tick(delta: float) -> void:
 	colonizer.jitter = BASE_JITTER + species.crookedness
 	# Longer shoots on a bigger tree, so the node budget reaches the species size.
 	colonizer.step_length = 0.15 + top * 0.014
+	if natural_form:
+		# A sapling's internodes are short: a slender whip with short side shoots.
+		colonizer.step_length = 0.09 + top * 0.017
 	colonizer.kill_distance = colonizer.step_length * 1.6
 	# Buds sense space further away in a bigger crown, so side branches can reach its edge.
 	colonizer.influence_radius = clampf(crown_radius(top) * 0.5, 1.2, 4.0)
+	if natural_form:
+		# The grown crown reaches out to its edge: buds sense the space further away.
+		colonizer.influence_radius = clampf(crown_radius(top) * 0.6, 1.2, 5.0)
 	var affordable := _affordable_nodes()
 	var first_new := graph.size()
 	var grown := colonizer.step(graph, mini(budget, affordable))
@@ -155,6 +166,18 @@ func _seed_markers(sun: Vector3, top: float, amount: float, steer: float) -> voi
 	var leader_share := species.apical_dominance * clampf(0.2 + 1.3 * sun.y, 0.0, 1.3)
 	# The leader slows as the tree nears its species height: a linden broadens into a dome.
 	leader_share *= pow(clampf(1.0 - top / species.max_height, 0.0, 1.0), 2.0)
+	var cap := species.max_height
+	var crown_floor := maxf(MARKER_MIN_Y, top * 0.35)
+	if natural_form:
+		crown_floor = maxf(MARKER_MIN_Y, top * 0.42)
+		# A young tree races for the light on one leader; it broadens as it nears its height.
+		var youth := 1.0 - smoothstep(0.0, 0.45, top / species.max_height)
+		leader_share = lerpf(leader_share, 0.6, youth)
+		# Never taller than today's point on the growth curve: the rest fills the crown.
+		cap = minf(cap, target_height() + 0.2)
+		if top >= target_height():
+			leader_share = 0.0
+		crown_floor = maxf(crown_floor, crown_base())
 	# Separate accumulators, so small ticks (60 fps) seed the leader as well as big ones.
 	_leader_accum += amount * leader_share
 	_marker_accum += amount * (1.0 - leader_share)
@@ -162,13 +185,13 @@ func _seed_markers(sun: Vector3, top: float, amount: float, steer: float) -> voi
 	_leader_accum -= leader
 	var crown := int(_marker_accum)
 	_marker_accum -= crown
-	var limit := mini(live_markers, Budgets.TREE_MARKERS)
+	var limit := mini(live_markers * (2 if natural_form else 1), Budgets.TREE_MARKERS)
 	var flat := Vector3(sun.x, 0.0, sun.z) * steer
 	# Nothing is seeded above the species' full height: the tree stops growing taller there.
-	var cap := species.max_height
-	colonizer.seed_sphere(Vector3(0, top + 0.45, 0) + flat * 0.4, 0.45, leader, limit, MARKER_MIN_Y, cap)
+	if leader > 0:
+		colonizer.seed_sphere(Vector3(0, top + 0.45, 0) + flat * 0.4, 0.45, leader, limit, MARKER_MIN_Y, maxf(cap, top + 0.05))
 	# The crown starts above a clear trunk, so the base does not keep branching into a bush.
-	colonizer.seed_sphere(marker_center(sun, top, steer), r, crown, limit, maxf(MARKER_MIN_Y, top * 0.35), cap)
+	colonizer.seed_sphere(marker_center(sun, top, steer), r, crown, limit, crown_floor, maxf(cap, top))
 
 
 ## Centre of the crown sphere for new markers.
@@ -182,7 +205,46 @@ func marker_center(sun: Vector3, top: float, steer: float = 1.0) -> Vector3:
 
 ## Growth speed cap today: the species' pace (slow start, fast start) on the common maximum.
 func max_pace() -> float:
-	return max_growth_per_second * species.pace_on(clock.day_count)
+	return max_growth_per_second * pace_factor()
+
+
+## The species' pace today, and with natural_form the growth ramp.
+func pace_factor() -> float:
+	return species.pace_on(clock.day_count) * (growth_ramp() if natural_form else 1.0)
+
+
+## Days since the first sunrise, with the part of today that has passed.
+func age_days() -> float:
+	return maxf(0.0, clock.day_count - 1 + minf(clock.time_of_day / clock.daylight_fraction, 1.0))
+
+
+## The growth curve's height today (natural_form): about a metre a day through the first half
+## of the species' month, easing off towards its full height at the end.
+func target_height() -> float:
+	var p := (age_days() + 0.25) / float(species.target_days)
+	var f := minf(p - 0.1 * pow(maxf(0.0, (p - 0.5) / 0.5), 2.0), 0.96)
+	return maxf(0.5, species.max_height * f)
+
+
+## Share of the full pace today (natural_form): a seedling adds a few shoots a day, a grown
+## crown many, so the month's segments go mostly into the big tree.
+func growth_ramp() -> float:
+	var p := age_days() / float(species.target_days)
+	return lerpf(RAMP_START, RAMP_END, clampf(p / 0.75, 0.0, 1.0))
+
+
+## A young tree (natural_form) has few leaves but each works harder, so its nights still
+## have a real root run: life force per leaf rises as the growth ramp falls (up to x2.2).
+func young_leaf_bonus() -> float:
+	if not natural_form:
+		return 1.0
+	return clampf(1.0 / growth_ramp(), 1.0, 2.2)
+
+
+const RAMP_START := 0.36
+## At most this share of the living crown is shed each sunrise as the crown lifts.
+const SHED_SHARE_PER_DAY := 0.06
+const RAMP_END := 1.15
 
 
 ## Birch: new shoots out in the crown hang their tips (the leader stays upright).
@@ -198,15 +260,77 @@ func _droop_twigs(first_new: int, top: float) -> void:
 			graph.positions[id] = p
 
 
+## Height of the bare trunk below the crown: none on a young tree, then the crown lifts.
+func crown_base() -> float:
+	var h := height()
+	return h * species.crown_base * smoothstep(3.0, 10.0, h)
+
+
 func crown_radius(top: float) -> float:
-	return clampf(0.3 + top * 0.6, 0.4, species.max_crown_radius)
+	if not natural_form:
+		return clampf(0.3 + top * 0.6, 0.4, species.max_crown_radius)
+	# A slender young tree, a broad grown one; a full crown keeps widening a little past the
+	# species' radius, so a tree at its full height still has room to finish.
+	var widen := 1.0 + 0.35 * clampf(float(graph.size()) / species.finish_nodes, 0.0, 1.0)
+	return clampf(0.25 + top * lerpf(0.35, 0.72, smoothstep(2.0, 10.0, top)), 0.3, species.max_crown_radius * widen)
+
+
+## The crown lifts (natural_form, each sunrise): side branches on the trunk below the crown
+## base are shed. The trunk is followed up its thickest living child; a fork almost as thick as
+## the trunk is kept (a real second stem is not dropped overnight). Returns segments shed.
+func shed_lower_branches() -> int:
+	var base := crown_base()
+	if not natural_form or base < 0.5:
+		return 0
+	# Side branches on the trunk below the crown base, lowest first.
+	var low: Array[int] = []
+	var cur := 0
+	while graph.positions[cur].y < base:
+		var main := -1
+		var main_r := -1.0
+		for c in graph.children[cur]:
+			if not graph.get_flag(c, "dead", false) and graph.radii[c] > main_r:
+				main_r = graph.radii[c]
+				main = c
+		if main < 0:
+			break
+		for c in graph.children[cur]:
+			if c != main and not graph.get_flag(c, "dead", false) and graph.radii[c] < main_r * 0.7:
+				low.append(c)
+		cur = main
+	# A few a night, never a big part of the crown at once: the lift is slow, as in a real tree.
+	var allowance := int(living_nodes() * SHED_SHARE_PER_DAY) + 1
+	var shed := 0
+	for c in low:
+		var size := _subtree_size(c)
+		if shed + size > allowance:
+			break
+		shed += _kill_subtree(c, true)
+	if shed > 0:
+		graph.update_radii()
+	return shed
+
+
+## Living segments in the subtree of `node_id`.
+func _subtree_size(node_id: int) -> int:
+	var n := 0
+	var stack: Array[int] = [node_id]
+	while not stack.is_empty():
+		var id: int = stack.pop_back()
+		if graph.get_flag(id, "dead", false):
+			continue
+		n += 1
+		for child in graph.children[id]:
+			stack.append(child)
+	return n
 
 
 ## Starts the dawn burst: part of what last night's nutrients buy is grown in the first
 ## seconds of the day. It only changes when the growth happens, not how much: nutrients cap it.
 func start_dawn_burst() -> void:
+	shed_lower_branches()
 	var factor := Resources.growth_factor(resources.stock, species.needs)
-	var burst_max := int(dawn_burst_max_nodes * species.pace_on(clock.day_count))
+	var burst_max := int(dawn_burst_max_nodes * pace_factor())
 	_burst_nodes_left = mini(burst_max, int(_affordable_nodes() * dawn_burst_share * factor))
 	_burst_rate = _burst_nodes_left / dawn_burst_seconds
 	_burst_accum = 0.0
@@ -341,7 +465,7 @@ func fork_at(parent: int, dir: Vector3) -> int:
 	return n
 
 
-func _kill_subtree(node_id: int) -> int:
+func _kill_subtree(node_id: int, shed: bool = false) -> int:
 	var count := 0
 	var stack: Array[int] = [node_id]
 	while not stack.is_empty():
@@ -349,6 +473,8 @@ func _kill_subtree(node_id: int) -> int:
 		if graph.get_flag(id, "dead", false):
 			continue
 		graph.set_flag(id, "dead", true)
+		if shed:
+			graph.set_flag(id, "shed", true)
 		count += 1
 		for child in graph.children[id]:
 			stack.append(child)
@@ -406,8 +532,18 @@ func drink_upkeep() -> float:
 
 
 ## Grown to the species' full size (or the node budget): the tree is finished.
+## With natural_form the lower branches the crown shed on its way up count too: the tree grew them.
 func is_finished() -> bool:
-	return living_nodes() >= species.finish_nodes or graph.is_full()
+	return grown_nodes() >= species.finish_nodes or graph.is_full()
+
+
+## Living segments, plus (natural_form) those shed as the crown lifted.
+func grown_nodes() -> int:
+	var n := 0
+	for id in range(graph.size()):
+		if not graph.get_flag(id, "dead", false) or graph.get_flag(id, "shed", false):
+			n += 1
+	return n
 
 
 ## Offline catch-up: `real_seconds` closed become a much slower growth.
@@ -444,6 +580,7 @@ func to_dict() -> Dictionary:
 		# The fractional carry-overs, so a loaded game grows exactly like an uninterrupted one.
 		"accum": [_growth_accum, _marker_accum, _leader_accum],
 		"species": species.id,
+		"natural_form": natural_form,
 		"graph": graph.to_dict(),
 		"markers": colonizer.markers,
 		"resources": resources.to_dict(),
@@ -464,6 +601,7 @@ static func from_dict(d: Dictionary) -> GrowthSim:
 	s._marker_accum = float(acc[1])
 	s._leader_accum = float(acc[2])
 	s.species = Species.from_id(str(d.get("species", "linden")))
+	s.natural_form = bool(d.get("natural_form", false))
 	s.graph = PlantGraph.from_dict(d["graph"])
 	s.colonizer = SpaceColonization.new(s.rng)
 	s.colonizer.markers = PackedVector3Array(d.get("markers", []))
