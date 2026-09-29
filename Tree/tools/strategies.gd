@@ -58,6 +58,8 @@ static func play(strat: String, species_id: String, seed: int, days: int, nights
 			g.sim.clock.set(str(k).substr(6), overrides[k])
 		elif str(k) == "start_any":
 			pass
+		elif str(k) == "wish_share":
+			Diary.underground_share = overrides[k]
 		elif str(k) == "capacity":
 			for i in range(g.ground.dot_count()):
 				g.ground.dot_capacity[i] *= overrides[k]

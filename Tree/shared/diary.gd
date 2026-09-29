@@ -17,7 +17,8 @@ var last_patch: int = -1
 var wish_reached: bool = false
 
 ## Share of the days whose wish points at a wish deposit underground (the rest are day wishes).
-const UNDERGROUND_SHARE: float = 0.75
+## A static var so tools can compare with and without (strategies.gd --set=wish_share=0).
+static var underground_share: float = 0.75
 ## A wish deposit counts as reachable when the straight line to it from some root node is free
 ## of rock and costs at most this share of a full calm tank (RootSystem.calm_life_force).
 const REACH_SHARE: float = 0.6
@@ -72,7 +73,7 @@ static func make_wish(ground: Underground, day: int, seed: int, roots: RootSyste
 static func plan_wish(ground: Underground, day: int, seed: int, roots: RootSystem = null, res: Resources = null) -> Dictionary:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = hash([seed, "wish", day])
-	var underground := rng.randf() < UNDERGROUND_SHARE
+	var underground := rng.randf() < underground_share
 	var pick := rng.randi()
 	var coin := rng.randi() % 2
 	if underground:

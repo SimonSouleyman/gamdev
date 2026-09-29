@@ -357,6 +357,8 @@ func _dive() -> void:
 
 
 func _enter_night_view() -> void:
+	# The day's wish glows underground, also on a quiet night (0.7).
+	root_view.set_wish_glows(state.wish_glows())
 	if state.roots.run_active:
 		root_view.resume_run()
 	elif state.night_empty or state.run_used:

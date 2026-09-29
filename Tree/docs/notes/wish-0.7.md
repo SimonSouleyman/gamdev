@@ -14,11 +14,16 @@ into a plan for the night.
 **Input.** None new: the morning scrap names the wish; at night the player steers as always.
 
 **Output.**
-- The seeded underground generator places a few *wish deposits*: rich topsoil patches of water
-  or nitrogen, about 1.5x the size of a normal rich patch, each with its meadow hint (rushes or
-  clover). They are real deposits: any root can drink from them on any night.
-- Each sunrise the wish (seeded from the save seed and the day) points at one of them, or is
-  one of the old day wishes (sun, looking, saving life force).
+- Each sunrise the wish (seeded from the save seed and the day) is either one of the old day
+  wishes (sun, looking, saving life force) or points underground. Then the seeded underground
+  generator places a *wish deposit*: a rich topsoil patch about 1.5x a normal one, of water or
+  nitrogen (whichever the tree is shorter of), a few metres beyond the newest root tip, with its
+  meadow hint (rushes or clover). It is a real deposit: any root can drink from it on any night,
+  and it stays after its wish has faded.
+- Design check (coordinator, 2026-09-30): steering on from the newest tip gave almost nothing
+  over ending every root at once, because the benefit came from where the root starts. So the
+  deposit is placed where *continuing the last root* leads: beyond the newest tip, outward from
+  the trunk where it can, and past the reach of the fine roots a stub would sprout.
 - Underground that patch glows warmer: a soft amber haze over it that breathes slowly, and its
   own dots tinted a little warmer. Close up it is plain; at the edge of the fog (where the
   ordinary dots have faded out) it stays as a faint warm smudge, so it reads as "over there".
@@ -34,22 +39,24 @@ with a calm tank; aiming for it reaches it far more often than random steering (
 **Soft failure.** Not reaching it costs nothing.
 
 **Edge cases.**
-- Behind rock or out of reach: the wish only picks a wish deposit whose straight line from some
-  root node (or the trunk) is free of rock and costs at most REACH_SHARE of a full calm tank.
-- Already drained or reached: a patch with fewer than half its dots left, or mostly tapped by the
-  roots, is not picked.
+- Behind rock or out of reach: the deposit is only placed where it clears every rock and the
+  straight line from the newest tip is free of rock and costs at most REACH_SHARE of a full calm
+  tank; up to 24 tries, turning further aside each time; if none fits, a day wish instead.
+- The newest tip at the edge of the world: the tries turn sideways and back inward.
+- The dot budget (4000) full: a day wish instead (a month adds about 25 deposits of about 40 dots).
 - A night without life force: the glow shows on the quiet visit, as a promise.
 - Colour-blind players: warmth plus size plus a slow pulse, not only hue.
-- Old saves: the new deposits are appended after the old dots, so the saved deposit state still
-  lines up; the old wish text stays until the next sunrise, without a glow.
+- Save and load: placed deposits are saved (day, kind, centre, radius, count) and placed again in
+  the same order on load, so their dot ids and states line up. An old save has none; its wish text
+  stays until the next sunrise, without a glow.
 
 ## Numbers
 
 | Lever | Value | Range | Reason |
 |---|---|---|---|
-| Wish deposits (`Underground.WISH_DEPOSITS`) | 8 (4 water, 4 nitrogen, alternating around the compass) | 6 to 10 | One per direction, so the wishes name different directions; enough that drained ones can rest (regrowth) while others are picked. |
-| Distance from the trunk | 3.5 to 8 m | 3 to 10 | Beyond the starter patch, well inside a calm night (a calm tank buys 20+ m near the surface). |
-| Depth | 0.6 to 1.8 m | under `HINT_MAX_DEPTH` 2.2 | Topsoil, so the meadow shows a hint above it. |
+| Placed beyond the newest tip (`Diary.AHEAD_MIN`, `AHEAD_MAX`) | 5.5 to 8.5 m | 4 to 10 | Past the fine roots of a 1 m stub (their reach is 1.6 m plus up to 6 m from leftover life force, most of it thinly), so continuing the root is what finds it; well inside a calm night (a calm tank buys about 20 m near the surface). |
+| Kind | water or nitrogen, whichever stock is lower for the species' needs | | The wish points at what the tree lacks; the meadow shows rushes or clover for exactly these two. |
+| Depth | 0.6 to 1.8 m (the tip's depth, nudged) | under `HINT_MAX_DEPTH` 2.2 | Topsoil, so the meadow shows a hint above it. |
 | Size bonus (`WISH_SIZE`) | 1.5x the dots of a normal rich patch of the kind (nitrogen 40 to 48, water 35 to 43), radius 1.15x | 1.3 to 2 | Spec: "about 1.5x". Same amount per dot, so each dot glows like the others; the patch is fuller and a little wider. |
 | Reach budget (`Diary.REACH_SHARE`) | straight-line cost at most 0.6 of a calm tank (`RootSystem.calm_life_force`, 50 today) | 0.4 to 0.8 | A steered root curves and sinks; the slack keeps "reachable" honest. |
 | Wishes that point underground (`Diary.UNDERGROUND_SHARE`) | 0.75 | 0.5 to 0.9 | Most days, but some days keep the old calm wishes about the sun and the tree. |

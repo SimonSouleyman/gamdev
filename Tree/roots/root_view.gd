@@ -11,6 +11,8 @@ signal find_touched(find: Dictionary)
 signal dots_collected(count: int)
 ## A quick swipe up once the night's root is done: back up to the tree (play test 4).
 signal swipe_up
+## The tip reached tonight's wish deposit (0.7): its patch id.
+signal wish_reached(patch: int)
 
 enum Mode { IDLE, PICK, RUN, DONE }
 
@@ -66,6 +68,17 @@ var quiet_night: bool = false
 ## A new run waits for the player's first move, so nobody loses the root while reading.
 var _waiting_for_input: bool = false
 var compass: Compass
+
+## The day's wish underground (0.7): each glow {"patch", "center", "radius", "strength"}
+## (GameState.wish_glows), its haze node, and the wish deposit's dots, tinted warmer.
+const WISH_WARM := Color(1.0, 0.62, 0.28)
+const WISH_DOT_WARMTH: float = 0.35
+## The haze spans this many patch radii.
+const WISH_HAZE_SIZE: float = 3.2
+var _wish_glows: Array = []
+var _glow_nodes: Array = []
+var _warm_dots: Dictionary = {}
+var _glow_root: Node3D
 
 
 func _ready() -> void:
@@ -175,6 +188,9 @@ func _build_world() -> void:
 	_hover.visible = false
 	add_child(_hover)
 
+	_glow_root = Node3D.new()
+	add_child(_glow_root)
+
 
 func _glow_sphere(r: float, color: Color, energy: float) -> MeshInstance3D:
 	var m := MeshInstance3D.new()
@@ -210,7 +226,70 @@ func _set_dot(i: int) -> void:
 	# Deposits the roots already reach are dimmed, so the player looks for fresh ones.
 	var reached := roots != null and roots.tapped.has(i)
 	mm.set_instance_transform(i, Transform3D(Basis.from_scale(Vector3.ONE * s * (0.7 if reached else 1.0)), ground.dot_positions[i]))
-	mm.set_instance_color(i, Resources.KIND_COLORS[ground.dot_kinds[i]] * (0.4 if reached else 1.0))
+	var color: Color = Resources.KIND_COLORS[ground.dot_kinds[i]]
+	# The wish deposit's dots glow a little warmer (0.7).
+	if _warm_dots.has(i) and not reached:
+		color = color.lerp(WISH_WARM, WISH_DOT_WARMTH * minf(1.0, float(_warm_dots[i])))
+	mm.set_instance_color(i, color * (0.4 if reached else 1.0))
+
+
+## Tonight's wish glows (GameState.wish_glows): a warm haze over each deposit and its dots a little
+## warmer. Also picks up deposits placed since the last night.
+func set_wish_glows(glows: Array) -> void:
+	if _dots.multimesh.instance_count != ground.dot_count():
+		_fill_dots()
+	for n in _glow_nodes:
+		(n as Node).queue_free()
+	_glow_nodes.clear()
+	var old := _warm_dots.keys()
+	_warm_dots.clear()
+	for i in old:
+		if i < ground.dot_count():
+			_set_dot(i)
+	_wish_glows = []
+	for g in glows:
+		var glow: Dictionary = (g as Dictionary).duplicate()
+		glow["reached"] = false
+		_wish_glows.append(glow)
+		var m := MeshInstance3D.new()
+		var quad := QuadMesh.new()
+		quad.size = Vector2.ONE
+		m.mesh = quad
+		var mat := ShaderMaterial.new()
+		mat.shader = preload("res://roots/wish_glow.gdshader")
+		mat.set_shader_parameter("warm", WISH_WARM)
+		mat.set_shader_parameter("strength", float(glow["strength"]))
+		m.material_override = mat
+		m.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		m.extra_cull_margin = 8.0
+		m.position = glow["center"]
+		m.scale = Vector3.ONE * float(glow["radius"]) * WISH_HAZE_SIZE
+		_glow_root.add_child(m)
+		_glow_nodes.append(m)
+		for i in ground.patch_dots(int(glow["patch"])):
+			_warm_dots[i] = maxf(float(_warm_dots.get(i, 0.0)), float(glow["strength"]))
+			_set_dot(i)
+
+
+## The tip entered a glowing deposit: the haze swells once and settles (a quiet "found it").
+func _check_wish_reached() -> void:
+	for k in range(_wish_glows.size()):
+		var glow: Dictionary = _wish_glows[k]
+		if glow["reached"] or roots.tip_position.distance_to(glow["center"]) > float(glow["radius"]) + Diary.REACH_MARGIN:
+			continue
+		glow["reached"] = true
+		var m: MeshInstance3D = _glow_nodes[k]
+		var mat := m.material_override as ShaderMaterial
+		var s0 := float(glow["strength"])
+		var tw := create_tween()
+		tw.set_parallel(true)
+		tw.tween_method(func(v: float) -> void: mat.set_shader_parameter("strength", v), s0, s0 * 2.4, 0.6).set_trans(Tween.TRANS_SINE)
+		tw.tween_property(m, "scale", m.scale * 1.35, 0.6).set_trans(Tween.TRANS_SINE)
+		tw.chain().tween_method(func(v: float) -> void: mat.set_shader_parameter("strength", v), s0 * 2.4, 0.0, 2.6).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
+		for i in ground.patch_dots(int(glow["patch"])):
+			_warm_dots.erase(i)
+			_set_dot(i)
+		wish_reached.emit(int(glow["patch"]))
 
 
 func _build_rocks() -> void:
@@ -515,6 +594,7 @@ func _process_run(delta: float) -> void:
 		_flash(ground.dot_positions[i], Resources.KIND_COLORS[ground.dot_kinds[i]])
 	for f in roots.last_finds:
 		_on_find(f)
+	_check_wish_reached()
 	_tip.position = roots.tip_position
 	_rebuild_timer += delta
 	if _rebuild_timer >= REBUILD_INTERVAL:
