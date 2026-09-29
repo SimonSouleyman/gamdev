@@ -982,9 +982,9 @@ func _update_mood(_h: float) -> void:
 		# From inside the shed at night the eye is used to the lantern: the moonlit fill that lets
 		# the tree read outside would light the room like day (0.6.3 review), so it falls away and
 		# the lantern's warm pool lights the bench; the night outside the door reads darker.
-		_env.ambient_light_energy *= lerpf(1.0, 0.18, n)
-		_sun_light.light_energy *= lerpf(1.0, 0.3, n)
-		_env.tonemap_exposure *= lerpf(1.0, 0.75, n)
+		_env.ambient_light_energy *= lerpf(1.0, 0.3, n)
+		_sun_light.light_energy *= lerpf(1.0, 0.55, n)
+		_env.tonemap_exposure *= lerpf(1.0, 0.85, n)
 	_scenery.set_mood(n, r)
 	_understory.set_night(n)
 	var cam := get_viewport().get_camera_3d()
