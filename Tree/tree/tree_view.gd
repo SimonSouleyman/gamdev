@@ -25,6 +25,8 @@ var _seed: MeshInstance3D
 var _sun_light: DirectionalLight3D
 var _sun_disc: MeshInstance3D
 var _sky_mat: PhysicalSkyMaterial
+## The phone's painted sky (Compatibility renderer only); null on a PC.
+var _paint_sky: ProceduralSkyMaterial
 var _grass: MultiMeshInstance3D
 var _herbs: MultiMeshInstance3D
 ## Fine grass, sedge, clover and meadow flowers (GrassLook.apply_meadow2).
@@ -109,6 +111,12 @@ var _day_label: Label
 var _life_label: Label
 var _res_labels: Array[Label] = []
 var _hint: PaperNote
+## Today's wish, shown on the hint scrap in the morning (main._morning).
+var _wish: String = ""
+
+
+func show_wish(text: String) -> void:
+	_wish = text
 var _boost_label: Label
 var sun_arc: SunArc
 ## True while a journal page is open (set by main): hints then stay quiet, the page says it.
@@ -242,6 +250,15 @@ func _build_world() -> void:
 	_sky_mat.energy_multiplier = 1.0
 	var sky := Sky.new()
 	sky.sky_material = _sky_mat
+	if _compat:
+		# The phone renderer turns the physical sky grey at dawn, dusk and in rain (0.6 review): a
+		# painted gradient sky instead, keyed to the hour and the weather (_paint_phone_sky).
+		_paint_sky = ProceduralSkyMaterial.new()
+		_paint_sky.ground_bottom_color = Color(0.1, 0.14, 0.08)
+		_paint_sky.ground_horizon_color = Color(0.3, 0.36, 0.3)
+		_paint_sky.sun_angle_max = 8.0
+		_paint_sky.sky_curve = 0.12
+		sky.sky_material = _paint_sky
 	sky.radiance_size = Sky.RADIANCE_SIZE_64
 	if Budgets.PHONE:
 		# The sun moves every frame; the real-time path is the cheap one on a phone.
@@ -628,6 +645,9 @@ func _update_hud() -> void:
 			elif state.sim.nutrient_missing() and not state.is_seed():
 				# Which nutrient is short, and which dots to steer for tonight (play test review).
 				_hint.text = "Short of %s: steer tonight's root toward the %s dots." % _missing_nutrients()
+			elif _wish != "" and state.sim.clock.time_of_day < state.sim.clock.daylight_fraction * 0.35:
+				# The morning's wish, until mid-morning.
+				_hint.text = _wish
 			elif state.day_number() <= 3 and not state.is_seed():
 				# The first days: a quiet reminder of what can be done while the tree grows.
 				_hint.text = "Tap to let the sun shine brighter for an hour."
@@ -790,6 +810,27 @@ func _update_sun() -> void:
 		_env.ambient_light_energy *= 0.8
 		_env.tonemap_exposure *= 0.85
 	_update_mood(h)
+	if _paint_sky:
+		_paint_phone_sky(h)
+
+
+## The phone's painted sky: a clear blue by day, warm near the horizon at a low sun, a deep blue
+## night (the stars and moon are drawn on top), grey in a shower.
+func _paint_phone_sky(h: float) -> void:
+	var golden := 1.0 - smoothstep(0.0, 0.45, h) if h > -0.05 else 0.0
+	var top := Color(0.3, 0.5, 0.8).lerp(Color(0.34, 0.42, 0.66), golden)
+	var horizon := Color(0.7, 0.8, 0.9).lerp(Color(0.98, 0.7, 0.45), golden)
+	var n := night_amount
+	top = top.lerp(Color(0.05, 0.08, 0.18), n)
+	horizon = horizon.lerp(Color(0.14, 0.18, 0.3), n)
+	var r := rain_now
+	top = top.lerp(Color(0.44, 0.48, 0.53), r * 0.7)
+	horizon = horizon.lerp(Color(0.58, 0.62, 0.64), r * 0.7)
+	_paint_sky.sky_top_color = top
+	_paint_sky.sky_horizon_color = horizon
+	_paint_sky.ground_horizon_color = horizon.darkened(0.45)
+	_paint_sky.sky_energy_multiplier = 1.0
+	_paint_sky.sun_curve = 0.1
 
 
 # --- night, weather and season (design doc section 17) ------------------------------
@@ -1019,9 +1060,13 @@ func _drag(pos: Vector2, rel: Vector2) -> void:
 		# The finger slides along the tree; the mark follows. Off the tree, nothing is cut.
 		pruning.preview(pruning.pick(pos))
 		return
-	if _drag_mode != "orbit" and pos.distance_to(_press_pos) > DRAG_THRESHOLD:
+	if _drag_mode != "orbit" and _drag_mode != "swipe" and pos.distance_to(_press_pos) > DRAG_THRESHOLD:
 		_drag_mode = "orbit"
 		state.sim.clock.boost_active = false
+		# At sunset a mostly downward drag is the dive swipe, not a turn of the camera (the pitch
+		# it left behind made the next mornings look straight down on the tree; 0.6 review).
+		if state.phase == GameState.Phase.SUNSET and (pos - _press_pos).y > absf((pos - _press_pos).x):
+			_drag_mode = "swipe"
 	if _drag_mode == "orbit":
 		_yaw -= rel.x * 0.006
 		_pitch = clampf(_pitch + rel.y * 0.004, 0.02, 1.25)

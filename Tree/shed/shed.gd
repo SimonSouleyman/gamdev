@@ -46,6 +46,11 @@ var _floor: Material
 var _time: float = 0.0
 var _lamp: OmniLight3D
 var _lamp_base: float = 1.0
+## 0 at night .. 1 by day: the window light follows the clock and the lantern takes over at night
+## (0.6 review: the shed was as bright at night as by day). Set by main while in the shed.
+var daylight: float = 1.0
+var _window_sun: SpotLight3D
+var _shaft: MeshInstance3D
 var _sounds: Dictionary = {}  # name -> AudioStream
 var _player: AudioStreamPlayer
 var _busy: Dictionary = {}  # name -> Tween
@@ -273,6 +278,7 @@ func _build_window() -> void:
 	sun.spot_attenuation = 0.8
 	sun.shadow_enabled = not Budgets.PHONE
 	add_child(sun)
+	_window_sun = sun
 	sun.position = Vector3(cx + 0.25, cy + 0.9, hd + 1.1)
 	sun.look_at(to_global(Vector3(cx - 0.3, BENCH_TOP, BENCH_Z + 0.2)), Vector3.UP)
 	var shaft := MeshInstance3D.new()
@@ -284,6 +290,7 @@ func _build_window() -> void:
 	shaft.material_override = sm
 	shaft.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(shaft)
+	_shaft = shaft
 	shaft.position = Vector3(cx - 0.05, cy - 0.28, hd - 0.42)
 	shaft.rotation = Vector3(-0.55, PI, 0.0)
 
@@ -600,7 +607,15 @@ func frame_tree(tree_height: float, env: Environment) -> void:
 func _process(delta: float) -> void:
 	_time += delta
 	# The lantern flickers a little.
-	_lamp.light_energy = _lamp_base * (1.0 + 0.1 * sin(_time * 7.3) + 0.05 * sin(_time * 13.1))
+	# By night the lantern is the room's light; by day it is only a warm touch.
+	var lamp := lerpf(2.2, 1.0, daylight) * _lamp_base
+	_lamp.light_energy = lamp * (1.0 + 0.1 * sin(_time * 7.3) + 0.05 * sin(_time * 13.1))
+	if _window_sun:
+		_window_sun.light_energy = 0.45 * daylight
+		_window_sun.light_color = Color(0.7, 0.78, 1.0).lerp(Color(1.0, 0.9, 0.72), daylight)
+	if _shaft:
+		_shaft.visible = daylight > 0.05
+		_shaft.transparency = 1.0 - daylight
 
 
 # --- taps -----------------------------------------------------------------------------

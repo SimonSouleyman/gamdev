@@ -200,6 +200,9 @@ var _sim_accum: float = 0.0
 func _process(delta: float) -> void:
 	if state == null:
 		return
+	if in_shed:
+		var h := state.sim.clock.sun_height()
+		shed.daylight = clampf(h * 4.0, 0.0, 1.0) if state.phase == GameState.Phase.DAY else 0.0
 	# A journal page pauses the game; transitions only block input (the dawn burst runs while the camera rises).
 	var paused := journal.is_open() or in_shed or shed_menu.is_tree_page_open()
 	# In bonsai mode the day runs on (the bonsai lives through the same days as the tree), but
@@ -395,10 +398,13 @@ func _morning() -> void:
 	# Visitors come as the tree grows (diary lines; the nest and the bench stay in view).
 	if not Visitors.arrive(state).is_empty():
 		tree_view.update_visitors()
+	tree_view.show_wish("")
 	if state.day_number() == 1:
 		_page_once("sapling")
 	elif state.diary.wish != "":
-		journal.show_page("morning", "Day %d" % state.day_number(), state.diary.wish + "\n\n(Only a wish. Nothing happens if the day goes another way.)")
+		# The day's wish is a small scrap for the morning hours, not a page that stops play
+		# (0.6 review); it stays in the diary too.
+		tree_view.show_wish(state.diary.wish)
 
 
 # --- settings, saving, dev keys -----------------------------------------------

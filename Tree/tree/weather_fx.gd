@@ -146,7 +146,7 @@ func _build_leaves() -> void:
 	pm.color_initial_ramp = ramp
 	_leaves.process_material = pm
 	var quad := QuadMesh.new()
-	quad.size = Vector2(0.22, 0.22)
+	quad.size = Vector2(0.13, 0.13)
 	var mat := StandardMaterial3D.new()
 	mat.billboard_mode = BaseMaterial3D.BILLBOARD_PARTICLES
 	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA_SCISSOR
@@ -176,6 +176,9 @@ func _leaf_texture() -> Texture2D:
 			var shade := 0.85 + 0.15 * (1.0 - absf(p.x) / maxf(half, 0.01))
 			if absf(p.x) < 0.04:
 				shade = 1.1
-			img.set_pixel(x, y, Color(shade, shade, shade, 1.0 if inside or stalk else 0.0))
+			# Coloured in the texture itself: some renderers drop the particle colour, and white
+			# ovals drifted down (0.6 review). The particle colour still varies it.
+			var c := Color(0.92, 0.62, 0.22).lerp(Color(0.7, 0.3, 0.12), clampf(p.x * 0.5 + 0.5, 0.0, 1.0)) * shade
+			img.set_pixel(x, y, Color(c.r, c.g, c.b, 1.0 if inside or stalk else 0.0))
 	img.generate_mipmaps()
 	return ImageTexture.create_from_image(img)
