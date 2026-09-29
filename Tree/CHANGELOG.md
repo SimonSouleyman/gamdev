@@ -17,6 +17,15 @@ The plan comes from the fresh review (all shots in GameDev/tree-qa/r1/shots):
   tools on the sill.
 - Open: the daytime tree-view frame rate on the phone is still unmeasured.
 
+## v0.6.2 (in progress): the tree rebuilt
+- The crown as leaf masses at the twig ends: dark inside, light at the sunny rim, sky between
+  the masses, olive leaves with a clean edge (no speckle).
+- A real growth curve: a thin whip with one leader for the first days, then height after the
+  species' curve, the crown lifting as lower branches are shed; each species still finishes
+  near its month, and constant boosting no longer stalls a tree for good.
+- The camera frames the tree's real height (a sapling small in its clearing); the album's
+  morning photos share one camera framed for the grown tree, so the flip-book shows growth.
+
 ## v0.6 (2026-09-28)
 
 The whole plan of design doc section 17 in one version, then an extensive PC test (a 12-day

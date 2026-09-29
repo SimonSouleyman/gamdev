@@ -14,7 +14,7 @@ uniform float wind_strength = 1.0;
 uniform vec3 translucency : source_color = vec3(0.55, 0.6, 0.18);
 uniform vec3 tint_mul : source_color = vec3(1.0);
 // How dark the inside of the crown gets (albedo and light), 0..1.
-uniform float interior_dark = 0.62;
+uniform float interior_dark = 0.5;
 uniform bool cheap = false;
 uniform float rim_strength = 0.0;
 // Seasons as a look (Almanac.season_look), the same as leaf_spray.gdshader.
@@ -95,8 +95,8 @@ void fragment() {
 	// The inside of the crown: darker leaves that see little sky and little sun.
 	col *= 1.0 - interior_dark * 0.4 * occ;
 	ALBEDO = col * (1.0 - 0.2 * wet);
-	AO = 1.0 - occ * 0.75;
-	AO_LIGHT_AFFECT = 0.4;
+	AO = 1.0 - occ * 0.6;
+	AO_LIGHT_AFFECT = 0.25;
 	if (!cheap) {
 		NORMAL_MAP = texture(spray_normal, UV).rgb;
 		NORMAL_MAP_DEPTH = 0.5;

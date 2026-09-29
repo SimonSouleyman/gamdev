@@ -945,6 +945,9 @@ func _frame_camera(snap: bool, delta: float = 0.0) -> void:
 		height = frame_height(album_height())
 		width = height * 0.8
 	var want_focus := Vector3(0, clampf(height * 0.47, 0.25, 30.0), 0)
+	if _album:
+		# A little lower and from a little above, so a seedling's foot is never behind the swell.
+		want_focus.y = height * 0.4
 	if prune_mode:
 		want_focus = Vector3(0, prune_height, 0)
 	# The camera stays inside the clearing, which grows with the tree (refresh_clearing), so a
@@ -982,7 +985,7 @@ func _frame_camera(snap: bool, delta: float = 0.0) -> void:
 	# rather than the forest wall behind it (review: day 1 showed mostly forest).
 	var pitch := maxf(_pitch, lerpf(0.34, 0.02, clampf(height / 8.0, 0.0, 1.0)))
 	if _album:
-		pitch = 0.1
+		pitch = 0.2
 	var orbit := _focus + Vector3(sin(_yaw) * cos(pitch), sin(pitch), cos(_yaw) * cos(pitch)) * _distance
 	orbit.y = maxf(orbit.y, 0.25)
 	# The dive: the camera falls straight down into the ground beside the tree, turning a little
