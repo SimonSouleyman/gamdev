@@ -49,7 +49,7 @@ static func grass_colour(m: Color, v: float, d: float, edge: float, compat: bool
 	var dry := Color(1.18 * v, 1.07 * v, 0.66 * v)
 	var col := dry.lerp(lush, smoothstep(0.2, 0.8, m.r))
 	col *= Color(1.04, 1.0, 0.93).lerp(Color(0.96, 1.0, 1.05), m.a)
-	col = col.lerp(Color(1.12 * v, 1.08 * v, 0.84 * v), smoothstep(0.2, 0.9, m.b) * 0.6)
+	col = col.lerp(Color(1.08 * v, 1.06 * v, 0.8 * v), smoothstep(0.2, 0.9, m.b) * 0.4)
 	# The phone renderer shows greens brighter and more saturated: calmer there.
 	if compat:
 		col = Color(col.r * 0.85, col.g * 0.78, col.b * 0.8)
