@@ -63,6 +63,33 @@ var marker_radius: float = 0.8
 ## the bare simulation (the forest's trees, the colonizer's tests).
 var natural_form: bool = false
 
+## Care (0.6.3): what the tree lacks today, judged at sunrise from what the night brought
+## (assess_needs), 0..1 per Resources.Kind; `care_prev` is yesterday's, eased out over the morning.
+var care_need: PackedFloat32Array = PackedFloat32Array([0, 0, 0, 0])
+var care_prev: PackedFloat32Array = PackedFloat32Array([0, 0, 0, 0])
+## Graph size at today's and yesterday's sunrise: nodes from `young_from` on are the new shoots.
+var dawn_size: int = 0
+var young_from: int = 0
+## Pruning with an effect (0.6.3): cuts since the last sunrise, each {"at": [x, y, z], "from":
+## node the branch was cut from, "nodes": segments cut}. At sunrise a share comes back as vigour.
+var cuts: Array = []
+## The last cut, for the care page: {"day", "nodes", "buds", "regrown", "woken" (bool)}.
+var last_cut: Dictionary = {}
+## Refund nodes waiting for the dawn burst (the whole crown's share of a cut).
+var _vigour_nodes: int = 0
+## Pruned wood dropped from the graph (compact_dead_wood); node costs still count it.
+var removed_nodes: int = 0
+## Share of the cut segments that come back as vigour at the next sunrise (spec: 0.2 to 0.4).
+const PRUNE_REFUND := 0.3
+## Share of a cut's refund that wakes buds right below the cut; the rest goes to the crown.
+const PRUNE_NEAR_SHARE := 0.6
+## Buds are woken on the branch within this distance below the cut.
+const PRUNE_BUD_REACH := 1.2
+## A cut of this many segments or more wakes three buds instead of two.
+const PRUNE_BIG_CUT := 20
+## Pruned wood leaves the graph at sunrise once the graph is this full.
+const COMPACT_AT := 0.85
+
 
 func _init(random_seed: int = 1) -> void:
 	seed = random_seed
@@ -271,7 +298,7 @@ func crown_radius(top: float) -> float:
 		return clampf(0.3 + top * 0.6, 0.4, species.max_crown_radius)
 	# A slender young tree, a broad grown one; a full crown keeps widening a little past the
 	# species' radius, so a tree at its full height still has room to finish.
-	var widen := 1.0 + 0.35 * clampf(float(graph.size()) / species.finish_nodes, 0.0, 1.0)
+	var widen := 1.0 + 0.35 * clampf(float(graph.size() + removed_nodes) / species.finish_nodes, 0.0, 1.0)
 	return clampf(0.25 + top * lerpf(0.35, 0.72, smoothstep(2.0, 10.0, top)), 0.3, species.max_crown_radius * widen)
 
 
@@ -329,9 +356,18 @@ func _subtree_size(node_id: int) -> int:
 ## seconds of the day. It only changes when the growth happens, not how much: nutrients cap it.
 func start_dawn_burst() -> void:
 	shed_lower_branches()
+	# Yesterday's cuts answer: buds wake below them, the rest of the refund joins the burst.
+	wake_buds_after_cuts()
+	compact_dead_wood()
+	young_from = dawn_size if dawn_size > 0 else graph.size()
+	dawn_size = graph.size()
+	assess_needs()
 	var factor := Resources.growth_factor(resources.stock, species.needs)
 	var burst_max := int(dawn_burst_max_nodes * pace_factor())
 	_burst_nodes_left = mini(burst_max, int(_affordable_nodes() * dawn_burst_share * factor))
+	# The crown's share of a cut comes on top of the burst's cap (still paid like any growth).
+	_burst_nodes_left += maxi(0, mini(_vigour_nodes, _affordable_nodes() - _burst_nodes_left))
+	_vigour_nodes = 0
 	_burst_rate = _burst_nodes_left / dawn_burst_seconds
 	_burst_accum = 0.0
 	# Spread the rest over the day: without boosting it lasts until about sunset, so a boost
@@ -402,7 +438,8 @@ func effective_leaves() -> float:
 ## A bigger tree needs more material per new segment (it also thickens everything below),
 ## so the growth spreads over the whole month instead of filling the budget early.
 func node_cost() -> float:
-	return cost_per_node * (1.0 + graph.size() / 380.0)
+	# Pruned wood dropped from the graph still counts: compaction changes no price.
+	return cost_per_node * (1.0 + (graph.size() + removed_nodes) / 380.0)
 
 
 func _affordable_nodes() -> int:
@@ -420,12 +457,216 @@ func _pay_for(nodes: int) -> void:
 ## Prune: mark a node and its whole subtree dead. The mesh builder hides dead nodes,
 ## and the colonizer ignores them, so resources go to the rest of the crown.
 ## Twin buds (sycamore): cutting a shoot tip makes it fork into two new shoots at the cut.
+## Pruning with an effect (0.6.3): the cut is remembered, and at the next sunrise a share of
+## its wood comes back as new shoots below it and growth for the rest of the crown
+## (wake_buds_after_cuts). A finished tree is pruned for its look only.
 func prune(node_id: int) -> int:
 	var fork := species.twin_buds and is_shoot_tip(node_id)
+	var was_finished := is_finished()
 	var count := _kill_subtree(node_id)
 	if fork and count > 0:
 		fork_at(graph.parents[node_id], graph.positions[node_id] - graph.positions[graph.parents[node_id]])
+	if count > 0:
+		var p := graph.parents[node_id]
+		var at := graph.positions[p].lerp(graph.positions[node_id], 0.35)
+		if not was_finished:
+			cuts.append({"at": [at.x, at.y, at.z], "from": p, "nodes": count})
+		last_cut = {"day": clock.day_count, "nodes": count, "buds": 0, "regrown": 0, "woken": was_finished,
+			"at": [at.x, at.y, at.z]}
 	return count
+
+
+## Segments that come back at the next sunrise for the cuts made since the last one: a share of
+## the cut wood, capped by a share of a fifth of the living tree (several cuts add up, the fifth
+## caps them).
+func pending_refund() -> int:
+	var cut := 0
+	for c in cuts:
+		cut += int(c["nodes"])
+	var cap := maxi(3, int(PRUNE_REFUND * living_nodes() * 0.2))
+	return mini(int(round(PRUNE_REFUND * cut)), cap)
+
+
+## At sunrise: each cut wakes two or three buds on the branch just below it; they put out new
+## shoots outward and toward the light (not back into the crowded inside). The rest of the
+## refund joins the dawn burst for the whole crown. Paid with nutrients like any growth.
+## Returns the segments grown near the cuts.
+func wake_buds_after_cuts() -> int:
+	if cuts.is_empty():
+		return 0
+	var total_cut := 0
+	for c in cuts:
+		total_cut += int(c["nodes"])
+	var refund := pending_refund()
+	var step := _shoot_step()
+	var grown_near := 0
+	var buds_woken := 0
+	var vigour_before := _vigour_nodes
+	var first_new := graph.size()
+	for c in cuts:
+		var r := int(round(float(refund) * int(c["nodes"]) / maxf(1.0, total_cut)))
+		var near := int(round(r * PRUNE_NEAR_SHARE))
+		var at := Vector3(float(c["at"][0]), float(c["at"][1]), float(c["at"][2]))
+		var buds := _buds_below(int(c["from"]), at, 3 if int(c["nodes"]) >= PRUNE_BIG_CUT else 2)
+		var made := 0
+		if not buds.is_empty() and near > 0:
+			var per := maxi(1, int(ceil(float(near) / buds.size())))
+			for b in buds:
+				var n := mini(mini(per, near - made), _affordable_nodes())
+				if n <= 0:
+					break
+				var g := _grow_shoot(b, at, n, step)
+				if g > 0:
+					buds_woken += 1
+				made += g
+				_pay_for(g)
+			# A few markers where the buds woke, so the colonizer carries the new shoots on.
+			colonizer.seed_sphere(at + _outward(at) * step * 3.0, step * 4.0, 4, Budgets.TREE_MARKERS, MARKER_MIN_Y, species.max_height)
+		grown_near += made
+		_vigour_nodes += maxi(0, r - made)
+	if graph.size() > first_new:
+		graph.update_radii()
+	last_cut["buds"] = buds_woken
+	last_cut["regrown"] = grown_near + _vigour_nodes - vigour_before
+	last_cut["woken"] = true
+	cuts.clear()
+	return grown_near
+
+
+## Up to `count` living nodes on the branch below a cut, within PRUNE_BUD_REACH of it, spread
+## along it (never the trunk base).
+func _buds_below(from: int, at: Vector3, count: int) -> Array[int]:
+	var chain: Array[int] = []
+	var cur := from
+	while cur >= 3 and not graph.get_flag(cur, "dead", false) and graph.positions[cur].distance_to(at) <= PRUNE_BUD_REACH:
+		chain.append(cur)
+		cur = graph.parents[cur]
+	if chain.is_empty() and from >= 2 and not graph.get_flag(from, "dead", false):
+		chain.append(from)
+	var out: Array[int] = []
+	if chain.is_empty():
+		return out
+	for i in range(count):
+		var id: int = chain[int(float(i) * chain.size() / count)]
+		if not out.has(id):
+			out.append(id)
+	return out
+
+
+## The side of the crown a point is on: away from the trunk's axis (up for a point on it).
+func _outward(p: Vector3) -> Vector3:
+	var flat := Vector3(p.x, 0.0, p.z)
+	return flat.normalized() if flat.length_squared() > 1e-4 else Vector3.UP
+
+
+## Length of one new segment for a tree this tall (as tick() sets it).
+func _shoot_step() -> float:
+	var top := height()
+	return (0.09 + top * 0.017) if natural_form else (0.15 + top * 0.014)
+
+
+## A new shoot of `segments` from bud `bud`: out of the crown and up to the light, splayed by
+## the node, so two buds on one branch do not grow into each other. Returns segments grown.
+func _grow_shoot(bud: int, cut_at: Vector3, segments: int, step: float) -> int:
+	var h := hash([seed, "bud", bud, clock.day_count])
+	var twist := float(posmod(h, 1000)) / 1000.0 * TAU
+	var along := graph.direction_of(bud)
+	var side := along.cross(Vector3.UP)
+	if side.length_squared() < 1e-4:
+		side = Vector3.RIGHT
+	side = side.normalized().rotated(along, twist)
+	var dir := (_outward(cut_at) * 0.8 + Vector3.UP * 0.6 + side * 0.5 + along * 0.3).normalized()
+	var cur := bud
+	var n := 0
+	for _i in range(segments):
+		var id := graph.add_node(cur, graph.positions[cur] + dir * step)
+		if id < 0:
+			break
+		n += 1
+		cur = id
+		dir = (dir + Vector3.UP * 0.15).normalized()
+	return n
+
+
+## Pruned wood (dead, not shed) leaves the graph once it is COMPACT_AT full, so pruning never
+## fills the node budget with dead wood. Shed wood stays (it counts toward the finished tree).
+## Ids change; node costs keep counting what was dropped. Returns the nodes dropped.
+func compact_dead_wood(force: bool = false) -> int:
+	if not force and graph.size() < int(graph.max_nodes * COMPACT_AT):
+		return 0
+	var keep := PackedInt32Array()
+	var remap := PackedInt32Array()
+	remap.resize(graph.size())
+	remap.fill(-1)
+	for id in range(graph.size()):
+		var dead: bool = graph.get_flag(id, "dead", false)
+		var parent_kept := id == 0 or remap[graph.parents[id]] >= 0
+		if parent_kept and (id < 2 or not dead or graph.get_flag(id, "shed", false)):
+			remap[id] = keep.size()
+			keep.append(id)
+	var dropped := graph.size() - keep.size()
+	if dropped <= 0:
+		return 0
+	var g := PlantGraph.new(graph.positions[0], graph.max_nodes)
+	g.radii[0] = graph.radii[0]
+	g.ages[0] = graph.ages[0]
+	g.flags[0] = graph.flags[0]
+	for i in range(1, keep.size()):
+		var old := keep[i]
+		var nid := g.add_node(remap[graph.parents[old]], graph.positions[old])
+		g.radii[nid] = graph.radii[old]
+		g.ages[nid] = graph.ages[old]
+		g.flags[nid] = graph.flags[old]
+	# The new-shoot boundary moves with the ids.
+	var first := keep.size()
+	for i in range(keep.size()):
+		if keep[i] >= dawn_size:
+			first = i
+			break
+	dawn_size = first
+	graph = g
+	removed_nodes += dropped
+	return dropped
+
+
+## What the tree lacks today (0.6.3 care), judged at sunrise from the stock the night brought:
+## for each kind the share of a full calm day's growth the stock covers; Care.need_from turns it
+## into 0..1. Yesterday's value is kept to ease out over the morning.
+func assess_needs() -> void:
+	care_prev = care_need.duplicate()
+	var cover := day_coverage()
+	for k in range(4):
+		care_need[k] = Care.need_from(cover[k])
+
+
+## Share of a full calm day's growth (day_capacity) each kind's stock covers, 0..1 (1 when the
+## species needs none of it).
+func day_coverage() -> PackedFloat32Array:
+	var out := PackedFloat32Array([1, 1, 1, 1])
+	var want := day_capacity() * node_cost()
+	for k in range(4):
+		if species.needs[k] > 0.0 and want > 0.0:
+			out[k] = clampf(resources.stock[k] / (want * species.needs[k]), 0.0, 1.0)
+	return out
+
+
+## Segments the tree would grow in a full calm day if nothing were short: the growth cap over
+## the day's light (the sun's arc averages 2/pi of noon) plus the dawn burst.
+func day_capacity() -> float:
+	var day_seconds := clock.seconds_per_day * clock.daylight_fraction
+	return max_pace() * day_seconds * 2.0 / PI + dawn_burst_max_nodes * pace_factor()
+
+
+## The care signal of each kind right now: yesterday's need eased into today's over the morning
+## (Care.EASE_SHARE of the daylight), today's need from mid-morning on and through the night.
+func care_shown() -> PackedFloat32Array:
+	var e := 1.0
+	if clock.is_day():
+		e = smoothstep(0.0, Care.EASE_SHARE * clock.daylight_fraction, clock.time_of_day)
+	var out := PackedFloat32Array([0, 0, 0, 0])
+	for k in range(4):
+		out[k] = lerpf(care_prev[k], care_need[k], e)
+	return out
 
 
 ## A shoot tip: an unbranched living end of at most SHOOT_TIP_SEGMENTS segments.
@@ -585,6 +826,9 @@ func to_dict() -> Dictionary:
 		"markers": colonizer.markers,
 		"resources": resources.to_dict(),
 		"clock": clock.to_dict(),
+		"care": [Array(care_need), Array(care_prev), dawn_size, young_from, removed_nodes, _vigour_nodes],
+		"cuts": cuts,
+		"last_cut": last_cut,
 	}
 
 
@@ -607,4 +851,17 @@ static func from_dict(d: Dictionary) -> GrowthSim:
 	s.colonizer.markers = PackedVector3Array(d.get("markers", []))
 	s.resources = Resources.from_dict(d.get("resources", {}))
 	s.clock = DayCycle.from_dict(d.get("clock", {}))
+	var care: Array = d.get("care", [])
+	if care.size() >= 6:
+		s.care_need = PackedFloat32Array(care[0])
+		s.care_prev = PackedFloat32Array(care[1])
+		s.dawn_size = int(care[2])
+		s.young_from = int(care[3])
+		s.removed_nodes = int(care[4])
+		s._vigour_nodes = int(care[5])
+	for c in d.get("cuts", []):
+		if c is Dictionary:
+			s.cuts.append(c)
+	if d.get("last_cut") is Dictionary:
+		s.last_cut = d["last_cut"]
 	return s
