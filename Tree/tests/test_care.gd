@@ -285,3 +285,53 @@ func test_care_state_is_saved() -> void:
 	t.check_eq(back.sim.cuts.size(), 1, "cuts saved")
 	t.check_eq(int(back.sim.last_cut["nodes"]), 7, "last cut saved")
 	t.check_eq(back.sim.removed_nodes, 12, "removed nodes saved")
+
+
+func _mm() -> MultiMesh:
+	var mm := MultiMesh.new()
+	mm.transform_format = MultiMesh.TRANSFORM_3D
+	mm.use_colors = true
+	mm.use_custom_data = true
+	return mm
+
+
+## Shape first: nitrogen thins the new shoots' sprays, phosphorus or potassium leaves masses bare;
+## no signal leaves the crown exactly as it was.
+func test_crown_shape_cues() -> void:
+	var g := _play(9)
+	var plain := _mm()
+	HeroCrown.populate(plain, g.sim, g.seed)
+	var none := _mm()
+	HeroCrown.populate(none, g.sim, g.seed, PackedFloat32Array([0, 0, 0, 0]))
+	t.check_eq(none.instance_count, plain.instance_count, "no signal, the same crown")
+	t.check(none.get_instance_transform(5) == plain.get_instance_transform(5), "sprays in the same places")
+	var hungry := _mm()
+	HeroCrown.populate(hungry, g.sim, g.seed, PackedFloat32Array([0, 1, 0, 0]))
+	t.check(hungry.instance_count < plain.instance_count, "short of nitrogen: fewer sprays (%d < %d)" % [hungry.instance_count, plain.instance_count])
+	var bare := _mm()
+	HeroCrown.populate(bare, g.sim, g.seed, PackedFloat32Array([0, 0, 0, 1]))
+	t.check(bare.instance_count < plain.instance_count * 0.95, "short of potassium: bare leaf masses (%d of %d sprays)" % [bare.instance_count, plain.instance_count])
+	t.check(bare.instance_count > plain.instance_count * 0.5, "but most of the crown stays")
+	var mat := HeroCrown.material()
+	for u in ["thirst", "pale", "dull", "scorch", "sun_lift", "day_fill"]:
+		t.check(mat.shader.get_shader_uniform_list().any(func(d: Dictionary) -> bool: return d["name"] == u), "crown shader has %s" % u)
+
+
+func test_care_page_reads_the_tree() -> void:
+	var g := _play(6)
+	_night(g)
+	g.sim.resources.stock[Resources.Kind.WATER] = 0.0
+	g.sim.assess_needs()
+	_day_to(g, 0.5)
+	var text := ""
+	for part in Care.page(g):
+		text += str(part["title"]) + ": " + str(part["text"]) + "\n"
+	t.check("Thirsty" in text, "names the thirst:\n" + text)
+	t.check("blue dots" in text, "says which dots to steer for")
+	t.check("The crown" in text and "The last cut" in text, "the crown's shape and the last cut")
+	var id := _branch(g.sim, 30, 5)
+	g.sim.prune(id)
+	var after := ""
+	for part in Care.page(g):
+		after += str(part["text"]) + "\n"
+	t.check("buds will wake" in after, "a fresh cut: what dawn will bring\n" + after)
