@@ -18,6 +18,16 @@ uniform bool use_shade = false;
 uniform sampler2D floor_albedo : source_color, filter_linear_mipmap, repeat_enable;
 uniform bool use_floor = false;
 uniform vec3 litter : source_color = vec3(0.3, 0.24, 0.14);
+// The meadow's patches (MeadowMap, shared with the grass clumps): r lush, g tall grass, b path,
+// a colour drift; meadow_half metres each way.
+uniform sampler2D meadow_map : filter_linear, repeat_disable;
+uniform float meadow_half = 48.0;
+uniform bool use_meadow = false;
+uniform vec3 trodden : source_color = vec3(0.47, 0.47, 0.3);
+// Where the meadow meets the forest (the clearing grows with the tree).
+uniform float edge = 18.0;
+// Calmer greens: 1 as is, less toward grey.
+uniform float saturation = 1.0;
 
 varying vec3 world_pos;
 
@@ -31,11 +41,20 @@ void fragment() {
 	float mid = texture(noise, p * 0.07 + vec2(0.3, 0.7)).r;
 	float fine = texture(noise, p * 0.6).r;
 	vec3 col = mix(lush, dry, smoothstep(0.3, 0.85, big) * 0.45);
+	vec4 m = vec4(0.5, 0.0, 0.0, 0.5);
+	if (use_meadow) {
+		m = texture(meadow_map, p / (2.0 * meadow_half) + 0.5);
+		col = mix(dry, lush, smoothstep(0.2, 0.8, m.r));
+		col *= mix(vec3(1.04, 1.0, 0.93), vec3(0.96, 1.0, 1.05), m.a);
+	}
 	col = mix(col, earth, smoothstep(0.65, 0.9, mid) * 0.3);
 	col *= 0.9 + 0.2 * fine;
 	if (use_texture) {
 		col *= texture(ground_albedo, p * 0.5).rgb * 1.6 * brightness;
 	}
+	// A trodden path: pale flattened grass with bare earth showing through in spots.
+	float path = smoothstep(0.1, 0.9, m.b) * (0.5 + 0.8 * fine);
+	col = mix(col, trodden * (0.75 + 0.4 * fine) * brightness, clamp(path * 0.4, 0.0, 0.5));
 	if (use_shade) {
 		vec2 suv = p / (2.0 * shade_half) + 0.5;
 		float inside = step(0.0, suv.x) * step(suv.x, 1.0) * step(0.0, suv.y) * step(suv.y, 1.0);
@@ -49,8 +68,8 @@ void fragment() {
 		col = mix(col, floor_col, k * 0.85);
 	}
 	// Shade under the forest edge: the ground darkens toward the trees.
-	col *= mix(1.0, 0.4, smoothstep(16.0, 21.0, length(p)));
-	ALBEDO = col;
+	col *= mix(1.0, 0.4, smoothstep(edge - 2.0, edge + 3.0, length(p)));
+	ALBEDO = mix(vec3(dot(col, vec3(0.3, 0.59, 0.11))), col, saturation);
 	ROUGHNESS = 0.95;
 	SPECULAR = 0.2;
 }
