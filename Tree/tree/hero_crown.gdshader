@@ -9,7 +9,7 @@ render_mode cull_disabled, depth_draw_opaque, diffuse_lambert_wrap, specular_sch
 uniform sampler2D spray_color : source_color, filter_linear_mipmap_anisotropic, repeat_disable;
 uniform sampler2D spray_normal : hint_normal, filter_linear_mipmap, repeat_disable;
 // How far the card normal bends to the leaf mass's normal (1 = the mass shades as one lump).
-uniform float mass_normal_mix = 0.78;
+uniform float mass_normal_mix = 0.85;
 uniform float wind_strength = 1.0;
 uniform vec3 translucency : source_color = vec3(0.55, 0.6, 0.18);
 uniform vec3 tint_mul : source_color = vec3(1.0);
@@ -64,6 +64,8 @@ void vertex() {
 }
 
 void fragment() {
+	// Both faces of a card shade with its leaf mass's normal (the renderer flips it on the back).
+	if (!FRONT_FACING) { NORMAL = -NORMAL; }
 	vec4 tex = texture(spray_color, UV);
 	// Mipmaps average the alpha down, so far sprays would thin to nothing: lift the alpha by the
 	// mip level (Castano), then cut cleanly at one half.
@@ -102,7 +104,7 @@ void fragment() {
 	ROUGHNESS = mix(0.7, 0.45, wet);
 	SPECULAR = mix(0.18, 0.3, wet);
 	// Thin leaves glow when the sun is behind them, most at the crown's edge.
-	BACKLIGHT = translucency * col * 2.0 * (1.0 - occ * 0.8);
+	BACKLIGHT = translucency * col * 1.1 * (1.0 - occ * 0.8);
 	RIM = rim_strength * (1.0 - occ);
 	RIM_TINT = 0.5;
 }

@@ -37,7 +37,7 @@ static func mass_size(height: float) -> float:
 ## Size of one spray card (a bunch of about twenty leaves): leaves a few centimetres long on a
 ## sapling, a hand long on a grown tree, so they stay readable from the far camera.
 static func spray_size(height: float) -> float:
-	return clampf(0.36 + height * 0.036, 0.4, 1.35)
+	return clampf(0.28 + height * 0.04, 0.3, 1.35)
 
 
 ## Fills `mm` (TRANSFORM_3D, colours and custom data on) with the crown of `sim`. Returns the
@@ -86,7 +86,7 @@ static func populate(mm: MultiMesh, sim: GrowthSim, seed: int) -> AABB:
 		var r := cell * 0.5 * weight
 		var n := clampi(int(3.0 + 8.0 * pow(r / card, 2.0)), 3, 24)
 		# A sapling's few shoots carry few leaves; a grown tree's twig stands for many.
-		n = mini(n, 1 + int(ceil(float(m[1]) * lerpf(0.7, 3.0, smoothstep(3.0, 15.0, height)))))
+		n = mini(n, 1 + int(ceil(float(m[1]) * lerpf(0.3, 3.0, smoothstep(2.0, 15.0, height)))))
 		plan.append(n)
 		want += n
 	var squeeze := minf(1.0, float(BUDGET) / maxf(want, 1.0))
@@ -106,7 +106,7 @@ static func populate(mm: MultiMesh, sim: GrowthSim, seed: int) -> AABB:
 		var mass_up := (out + Vector3.UP * 0.6).normalized()
 		# Upper, outer masses catch the sun and grow a little yellower; lower inner ones are deeper.
 		var sunny := clampf(0.5 + 0.35 * out.y + 0.25 * (rel.length() - 0.6), 0.0, 1.0)
-		var mass_tint := Color(1.0, 1.0, 1.0).lerp(Color(1.05, 1.03, 0.86), sunny * rng.randf_range(0.2, 0.8))
+		var mass_tint := Color(1.0, 1.0, 1.0).lerp(Color(1.04, 1.02, 0.88), sunny * rng.randf_range(0.1, 0.6))
 		mass_tint = mass_tint * rng.randf_range(0.88, 1.04)
 		for _s in range(int(plan[k])):
 			# A direction over the mass, mostly on its upper and outer side.
@@ -133,7 +133,7 @@ static func populate(mm: MultiMesh, sim: GrowthSim, seed: int) -> AABB:
 			var depth := clampf(1.0 - spray_rel.length(), 0.0, 1.0)
 			var under := clampf(-d.dot(mass_up), 0.0, 1.0)
 			var low := clampf(-spray_rel.y, 0.0, 1.0)
-			var occlusion := clampf(depth * 0.95 + under * 0.4 + low * 0.3, 0.0, 0.9)
+			var occlusion := clampf(depth * 1.1 + under * 0.55 + low * 0.3, 0.0, 0.92)
 			var c := mass_tint * rng.randf_range(0.92, 1.06)
 			mm.set_instance_color(i, Color(c.r, c.g, c.b * rng.randf_range(0.9, 1.05), occlusion))
 			var e := oct_encode(n)
