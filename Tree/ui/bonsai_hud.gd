@@ -325,7 +325,7 @@ func _place_labels() -> void:
 			continue
 		tag.size = tag.get_combined_minimum_size()
 		tag.pivot_offset = tag.size * 0.5
-		var pos := (pts[id] as Vector2) + Vector2(-tag.size.x * 0.5, 30.0)
+		var pos := (pts[id] as Vector2) + Vector2(-tag.size.x * 0.5, 30.0 + float(BonsaiTools.LABEL_DROP.get(id, 0.0)))
 		tag.position = pos.clamp(Vector2(6, 6), Vector2(maxf(room.x - tag.size.x - 6.0, 6.0), maxf(room.y - tag.size.y - 6.0, 6.0)))
 
 

@@ -542,6 +542,8 @@ func _tools_sequence(view: BonsaiView, b: BonsaiSim) -> void:
 func _repot_sequence(view: BonsaiView, b: BonsaiSim) -> void:
 	b.repot_due = true
 	view.look_from(0.0, BonsaiView.PITCH, BonsaiView.DIST)
+	main.journal.clear_pages()
+	await _wait(3)
 	var soil := view.plant_screen_position(0) + Vector2(0, 10)
 	await _tap_thing(view, "trowel")
 	main.journal.clear_pages()

@@ -16,25 +16,28 @@ const TAPPED: Array[String] = ["turn_left", "turn_right", "styles", "album", "cu
 const LABELS := {
 	"water": "watering can", "fertiliser": "pellets N P K", "shears": "secateurs",
 	"pinch": "tweezers", "wire": "copper wire", "trowel": "trowel", "turn_left": "turn",
-	"turn_right": "turn", "styles": "style sketchbook", "album": "album page", "cuttings": "cuttings",
+	"turn_right": "turn", "styles": "styles", "album": "album page", "cuttings": "cuttings",
 }
-## Where the tools rest (position, yaw): a back row beside the pot and a front row along the
-## board's edge, spaced so each tap area is finger size in a phone's close-up.
+## Where the tools rest (position, yaw): the can and the tin beside the pot (clear of the widest
+## pot) and a front row along the board's edge, spaced so each tap area is finger size in a
+## phone's close-up (tests/test_bonsai.gd checks it).
 const FRONT_Z := -0.24
 const RESTS := {
-	"water": [Vector3(0.14, 0.0, -0.01), -2.2],
-	"fertiliser": [Vector3(-0.14, 0.0, 0.045), 0.3],
-	"cuttings": [Vector3(-0.13, 0.0, -0.075), 1.25],
-	"trowel": [Vector3(0.11, 0.0, FRONT_Z + 0.01), 0.35],
-	"shears": [Vector3(0.055, 0.0, FRONT_Z), -0.5],
-	"pinch": [Vector3(0.0, 0.0, FRONT_Z), 0.25],
-	"wire": [Vector3(-0.055, 0.0, FRONT_Z), 0.0],
-	"styles": [Vector3(-0.11, 0.0, FRONT_Z + 0.005), -0.25],
+	"water": [Vector3(0.155, 0.0, 0.045), -1.8],
+	"fertiliser": [Vector3(-0.15, 0.0, 0.03), 0.3],
+	"trowel": [Vector3(0.115, 0.0, FRONT_Z + 0.01), 0.3],
+	"shears": [Vector3(0.069, 0.0, FRONT_Z), -0.45],
+	"pinch": [Vector3(0.023, 0.0, FRONT_Z), 0.2],
+	"wire": [Vector3(-0.023, 0.0, FRONT_Z), 0.0],
+	"styles": [Vector3(-0.069, 0.0, FRONT_Z + 0.004), 1.45],
+	"cuttings": [Vector3(-0.118, 0.0, FRONT_Z + 0.01), 1.5],
 	"album": [Vector3(0.15, 0.19, 0.03), 0.0],
 }
 ## The carved arrows: arcs round the pot's front, at this radius.
 const ARROW_R := 0.135
 const ARROW_SPAN := Vector2(0.28, 0.82)
+## Labels hang under their thing; these hang lower, so neighbours in the front row do not overlap.
+const LABEL_DROP := {"shears": 44.0, "wire": 44.0, "cuttings": 44.0}
 ## How far a held tool floats in front of the view's focus, toward the camera (m).
 const HOLD_NEARER := 0.12
 
@@ -44,6 +47,7 @@ var rests: Dictionary = {}  # id -> Transform3D
 var marks: Dictionary = {}
 ## The tool in hand ("" = none).
 var held: String = ""
+var _returning: Dictionary = {}
 ## The water's stream (under BonsaiView's base, not in the can, so it falls straight).
 var water_fx: CPUParticles3D
 
@@ -74,7 +78,7 @@ func screen_points(camera: Camera3D) -> Dictionary:
 	var out := {}
 	for id in marks:
 		var m: Node3D = marks[id]
-		if not m.is_visible_in_tree():
+		if not m.is_visible_in_tree() or _returning.has(id):
 			continue
 		var p := m.global_position
 		if camera.is_position_behind(p):
@@ -125,13 +129,17 @@ func put_down() -> void:
 		return
 	var id := held
 	held = ""
+	# On its way back it answers no tap (it may pass over the tree).
+	_returning[id] = true
 	var tw := create_tween()
 	tw.tween_property(items[id], "transform", rests[id], 0.35).set_trans(Tween.TRANS_SINE)
+	tw.tween_callback(func() -> void: _returning.erase(id))
 
 
 ## Puts every tool back at once (a new bonsai, a test).
 func reset() -> void:
 	held = ""
+	_returning.clear()
 	for id in rests:
 		(items[id] as Node3D).transform = rests[id]
 
@@ -213,7 +221,7 @@ static func _cyl(parent: Node3D, r: float, h: float, at: Vector3, mat: Material,
 func _build_can() -> void:
 	var can := (load("res://assets/shed/watering_can_metal_01/watering_can_metal_01_1k.gltf") as PackedScene).instantiate() as Node3D
 	var n := Node3D.new()
-	can.scale = Vector3.ONE * 0.42
+	can.scale = Vector3.ONE * 0.38
 	n.add_child(can)
 	_add("water", n, Vector3(0.0, 0.07, 0.0))
 	water_fx = CPUParticles3D.new()

@@ -14,27 +14,31 @@ The sill board is deeper toward the room (a worn board wide enough for a row of 
 
 | Object | Where | Tap it | Then |
 |---|---|---|---|
-| Watering can (Poly Haven) | left of the pot | pick up | tap tree or soil: it pours |
+| Watering can (Poly Haven) | left of the pot, spout toward the window | pick up | tap tree or soil: it pours |
 | Pellet tin "N P K" | right of the pot | pick up; a small paper slip shows N, P, K | tap a letter to choose (remembered, circled); tap the soil: a spoon of that one |
+| Trowel (Poly Haven) | front row | pick up | repot day: tap the pot to lift the tree out; other days a note says when it asks; while lifted a tap puts it back in fresh soil |
 | Secateurs | front row | pick up | as the old "shears": touch a branch, lift to cut; while repotting, tap the root ball to trim |
 | Tweezers | front row | pick up | as the old "pinch": tap a fresh tip |
 | Copper wire coil | front row | pick up | as the old "wire": drag a branch, tap a wired one to take it off |
-| Trowel (Poly Haven) | front row | pick up | repot day: tap the pot to lift the tree out; other days a note says when it asks; while lifted a tap puts it back in fresh soil |
-| Two arrows carved in the board | in front of the pot | turn the pot a quarter that way | |
-| Pot rim | the pot | drag sideways on the pot: turns it a quarter | |
 | Sketchbook | front row | opens the style pages | |
+| Box of cuttings (Poly Haven "Cheese Box 01") | front row, right end (only with more than one cutting) | opens the cuttings page | |
+| Two arrows carved in the board | round the pot's front | turn the pot a quarter that way | |
+| Pot | the pot | a sideways drag on it turns it a quarter | |
 | Album card | tucked into the window frame | opens the bonsai's album page | |
-| Box of cuttings | beside the tin (only with more than one cutting) | opens the cuttings page | |
+
+The can and the tin stand clear of the widest pot (the grey rectangle), so no pot runs into a
+tool after repotting.
 
 Picking up: the tool lifts a little and then follows the finger or cursor, held a little below
-and beside the pointer so it never hides what it points at. Tap the tool again, or its empty
-place, to put it down. Tapping another tool swaps. Esc / the back gesture puts a held tool down
+and beside the pointer so it never hides what it points at. Tap its empty place on the sill, or
+the tool itself where it floats off the tree, to put it down (over the tree a tap uses it). A
+tool on its way back answers no tap. Tapping another tool swaps. Esc / the back gesture puts a held tool down
 first, then closes a page, then goes back to the bench. A small paper note "back to the bench"
 sits in the top corner. The status stays as a small handwritten scrap (care day, water, N P K,
 pot, and a one-line hint for the tool in hand).
 
-While repotting (lifted), a small slip at the bottom lists the pots; the secateurs trim the root
-ball and the trowel (or "fresh soil, and in" on the slip) finishes.
+While repotting (lifted), a small slip low on the screen, under the tools, lists the pots; the
+secateurs trim the root ball and the trowel (or "fresh soil, and in" on the slip) finishes.
 
 ## Labels
 - First time: each object carries a small paper label until it has been used once (saved in
@@ -55,6 +59,10 @@ ball and the trowel (or "fresh soil, and in" on the slip) finishes.
 ## Tuning levers
 Tool positions and scale on the sill, the tap radius (`BonsaiView.TOOL_TAP`), the held offset
 from the pointer, whether first-time labels show.
+
+## Camera
+The default close-up looks a little further down onto the sill than before (pitch 0.45, 0.8 m,
+focus low and toward the room), so pot, crown and the row of tools share the tall screen.
 
 ## Acceptance
 - Every bonsai action of the old paper panel works from the sill objects (tests call each one).
