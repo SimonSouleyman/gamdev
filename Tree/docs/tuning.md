@@ -135,6 +135,8 @@ above and three seeds, on linden plus one fast and one slow species.
 9. A tree finishes outside its target by more than 15 % (linden 26 to 34 days) in the calm
    style, or the same style spreads by more than a week across seeds.
 10. Any played day grows fewer than about 20 segments (no visible growth that day).
+10a. A tree whose roots are never steered (every root ended at once) does not finish by about
+   day 40 (Simon, 2026-09-29: "Softer"), or finishes as fast as a steered one (item 4).
 
 **Care and pruning** (once 0.6.3 exists)
 11. A care signal shows while nothing is lacking, or stays after the need was met for a full
