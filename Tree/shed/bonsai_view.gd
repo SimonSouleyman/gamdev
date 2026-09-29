@@ -16,13 +16,13 @@ const FOCUS := Vector3(0.0, 0.2, 0.0)
 const DIST := 0.8
 const PICK_RADIUS := 44.0
 ## The copper wire: its thickness and one coil turn, in bonsai units.
-const WIRE_RADIUS := 0.02
+const WIRE_RADIUS := 0.009
 const WIRE_PITCH := 0.14
 ## The pots as drawn: footprint half size (m), height, corner roundness (superellipse power),
 ## glaze colour and roughness. The nursery pot is the Poly Haven clay planter.
 const POT_LOOKS := {
 	"nursery": {"model": true, "scale": 0.6, "soil": 0.112, "half": Vector2(0.066, 0.066), "n": 2.0},
-	"rectangle": {"half": Vector2(0.11, 0.08), "h": 0.058, "n": 7.0, "color": Color(0.33, 0.31, 0.3), "clay": Color(0.36, 0.33, 0.31), "glaze": 0.0, "rough": 0.9},
+	"rectangle": {"half": Vector2(0.11, 0.08), "h": 0.058, "n": 7.0, "color": Color(0.26, 0.245, 0.235), "clay": Color(0.27, 0.25, 0.24), "glaze": 0.0, "rough": 0.9},
 	"oval": {"half": Vector2(0.1, 0.075), "h": 0.055, "n": 2.0, "color": Color(0.1, 0.19, 0.38), "clay": Color(0.5, 0.4, 0.32), "glaze": 1.0, "rough": 0.22},
 	"round": {"half": Vector2(0.078, 0.078), "h": 0.07, "n": 2.0, "color": Color(0.42, 0.56, 0.44), "clay": Color(0.52, 0.42, 0.34), "glaze": 1.0, "rough": 0.18},
 	"cascade": {"half": Vector2(0.062, 0.062), "h": 0.15, "n": 5.0, "color": Color(0.84, 0.78, 0.64), "clay": Color(0.55, 0.43, 0.33), "glaze": 1.0, "rough": 0.25},
@@ -148,16 +148,18 @@ func _ready() -> void:
 	_cores.multimesh = cm
 	var core_mat := StandardMaterial3D.new()
 	core_mat.vertex_color_use_as_albedo = true
-	core_mat.vertex_color_is_srgb = true
+	# The phone's renderer draws these darker: its colours are taken as they are.
+	core_mat.vertex_color_is_srgb = not Budgets.PHONE
 	core_mat.roughness = 1.0
 	core_mat.diffuse_mode = BaseMaterial3D.DIFFUSE_LAMBERT_WRAP
+	core_mat.metallic_specular = 0.0
 	_cores.material_override = core_mat
 	_plant.add_child(_cores)
 	_wires = MeshInstance3D.new()
 	var copper := StandardMaterial3D.new()
-	copper.albedo_color = Color(0.72, 0.4, 0.2)
-	copper.metallic = 0.85
-	copper.roughness = 0.32
+	copper.albedo_color = Color(0.74, 0.42, 0.24)
+	copper.metallic = 0.9
+	copper.roughness = 0.35
 	_wires.material_override = copper
 	_plant.add_child(_wires)
 	_preview = MeshInstance3D.new()
@@ -531,7 +533,10 @@ func _process(delta: float) -> void:
 	# Wet soil is darker, dry soil pale.
 	var wet := clampf((b.moisture - 0.1) / 0.8, 0.0, 1.0)
 	_soil_mat.set_shader_parameter("wet", wet)
-	_light.light_energy = 0.25 + 1.4 * b.clock.sun_height()
+	var sun := b.clock.sun_height()
+	_light.light_energy = 0.25 + 1.4 * sun
+	# By night the lantern's warm light, by day the window's.
+	_light.light_color = Color(1.0, 0.72, 0.45).lerp(Color(1.0, 0.93, 0.8), clampf(sun * 4.0, 0.0, 1.0))
 	# With the wire or the shears the foliage in front of the branch thins out, so the wood
 	# shows (the leaves dissolve toward the camera).
 	if _spray_mat != null:
@@ -574,7 +579,8 @@ func _apply_species(sp: Species) -> void:
 	var b := sp.bark_tint
 	if sp.conifer:
 		# Red-brown bark peeling in long strips that twist up the trunk.
-		_bark.set_shader_parameter("texture_tint", Vector3(b.r * 0.8, b.g * 0.62, b.b * 0.58))
+		# The phone's renderer shows the tint redder.
+		_bark.set_shader_parameter("texture_tint", Vector3(b.r * (0.64 if Budgets.PHONE else 0.74), b.g * 0.62, b.b * 0.6))
 		_bark.set_shader_parameter("twist", 0.3)
 		_bark.set_shader_parameter("fibre", 1.0)
 	else:
@@ -585,12 +591,12 @@ func _apply_species(sp: Species) -> void:
 	_spray_mat.shader = FOLIAGE_SHADER
 	_spray_mat.set_shader_parameter("cheap", Budgets.PHONE)
 	if sp.conifer:
-		_spray_mat.set_shader_parameter("spray_color", load(JUNIPER_COLOR))
-		_spray_mat.set_shader_parameter("spray_normal", load(JUNIPER_NORMAL))
+		_spray_mat.set_shader_parameter("spray_color", _mipmapped(JUNIPER_COLOR))
+		_spray_mat.set_shader_parameter("spray_normal", _mipmapped(JUNIPER_NORMAL))
 		_spray_mat.set_shader_parameter("translucency", Color(0.22, 0.3, 0.08))
 	else:
-		_spray_mat.set_shader_parameter("spray_color", load(LEAF_COLOR))
-		_spray_mat.set_shader_parameter("spray_normal", load(LEAF_NORMAL))
+		_spray_mat.set_shader_parameter("spray_color", _mipmapped(LEAF_COLOR))
+		_spray_mat.set_shader_parameter("spray_normal", _mipmapped(LEAF_NORMAL))
 		_spray_mat.set_shader_parameter("translucency", Color(0.4, 0.5, 0.1))
 	_spray_mat.set_shader_parameter("tint_mul", sp.leaf_tint * (1.22 if sp.conifer else 1.05))
 	_foliage.material_override = _spray_mat
@@ -745,12 +751,36 @@ func _look_graph(b: BonsaiSim, pads: Array[Pad]) -> PlantGraph:
 		elif i == 1:
 			taper *= 1.12
 		g.radii[trunk[i]] = maxf(src.radii[trunk[i]], taper)
+	# A wired branch keeps its wood, so the coil always has something to wind round.
+	var keep := {}
+	for w in b.wired():
+		for n in b.wire_chain(w):
+			keep[n] = true
 	for pad in pads:
 		for m in pad.members:
-			if m != pad.root and src.radii[m] < PAD_TWIG and g.get_flag(m, "dead") == null and not trunk.has(m):
+			if m != pad.root and src.radii[m] < PAD_TWIG and g.get_flag(m, "dead") == null and not trunk.has(m) and not keep.has(m):
 				# A hidden twig takes its whole subtree along (the builder draws from parents).
 				g.set_flag(m, "dead", true)
 	return g
+
+
+static var _mip_cache: Dictionary = {}
+
+
+## The foliage atlases with mipmaps whatever their import settings say (*.import files are not
+## in git): small tufts far off would shimmer without them.
+static func _mipmapped(path: String) -> Texture2D:
+	if _mip_cache.has(path):
+		return _mip_cache[path]
+	var tex: Texture2D = load(path)
+	var img := tex.get_image()
+	if img != null and not img.has_mipmaps():
+		if img.is_compressed():
+			img.decompress()
+		img.generate_mipmaps()
+		tex = ImageTexture.create_from_image(img)
+	_mip_cache[path] = tex
+	return tex
 
 
 func _build_wood(b: BonsaiSim, look: PlantGraph) -> ArrayMesh:
@@ -778,10 +808,12 @@ func _populate_foliage(b: BonsaiSim, pads: Array[Pad]) -> void:
 	rng.seed = hash([b.seed, "bonsai foliage"])
 	var droop := b.droop()
 	var top := maxf(b.height(), 0.5)
+	# Fewer cards on the phone: each a little larger, so a pad stays as full.
+	var card_scale := sqrt(3.0 / per)
 	var cores := _cores.multimesh
 	cores.instance_count = pads.size()
-	var dark := Color(0.075, 0.13, 0.06) if conifer else Color(0.1, 0.16, 0.06)
-	var core_scale := 1.0 if conifer else 0.8
+	var dark := Color(0.1, 0.19, 0.07) if conifer else Color(0.12, 0.2, 0.07)
+	var core_scale := (1.0 if conifer else 0.8) * (0.85 if Budgets.PHONE else 1.0)
 	var i := 0
 	for pi in range(pads.size()):
 		var pad := pads[pi]
@@ -814,10 +846,10 @@ func _populate_foliage(b: BonsaiSim, pads: Array[Pad]) -> void:
 				var size: float
 				if conifer:
 					face = (nrm + up * 0.4 + Vector3(rng.randf_range(-0.45, 0.45), rng.randf_range(-0.2, 0.2), rng.randf_range(-0.45, 0.45))).normalized()
-					size = clampf(pad.radius * 0.44, 0.1, 0.19) * rng.randf_range(0.8, 1.2)
+					size = clampf(pad.radius * 0.44, 0.1, 0.19) * rng.randf_range(0.8, 1.2) * card_scale
 				else:
 					face = (nrm + up * 0.25 + Vector3(rng.randf_range(-0.3, 0.3), rng.randf_range(-0.2, 0.2), rng.randf_range(-0.3, 0.3))).normalized()
-					size = clampf(pad.radius * 0.7, 0.16, 0.3) * rng.randf_range(0.85, 1.15)
+					size = clampf(pad.radius * 0.7, 0.16, 0.3) * rng.randf_range(0.85, 1.15) * card_scale
 				# Too dry: the leaves hang.
 				face = face.lerp(radial * 0.6 + Vector3.DOWN * 0.8, droop * 0.85).normalized()
 				var dir := radial - face * radial.dot(face)
@@ -861,18 +893,26 @@ func _build_wires(b: BonsaiSim, look: PlantGraph) -> ArrayMesh:
 		chain.append_array(b.wire_chain(id))
 		var pts := PackedVector3Array()
 		var rads := PackedFloat32Array()
-		for n in chain:
+		for k in range(chain.size()):
+			var n := chain[k]
 			pts.append(g.positions[n])
-			rads.append(maxf(_builder.min_radius, look.radii[n] * _builder.radius_scale))
-		# Wire about a third as thick as the branch it holds.
-		_helix(st, pts, rads, maxf(WIRE_RADIUS, rads[1] * 0.4))
+			var r := maxf(_builder.min_radius, look.radii[n] * _builder.radius_scale)
+			if k == 0:
+				# The branch starts from its own ring, not the parent's (as the wood is drawn).
+				r = minf(r, maxf(_builder.min_radius, look.radii[id] * _builder.radius_scale) * 1.35)
+			elif k == chain.size() - 1 and (g.children[n] as Array).is_empty():
+				r *= 0.55
+			rads.append(r)
+		# Wire about a third as thick as the branch it holds, lying snug on the bark.
+		_helix(st, pts, rads, maxf(WIRE_RADIUS, rads[1] * 0.32))
 		any = true
 	if not any:
 		return ArrayMesh.new()
-	st.generate_normals()
 	return st.commit()
 
 
+## A coil lying on the bark: it starts a little out from the fork (clear of the parent's wood)
+## and winds evenly along the branch's segments.
 func _helix(st: SurfaceTool, pts: PackedVector3Array, rads: PackedFloat32Array, wire_r: float) -> void:
 	var path := PackedVector3Array()
 	var along := 0.0
@@ -889,36 +929,48 @@ func _helix(st: SurfaceTool, pts: PackedVector3Array, rads: PackedFloat32Array, 
 			side = axis.cross(Vector3.UP if absf(axis.y) < 0.9 else Vector3.RIGHT).normalized()
 		side = (side - axis * side.dot(axis)).normalized()
 		var up := axis.cross(side)
-		var steps := maxi(2, int(len / (WIRE_PITCH / 16.0)))
-		for s in range(steps):
+		var steps := maxi(2, int(len / (WIRE_PITCH / 20.0)))
+		var last := i == pts.size() - 2
+		for s in range(steps + (1 if last else 0)):
 			var t := float(s) / steps
+			if i == 0 and t < 0.3:
+				continue
 			var ang := TAU * (along + len * t) / WIRE_PITCH
-			var r := lerpf(rads[i], rads[i + 1], t) * 1.15 + wire_r * 1.1
+			var r := lerpf(rads[i], rads[i + 1], t) * 1.06 + wire_r
 			path.append(a + d * t + (side * cos(ang) + up * sin(ang)) * r)
 		along += len
 	_tube(st, path, wire_r)
 
 
+## A round tube along `path` with smooth normals and a twist-free frame.
 func _tube(st: SurfaceTool, path: PackedVector3Array, r: float) -> void:
-	var sides := 6
-	for i in range(path.size() - 1):
-		var d := path[i + 1] - path[i]
-		if d.length_squared() < 1e-10:
-			continue
-		var ax := d.normalized()
-		var u := ax.cross(Vector3.UP if absf(ax.y) < 0.9 else Vector3.RIGHT).normalized()
+	if path.size() < 2:
+		return
+	var sides := 8
+	var rings: Array[PackedVector3Array] = []
+	var norms: Array[PackedVector3Array] = []
+	var u := Vector3.ZERO
+	for i in range(path.size()):
+		var ax := (path[mini(i + 1, path.size() - 1)] - path[maxi(i - 1, 0)]).normalized()
+		if u == Vector3.ZERO:
+			u = ax.cross(Vector3.UP if absf(ax.y) < 0.9 else Vector3.RIGHT).normalized()
+		u = (u - ax * u.dot(ax)).normalized()
 		var v := ax.cross(u)
+		var ring := PackedVector3Array()
+		var nr := PackedVector3Array()
 		for k in range(sides):
-			var a0 := TAU * k / sides
-			var a1 := TAU * (k + 1) / sides
-			var o0 := (u * cos(a0) + v * sin(a0)) * r
-			var o1 := (u * cos(a1) + v * sin(a1)) * r
-			st.add_vertex(path[i] + o0)
-			st.add_vertex(path[i + 1] + o0)
-			st.add_vertex(path[i + 1] + o1)
-			st.add_vertex(path[i] + o0)
-			st.add_vertex(path[i + 1] + o1)
-			st.add_vertex(path[i] + o1)
+			var a := TAU * k / sides
+			var o := u * cos(a) + v * sin(a)
+			ring.append(path[i] + o * r)
+			nr.append(o)
+		rings.append(ring)
+		norms.append(nr)
+	for i in range(path.size() - 1):
+		for k in range(sides):
+			var k1 := (k + 1) % sides
+			for q: Array in [[i, k], [i + 1, k], [i + 1, k1], [i, k], [i + 1, k1], [i, k1]]:
+				st.set_normal(norms[q[0]][q[1]])
+				st.add_vertex(rings[q[0]][q[1]])
 
 
 ## The pellets on the soil: as many as the nutrient stands above fresh soil, in its colour.

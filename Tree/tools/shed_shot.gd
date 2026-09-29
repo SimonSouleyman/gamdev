@@ -9,7 +9,7 @@ extends SceneTree
 ## end, and save the month as a video (the path is printed).
 ## Then the bonsai (design doc section 16): the sill with the bonsai, bonsai mode, watering,
 ## fertiliser, a wire and a wire scar, repotting, a juniper after 14 care days, a linden cutting,
-## the style pages and the bonsai's album page.
+## the style pages and the bonsai's album page, and the juniper and the sill at night.
 ## Run: godot --path . -s tools/shed_shot.gd -- --shots=C:/some/folder [--days=6] [--species=linden] [--bonsai-only]
 
 var main: Node
@@ -310,14 +310,15 @@ func _side_branch(b: BonsaiSim, min_len: int) -> int:
 	return best
 
 
-## The camera beside a wired branch, a little below its pad (the wire shows under the foliage).
+## The camera beside a wired branch, a little below its pad (the wire shows under the foliage),
+## far enough back that the whole coil and the branch it bends are in the picture.
 func _look_at_wire(view: BonsaiView, b: BonsaiSim, id: int, dist: float) -> void:
 	var dir := b.graph.direction_of(id).rotated(Vector3.UP, b.turn * PI * 0.5)
 	var side := dir.cross(Vector3.UP)
 	if side.z > 0.0:
 		side = -side
 	var v := (side + Vector3(dir.x, 0.0, dir.z) * 0.4).normalized()
-	view.look_from(clampf(atan2(v.x, -v.z), -1.25, 1.25), -0.28, dist, _wire_focus(view, b, id))
+	view.look_from(clampf(atan2(v.x, -v.z), -1.25, 1.25), -0.12, dist, _wire_focus(view, b, id))
 
 
 ## The middle of a wired branch, in the sill's frame.
@@ -437,7 +438,7 @@ func _bonsai_sequence() -> void:
 	view.refresh(true)
 	view.set_tool("wire")
 	print("wire on %d: %d green, radius %.3f, at %s, chain %s, wired %s" % [id, b.subtree_leafy(id), b.graph.radii[id], b.graph.positions[id], b.wire_chain(id), b.wired()])
-	_look_at_wire(view, b, id, 0.2)
+	_look_at_wire(view, b, id, 0.27)
 	main.journal.clear_pages()
 	await _seconds(0.5)
 	_shot("bonsai_wire")
@@ -448,7 +449,7 @@ func _bonsai_sequence() -> void:
 		b.unwire(id)
 	b.repot_due = false
 	view.refresh(true)
-	_look_at_wire(view, b, id, 0.17)
+	_look_at_wire(view, b, id, 0.22)
 	await _wait(4)
 	_shot("bonsai_wire_scar")
 	view.set_tool("")
@@ -521,3 +522,17 @@ func _bonsai_sequence() -> void:
 	main.leave_bonsai()
 	await _seconds(1.0)
 	_shot("bonsai_back_to_bench")
+	# Night: the day runs out, the lantern lights the sill; then the juniper close up by night.
+	while st.phase == GameState.Phase.DAY:
+		st.tick(0.5)
+	st.take_events()
+	await _wait(10)
+	main.journal.clear_pages()
+	await _wait(20)
+	_shot("bonsai_sill_night")
+	main.open_shed_item("bonsai")
+	await _seconds(1.3)
+	main.journal.clear_pages()
+	view.look_from(0.0, 0.22, BonsaiView.DIST)
+	await _wait(8)
+	_shot("bonsai_juniper_night")
