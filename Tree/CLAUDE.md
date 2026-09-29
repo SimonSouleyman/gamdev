@@ -1,6 +1,8 @@
 # Tree (Godot 4.7) — conventions for agents and humans
 
 Design doc: `docs/design-doc.md` (the source of truth for gameplay decisions).
+Design practice: `docs/design-practice.md` (spec a mechanic before building it, keep pacing and
+economy numbers in `docs/tuning.md`, check the "broken" list there before each full review).
 
 ## Hard rules
 - Godot **4.7 stable**, **Mobile renderer**, **GDScript** only (GDExtension/C++ only for proven hot loops, by explicit decision).
