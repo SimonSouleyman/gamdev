@@ -1,5 +1,14 @@
 # Changelog
 
+## Progress (for resuming work)
+
+Kept current during the 0.6.x iteration (Simon, 2026-09-29: "reiterate and improve, visuals mostly,
+also gameplay"). Every finished step is committed and pushed; a fresh session reads this list.
+- Done: 0.6 (tag tree-v0.6), on Simon's phone.
+- In progress: fresh review of every scene and a critical play-through on PC (branch iterate-0.6).
+- Next: the plan from that review, as 0.6.1, 0.6.2 ...; new mechanics are asked first (0.7).
+- Open: the daytime tree-view frame rate on the phone is still unmeasured.
+
 ## v0.6 (2026-09-28)
 
 The whole plan of design doc section 17 in one version, then an extensive PC test (a 12-day
