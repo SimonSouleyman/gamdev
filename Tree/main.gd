@@ -100,6 +100,7 @@ func _build() -> void:
 	shed_menu.continue_pressed.connect(leave_shed)
 	shed_menu.journal_pressed.connect(func() -> void: journal.open_diary())
 	shed_menu.plant_pressed.connect(plant_next)
+	shed_menu.reset_pressed.connect(_reset)
 	shed_menu.setting_changed.connect(func(k: String, on: bool) -> void:
 		journal.set_setting(k, on)
 		_apply_setting(k, on))
@@ -813,6 +814,22 @@ func _show_away_page() -> void:
 ## (finished trees, which unlock the species) and the pages already read carry over; the photo
 ## album is kept, each photo captioned with its tree. Only when this tree is finished, or with
 ## the test switch "any species now" on the options pinboard.
+## The pinboard's resets. A new tree keeps the album, the grove, the unlocked species and the
+## bonsai; starting over wipes the save and the album (the settings stay).
+func _reset(kind: String) -> void:
+	if state == null or _transitioning:
+		return
+	var now := int(Time.get_unix_time_from_system())
+	if kind == "all":
+		Photos.clear()
+		start(GameState.new_game(now))
+	else:
+		start(GameState.new_tree(now, state.sim.species.id, state))
+	save()
+	in_shed = false
+	enter_shed(false)
+
+
 func plant_next(species_id: String) -> void:
 	if state == null or not state.can_plant_next(bool(journal.settings.get("any_species", false))):
 		return

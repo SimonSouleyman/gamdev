@@ -11,6 +11,9 @@ signal new_tree_pressed
 signal setting_changed(key: String, value: bool)
 ## A species was chosen from the seed bag: plant it as the next tree.
 signal plant_pressed(species_id: String)
+## A reset from the pinboard, confirmed (Simon, 0.6.x): "tree" plants a fresh seed of the same
+## kind (album, grove, bonsai stay), "all" starts over like a fresh install.
+signal reset_pressed(kind: String)
 
 ## The words on the labels of the things in the shed (Shed.ITEMS); the pot names the tree.
 const TAG_TEXTS := {"journal": "journal", "album": "photo album", "seeds": "seed bag",
@@ -209,6 +212,34 @@ func _build_options() -> void:
 	back.add_theme_stylebox_override("normal", Paper.paper_box(96, 48, 90, "all", 14.0))
 	back.pressed.connect(func() -> void: _options.visible = false)
 	_options.add_child(back)
+	# Two resets pinned below the notes; each asks once more before it acts.
+	var resets := HBoxContainer.new()
+	resets.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
+	resets.offset_left = -300
+	resets.offset_right = 300
+	resets.offset_top = -290
+	resets.offset_bottom = -236
+	resets.alignment = BoxContainer.ALIGNMENT_CENTER
+	resets.add_theme_constant_override("separation", 30)
+	_options.add_child(resets)
+	for kind in ["tree", "all"]:
+		var b := Paper.ink_button("plant a new tree" if kind == "tree" else "start over", 26)
+		b.add_theme_stylebox_override("normal", Paper.paper_box(96, 48, 94 + resets.get_child_count(), "all", 14.0))
+		var label: String = b.text
+		b.pressed.connect(func() -> void:
+			if b.has_meta("armed"):
+				b.remove_meta("armed")
+				b.text = label
+				_options.visible = false
+				reset_pressed.emit(kind)
+			else:
+				b.set_meta("armed", true)
+				b.text = "sure? tap again" if kind == "tree" else "erase all? tap again"
+				get_tree().create_timer(4.0).timeout.connect(func() -> void:
+					if is_instance_valid(b) and b.has_meta("armed"):
+						b.remove_meta("armed")
+						b.text = label))
+		resets.add_child(b)
 	_options.visible = false
 
 

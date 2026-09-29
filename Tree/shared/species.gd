@@ -130,7 +130,7 @@ static func beech() -> Species:
 	s.apical_dominance = 0.22
 	s.phototropism = 0.3
 	s.gravitropism = -0.15
-	s.early_pace = 0.75  # slow start, but every early day still shows (0.6.x: 0.6 grew 16 segments on day 4)
+	s.early_pace = 0.85  # slow start, but every early day still shows (0.6.x: 0.6 grew 16 segments on day 4)
 	s.early_days = 10
 	s.pace = 1.1
 	s.finish_nodes = 2080
