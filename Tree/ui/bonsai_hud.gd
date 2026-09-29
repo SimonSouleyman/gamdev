@@ -1,10 +1,13 @@
 class_name BonsaiHud
 extends CanvasLayer
-## Bonsai mode's paper (design doc section 16): a torn scrap with how the bonsai is (care day,
-## the soil's water and N, P, K, the pot, a repotting due), the tools as words circled in ink
-## (watering can, fertiliser, turning the pot, shears, pinching, wire), and the pages: the
-## repotting steps, the style pages (drawings of the classic styles, for inspiration only), the
-## bonsai's album page (milestones and an ink sketch) and the cuttings on the shelf.
+## Bonsai mode's paper (design doc section 16; 0.7: the tools are real things on the sill,
+## docs/notes/bonsai-tools-0.7.md). A small handwritten scrap with how the bonsai is (care day,
+## the soil's water and N, P, K, the pot, a repotting due) and a line for the tool in hand; a
+## note "back to the bench"; small paper labels on the sill's things (until each was used once,
+## and always with "clearer print"); the pellet tin's slip (N, P or K); the repotting slip while
+## the tree is out of its pot; and the pages: the style pages (drawings of the classic styles,
+## for inspiration only), the bonsai's album page (milestones and an ink sketch) and the
+## cuttings on the shelf.
 
 signal back_pressed
 
@@ -17,27 +20,41 @@ const STYLE_TEXTS := {
 	"broom": ["Broom", "A straight short trunk opens into many fine branches all at once: a dome, like a lone linden in a field."],
 }
 const TOOL_HINTS := {
-	"": "Drag to look round the pot, scroll or pinch to come closer.",
+	"": "Pick up a tool from the sill. Drag to look round, pinch to come closer.",
+	"water": "Tap the soil to water. Tap the can again to put it down.",
+	"fertiliser": "Choose N, P or K on the slip, then tap the soil.",
 	"shears": "Touch a branch: the mark shows the cut, the outline what falls. Lift to cut (a third at most).",
-	"pinch": "Tap a fresh tip (grown today or yesterday) to pinch it: the buds behind it fill in.",
+	"pinch": "Tap a fresh tip (grown today or yesterday) with the tweezers: the buds behind it fill in.",
 	"wire": "Touch a branch and drag it into its new line; the copper holds it. Tap a wired branch to take the wire off.",
+	"trowel": "On a repot day, tap the pot: the tree comes out with its root ball.",
 }
+const PELLETS: Array[String] = ["N", "P", "K"]
+const PELLET_WORDS: Array[String] = ["leaves", "roots", "wood"]
 
-var view: BonsaiView
+var view: BonsaiView:
+	set = _set_view
 var state: GameState
 ## Whether the test switch "any species now" is on (all cuttings).
 var any_species: Callable = func() -> bool: return false
+## Set by main: shows the first-time journal page for a tool ("shears", "pinch", "wire", "repot").
+var first_page: Callable = func(_id: String) -> void: pass
 
 var _root: Control
 var _status: Label
 var _soil: Label
 var _hint: Label
-var _tools: Dictionary = {}
-var _repot_button: Button
-var _cuttings_button: Button
+var _back: Control
+var _labels_layer: Control
+var _labels: Dictionary = {}  # sill thing id -> PanelContainer
+var _pellet_slip: PanelContainer
+var _pellet_buttons: Array[Button] = []
+var _repot_slip: PanelContainer
+var _pot_buttons: Dictionary = {}  # pot id -> Button
 var _sheet: Control
 var _sheet_box: VBoxContainer
 var _style_index: int = 0
+var _said: String = ""
+var _said_time: float = 0.0
 
 
 func _ready() -> void:
@@ -46,92 +63,175 @@ func _ready() -> void:
 	_root.set_anchors_preset(Control.PRESET_FULL_RECT)
 	_root.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(_root)
+	_build_labels()
 	_build_status()
-	_build_tools()
+	_build_back()
+	_build_pellet_slip()
+	_build_repot_slip()
 	_build_sheet()
 	visible = false
 
 
+func _set_view(v: BonsaiView) -> void:
+	view = v
+	if v == null:
+		return
+	v.object_tapped.connect(_on_object)
+	v.tool_picked.connect(func(id: String) -> void:
+		if id in ["shears", "pinch", "wire"]:
+			first_page.call(id)
+		elif id == "trowel":
+			first_page.call("repot"))
+	v.tool_used.connect(_on_used)
+	v.said.connect(func(text: String) -> void:
+		_said = text
+		_said_time = 4.0)
+
+
+## The status as a small scrap in the top right corner, beside the note back to the bench.
 func _build_status() -> void:
 	var scrap := PanelContainer.new()
-	PaperLook.apply(scrap, "strip", 171, 18.0)
-	scrap.set_anchors_preset(Control.PRESET_TOP_WIDE)
-	scrap.offset_left = 26
-	scrap.offset_right = -26
-	scrap.offset_top = 26
-	scrap.rotation_degrees = -0.6
+	PaperLook.apply(scrap, "strip", 171, 14.0)
+	scrap.set_anchors_preset(Control.PRESET_TOP_RIGHT)
+	scrap.offset_left = -440
+	scrap.offset_right = -18
+	scrap.offset_top = 20
+	scrap.grow_horizontal = Control.GROW_DIRECTION_BEGIN
+	scrap.rotation_degrees = 0.8
 	scrap.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_root.add_child(scrap)
 	var box := VBoxContainer.new()
-	box.add_theme_constant_override("separation", 2)
+	box.add_theme_constant_override("separation", 0)
 	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	scrap.add_child(box)
-	_status = Paper.ink_label("", 30, Paper.INK, true)
+	_status = Paper.ink_label("", 25, Paper.INK, true)
 	_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	box.add_child(_status)
-	_soil = Paper.ink_label("", 25)
+	_soil = Paper.ink_label("", 22)
 	_soil.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	box.add_child(_soil)
-	_hint = Paper.ink_label("", 22, Paper.FAINT_INK)
+	_hint = Paper.ink_label("", 20, Paper.FAINT_INK)
 	_hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	box.add_child(_hint)
 
 
-func _build_tools() -> void:
-	var strip := PanelContainer.new()
-	PaperLook.apply(strip, "strip", 172, 16.0)
-	strip.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
-	strip.offset_left = 18
-	strip.offset_right = -18
-	strip.offset_top = -270
-	strip.offset_bottom = -24
-	strip.rotation_degrees = 0.4
-	_root.add_child(strip)
-	var rows := VBoxContainer.new()
-	rows.add_theme_constant_override("separation", 10)
-	strip.add_child(rows)
-	var r1 := _row(rows)
-	_button(r1, "water", func() -> void: view.water())
-	_button(r1, "fertiliser", _open_fertiliser)
-	_button(r1, "< turn", func() -> void: view.turn_pot(-1))
-	_button(r1, "turn >", func() -> void: view.turn_pot(1))
-	var r2 := _row(rows)
-	for t in ["shears", "pinch", "wire"]:
-		var tool_name: String = t
-		_tools[tool_name] = _button(r2, tool_name, func() -> void: _toggle_tool(tool_name))
-	_repot_button = _button(r2, "repot", _open_repot)
-	var r3 := _row(rows)
-	_button(r3, "styles", _open_styles)
-	_button(r3, "album page", _open_album)
-	_cuttings_button = _button(r3, "cuttings", _open_cuttings)
-	_button(r3, "back", func() -> void: back_pressed.emit())
-
-
-func _row(parent: Control) -> HBoxContainer:
-	var r := HBoxContainer.new()
-	r.alignment = BoxContainer.ALIGNMENT_CENTER
-	r.add_theme_constant_override("separation", 10)
-	parent.add_child(r)
-	return r
-
-
-func _button(parent: Control, text: String, action: Callable) -> Button:
-	var b := Paper.ink_button(text, 27)
+## A small torn note in the top left corner: back to the workbench.
+func _build_back() -> void:
+	var note := PanelContainer.new()
+	note.add_theme_stylebox_override("panel", Paper.paper_box(200, 90, 177, "all", 10.0))
+	note.position = Vector2(16, 22)
+	note.rotation_degrees = -2.5
+	_root.add_child(note)
+	var b := Paper.ink_button("back to\nthe bench", 24)
+	b.custom_minimum_size = Vector2(170, 84)
 	b.pressed.connect(func() -> void:
 		if view != null and not view.busy:
-			action.call())
-	parent.add_child(b)
-	return b
+			back_pressed.emit())
+	note.add_child(b)
+	_back = note
 
 
-func _toggle_tool(t: String) -> void:
-	view.set_tool("" if view.tool == t else t)
-	if view.tool != "":
-		first_page.call(view.tool)
+## A small paper label for each thing on the sill.
+func _build_labels() -> void:
+	_labels_layer = Control.new()
+	_labels_layer.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_labels_layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_root.add_child(_labels_layer)
+	var i := 0
+	for id in BonsaiTools.LABELS:
+		var tag := PanelContainer.new()
+		tag.add_theme_stylebox_override("panel", Paper.paper_box(110, 40, 180 + i, "all", 7.0))
+		tag.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		var l := Paper.ink_label(BonsaiTools.LABELS[id], 21)
+		l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		tag.add_child(l)
+		tag.rotation_degrees = [-3.0, 2.0, -1.5, 2.5, -2.0, 1.5, -2.5][i % 7]
+		tag.visible = false
+		tag.modulate.a = 0.0
+		_labels_layer.add_child(tag)
+		_labels[id] = tag
+		i += 1
 
 
-## Set by main: shows the first-time journal page for a tool ("shears", "pinch", "wire").
-var first_page: Callable = func(_id: String) -> void: pass
+## The pellet tin's slip: which pellets the next spoon gives.
+func _build_pellet_slip() -> void:
+	_pellet_slip = PanelContainer.new()
+	_pellet_slip.add_theme_stylebox_override("panel", Paper.paper_box(300, 150, 183, "all", 12.0))
+	_pellet_slip.rotation_degrees = 1.5
+	_pellet_slip.visible = false
+	_root.add_child(_pellet_slip)
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 4)
+	_pellet_slip.add_child(box)
+	var head := Paper.ink_label("which pellets?", 22, Paper.FAINT_INK)
+	head.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	box.add_child(head)
+	var row := HBoxContainer.new()
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	row.add_theme_constant_override("separation", 8)
+	box.add_child(row)
+	for k in range(3):
+		var kind := k
+		var b := Paper.ink_button("%s\n%s" % [PELLETS[k], PELLET_WORDS[k]], 23)
+		b.custom_minimum_size = Vector2(96, 96)
+		b.add_theme_color_override("font_color", Resources.KIND_COLORS[k + 1].darkened(0.45))
+		b.pressed.connect(func() -> void: choose_pellets(kind))
+		row.add_child(b)
+		_pellet_buttons.append(b)
+
+
+## Chooses the pellets the tin gives next (0 N, 1 P, 2 K).
+func choose_pellets(kind: int) -> void:
+	if view == null:
+		return
+	view.pellet_kind = kind
+	for k in range(3):
+		var b := _pellet_buttons[k]
+		var on := k == kind
+		for s in ["normal", "hover", "pressed", "focus"]:
+			var sb := b.get_theme_stylebox(s) as StyleBoxFlat
+			if sb != null:
+				sb = sb.duplicate() as StyleBoxFlat
+				sb.border_color = Paper.RED_INK if on else Paper.INK
+				sb.set_border_width_all(4 if on else 2)
+				sb.bg_color = Color(0.6, 0.18, 0.12, 0.1) if on else Color(0.2, 0.15, 0.1, 0.0)
+				b.add_theme_stylebox_override(s, sb)
+
+
+## While the tree is out of its pot: the pots to choose from, low on the screen under the tools
+## (the secateurs trim the root ball, the trowel puts it back; the status scrap says so).
+func _build_repot_slip() -> void:
+	_repot_slip = PanelContainer.new()
+	_repot_slip.add_theme_stylebox_override("panel", Paper.paper_box(680, 170, 185, "all", 12.0))
+	_repot_slip.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
+	_repot_slip.offset_left = 14
+	_repot_slip.offset_right = -14
+	_repot_slip.offset_top = -172
+	_repot_slip.offset_bottom = -10
+	_repot_slip.rotation_degrees = -0.5
+	_repot_slip.visible = false
+	_root.add_child(_repot_slip)
+	var pots := HFlowContainer.new()
+	pots.alignment = FlowContainer.ALIGNMENT_CENTER
+	pots.add_theme_constant_override("h_separation", 8)
+	pots.add_theme_constant_override("v_separation", 6)
+	_repot_slip.add_child(pots)
+	for pid in BonsaiSim.POT_ORDER:
+		var id: String = pid
+		var b := Paper.ink_button(str(BonsaiSim.POTS[id]["name"]), 21)
+		b.custom_minimum_size.y = 56
+		b.pressed.connect(func() -> void:
+			if view != null:
+				view.repot_pick(id))
+		pots.add_child(b)
+		_pot_buttons[id] = b
+	var done := Paper.ink_button("fresh soil, and in", 22)
+	done.custom_minimum_size.y = 56
+	done.add_theme_color_override("font_color", Paper.RED_INK)
+	done.pressed.connect(func() -> void:
+		if view != null:
+			view.repot_finish())
+	pots.add_child(done)
 
 
 func show_hud(on: bool) -> void:
@@ -144,27 +244,103 @@ func is_busy() -> bool:
 	return _sheet.visible
 
 
-func _process(_d: float) -> void:
-	if not visible or state == null or state.bonsai == null:
+func _on_object(id: String) -> void:
+	match id:
+		"styles":
+			_open_styles()
+		"album":
+			_open_album()
+		"cuttings":
+			_open_cuttings()
+	_mark_used(id)
+
+
+func _on_used(kind: String) -> void:
+	match kind:
+		"burn", "fertiliser":
+			_mark_used("fertiliser")
+		"unwire", "wire":
+			_mark_used("wire")
+		"turn":
+			_mark_used("turn_left")
+			_mark_used("turn_right")
+		"repot":
+			_mark_used("trowel")
+		_:
+			_mark_used(kind)
+
+
+func _mark_used(id: String) -> void:
+	if state != null:
+		state.seen_pages["bonsai_tool_" + id] = true
+
+
+## Whether the sill thing `id` still carries its first-time label.
+func is_new(id: String) -> bool:
+	return state != null and not state.seen_pages.has("bonsai_tool_" + id)
+
+
+func _process(delta: float) -> void:
+	if state == null or state.bonsai == null or view == null:
+		return
+	# The box of cuttings lies on the sill only while there is another cutting to choose.
+	(view.tools.items["cuttings"] as Node3D).visible = state.bonsai_choices(any_species.call()).size() > 1
+	if not visible:
 		return
 	var b := state.bonsai
 	_status.text = "My %s bonsai, care day %d" % [b.plant_name(), b.day()]
 	var water := "the soil is dry, the leaves droop" if b.droop() > 0.0 else ("the soil is wet, it grows slowly" if b.is_too_wet() else "the soil is damp")
 	var words: Array[String] = []
-	var names: Array[String] = ["N", "P", "K"]
 	for k in range(3):
 		var s := b.soil[k]
-		words.append("%s %s" % [names[k], "low" if s < 0.2 else ("plenty" if s > BonsaiSim.BURN_LEVEL else "ok")])
-	var pot := "in the %s" % b.pot_name()
+		words.append("%s %s" % [PELLETS[k], "low" if s < 0.2 else ("plenty" if s > BonsaiSim.BURN_LEVEL else "ok")])
+	var pot := "In the %s" % b.pot_name()
 	if b.repot_due:
 		pot += ", asking to be repotted"
 	_soil.text = "%s; %s. %s." % [water, ", ".join(words), pot]
-	_hint.text = TOOL_HINTS.get(view.tool, "")
-	for t in _tools:
-		var on: bool = view.tool == t
-		(_tools[t] as Button).modulate = Color(1.0, 0.55, 0.35) if on else Color.WHITE
-	_repot_button.visible = b.repot_due or view.is_lifted()
-	_cuttings_button.visible = state.bonsai_choices(any_species.call()).size() > 1
+	_said_time = maxf(0.0, _said_time - delta)
+	var lifted := view.is_lifted()
+	_hint.text = _said if _said_time > 0.0 else str(TOOL_HINTS.get(view.tool, ""))
+	if lifted and _said_time <= 0.0:
+		_hint.text = "Out of the pot: snip the circling roots with the secateurs (%d%% so far), pick a pot below, then the trowel puts it back in fresh soil." % int(view.trim_share() * 100.0)
+	_repot_slip.visible = lifted and not _sheet.visible
+	if lifted:
+		for id in _pot_buttons:
+			(_pot_buttons[id] as Button).modulate = Color(1.0, 0.55, 0.35) if view.new_pot() == id else Color.WHITE
+	_place_labels()
+	_place_pellet_slip()
+
+
+## The labels by the things on the sill: first time (until used once), with "clearer print",
+## and on a PC when the pointer rests on one. Not on the tool in hand.
+func _place_labels() -> void:
+	var pts := view.object_screen_points()
+	var room := _labels_layer.size
+	for id in _labels:
+		var tag: PanelContainer = _labels[id]
+		var on: bool = pts.has(id) and not _sheet.visible and id != view.tool and (Paper.clear_print or is_new(id) or view.hover == id)
+		tag.modulate.a = move_toward(tag.modulate.a, 1.0 if on else 0.0, 0.12)
+		tag.visible = tag.modulate.a > 0.01
+		if not pts.has(id):
+			continue
+		tag.size = tag.get_combined_minimum_size()
+		tag.pivot_offset = tag.size * 0.5
+		var pos := (pts[id] as Vector2) + Vector2(-tag.size.x * 0.5, 30.0)
+		tag.position = pos.clamp(Vector2(6, 6), Vector2(maxf(room.x - tag.size.x - 6.0, 6.0), maxf(room.y - tag.size.y - 6.0, 6.0)))
+
+
+## The pellet slip floats above the tin while it is in hand.
+func _place_pellet_slip() -> void:
+	var on := view.tool == "fertiliser" and not _sheet.visible and not view.busy
+	_pellet_slip.visible = on
+	if not on:
+		return
+	var room := _root.size
+	_pellet_slip.size = _pellet_slip.get_combined_minimum_size()
+	# Above the tin's place on the sill, so it stays put while the tin follows the finger.
+	var at := view.tools.rest_point(view.camera, "fertiliser")
+	var pos := at + Vector2(-_pellet_slip.size.x * 0.5, -_pellet_slip.size.y - 70.0)
+	_pellet_slip.position = pos.clamp(Vector2(10, 260), Vector2(maxf(room.x - _pellet_slip.size.x - 10.0, 10.0), maxf(room.y - _pellet_slip.size.y - 10.0, 10.0)))
 
 
 # --- sheets ------------------------------------------------------------------------------
@@ -215,62 +391,6 @@ func _text(parent: Control, words: String, size: int = 27) -> Label:
 	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	parent.add_child(l)
 	return l
-
-
-func _open_fertiliser() -> void:
-	var box := _open("Fertiliser")
-	_text(box, "A spoon of pellets on the soil. Which one? Too much of one burns a few leaf tips.")
-	var names: Array[String] = ["nitrogen (leaves, shoots)", "phosphorus (roots, buds)", "potassium (wood, health)"]
-	for k in range(3):
-		var kind := k
-		var b := Paper.ink_button(names[k], 28)
-		b.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
-		b.add_theme_color_override("font_color", Resources.KIND_COLORS[k + 1].darkened(0.45))
-		b.pressed.connect(func() -> void:
-			close_sheet()
-			view.fertilise(kind))
-		box.add_child(b)
-
-
-## Repotting in four steps: lift it out, trim the roots, pick the pot, fresh soil.
-func _open_repot() -> void:
-	var box := _open("Repotting")
-	if not view.is_lifted():
-		_text(box, "The roots fill the pot. First lift the tree out with its root ball.")
-		var lift := Paper.ink_button("lift it out", 28)
-		lift.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
-		lift.pressed.connect(func() -> void:
-			view.repot_lift()
-			first_page.call("repot")
-			_open_repot())
-		box.add_child(lift)
-		return
-	_text(box, "Trim the long circling roots with the shears (%d%% cut so far), pick a pot, then fresh soil." % int(view.trim_share() * 100.0))
-	var trim := Paper.ink_button("snip the roots", 28)
-	trim.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
-	trim.pressed.connect(func() -> void:
-		view.repot_trim()
-		_open_repot())
-	box.add_child(trim)
-	_text(box, "The pot:", 26)
-	var pots := HFlowContainer.new()
-	pots.add_theme_constant_override("h_separation", 10)
-	pots.add_theme_constant_override("v_separation", 8)
-	box.add_child(pots)
-	for pid in BonsaiSim.POT_ORDER:
-		var id: String = pid
-		var b := Paper.ink_button("%s (%d)" % [BonsaiSim.POTS[id]["name"], int(BonsaiSim.POTS[id]["nodes"])], 23)
-		b.pressed.connect(func() -> void:
-			view.repot_pick(id)
-			_open_repot())
-		pots.add_child(b)
-	var done := Paper.ink_button("fresh soil, and in", 30)
-	done.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
-	done.pressed.connect(func() -> void:
-		close_sheet()
-		view.repot_finish())
-	box.add_child(done)
-	_text(box, "(The number is how many green twigs the pot can carry.)", 22)
 
 
 func _open_styles(index: int = -1) -> void:
