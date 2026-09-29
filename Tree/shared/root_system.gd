@@ -16,18 +16,46 @@ var speed: float = 0.9
 var dive_speed: float = 1.3
 ## Radians per second at full joystick deflection.
 var turn_rate: float = 1.7
+## A hard turn slows the tip by up to this share, so the turn gets tighter and the root
+## no longer circles a deposit it is steered at (QA r1: constant speed, limited turn).
+var turn_slowdown: float = 0.4
+## Gentle magnetism: a fresh deposit within this reach, ahead of the tip (heading dot above
+## MAGNET_CONE), bends the heading toward it at this rate (rad/s), less while the stick is held hard.
+var magnet_radius: float = 1.8
+var magnet_rate: float = 1.3
+const MAGNET_CONE: float = 0.3
 ## The root drifts down on its own at this speed (m/s); diving also bends the heading down.
 var sink_speed: float = 0.07
 var dive_sink_rate: float = 1.2
 ## Length of one permanent root segment.
 var step_length: float = 0.25
 ## Dots within this distance of the tip are drunk immediately.
-var collect_radius: float = 0.55
+var collect_radius: float = 0.7
 ## Fine roots reach dots within this distance of the new main root.
 var fine_radius: float = 1.6
 ## Ending early: each point of leftover life force buys this many more fine-root nodes,
-## and widens their reach a little (Simon, play test 2026-09-27).
+## and widens their reach, up to a cap (Simon, play test 2026-09-27).
 var fine_nodes_per_life_force: float = 6.0
+var fine_reach_per_life_force: float = 0.12
+var fine_reach_max_extra: float = 6.0
+## Share of a deposit's capacity the tip draws on first contact, and a fine root. QA r1: fine roots
+## drew as much as the tip, so a 2 m root whose leftover sprouted fine roots 7 m around it grew a
+## bigger tree than steering did; now steering to a deposit pays twice.
+var tip_share: float = Underground.FIRST_SHARE
+var fine_share: float = 0.1
+## A calm night (QA r1: runs grew to 80-110 s): life force beyond calm_life_force makes each
+## metre dearer (by the power cost_exponent), and a long planned root grows faster, so a night's
+## root takes about calm_run_seconds at most. The turn speeds up with it (the same curves in metres).
+var calm_life_force: float = 50.0
+var cost_exponent: float = 0.5
+var calm_run_seconds: float = 30.0
+## Average cost of a metre along a typical run, relative to base_cost_per_metre (for planning).
+const TYPICAL_COST: float = 2.2
+const MAX_SPEED_SCALE: float = 1.8
+## A small tank grows slower, so even the first nights last about 20 s.
+const MIN_SPEED_SCALE: float = 0.65
+var run_cost_scale: float = 1.0
+var run_speed_scale: float = 1.0
 var _fine_budget: int = Budgets.FINE_ROOTS_PER_MAIN_ROOT
 var _fine_reach: float = 1.6
 ## Life force that went into extra fine roots at the end of the last run.
@@ -61,7 +89,10 @@ var run_totals: PackedFloat32Array = PackedFloat32Array([0, 0, 0, 0])
 var tapped: Dictionary = {}
 var _run_touched: Dictionary = {}
 ## Share of a deposit's capacity the old roots draw each night.
-const NIGHTLY_SHARE: float = 0.2
+var nightly_share: float = 0.05
+## Water seeps back toward the old roots: they draw this many times the nightly share from water
+## deposits, so a small root network still keeps the tree watered (soft failure).
+var nightly_water_factor: float = 2.0
 
 
 func _init(random_seed: int = 1) -> void:
@@ -102,6 +133,9 @@ func start_run(from_id: int) -> bool:
 	run_totals = PackedFloat32Array([0, 0, 0, 0])
 	_run_touched = {}
 	_stuck_time = 0.0
+	_paced = false
+	run_cost_scale = 1.0
+	run_speed_scale = 1.0
 	if from_id == 0:
 		heading = Vector3(0.0, -0.5, -1.0).normalized()
 	else:
@@ -111,6 +145,18 @@ func start_run(from_id: int) -> bool:
 			heading = Vector3(0.0, -0.5, -1.0).normalized()
 	_update_right()
 	return true
+
+
+var _paced: bool = false
+
+
+## Tonight's pace from the life force the run starts with (see calm_life_force).
+func pace_run(life_force: float) -> void:
+	_paced = true
+	run_cost_scale = pow(maxf(1.0, life_force / calm_life_force), cost_exponent)
+	# Birch's cheap topsoil roots reach further on the same life force.
+	var metres := life_force / (base_cost_per_metre * TYPICAL_COST * species.topsoil_root_cost * run_cost_scale)
+	run_speed_scale = clampf(metres / (speed * calm_run_seconds), MIN_SPEED_SCALE, MAX_SPEED_SCALE)
 
 
 ## Nodes added in the current run (the permanent path).
@@ -124,8 +170,13 @@ func advance(stick: Vector2, dive: bool, delta: float, ground: Underground, res:
 	last_finds = []
 	if not run_active:
 		return false
+	if not _paced:
+		pace_run(res.life_force)
 	_steer(stick, dive, delta)
-	var want := (dive_speed if dive else speed) * delta
+	_magnet(stick, delta, ground)
+	# A hard turn slows the tip: the tighter curve reaches a deposit instead of circling it.
+	var slow := 1.0 - turn_slowdown * clampf(absf(stick.x) + maxf(0.0, absf(stick.y) - 0.2), 0.0, 1.0)
+	var want := (dive_speed if dive else speed * slow) * run_speed_scale * delta
 	var drift := Vector3.DOWN * sink_speed * delta
 	# Small substeps, so a long frame cannot tunnel into a rock or skip the dots it passed.
 	# Life force pays for the distance the tip really moved, never for pushing against a wall.
@@ -134,7 +185,7 @@ func advance(stick: Vector2, dive: bool, delta: float, ground: Underground, res:
 	var start_of_frame := tip_position
 	for _i in range(steps):
 		var before := tip_position
-		var cost_rate := cost_per_metre(tip_position, heading)
+		var cost_rate := cost_per_metre(tip_position, heading) * run_cost_scale
 		var step := want / steps
 		if res.life_force < step * cost_rate:
 			step = res.life_force / cost_rate
@@ -191,12 +242,49 @@ const MAX_UP: float = 0.4
 
 func _steer(stick: Vector2, dive: bool, delta: float) -> void:
 	stick = stick.limit_length(1.0)
-	heading = heading.rotated(Vector3.UP, -stick.x * turn_rate * delta)
+	var rate := turn_rate * run_speed_scale
+	heading = heading.rotated(Vector3.UP, -stick.x * rate * delta)
 	_update_right()
-	heading = heading.rotated(_right, stick.y * turn_rate * delta)
+	heading = heading.rotated(_right, stick.y * rate * delta)
 	if dive:
 		heading = (heading + Vector3.DOWN * dive_sink_rate * delta).normalized()
 	heading = _clamp_pitch(heading)
+	_update_right()
+
+
+## A deposit not yet drunk by any root: the tip may still draw its first share.
+func is_fresh(i: int) -> bool:
+	return not tapped.has(i) and not _run_touched.has(i)
+
+
+## The nearest fresh deposit within `reach` of the tip and ahead of it (heading dot > `cone`); -1 if none.
+func fresh_ahead(ground: Underground, reach: float, cone: float) -> int:
+	var best := -1
+	var best_d := reach
+	for i in ground.dots_near(tip_position, reach):
+		if not is_fresh(i):
+			continue
+		var to := ground.dot_positions[i] - tip_position
+		var d := to.length()
+		if d < 1e-3 or heading.dot(to / d) < cone:
+			continue
+		if d < best_d:
+			best_d = d
+			best = i
+	return best
+
+
+## Gentle magnetism toward a fresh deposit within reach; the stick held hard overrules it.
+func _magnet(stick: Vector2, delta: float, ground: Underground) -> void:
+	var i := fresh_ahead(ground, magnet_radius, MAGNET_CONE)
+	if i < 0:
+		return
+	var want := (ground.dot_positions[i] - tip_position).normalized()
+	var angle := heading.angle_to(want)
+	if angle < 1e-3:
+		return
+	var turn := magnet_rate * run_speed_scale * (1.0 - 0.7 * clampf(stick.length(), 0.0, 1.0)) * delta
+	heading = _clamp_pitch(heading.slerp(want, minf(1.0, turn / angle)).normalized())
 	_update_right()
 
 
@@ -290,8 +378,8 @@ func end_run(ground: Underground, res: Resources) -> void:
 	res.life_force = 0.0
 	_fine_budget = mini(Budgets.FINE_ROOTS_MAX_PER_MAIN_ROOT,
 		Budgets.FINE_ROOTS_PER_MAIN_ROOT + int(leftover_spent * fine_nodes_per_life_force))
-	# Leftover life force reaches further: the fine roots gather what lies around the new root.
-	_fine_reach = fine_radius + minf(6.0, leftover_spent * 0.12)
+	# Leftover life force reaches a little further: the fine roots gather what lies around the new root.
+	_fine_reach = fine_radius + minf(fine_reach_max_extra, leftover_spent * fine_reach_per_life_force)
 	if run_node_count() > 0:
 		_grow_fine_roots(ground, res)
 		main_root_count += 1
@@ -366,11 +454,13 @@ func _grow_fine_roots(ground: Underground, res: Resources) -> void:
 	for d in marker_ids:
 		if not left.has(ground.dot_positions[d]):
 			reached.append(d)
-	_collect_ids(reached, ground, res)
+	_collect_ids(reached, ground, res, fine_share)
 
 
-func _collect_ids(ids: PackedInt32Array, ground: Underground, res: Resources) -> void:
-	var got := ground.collect(ids, res, Underground.FIRST_SHARE, species.water_draw)
+func _collect_ids(ids: PackedInt32Array, ground: Underground, res: Resources, share: float = -1.0) -> void:
+	if share < 0.0:
+		share = tip_share
+	var got := ground.collect(ids, res, share, species.water_draw)
 	for j in range(got.size()):
 		var i := got[j]
 		run_totals[ground.dot_kinds[i]] += ground.last_drawn[j]
@@ -389,7 +479,7 @@ func drink_tapped(ground: Underground, res: Resources) -> PackedFloat32Array:
 			ids.append(i)
 		else:
 			tapped.erase(i)
-	var got := ground.collect(ids, res, NIGHTLY_SHARE, species.water_draw)
+	var got := ground.collect(ids, res, nightly_share, species.water_draw * nightly_water_factor)
 	for j in range(got.size()):
 		totals[ground.dot_kinds[got[j]]] += ground.last_drawn[j]
 	return totals
@@ -441,6 +531,9 @@ func to_dict() -> Dictionary:
 		"run_start_id": run_start_id,
 		"run_first_new_id": run_first_new_id,
 		"run_length": run_length,
+		"run_cost_scale": run_cost_scale,
+		"run_speed_scale": run_speed_scale,
+		"paced": _paced,
 	}
 
 
@@ -465,5 +558,8 @@ static func from_dict(d: Dictionary, random_seed: int = 1) -> RootSystem:
 	r.run_start_id = int(d.get("run_start_id", -1))
 	r.run_first_new_id = int(d.get("run_first_new_id", -1))
 	r.run_length = float(d.get("run_length", 0.0))
+	r.run_cost_scale = float(d.get("run_cost_scale", 1.0))
+	r.run_speed_scale = float(d.get("run_speed_scale", 1.0))
+	r._paced = bool(d.get("paced", false))
 	r._update_right()
 	return r

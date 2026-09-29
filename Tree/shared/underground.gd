@@ -33,10 +33,10 @@ var dot_kinds: PackedInt32Array = PackedInt32Array()
 var dot_amounts: PackedFloat32Array = PackedFloat32Array()
 var dot_capacity: PackedFloat32Array = PackedFloat32Array()
 ## How many first-contact shares a deposit holds.
-const DEPOSIT_SHARES: float = 4.0
+const DEPOSIT_SHARES: float = 1.15
 ## The new root's first contact takes this much, so a well-steered night pays off that night
 ## (QA round 2: at 1/4 the old roots drank more than the new one).
-const FIRST_SHARE: float = 0.4
+const FIRST_SHARE: float = 0.2
 var dot_collected: PackedByteArray = PackedByteArray()
 var rock_centers: PackedVector3Array = PackedVector3Array()
 var rock_radii: PackedFloat32Array = PackedFloat32Array()
@@ -337,6 +337,9 @@ static func from_dict(d: Dictionary) -> Underground:
 	var am := Marshalls.base64_to_raw(str(d.get("amounts", ""))).to_float32_array()
 	if am.size() == u.dot_amounts.size():
 		u.dot_amounts = am
+		# Saves from before the 0.6.4 rebalance held bigger deposits.
+		for i in range(u.dot_count()):
+			u.dot_amounts[i] = minf(u.dot_amounts[i], u.dot_capacity[i])
 	else:
 		# An older save: dots were either full or gone.
 		for i in range(u.dot_count()):

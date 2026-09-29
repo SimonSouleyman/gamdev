@@ -18,9 +18,9 @@ const DAYLIGHT_HOURS: float = 14.0
 var boost_remaining: float = 0.0
 ## Sun boost: brighter sun, faster growth, while active.
 var boost_active: bool = false
-var boost_multiplier: float = 3.0
+var boost_multiplier: float = 2.0
 ## Boosting is a trade: growth speeds up, but leaves turn light into less life force.
-var boost_life_force_factor: float = 0.4
+var boost_life_force_factor: float = 0.5
 ## Height of the sun at noon. Germany in summer is about 60 degrees; seasons will tilt this later.
 var noon_elevation: float = deg_to_rad(55.0)
 
