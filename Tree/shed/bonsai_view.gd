@@ -16,19 +16,23 @@ const FOCUS := Vector3(0.0, 0.2, 0.0)
 const DIST := 0.8
 const PICK_RADIUS := 44.0
 ## The copper wire: its thickness and one coil turn, in bonsai units.
-const WIRE_RADIUS := 0.02
+const WIRE_RADIUS := 0.009
 const WIRE_PITCH := 0.14
 ## The pots as drawn: footprint half size (m), height, corner roundness (superellipse power),
 ## glaze colour and roughness. The nursery pot is the Poly Haven clay planter.
 const POT_LOOKS := {
 	"nursery": {"model": true, "scale": 0.6, "soil": 0.112, "half": Vector2(0.066, 0.066), "n": 2.0},
-	"rectangle": {"half": Vector2(0.11, 0.08), "h": 0.058, "n": 7.0, "color": Color(0.2, 0.195, 0.19), "rough": 0.92},
-	"oval": {"half": Vector2(0.1, 0.075), "h": 0.055, "n": 2.0, "color": Color(0.09, 0.15, 0.3), "rough": 0.6},
-	"round": {"half": Vector2(0.078, 0.078), "h": 0.07, "n": 2.0, "color": Color(0.4, 0.54, 0.42), "rough": 0.28},
-	"cascade": {"half": Vector2(0.062, 0.062), "h": 0.15, "n": 5.0, "color": Color(0.86, 0.8, 0.67), "rough": 0.3},
+	"rectangle": {"half": Vector2(0.11, 0.08), "h": 0.058, "n": 7.0, "color": Color(0.26, 0.245, 0.235), "clay": Color(0.27, 0.25, 0.24), "glaze": 0.0, "rough": 0.9},
+	"oval": {"half": Vector2(0.1, 0.075), "h": 0.055, "n": 2.0, "color": Color(0.1, 0.19, 0.38), "clay": Color(0.5, 0.4, 0.32), "glaze": 1.0, "rough": 0.22},
+	"round": {"half": Vector2(0.078, 0.078), "h": 0.07, "n": 2.0, "color": Color(0.42, 0.56, 0.44), "clay": Color(0.52, 0.42, 0.34), "glaze": 1.0, "rough": 0.18},
+	"cascade": {"half": Vector2(0.062, 0.062), "h": 0.15, "n": 5.0, "color": Color(0.84, 0.78, 0.64), "clay": Color(0.55, 0.43, 0.33), "glaze": 1.0, "rough": 0.25},
 }
 const JUNIPER_COLOR := "res://lookdev/bonsai/juniper_spray_color.png"
 const JUNIPER_NORMAL := "res://lookdev/bonsai/juniper_spray_normal.png"
+## The roster's leaf sprays, a mipmapped copy of the crown atlas (make_juniper.py writes it).
+const LEAF_COLOR := "res://lookdev/bonsai/leaf_spray_small_color.png"
+const LEAF_NORMAL := "res://lookdev/bonsai/leaf_spray_small_normal.png"
+const FOLIAGE_SHADER := preload("res://lookdev/bonsai/bonsai_foliage.gdshader")
 
 var state: GameState
 var camera: Camera3D
@@ -46,14 +50,17 @@ var _turn_node: Node3D
 var _turn_angle: float = 0.0
 var _pot_node: Node3D
 var _soil: MeshInstance3D
-var _soil_mat: StandardMaterial3D
-var _moss: Node3D
+var _soil_mat: ShaderMaterial
+## The grit on the soil (the moss itself grows in the soil's shader).
+var _moss: MultiMeshInstance3D
 var _pellets: MultiMeshInstance3D
 var _lift: Node3D
 var _plant: Node3D
 var _wood: MeshInstance3D
 var _bark: ShaderMaterial
 var _foliage: MultiMeshInstance3D
+## Each pad's dark inner mass, so a pad reads as a dense cloud and not a scatter of tufts.
+var _cores: MultiMeshInstance3D
 var _spray_mat: ShaderMaterial
 var _wires: MeshInstance3D
 var _root_ball: Node3D
@@ -128,11 +135,31 @@ func _ready() -> void:
 	mm.mesh = CrownSprays.card_mesh()
 	_foliage.multimesh = mm
 	_plant.add_child(_foliage)
+	_cores = MultiMeshInstance3D.new()
+	var cm := MultiMesh.new()
+	cm.transform_format = MultiMesh.TRANSFORM_3D
+	cm.use_colors = true
+	var blob := SphereMesh.new()
+	blob.radial_segments = 12
+	blob.rings = 6
+	blob.radius = 1.0
+	blob.height = 2.0
+	cm.mesh = blob
+	_cores.multimesh = cm
+	var core_mat := StandardMaterial3D.new()
+	core_mat.vertex_color_use_as_albedo = true
+	# The phone's renderer draws these darker: its colours are taken as they are.
+	core_mat.vertex_color_is_srgb = not Budgets.PHONE
+	core_mat.roughness = 1.0
+	core_mat.diffuse_mode = BaseMaterial3D.DIFFUSE_LAMBERT_WRAP
+	core_mat.metallic_specular = 0.0
+	_cores.material_override = core_mat
+	_plant.add_child(_cores)
 	_wires = MeshInstance3D.new()
 	var copper := StandardMaterial3D.new()
-	copper.albedo_color = Color(0.72, 0.4, 0.2)
-	copper.metallic = 0.85
-	copper.roughness = 0.32
+	copper.albedo_color = Color(0.74, 0.42, 0.24)
+	copper.metallic = 0.9
+	copper.roughness = 0.35
 	_wires.material_override = copper
 	_plant.add_child(_wires)
 	_preview = MeshInstance3D.new()
@@ -191,16 +218,31 @@ func sim() -> BonsaiSim:
 
 func _build_soil_things() -> void:
 	_soil = MeshInstance3D.new()
-	_soil_mat = StandardMaterial3D.new()
-	_soil_mat.albedo_texture = load("res://assets/bonsai/Gravel022_Color.jpg")
-	_soil_mat.normal_enabled = true
-	_soil_mat.normal_texture = load("res://assets/bonsai/Gravel022_NormalGL.jpg")
-	_soil_mat.roughness = 0.95
-	_soil_mat.uv1_scale = Vector3(4.0, 4.0, 1.0)
-	_soil_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	_soil_mat = ShaderMaterial.new()
+	_soil_mat.shader = preload("res://lookdev/bonsai/bonsai_soil.gdshader")
+	_soil_mat.set_shader_parameter("gravel", load("res://assets/bonsai/Gravel022_Color.jpg"))
+	_soil_mat.set_shader_parameter("gravel_normal", load("res://assets/bonsai/Gravel022_NormalGL.jpg"))
+	_soil_mat.set_shader_parameter("moss", load("res://assets/bonsai/Moss002_Color.jpg"))
+	_soil_mat.set_shader_parameter("moss_normal", load("res://assets/bonsai/Moss002_NormalGL.jpg"))
 	_soil.material_override = _soil_mat
 	_pot_node.add_child(_soil)
-	_moss = Node3D.new()
+	# Fine grit on the soil: small stones of akadama, pumice and lava in a few colours.
+	_moss = MultiMeshInstance3D.new()
+	var gm := MultiMesh.new()
+	gm.transform_format = MultiMesh.TRANSFORM_3D
+	gm.use_colors = true
+	var grain := SphereMesh.new()
+	grain.radius = 1.0
+	grain.height = 1.4
+	grain.radial_segments = 5
+	grain.rings = 3
+	gm.mesh = grain
+	_moss.multimesh = gm
+	var grit := StandardMaterial3D.new()
+	grit.vertex_color_use_as_albedo = true
+	grit.vertex_color_is_srgb = true
+	grit.roughness = 0.95
+	_moss.material_override = grit
 	_pot_node.add_child(_moss)
 	_pellets = MultiMeshInstance3D.new()
 	var pm := MultiMesh.new()
@@ -334,42 +376,44 @@ func _pot_mesh(look: Dictionary) -> Node3D:
 	var half: Vector2 = look["half"]
 	var h: float = look["h"]
 	var power: float = look["n"]
-	var mat := StandardMaterial3D.new()
-	mat.albedo_color = look["color"]
-	mat.roughness = look["rough"]
-	mat.normal_enabled = true
-	mat.normal_texture = preload("res://lookdev/paper/textures/crumple_normal.png")
-	mat.normal_scale = 0.35
-	mat.uv1_triplanar = true
-	mat.uv1_scale = Vector3.ONE * 6.0
+	var mat := ShaderMaterial.new()
+	mat.shader = preload("res://lookdev/bonsai/bonsai_pot.gdshader")
+	mat.set_shader_parameter("glaze_colour", look["color"])
+	mat.set_shader_parameter("clay_colour", look["clay"])
+	mat.set_shader_parameter("glaze", look["glaze"])
+	mat.set_shader_parameter("glaze_roughness", look["rough"])
 	var feet := 0.008
 	var wall := 0.008
-	# Profile from the foot up the outside, over the lip and down the inside to the soil.
-	var profile: Array[Vector3] = [Vector3(0.0, feet, 0.9), Vector3(0.0, feet, 0.93), Vector3(0.0, feet + h * 0.25, 0.97),
-		Vector3(0.0, feet + h * 0.9, 1.0), Vector3(0.0, feet + h, 1.02), Vector3(0.0, feet + h, 1.0 - wall / half.x),
-		Vector3(0.0, feet + h - 0.012, 1.0 - wall / half.x)]
+	var inner := 1.0 - wall / half.x
+	# Profile (height, scale of the footprint, edge 0..1) from the foot band up the slightly
+	# flaring wall, out over a thick lip band, and down the inside to the soil.
+	var profile: Array[Vector3] = [Vector3(feet, 0.9, 1.0), Vector3(feet, 0.955, 1.0), Vector3(feet + 0.004, 0.965, 1.0),
+		Vector3(feet + 0.006, 0.955, 0.3), Vector3(feet + h * 0.3, 0.97, 0.0), Vector3(feet + h * 0.74, 0.995, 0.0),
+		Vector3(feet + h * 0.78, 1.025, 0.6), Vector3(feet + h * 0.96, 1.035, 0.8), Vector3(feet + h, 1.02, 1.0),
+		Vector3(feet + h, inner, 1.0), Vector3(feet + h - 0.012, inner, 0.0)]
 	var st := SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
-	var seg := 48
+	var seg := 64
 	for i in range(seg):
 		for k in range(profile.size() - 1):
 			var quad: Array[Vector3] = []
+			var cols: Array[Color] = []
 			for c: Array in [[i, k], [i + 1, k], [i + 1, k + 1], [i, k + 1]]:
 				var a := TAU * float(c[0]) / seg
-				var r := _superellipse(a, half, power) * profile[c[1]].z
-				quad.append(Vector3(cos(a) * r.x, profile[c[1]].y, sin(a) * r.y))
-			st.add_vertex(quad[0])
-			st.add_vertex(quad[2])
-			st.add_vertex(quad[1])
-			st.add_vertex(quad[0])
-			st.add_vertex(quad[3])
-			st.add_vertex(quad[2])
+				var pr: Vector3 = profile[c[1]]
+				var r := _superellipse(a, half, power) * pr.y
+				quad.append(Vector3(cos(a) * r.x, pr.x, sin(a) * r.y))
+				cols.append(Color(clampf((pr.x - feet) / h, 0.0, 1.0), pr.z, 0.0))
+			for q in [0, 2, 1, 0, 3, 2]:
+				st.set_color(cols[q])
+				st.add_vertex(quad[q])
 	# The floor under the pot.
 	for i in range(seg):
 		var a0 := TAU * float(i) / seg
 		var a1 := TAU * float(i + 1) / seg
 		var r0 := _superellipse(a0, half, power) * 0.9
 		var r1 := _superellipse(a1, half, power) * 0.9
+		st.set_color(Color(0, 1, 0))
 		st.add_vertex(Vector3(0, feet, 0))
 		st.add_vertex(Vector3(cos(a0) * r0.x, feet, sin(a0) * r0.y))
 		st.add_vertex(Vector3(cos(a1) * r1.x, feet, sin(a1) * r1.y))
@@ -378,15 +422,23 @@ func _pot_mesh(look: Dictionary) -> Node3D:
 	body.mesh = st.commit()
 	body.material_override = mat
 	n.add_child(body)
-	# Small feet under the corners.
+	# Cloud feet under the corners: low rounded pads of the same clay.
+	var foot_mat := StandardMaterial3D.new()
+	foot_mat.albedo_color = (look["clay"] as Color).darkened(0.1)
+	foot_mat.roughness = 0.9
 	for sx in [-1.0, 1.0]:
 		for sz in [-1.0, 1.0]:
 			var foot := MeshInstance3D.new()
-			var b := BoxMesh.new()
-			b.size = Vector3(0.018, feet, 0.014)
+			var b := CylinderMesh.new()
+			b.top_radius = 0.011
+			b.bottom_radius = 0.009
+			b.height = feet
+			b.radial_segments = 12
+			b.rings = 1
 			foot.mesh = b
-			foot.material_override = mat
-			foot.position = Vector3(sx * half.x * 0.62, feet * 0.5, sz * half.y * 0.62)
+			foot.material_override = foot_mat
+			foot.scale = Vector3(1.0, 1.0, 0.75)
+			foot.position = Vector3(sx * half.x * 0.66, feet * 0.5, sz * half.y * 0.66)
 			n.add_child(foot)
 	return n
 
@@ -438,34 +490,32 @@ func _show_pot(id: String) -> void:
 			st.set_normal(Vector3.UP)
 			st.add_vertex(p)
 	_soil.mesh = st.commit()
-	# Moss around the trunk's foot, a few cushions.
-	for c in _moss.get_children():
-		c.queue_free()
-	var moss_mat := StandardMaterial3D.new()
-	moss_mat.albedo_texture = load("res://assets/bonsai/Moss002_Color.jpg")
-	moss_mat.normal_enabled = true
-	moss_mat.normal_texture = load("res://assets/bonsai/Moss002_NormalGL.jpg")
-	moss_mat.roughness = 1.0
-	moss_mat.uv1_scale = Vector3(2.0, 2.0, 1.0)
 	var rng := RandomNumberGenerator.new()
 	rng.seed = hash([state.bonsai.seed if state and state.bonsai else 0, "moss", id])
-	for k in range(6):
-		var m := MeshInstance3D.new()
-		var sp := SphereMesh.new()
-		sp.radius = rng.randf_range(0.014, 0.026)
-		sp.height = sp.radius * 0.7
-		sp.radial_segments = 12
-		sp.rings = 5
-		m.mesh = sp
-		m.material_override = moss_mat
-		var a := rng.randf() * TAU
-		var d := rng.randf_range(0.2, 0.75)
-		m.position = Vector3(cos(a) * half.x * d, y + 0.001, sin(a) * half.y * d)
-		m.rotation.y = rng.randf() * TAU
-		m.scale = Vector3(1.0, 0.45, rng.randf_range(0.7, 1.2))
-		_moss.add_child(m)
+	_soil_mat.set_shader_parameter("moss_seed", Vector2(rng.randf() * 50.0, rng.randf() * 50.0))
+	_soil_mat.set_shader_parameter("moss_cover", 0.25 if id == "nursery" else 0.45)
+	_scatter_grit(rng, y, half, power)
 	_plant.position = Vector3(0, y, 0)
 	_shown_pot = id
+
+
+## Grit on the soil's dome: a few hundred small stones, darker and smaller toward the rim.
+func _scatter_grit(rng: RandomNumberGenerator, y: float, half: Vector2, power: float) -> void:
+	var mm := _moss.multimesh
+	mm.instance_count = 160 if Budgets.PHONE else 420
+	var colours: Array[Color] = [Color(0.4, 0.26, 0.17), Color(0.46, 0.36, 0.27), Color(0.24, 0.21, 0.2),
+		Color(0.5, 0.47, 0.42), Color(0.32, 0.18, 0.13)]
+	for i in range(mm.instance_count):
+		var a := rng.randf() * TAU
+		var d := sqrt(rng.randf()) * 0.94
+		var rim := _superellipse(a, half, power)
+		var at := Vector3(cos(a) * rim.x * d, y + 0.006 * (1.0 - d), sin(a) * rim.y * d)
+		var size := rng.randf_range(0.0008, 0.0017)
+		var basis := Basis.from_euler(Vector3(rng.randf() * TAU, rng.randf() * TAU, rng.randf() * TAU))
+		basis = basis.scaled(Vector3(size * rng.randf_range(0.8, 1.3), size * rng.randf_range(0.5, 0.9), size))
+		mm.set_instance_transform(i, Transform3D(basis, at))
+		var c: Color = colours[rng.randi() % colours.size()]
+		mm.set_instance_color(i, c * rng.randf_range(0.6, 0.95))
 
 
 # --- keeping up with the simulation ----------------------------------------------------
@@ -482,15 +532,19 @@ func _process(delta: float) -> void:
 		refresh(false)
 	# Wet soil is darker, dry soil pale.
 	var wet := clampf((b.moisture - 0.1) / 0.8, 0.0, 1.0)
-	_soil_mat.albedo_color = Color(1.0, 0.98, 0.95).lerp(Color(0.55, 0.5, 0.46), wet)
-	_soil_mat.roughness = lerpf(0.95, 0.55, wet)
-	_light.light_energy = 0.25 + 1.4 * b.clock.sun_height()
+	_soil_mat.set_shader_parameter("wet", wet)
+	var sun := b.clock.sun_height()
+	_light.light_energy = 0.25 + 1.4 * sun
+	# By night the lantern's warm light, by day the window's.
+	_light.light_color = Color(1.0, 0.72, 0.45).lerp(Color(1.0, 0.93, 0.8), clampf(sun * 4.0, 0.0, 1.0))
 	# With the wire or the shears the foliage in front of the branch thins out, so the wood
 	# shows (the leaves dissolve toward the camera).
 	if _spray_mat != null:
 		var see_wood := active and (tool == "wire" or tool == "shears")
-		_spray_mat.set_shader_parameter("near_fade", _dist * 0.95 if see_wood else 0.0)
-		_fade = move_toward(_fade, 0.72 if see_wood else 0.0, delta * 3.0)
+		_spray_mat.set_shader_parameter("near_fade", _dist * 0.9 if see_wood else 0.0)
+		_fade = move_toward(_fade, 0.6 if see_wood else 0.0, delta * 3.0)
+		# The pads' dark cores go with the first cards, so the branch shows through.
+		_cores.visible = _fade < 0.15
 		_spray_mat.set_shader_parameter("fade", _fade)
 	_update_camera(delta)
 
@@ -512,108 +566,324 @@ func refresh(force: bool) -> void:
 	if not busy:
 		_turn_angle = b.turn * PI * 0.5
 		_turn_node.rotation.y = _turn_angle
-	_wood.mesh = _build_wood(b)
-	_populate_foliage(b)
-	_wires.mesh = _build_wires(b)
+	var pads := _pads(b)
+	var look := _look_graph(b, pads)
+	_wood.mesh = _build_wood(b, look)
+	_populate_foliage(b, pads)
+	_wires.mesh = _build_wires(b, look)
 	_update_pellets(b)
 
 
 func _apply_species(sp: Species) -> void:
 	_shown_species = sp.id
 	var b := sp.bark_tint
-	_bark.set_shader_parameter("texture_tint", Vector3(b.r, b.g, b.b) * (1.0 if sp.conifer else 1.2))
-	_spray_mat = CrownSprays.material()
 	if sp.conifer:
-		_spray_mat.set_shader_parameter("spray_color", load(JUNIPER_COLOR))
-		_spray_mat.set_shader_parameter("spray_normal", load(JUNIPER_NORMAL))
-		_spray_mat.set_shader_parameter("translucency", Color(0.25, 0.35, 0.1))
-	_spray_mat.set_shader_parameter("tint_mul", sp.leaf_tint)
-	# Indoors: hardly a breath of wind.
-	_spray_mat.set_shader_parameter("wind_strength", 0.06)
-	_spray_mat.set_shader_parameter("crown_normal_mix", 0.45)
+		# Red-brown bark peeling in long strips that twist up the trunk.
+		# The phone's renderer shows the tint redder.
+		_bark.set_shader_parameter("texture_tint", Vector3(b.r * (0.64 if Budgets.PHONE else 0.74), b.g * 0.62, b.b * 0.6))
+		_bark.set_shader_parameter("twist", 0.3)
+		_bark.set_shader_parameter("fibre", 1.0)
+	else:
+		_bark.set_shader_parameter("texture_tint", Vector3(b.r, b.g, b.b) * 1.2)
+		_bark.set_shader_parameter("twist", 0.0)
+		_bark.set_shader_parameter("fibre", 0.0)
+	_spray_mat = ShaderMaterial.new()
+	_spray_mat.shader = FOLIAGE_SHADER
+	_spray_mat.set_shader_parameter("cheap", Budgets.PHONE)
+	if sp.conifer:
+		_spray_mat.set_shader_parameter("spray_color", _mipmapped(JUNIPER_COLOR))
+		_spray_mat.set_shader_parameter("spray_normal", _mipmapped(JUNIPER_NORMAL))
+		_spray_mat.set_shader_parameter("translucency", Color(0.22, 0.3, 0.08))
+	else:
+		_spray_mat.set_shader_parameter("spray_color", _mipmapped(LEAF_COLOR))
+		_spray_mat.set_shader_parameter("spray_normal", _mipmapped(LEAF_NORMAL))
+		_spray_mat.set_shader_parameter("translucency", Color(0.4, 0.5, 0.1))
+	_spray_mat.set_shader_parameter("tint_mul", sp.leaf_tint * (1.22 if sp.conifer else 1.05))
 	_foliage.material_override = _spray_mat
 
 
-func _build_wood(b: BonsaiSim) -> ArrayMesh:
+## Pads (design doc 16, the reference juniper): the living twigs gathered by branch into cloud
+## pads at the branch ends, with air between them. A pad is the subtree of the first node (from
+## the trunk out) that carries at most PAD_MAX green segments; tiny ones join the nearest pad.
+## Only the look: the simulation's graph is never changed.
+const PAD_MAX: int = 34
+const PAD_MIN: int = 5
+## Twigs thinner than this (sim units) inside a pad are hidden under its foliage.
+const PAD_TWIG: float = 0.02
+
+
+class Pad:
+	var root: int
+	var members: Array[int] = []
+	var centre: Vector3
+	## Horizontal radius and half height of the pad's dome, and its up (tilted with the branch).
+	var radius: float
+	var half_height: float
+	var up: Vector3 = Vector3.UP
+	var out: Vector3 = Vector3.FORWARD
+
+
+## The pads of the bonsai (see Pad), outermost segments weighted, for the current graph.
+func _pads(b: BonsaiSim) -> Array[Pad]:
+	var g := b.graph
+	var n := g.size()
+	var green := PackedInt32Array()
+	green.resize(n)
+	for id in range(n):
+		green[id] = 0 if b.is_dead(id) or b.is_jin(id) else 1
+	var count := PackedInt32Array()
+	count.resize(n)
+	for id in range(n - 1, -1, -1):
+		count[id] += green[id]
+		if g.parents[id] >= 0:
+			count[g.parents[id]] += count[id]
+	var trunk := b.trunk_chain()
+	# The broadleaves carry fewer, larger clumps: a small leafy crown, not clouds on arms.
+	var pad_max := PAD_MAX if b.species.conifer else PAD_MAX * 2
+	var roots: Array[int] = []
+	var stack: Array[int] = [0]
+	while not stack.is_empty():
+		var id: int = stack.pop_back()
+		if green[id] == 0 and id != 0:
+			continue
+		if id != 0 and count[id] <= pad_max and (not trunk.has(id) or count[id] <= pad_max * 0.6):
+			roots.append(id)
+			continue
+		for c in g.children[id]:
+			stack.append(c)
+	var pads: Array[Pad] = []
+	var small: Array[Pad] = []
+	var conifer := b.species.conifer
+	var top := maxf(b.height(), 0.5)
+	for r in roots:
+		var pad := Pad.new()
+		pad.root = r
+		for s in b.subtree(r):
+			if green[s] == 1:
+				pad.members.append(s)
+		if pad.members.is_empty():
+			continue
+		(pads if pad.members.size() >= PAD_MIN else small).append(pad)
+	if pads.is_empty():
+		pads = small
+		small = []
+	for pad in pads:
+		_shape_pad(g, pad, conifer, top)
+	# Tiny pads join the nearest real pad (a few twigs make it denser, not a pad of their own).
+	for sp in small:
+		var at := g.positions[sp.members[sp.members.size() - 1]]
+		var best: Pad = null
+		var best_d := INF
+		for pad in pads:
+			var d := at.distance_to(pad.centre) - pad.radius
+			if d < best_d:
+				best_d = d
+				best = pad
+		if best != null and best_d < 0.45:
+			best.members.append_array(sp.members)
+		else:
+			_shape_pad(g, sp, conifer, top)
+			pads.append(sp)
+	return pads
+
+
+## The dome of a pad from its members: centred toward the outer twigs, wide and flat for the
+## juniper, rounder for the broadleaves.
+func _shape_pad(g: PlantGraph, pad: Pad, conifer: bool, top: float) -> void:
+	var base := g.positions[g.parents[pad.root]]
+	var sum := Vector3.ZERO
+	var w := 0.0
+	var far := 0.0
+	for m in pad.members:
+		var d := g.positions[m].distance_to(base)
+		far = maxf(far, d)
+	for m in pad.members:
+		# The outer half of the branch carries the foliage.
+		var k := 0.25 + g.positions[m].distance_to(base) / maxf(far, 1e-3)
+		sum += g.positions[m] * k
+		w += k
+	pad.centre = sum / w
+	var spread := 0.0
+	for m in pad.members:
+		var d := g.positions[m] - pad.centre
+		spread += Vector2(d.x, d.z).length()
+	spread /= pad.members.size()
+	var size := sqrt(float(pad.members.size()))
+	pad.radius = clampf(maxf(spread * 1.25, size * 0.075), 0.14, 0.62 if conifer else 0.55)
+	pad.half_height = pad.radius * (0.48 if conifer else 0.75)
+	var out := pad.centre - base
+	out.y = 0.0
+	pad.out = out.normalized() if out.length_squared() > 1e-6 else Vector3.FORWARD
+	# Pads lie flat, tilted a little up and out along their branch; the apex is a dome.
+	var apex := pad.centre.y > top * 0.82
+	pad.up = (Vector3.UP + pad.out * (0.08 if apex else 0.2)).normalized()
+	pad.centre += pad.up * pad.half_height * 0.25
+
+
+## The wood as drawn: the graph with a tapered trunk flaring into the soil (nebari), and the
+## fine twigs inside the pads hidden under their foliage. Picking still uses the simulation's
+## own positions, which this never moves.
+func _look_graph(b: BonsaiSim, pads: Array[Pad]) -> PlantGraph:
+	var src := b.graph
+	var g := PlantGraph.new(src.positions[0], src.max_nodes)
+	g.positions = src.positions.duplicate()
+	g.parents = src.parents.duplicate()
+	g.radii = src.radii.duplicate()
+	g.ages = src.ages.duplicate()
+	g.children = []
+	g.flags = []
+	for id in range(src.size()):
+		g.children.append((src.children[id] as Array).duplicate())
+		g.flags.append({"dead": true} if b.is_dead(id) else null)
+	# The trunk: a steady taper from a flared foot to the apex.
+	var trunk := b.trunk_chain()
+	var length := 0.0
+	var lens := PackedFloat32Array([0.0])
+	for i in range(1, trunk.size()):
+		length += src.positions[trunk[i]].distance_to(src.positions[trunk[i - 1]])
+		lens.append(length)
+	var r0 := src.radii[0]
+	for i in range(trunk.size()):
+		var t := lens[i] / maxf(length, 1e-3)
+		var taper := r0 * lerpf(1.0, 0.22, pow(t, 0.8))
+		if i == 0:
+			taper *= 1.45
+		elif i == 1:
+			taper *= 1.12
+		g.radii[trunk[i]] = maxf(src.radii[trunk[i]], taper)
+	# A wired branch keeps its wood, so the coil always has something to wind round.
+	var keep := {}
+	for w in b.wired():
+		for n in b.wire_chain(w):
+			keep[n] = true
+	for pad in pads:
+		for m in pad.members:
+			if m != pad.root and src.radii[m] < PAD_TWIG and g.get_flag(m, "dead") == null and not trunk.has(m) and not keep.has(m):
+				# A hidden twig takes its whole subtree along (the builder draws from parents).
+				g.set_flag(m, "dead", true)
+	return g
+
+
+static var _mip_cache: Dictionary = {}
+
+
+## The foliage atlases with mipmaps whatever their import settings say (*.import files are not
+## in git): small tufts far off would shimmer without them.
+static func _mipmapped(path: String) -> Texture2D:
+	if _mip_cache.has(path):
+		return _mip_cache[path]
+	var tex: Texture2D = load(path)
+	var img := tex.get_image()
+	if img != null and not img.has_mipmaps():
+		if img.is_compressed():
+			img.decompress()
+		img.generate_mipmaps()
+		tex = ImageTexture.create_from_image(img)
+	_mip_cache[path] = tex
+	return tex
+
+
+func _build_wood(b: BonsaiSim, look: PlantGraph) -> ArrayMesh:
 	var g := b.graph
 	var colors := PackedColorArray()
 	colors.resize(g.size())
 	for id in range(g.size()):
 		colors[id] = Color(1.0 if b.is_jin(id) else 0.0, float(g.get_flag(id, "shari", 0.0)), b.scar(id), 1.0)
 	_builder.node_colors = colors
-	return _builder.build(g)
+	return _builder.build(look)
 
 
-## Foliage on the living twigs: juniper pads lying flat and facing up, or the roster's leaf
-## sprays; drooping and duller when the soil is dry, brown on burnt tips.
-func _populate_foliage(b: BonsaiSim) -> void:
+## Foliage in pads (see _pads): juniper tufts on flat domes facing the sky, or the roster's
+## leaf sprays on rounder clumps; drooping and duller when the soil is dry, brown on burnt tips.
+func _populate_foliage(b: BonsaiSim, pads: Array[Pad]) -> void:
 	var g := b.graph
-	var spots: Array[int] = []
-	for id in range(2, g.size()):
-		if b.is_dead(id) or b.is_jin(id):
-			continue
-		if g.radii[id] < 0.035:
-			spots.append(id)
 	var conifer := b.species.conifer
-	var per := Budgets.BONSAI_SPRAYS_PER_TWIG if conifer else 1
+	var per := Budgets.BONSAI_SPRAYS_PER_TWIG
+	var total := 0
+	for pad in pads:
+		total += pad.members.size()
 	var mm := _foliage.multimesh
-	mm.instance_count = spots.size() * per
+	mm.instance_count = total * per
 	var rng := RandomNumberGenerator.new()
 	rng.seed = hash([b.seed, "bonsai foliage"])
 	var droop := b.droop()
-	var centre := Vector3(0, b.height() * 0.6, 0)
+	var top := maxf(b.height(), 0.5)
+	# Fewer cards on the phone: each a little larger, so a pad stays as full.
+	var card_scale := sqrt(3.0 / per)
+	var cores := _cores.multimesh
+	cores.instance_count = pads.size()
+	var dark := Color(0.1, 0.19, 0.07) if conifer else Color(0.12, 0.2, 0.07)
+	var core_scale := (1.0 if conifer else 0.8) * (0.85 if Budgets.PHONE else 1.0)
 	var i := 0
-	var lo := Vector3.ONE * INF
-	var hi := -Vector3.ONE * INF
-	for id in spots:
-		var p := g.positions[id]
-		var along := g.direction_of(id)
-		var tip: bool = (g.children[id] as Array).is_empty()
-		for _k in range(per):
-			var at := p + Vector3(rng.randf_range(-1, 1), rng.randf_range(-0.4, 0.4), rng.randf_range(-1, 1)) * (0.13 if conifer else 0.08)
-			var out := (at - centre)
-			out.y *= 0.4
-			out = out.normalized() if out.length_squared() > 1e-6 else Vector3.FORWARD
-			var face: Vector3
-			var size: float
-			if conifer:
-				# Pads: lying almost flat, facing the sky, reaching out along the twig.
-				# Pads: dense tufts of small sprays, most facing the sky, some tilted out, so a
-				# pad has volume from the side too.
-				face = (Vector3.UP * 0.9 + out * 0.45 + Vector3(rng.randf_range(-0.6, 0.6), rng.randf_range(-0.2, 0.2), rng.randf_range(-0.6, 0.6))).normalized()
-				size = rng.randf_range(0.3, 0.46) * (1.0 if tip else 0.8)
-			else:
-				face = (out * 0.8 + Vector3.UP * 0.45 + Vector3(rng.randf_range(-0.3, 0.3), rng.randf_range(-0.2, 0.2), rng.randf_range(-0.3, 0.3))).normalized()
-				size = rng.randf_range(0.32, 0.46)
-			# Too dry: the leaves hang.
-			face = face.lerp(out * 0.6 + Vector3.DOWN * 0.8, droop * 0.85).normalized()
-			var dir := along - face * along.dot(face)
-			if dir.length_squared() < 0.01:
-				dir = face.cross(Vector3.RIGHT)
-			dir = dir.normalized().rotated(face, rng.randf_range(-0.9, 0.9))
-			dir = dir.lerp(Vector3.DOWN, droop * 0.7).normalized()
-			var side := dir.cross(face).normalized()
-			var basis := Basis(side, dir, face).scaled(Vector3.ONE * size)
-			mm.set_instance_transform(i, Transform3D(basis, at - dir * size * 0.3))
-			var tint := rng.randf_range(0.88, 1.06)
-			var col := Color(tint, tint, tint * rng.randf_range(0.88, 1.0), 0.3 if tip else 0.5)
-			if g.get_flag(id, "burnt") != null:
-				col = Color(1.15, 0.62, 0.3, col.a)
-			if droop > 0.0:
-				col = col.lerp(Color(0.9, 0.84, 0.55, col.a), droop * 0.55)
-			mm.set_instance_color(i, col)
-			mm.set_instance_custom_data(i, Color(float(rng.randi() % 4), rng.randf(), 0, 0))
-			lo = lo.min(at)
-			hi = hi.max(at)
-			i += 1
-	if i > 0 and _spray_mat != null and is_inside_tree():
-		var c := _plant.to_global((lo + hi) * 0.5)
-		_spray_mat.set_shader_parameter("crown_centre", c)
-		_spray_mat.set_shader_parameter("crown_radii", (hi - lo) * 0.5 * BonsaiSim.UNIT_METRES + Vector3.ONE * 0.04)
+	for pi in range(pads.size()):
+		var pad := pads[pi]
+		var up := pad.up
+		var side0 := up.cross(pad.out).normalized()
+		var fwd0 := side0.cross(up).normalized()
+		var pad_tint := rng.randf_range(0.92, 1.06)
+		var pad_blue := rng.randf_range(0.9, 1.02)
+		# Lower, inner pads see less sky.
+		var low := 1.0 - clampf(pad.centre.y / top, 0.0, 1.0)
+		var core := Basis(side0, up, fwd0).scaled(Vector3(pad.radius * 0.74, pad.half_height * 0.66, pad.radius * 0.74) * (core_scale if pad.members.size() >= PAD_MIN * 2 else 0.01))
+		cores.set_instance_transform(pi, Transform3D(core, pad.centre - up * pad.half_height * 0.08))
+		cores.set_instance_color(pi, dark.lerp(Color(0.5, 0.45, 0.25), droop * 0.5) * pad_tint)
+		for m in pad.members:
+			var burnt := g.get_flag(m, "burnt") != null
+			for _k in range(per):
+				# A point on the pad's dome: mostly its top and rim, a few underneath.
+				var a := rng.randf() * TAU
+				var v := rng.randf_range(-0.4, 1.0)
+				var h := sqrt(maxf(0.0, 1.0 - v * v))
+				var unit := Vector3(cos(a) * h, v, sin(a) * h)
+				var depth := rng.randf_range(0.72, 1.0)
+				var local := Vector3(unit.x * pad.radius, unit.y * pad.half_height, unit.z * pad.radius) * depth
+				var at := pad.centre + side0 * local.x + up * local.y + fwd0 * local.z
+				var nrm_l := Vector3(unit.x / pad.radius, unit.y / pad.half_height, unit.z / pad.radius).normalized()
+				var nrm := (side0 * nrm_l.x + up * nrm_l.y + fwd0 * nrm_l.z).normalized()
+				var radial := (side0 * unit.x + fwd0 * unit.z)
+				radial = radial.normalized() if radial.length_squared() > 1e-4 else pad.out
+				var face: Vector3
+				var size: float
+				if conifer:
+					face = (nrm + up * 0.4 + Vector3(rng.randf_range(-0.45, 0.45), rng.randf_range(-0.2, 0.2), rng.randf_range(-0.45, 0.45))).normalized()
+					size = clampf(pad.radius * 0.44, 0.1, 0.19) * rng.randf_range(0.8, 1.2) * card_scale
+				else:
+					face = (nrm + up * 0.25 + Vector3(rng.randf_range(-0.3, 0.3), rng.randf_range(-0.2, 0.2), rng.randf_range(-0.3, 0.3))).normalized()
+					size = clampf(pad.radius * 0.7, 0.16, 0.3) * rng.randf_range(0.85, 1.15) * card_scale
+				# Too dry: the leaves hang.
+				face = face.lerp(radial * 0.6 + Vector3.DOWN * 0.8, droop * 0.85).normalized()
+				var dir := radial - face * radial.dot(face)
+				if dir.length_squared() < 0.01:
+					dir = face.cross(Vector3.RIGHT)
+				dir = dir.normalized().rotated(face, rng.randf_range(-0.7, 0.7))
+				dir = dir.lerp(Vector3.DOWN, droop * 0.7).normalized()
+				var side := dir.cross(face).normalized()
+				var basis := Basis(side, dir, face).scaled(Vector3.ONE * size)
+				mm.set_instance_transform(i, Transform3D(basis, at - dir * size * 0.45))
+				var tint := rng.randf_range(0.78, 1.14) * pad_tint
+				var occ := clampf(0.05 + 0.55 * (0.5 - nrm.y * 0.5) + 0.15 * low + (1.0 - depth) * 0.5, 0.0, 0.85)
+				var col := Color(tint, tint, tint * pad_blue, occ)
+				if burnt:
+					col = Color(1.15, 0.62, 0.3, col.a)
+				if droop > 0.0:
+					col = col.lerp(Color(0.9, 0.84, 0.55, col.a), droop * 0.55)
+				mm.set_instance_color(i, col)
+				var oct := _oct(nrm)
+				mm.set_instance_custom_data(i, Color(float(rng.randi() % 4), rng.randf(), oct.x, oct.y))
+				i += 1
+
+
+## Octahedral encoding of a unit vector into 0..1 (the foliage shader decodes it).
+static func _oct(v: Vector3) -> Vector2:
+	var s := absf(v.x) + absf(v.y) + absf(v.z)
+	var p := Vector2(v.x, v.z) / s
+	if v.y < 0.0:
+		p = Vector2((1.0 - absf(p.y)) * signf(p.x if p.x != 0.0 else 1.0), (1.0 - absf(p.x)) * signf(p.y if p.y != 0.0 else 1.0))
+	return p * 0.5 + Vector2(0.5, 0.5)
 
 
 ## Copper coils along each wired branch: a thin tube winding round the wood.
-func _build_wires(b: BonsaiSim) -> ArrayMesh:
+func _build_wires(b: BonsaiSim, look: PlantGraph) -> ArrayMesh:
 	var st := SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
 	var any := false
@@ -623,18 +893,26 @@ func _build_wires(b: BonsaiSim) -> ArrayMesh:
 		chain.append_array(b.wire_chain(id))
 		var pts := PackedVector3Array()
 		var rads := PackedFloat32Array()
-		for n in chain:
+		for k in range(chain.size()):
+			var n := chain[k]
 			pts.append(g.positions[n])
-			rads.append(maxf(_builder.min_radius, g.radii[n] * _builder.radius_scale))
-		# Wire about a third as thick as the branch it holds.
-		_helix(st, pts, rads, maxf(WIRE_RADIUS, rads[1] * 0.4))
+			var r := maxf(_builder.min_radius, look.radii[n] * _builder.radius_scale)
+			if k == 0:
+				# The branch starts from its own ring, not the parent's (as the wood is drawn).
+				r = minf(r, maxf(_builder.min_radius, look.radii[id] * _builder.radius_scale) * 1.35)
+			elif k == chain.size() - 1 and (g.children[n] as Array).is_empty():
+				r *= 0.55
+			rads.append(r)
+		# Wire about a third as thick as the branch it holds, lying snug on the bark.
+		_helix(st, pts, rads, maxf(WIRE_RADIUS, rads[1] * 0.32))
 		any = true
 	if not any:
 		return ArrayMesh.new()
-	st.generate_normals()
 	return st.commit()
 
 
+## A coil lying on the bark: it starts a little out from the fork (clear of the parent's wood)
+## and winds evenly along the branch's segments.
 func _helix(st: SurfaceTool, pts: PackedVector3Array, rads: PackedFloat32Array, wire_r: float) -> void:
 	var path := PackedVector3Array()
 	var along := 0.0
@@ -651,36 +929,48 @@ func _helix(st: SurfaceTool, pts: PackedVector3Array, rads: PackedFloat32Array, 
 			side = axis.cross(Vector3.UP if absf(axis.y) < 0.9 else Vector3.RIGHT).normalized()
 		side = (side - axis * side.dot(axis)).normalized()
 		var up := axis.cross(side)
-		var steps := maxi(2, int(len / (WIRE_PITCH / 16.0)))
-		for s in range(steps):
+		var steps := maxi(2, int(len / (WIRE_PITCH / 20.0)))
+		var last := i == pts.size() - 2
+		for s in range(steps + (1 if last else 0)):
 			var t := float(s) / steps
+			if i == 0 and t < 0.3:
+				continue
 			var ang := TAU * (along + len * t) / WIRE_PITCH
-			var r := lerpf(rads[i], rads[i + 1], t) * 1.15 + wire_r * 1.1
+			var r := lerpf(rads[i], rads[i + 1], t) * 1.06 + wire_r
 			path.append(a + d * t + (side * cos(ang) + up * sin(ang)) * r)
 		along += len
 	_tube(st, path, wire_r)
 
 
+## A round tube along `path` with smooth normals and a twist-free frame.
 func _tube(st: SurfaceTool, path: PackedVector3Array, r: float) -> void:
-	var sides := 6
-	for i in range(path.size() - 1):
-		var d := path[i + 1] - path[i]
-		if d.length_squared() < 1e-10:
-			continue
-		var ax := d.normalized()
-		var u := ax.cross(Vector3.UP if absf(ax.y) < 0.9 else Vector3.RIGHT).normalized()
+	if path.size() < 2:
+		return
+	var sides := 8
+	var rings: Array[PackedVector3Array] = []
+	var norms: Array[PackedVector3Array] = []
+	var u := Vector3.ZERO
+	for i in range(path.size()):
+		var ax := (path[mini(i + 1, path.size() - 1)] - path[maxi(i - 1, 0)]).normalized()
+		if u == Vector3.ZERO:
+			u = ax.cross(Vector3.UP if absf(ax.y) < 0.9 else Vector3.RIGHT).normalized()
+		u = (u - ax * u.dot(ax)).normalized()
 		var v := ax.cross(u)
+		var ring := PackedVector3Array()
+		var nr := PackedVector3Array()
 		for k in range(sides):
-			var a0 := TAU * k / sides
-			var a1 := TAU * (k + 1) / sides
-			var o0 := (u * cos(a0) + v * sin(a0)) * r
-			var o1 := (u * cos(a1) + v * sin(a1)) * r
-			st.add_vertex(path[i] + o0)
-			st.add_vertex(path[i + 1] + o0)
-			st.add_vertex(path[i + 1] + o1)
-			st.add_vertex(path[i] + o0)
-			st.add_vertex(path[i + 1] + o1)
-			st.add_vertex(path[i] + o1)
+			var a := TAU * k / sides
+			var o := u * cos(a) + v * sin(a)
+			ring.append(path[i] + o * r)
+			nr.append(o)
+		rings.append(ring)
+		norms.append(nr)
+	for i in range(path.size() - 1):
+		for k in range(sides):
+			var k1 := (k + 1) % sides
+			for q: Array in [[i, k], [i + 1, k], [i + 1, k1], [i, k], [i + 1, k1], [i, k1]]:
+				st.set_normal(norms[q[0]][q[1]])
+				st.add_vertex(rings[q[0]][q[1]])
 
 
 ## The pellets on the soil: as many as the nutrient stands above fresh soil, in its colour.
