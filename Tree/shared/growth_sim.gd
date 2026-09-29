@@ -82,9 +82,13 @@ var removed_nodes: int = 0
 ## Share of the cut segments that come back as vigour at the next sunrise (spec: 0.2 to 0.4).
 const PRUNE_REFUND := 0.3
 ## Share of a cut's refund that wakes buds right below the cut; the rest goes to the crown.
-const PRUNE_NEAR_SHARE := 0.6
+const PRUNE_NEAR_SHARE := 0.7
 ## Buds are woken on the branch within this distance below the cut.
 const PRUNE_BUD_REACH := 1.2
+## Markers seeded around a cut at dawn (half the cut, within these bounds): today's growth
+## is drawn there.
+const PRUNE_MARKERS_MIN := 6
+const PRUNE_MARKERS_MAX := 30
 ## A cut of this many segments or more wakes three buds instead of two.
 const PRUNE_BIG_CUT := 20
 ## Pruned wood leaves the graph at sunrise once the graph is this full.
@@ -507,7 +511,9 @@ func wake_buds_after_cuts() -> int:
 		var r := int(round(float(refund) * int(c["nodes"]) / maxf(1.0, total_cut)))
 		var near := int(round(r * PRUNE_NEAR_SHARE))
 		var at := Vector3(float(c["at"][0]), float(c["at"][1]), float(c["at"][2]))
-		var buds := _buds_below(int(c["from"]), at, 3 if int(c["nodes"]) >= PRUNE_BIG_CUT else 2)
+		# Two or three buds, each with at least a shoot of two segments (a single one would not show).
+		var want_buds := maxi(1, mini(3 if int(c["nodes"]) >= PRUNE_BIG_CUT else 2, (near + 1) / 2))
+		var buds := _buds_below(int(c["from"]), at, want_buds)
 		var made := 0
 		if not buds.is_empty() and near > 0:
 			var per := maxi(1, int(ceil(float(near) / buds.size())))
@@ -520,8 +526,10 @@ func wake_buds_after_cuts() -> int:
 					buds_woken += 1
 				made += g
 				_pay_for(g)
-			# A few markers where the buds woke, so the colonizer carries the new shoots on.
-			colonizer.seed_sphere(at + _outward(at) * step * 3.0, step * 4.0, 4, Budgets.TREE_MARKERS, MARKER_MIN_Y, species.max_height)
+		# The strength goes where the cut let the light in: markers around the cut draw part of
+		# today's ordinary growth there (the same growth, placed near the cut, not extra).
+		var room := clampi(int(c["nodes"]) / 2, PRUNE_MARKERS_MIN, PRUNE_MARKERS_MAX)
+		colonizer.seed_sphere(at + _outward(at) * PRUNE_BUD_REACH * 0.5, PRUNE_BUD_REACH, room, Budgets.TREE_MARKERS, MARKER_MIN_Y, species.max_height)
 		grown_near += made
 		_vigour_nodes += maxi(0, r - made)
 	if graph.size() > first_new:

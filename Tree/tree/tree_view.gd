@@ -77,6 +77,14 @@ var prune_height: float = 1.0
 var pruning: Pruning
 var _rebuild_timer: float = 0.0
 var _built_size: int = -1
+## Care (0.6.3): the signals the crown was last built with, and the ones set on the shader.
+var _built_care := PackedFloat32Array([0, 0, 0, 0])
+var _shown_care := PackedFloat32Array([-1, -1, -1, -1])
+## Tools may force a care look (a shot of a thirsty tree); empty: the game's own signals.
+var care_override := PackedFloat32Array()
+## Daylight fill on the crown (hero_crown.gdshader day_fill): shadowed sprays dark green, not black.
+const DAY_FILL := 0.09
+var _fill_set: float = -1.0
 var _births: Dictionary = {}  # node id -> time it appeared
 var _time: float = 0.0
 
@@ -675,7 +683,8 @@ func _process(delta: float) -> void:
 		_pinch_start = 0.0
 	_time += delta
 	_rebuild_timer += delta
-	if _rebuild_timer >= REBUILD_INTERVAL and state.sim.graph.size() != _built_size:
+	_update_care()
+	if _rebuild_timer >= REBUILD_INTERVAL and (state.sim.graph.size() != _built_size or _care_changed()):
 		_rebuild_timer = 0.0
 		var t0 := Time.get_ticks_usec()
 		_rebuild()
@@ -718,8 +727,39 @@ func _rebuild() -> void:
 	_tree_mesh.mesh = _builder.build(g)
 	_seed.visible = state.is_seed()
 	# Leaf masses at the twig ends, shaded dark inside and light at the sunny rim.
-	var crown := HeroCrown.populate(_leaves.multimesh, state.sim, state.seed)
+	_built_care = care_now()
+	var crown := HeroCrown.populate(_leaves.multimesh, state.sim, state.seed, _built_care)
 	weather_fx.set_crown(crown)
+
+
+## What the crown shows it lacks (GameState.care_signals, or the tools' override).
+func care_now() -> PackedFloat32Array:
+	return care_override if care_override.size() == 4 else state.care_signals()
+
+
+## Shape first: thirst hangs the sprays (a shader uniform, every frame); the colour cues too.
+func _update_care() -> void:
+	# The crown's daylight fill (0.6.3 noon lift): full by day, gone at night.
+	var fill := DAY_FILL * (1.0 - night_amount) * (1.0 - 0.6 * rain_now)
+	if absf(fill - _fill_set) > 0.002:
+		_fill_set = fill
+		_spray_mat.set_shader_parameter("day_fill", fill)
+	var c := care_now()
+	var names := ["thirst", "pale", "dull", "scorch"]
+	for k in range(4):
+		if absf(c[k] - _shown_care[k]) > 0.01:
+			_shown_care[k] = c[k]
+			_spray_mat.set_shader_parameter(names[k], c[k])
+
+
+## The baked cues (nitrogen: new shoots; phosphorus, potassium: bare masses) changed enough to
+## rebuild the crown.
+func _care_changed() -> bool:
+	var c := care_now()
+	for k in [1, 2, 3]:
+		if absf(c[k] - _built_care[k]) > 0.12 or (c[k] == 0.0) != (_built_care[k] == 0.0):
+			return true
+	return false
 
 
 ## Scale from the pipe-model radii to the drawn wood: thin for a young tree, 3.2 for a grown one.

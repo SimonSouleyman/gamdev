@@ -119,3 +119,70 @@ static func crown_shape(sim: GrowthSim) -> Dictionary:
 	var shaded := sim.shaded_tips().size()
 	return {"lean": Vector2(c.x, c.z).length() / r, "lean_dir": Underground.compass(Vector3(c.x, 0.0, c.z)),
 		"crowded": float(shaded) / tips, "shaded": shaded}
+
+
+const NEED_LINES: Array[String] = [
+	"Thirsty: the leaves hang. The water the roots brought will not last the day.",
+	"Short of nitrogen: the new shoots stay sparse and small, the older leaves pale.",
+	"Short of phosphorus: fewer leaf masses, the leaves dark and dull.",
+	"Short of potassium: fewer leaf masses, the leaf edges brown.",
+]
+
+
+## The journal's care page (0.6.3), in handwritten words: [{"title", "text"}, ...] for what the
+## tree lacks and where tonight's root finds it, how the crown is shaped, and the last cut.
+static func page(state: GameState) -> Array:
+	var sim := state.sim
+	var out: Array = []
+	# What it lacks, and where to steer tonight.
+	var lacks := ""
+	var tonight := ""
+	if state.finished:
+		lacks = "The tree is grown. It needs nothing more; the shears are only for its look now."
+	elif state.is_seed() or state.day_number() <= 1:
+		lacks = "Too young to read yet: the first leaves are only just out. Any dot the root reaches helps."
+	else:
+		var shown := sim.care_shown()
+		for k in range(4):
+			if shown[k] < SHOW_MIN:
+				continue
+			lacks += ("\n" if lacks != "" else "") + NEED_LINES[k]
+			var r := state.reach_for(k)
+			if r.is_empty():
+				tonight += ("\n" if tonight != "" else "") + "No %s dot is in reach tonight; the old roots keep drinking what they reached." % DOT_WORDS[k]
+			else:
+				tonight += ("\n" if tonight != "" else "") + "Steer for the %s dots: the nearest lies %s. (%s.)" % [DOT_WORDS[k], where_words(r), HINT_WORDS[k].substr(0, 1).to_upper() + HINT_WORDS[k].substr(1)]
+		if lacks == "":
+			lacks = "It has what it needs today: the roots brought enough for the whole day."
+			tonight = "Any dots will do tonight; water and nitrogen are used most."
+	out.append({"title": "What it lacks", "text": lacks})
+	if tonight != "":
+		out.append({"title": "Tonight's root", "text": tonight})
+	# The crown's shape.
+	if not state.is_seed():
+		var shape := crown_shape(sim)
+		var words: Array[String] = []
+		if float(shape["lean"]) > 0.25:
+			words.append("The crown leans %s, towards where the sun fed it most." % shape["lean_dir"])
+		else:
+			words.append("The crown stands evenly round the trunk.")
+		if float(shape["crowded"]) > 0.15:
+			words.append("Crowded inside: %d twigs sit in the shade of the crown above them. Thinning a branch above them lets the light in." % int(shape["shaded"]))
+		else:
+			words.append("Open inside: the light reaches most twigs.")
+		if state.last_dieback > 0:
+			words.append("%d shaded twig%s died back at dawn." % [state.last_dieback, "" if state.last_dieback == 1 else "s"])
+		out.append({"title": "The crown", "text": " ".join(words)})
+	# The last cut.
+	var cut := sim.last_cut
+	var cut_text := "No cuts yet. A cut gives part of its strength back: the next morning buds wake just below it."
+	if not cut.is_empty():
+		var head := "Day %d: I cut a branch of %d segment%s." % [int(cut["day"]), int(cut["nodes"]), "" if int(cut["nodes"]) == 1 else "s"]
+		if not bool(cut.get("woken", false)):
+			cut_text = head + " At dawn buds will wake below the cut, about %d segments' worth." % sim.pending_refund()
+		elif int(cut.get("regrown", 0)) == 0 and int(cut.get("buds", 0)) == 0:
+			cut_text = head + " The tree is grown; that cut was for its look."
+		else:
+			cut_text = head + " At dawn %d bud%s woke below it, and %d segments grew back near the cut and around the crown." % [int(cut["buds"]), "" if int(cut["buds"]) == 1 else "s", int(cut["regrown"])]
+	out.append({"title": "The last cut", "text": cut_text})
+	return out

@@ -46,6 +46,8 @@ var _book_title: Label
 ## The clearing's collection: what came up in the crown's shade (Clearing.found).
 var _clearing_list: VBoxContainer
 var _clearing_more: Label
+## The care page (0.6.3): the crown and the roots read in words (Care.page).
+var _care_box: VBoxContainer
 
 
 func _ready() -> void:
@@ -315,13 +317,14 @@ func _build_book() -> void:
 	_tabs["pages"] = _build_pages_tab()
 	_tabs["settings"] = _build_settings_tab()
 	_tabs["clearing"] = _build_clearing_tab()
+	_tabs["care"] = _build_care_tab()
 	for k in _tabs:
 		var c: Control = _tabs[k]
 		c.set_anchors_preset(Control.PRESET_FULL_RECT)
 		content.add_child(c)
 
 	# Cloth ribbon bookmarks sticking out of the right edge of the book, with forked ends.
-	var ribbons := {"diary": Color(0.62, 0.2, 0.16), "pages": Color(0.25, 0.38, 0.22), "clearing": Color(0.52, 0.42, 0.16)}
+	var ribbons := {"diary": Color(0.62, 0.2, 0.16), "care": Color(0.2, 0.36, 0.5), "pages": Color(0.25, 0.38, 0.22), "clearing": Color(0.52, 0.42, 0.16)}
 	var y := 120
 	for k in ribbons:
 		var b := Button.new()
@@ -438,6 +441,36 @@ func _build_clearing_tab() -> Control:
 	_clearing_more.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	box.add_child(_clearing_more)
 	return box
+
+
+## The care page (0.6.3): what the tree lacks and where tonight's root finds it, how the
+## crown is shaped, and what the last cut did, read from the crown and the roots.
+func _build_care_tab() -> Control:
+	var scroll := ScrollContainer.new()
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	_care_box = VBoxContainer.new()
+	_care_box.add_theme_constant_override("separation", 10)
+	_care_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.add_child(_care_box)
+	return scroll
+
+
+func _refresh_care() -> void:
+	for c in _care_box.get_children():
+		c.queue_free()
+	_care_box.add_child(Paper.ink_label("Reading my tree", 32, Paper.INK, true))
+	for part in Care.page(state):
+		_care_box.add_child(Paper.ink_label(str(part["title"]), 27, Paper.RED_INK, true))
+		var text := Paper.ink_label(str(part["text"]), 25)
+		text.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		text.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		_care_box.add_child(text)
+
+
+## Opens the book at the care page.
+func open_care() -> void:
+	open_diary()
+	_show_tab("care", false)
 
 
 func _refresh_clearing() -> void:
@@ -577,6 +610,7 @@ func _refresh_diary() -> void:
 			any = true
 	_pages_empty.visible = not any
 	_refresh_clearing()
+	_refresh_care()
 
 
 func set_setting(key: String, on: bool) -> void:
