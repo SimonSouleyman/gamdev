@@ -52,7 +52,8 @@ func build(seed: int, bark: Material, leaf: Material, noise: Texture2D, radius: 
 	(leaf as ShaderMaterial).set_shader_parameter("near_fade", 9.0)
 	# Depth separation (Simon: the tree must stand out from the forest): the wood is darker,
 	# cooler and without the hero tree's rim light.
-	(bark as ShaderMaterial).set_shader_parameter("tint_mul", Color(0.62, 0.64, 0.66))
+	# (Brown-grey, not the cold grey that read as a dark tangle behind a young tree, 0.6.1 review.)
+	(bark as ShaderMaterial).set_shader_parameter("tint_mul", Color(0.74, 0.7, 0.64))
 	(leaf as ShaderMaterial).set_shader_parameter("tint_mul", Color(0.66, 0.76, 0.78))
 	(bark as ShaderMaterial).set_shader_parameter("rim_strength", 0.0)
 	(leaf as ShaderMaterial).set_shader_parameter("rim_strength", 0.0)
@@ -89,7 +90,7 @@ const KINDS: Array[Dictionary] = [
 	{"name": "spruce", "spruce": true, "bark": Color(0.4, 0.33, 0.28), "leaf": Color(0.36, 0.5, 0.36), "card": 0.45, "scale": Vector2(1.5, 2.1)},
 ]
 ## Bump when the forest generator changes, so cached meshes are regrown.
-const FOREST_CACHE_VERSION := 10
+const FOREST_CACHE_VERSION := 11
 
 
 func _grow_variant(seed: int, variant: int, bark: Material, leaf: Material) -> ArrayMesh:
@@ -171,8 +172,9 @@ func _build_broadleaf(seed: int, variant: int, local: RandomNumberGenerator, kin
 	var spots: Array[Transform3D] = []
 	var g := sim.graph
 	for id in range(2, g.size()):
-		# Bare lower trunks: leaves only in the upper crown, so the wood has depth and trunks.
-		if g.radii[id] >= 0.05 or g.positions[id].y < 0.4 * sim.height():
+		# Bare lower trunks, but a leafy lower crown: the bare branch tangle under the crowns read
+		# as a dark grey thicket behind a young tree (0.6.1 review).
+		if g.radii[id] >= 0.08 or g.positions[id].y < 0.28 * sim.height():
 			continue
 		for k in range(2):
 			var s: float = kind["card"] * local.randf_range(0.85, 1.2)
