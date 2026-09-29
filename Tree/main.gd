@@ -833,8 +833,16 @@ func _take_photo(tag: String) -> void:
 	for h in huds:
 		was.append((h as CanvasLayer).visible)
 		(h as CanvasLayer).visible = false
+	# The morning photos share one camera framed for the grown tree, so the album's flip-book
+	# shows the tree growing instead of a tree re-framed to the same size every day.
+	var album := tag == "morning"
+	if album:
+		tree_view.album_pose(true)
+		await get_tree().process_frame
 	await RenderingServer.frame_post_draw
 	Photos.save_from(get_viewport(), state.day_number(), tag, state.sim.species.id)
+	if album:
+		tree_view.album_pose(false)
 	for i in range(huds.size()):
 		(huds[i] as CanvasLayer).visible = was[i]
 	_photo_busy = false

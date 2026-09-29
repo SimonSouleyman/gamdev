@@ -78,6 +78,7 @@ static func new_game(random_seed: int, species_id: String = "linden") -> GameSta
 	var g := GameState.new()
 	g.seed = random_seed
 	g.sim = GrowthSim.new(random_seed)
+	g.sim.natural_form = true
 	g.sim.species = Species.from_id(species_id)
 	g.ground = Underground.new(random_seed)
 	g.roots = RootSystem.new(random_seed)
@@ -569,6 +570,8 @@ static func from_dict(d_in: Dictionary) -> GameState:
 	var g := GameState.new()
 	g.seed = int(d.get("seed", 1))
 	g.sim = GrowthSim.from_dict(SaveData.restore_sim(d["sim"]))
+	# Every game tree follows the growth curve, a tree saved before 0.6.2 included.
+	g.sim.natural_form = true
 	g.ground = Underground.from_dict(d.get("underground", {"seed": g.seed}))
 	g.roots = RootSystem.from_dict(d.get("roots", {}), g.seed)
 	g.roots.species = g.sim.species
