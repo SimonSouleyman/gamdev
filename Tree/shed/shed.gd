@@ -54,6 +54,11 @@ var _shaft: MeshInstance3D
 var _sounds: Dictionary = {}  # name -> AudioStream
 var _player: AudioStreamPlayer
 var _busy: Dictionary = {}  # name -> Tween
+## The wall boards while the room is built (one mesh).
+var _boards: SurfaceTool
+## Dust drifting in the window light by day.
+var _dust: GPUParticles3D
+var _blob_mat: StandardMaterial3D
 
 
 func _ready() -> void:
@@ -86,6 +91,155 @@ func _box(size: Vector3, at: Vector3, mat: Material, parent: Node3D = self) -> M
 	m.position = at
 	parent.add_child(m)
 	return m
+
+
+## Board pitch of the walls, metres (each board a little wider or narrower).
+const BOARD_PITCH := 0.165
+const BOARD_GAP := 0.009
+
+
+## A wall of vertical boards filling `size` at `at` (a box's size and centre, thin along x or z),
+## with a dark backing behind the gaps. Boards follow one grid per wall (`wall`), so the pieces
+## of the front wall around the door and window line up.
+func _wall(size: Vector3, at: Vector3, wall: int) -> void:
+	var along_x := size.x >= size.z
+	var length := size.x if along_x else size.z
+	var thick := size.z if along_x else size.x
+	var start := (at.x if along_x else at.z) - length * 0.5
+	var end := start + length
+	# Inside is toward the middle of the room.
+	var inward := -signf(at.z if along_x else at.x)
+	var normal_axis := Vector3(0, 0, inward) if along_x else Vector3(inward, 0, 0)
+	var back_size := Vector3(size.x, size.y, thick * 0.4) if along_x else Vector3(thick * 0.4, size.y, size.z)
+	_st_box(_boards, at - normal_axis * thick * 0.3, back_size, Color(0.16, 0.13, 0.11))
+	var first := floori(start / BOARD_PITCH) - 1
+	var i := first
+	while i * BOARD_PITCH + _jit(i, wall) < end:
+		var a := maxf(start, i * BOARD_PITCH + _jit(i, wall))
+		var b := minf(end, (i + 1) * BOARD_PITCH + _jit(i + 1, wall) - BOARD_GAP)
+		i += 1
+		if b - a < 0.008:
+			continue
+		var h := _hash(i, wall)
+		var depth := thick * 0.55 + (h - 0.5) * 0.012
+		var mid := (a + b) * 0.5
+		var c := at + normal_axis * (thick * 0.5 - depth * 0.5)
+		if along_x:
+			c.x = mid
+		else:
+			c.z = mid
+		var bsize := Vector3(b - a, size.y, depth) if along_x else Vector3(depth, size.y, b - a)
+		# Each board weathered its own way: lighter, darker, a little warmer or greyer.
+		var v := lerpf(0.78, 1.12, h)
+		var warm := _hash(i + 17, wall + 5) - 0.5
+		_st_box(_boards, c, bsize, Color(v * (1.0 + warm * 0.1), v, v * (1.0 - warm * 0.14)))
+
+
+func _jit(i: int, wall: int) -> float:
+	return (_hash(i, wall * 7 + 3) - 0.5) * 0.05
+
+
+static func _hash(i: int, k: int) -> float:
+	return fposmod(sin(i * 12.9898 + k * 78.233) * 43758.5453, 1.0)
+
+
+## A box into a SurfaceTool with a flat colour.
+static func _st_box(st: SurfaceTool, c: Vector3, size: Vector3, col: Color) -> void:
+	var h := size * 0.5
+	var faces := [
+		[Vector3(1, 0, 0), Vector3(0, 1, 0), Vector3(0, 0, 1)], [Vector3(-1, 0, 0), Vector3(0, 0, 1), Vector3(0, 1, 0)],
+		[Vector3(0, 1, 0), Vector3(0, 0, 1), Vector3(1, 0, 0)], [Vector3(0, -1, 0), Vector3(1, 0, 0), Vector3(0, 0, 1)],
+		[Vector3(0, 0, 1), Vector3(1, 0, 0), Vector3(0, 1, 0)], [Vector3(0, 0, -1), Vector3(0, 1, 0), Vector3(1, 0, 0)]]
+	for f in faces:
+		var n: Vector3 = f[0]
+		var u: Vector3 = f[1]
+		var v: Vector3 = f[2]
+		var o := c + n * h
+		var du := u * h
+		var dv := v * h
+		var q := [o - du - dv, o + du - dv, o + du + dv, o - du + dv]
+		for k in [0, 2, 1, 0, 3, 2]:
+			st.set_color(col)
+			st.set_normal(n)
+			st.add_vertex(q[k])
+
+
+## A frame member: a box of `size` at `at` with its long edges bevelled by `bevel`, so each edge
+## catches a line of light instead of the flat slab it was.
+func _beam(size: Vector3, at: Vector3, mat: Material, bevel: float = 0.012, parent: Node3D = self) -> MeshInstance3D:
+	var ax := 0 if size.x >= size.y and size.x >= size.z else (1 if size.y >= size.z else 2)
+	var u := (ax + 1) % 3
+	var w := (ax + 2) % 3
+	var a := size[u] * 0.5
+	var b := size[w] * 0.5
+	var c := minf(bevel, minf(a, b) * 0.8)
+	var ring: Array[Vector2] = [Vector2(a - c, -b), Vector2(a, -b + c), Vector2(a, b - c), Vector2(a - c, b),
+		Vector2(-a + c, b), Vector2(-a, b - c), Vector2(-a, -b + c), Vector2(-a + c, -b)]
+	var l := size[ax] * 0.5
+	var pt := func(p: Vector2, t: float) -> Vector3:
+		var r := Vector3.ZERO
+		r[ax] = t
+		r[u] = p.x
+		r[w] = p.y
+		return r
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	for k in range(8):
+		var p0: Vector2 = ring[k]
+		var p1: Vector2 = ring[(k + 1) % 8]
+		var q: Array[Vector3] = [pt.call(p0, -l), pt.call(p1, -l), pt.call(p1, l), pt.call(p0, l)]
+		for i in [0, 2, 1, 0, 3, 2]:
+			st.add_vertex(q[i])
+	for k in range(1, 7):
+		for side in [-1.0, 1.0]:
+			var tri: Array[Vector3] = [pt.call(ring[0], side * l), pt.call(ring[k], side * l), pt.call(ring[k + 1], side * l)]
+			if side > 0.0:
+				tri = [tri[0], tri[2], tri[1]]
+			for v in tri:
+				st.add_vertex(v)
+	st.generate_normals()
+	var m := MeshInstance3D.new()
+	m.mesh = st.commit()
+	m.material_override = mat
+	m.position = at
+	parent.add_child(m)
+	return m
+
+
+## A soft contact shadow: a dark blurred patch on the surface under a thing (cheap: one quad).
+func _blob(at: Vector3, size: Vector2, turn: float, strength: float, parent: Node3D = self) -> void:
+	if _blob_mat == null:
+		var g := Gradient.new()
+		g.set_color(0, Color(1, 1, 1, 1))
+		g.set_color(1, Color(1, 1, 1, 0))
+		g.add_point(0.45, Color(1, 1, 1, 0.55))
+		var tex := GradientTexture2D.new()
+		tex.gradient = g
+		tex.fill = GradientTexture2D.FILL_RADIAL
+		tex.fill_from = Vector2(0.5, 0.5)
+		tex.fill_to = Vector2(0.5, 0.0)
+		tex.width = 64
+		tex.height = 64
+		_blob_mat = StandardMaterial3D.new()
+		_blob_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		_blob_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		_blob_mat.albedo_texture = tex
+		_blob_mat.vertex_color_use_as_albedo = false
+		_blob_mat.albedo_color = Color(0.05, 0.035, 0.02, 1.0)
+		_blob_mat.disable_receive_shadows = true
+	var q := MeshInstance3D.new()
+	var pm := PlaneMesh.new()
+	pm.size = size
+	q.mesh = pm
+	var mat := _blob_mat
+	if strength != 1.0:
+		mat = _blob_mat.duplicate() as StandardMaterial3D
+		mat.albedo_color.a = strength
+	q.material_override = mat
+	q.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	q.position = at
+	q.rotation.y = turn
+	parent.add_child(q)
 
 
 ## A wood material from assets/wood, mapped in world space so every board has the same grain size.
@@ -153,26 +307,42 @@ func _build_room() -> void:
 	var t := 0.08
 	# Floor boards and walls: back, left, right.
 	_box(Vector3(WIDTH, 0.1, DEPTH), Vector3(0, 0.05, 0), _floor)
-	_box(Vector3(WIDTH, WALL_H, t), Vector3(0, WALL_H * 0.5, -hd), _wood)
-	_box(Vector3(t, WALL_H, DEPTH), Vector3(-hw, WALL_H * 0.5, 0), _wood)
-	_box(Vector3(t, WALL_H, DEPTH), Vector3(hw, WALL_H * 0.5, 0), _wood)
+	# The walls are single boards (0.6.1 review: one flat slab): each its own width, tint and
+	# depth, with dark gaps between them. All boards are one mesh, one draw call.
+	_boards = SurfaceTool.new()
+	_boards.begin(Mesh.PRIMITIVE_TRIANGLES)
+	_wall(Vector3(WIDTH, WALL_H, t), Vector3(0, WALL_H * 0.5, -hd), 0)
+	_wall(Vector3(t, WALL_H, DEPTH), Vector3(-hw, WALL_H * 0.5, 0), 1)
+	_wall(Vector3(t, WALL_H, DEPTH), Vector3(hw, WALL_H * 0.5, 0), 2)
 	# The front wall around the open door (centred) and the window (local +x).
 	var dx := DOOR_W * 0.5
 	var right_w := hw - dx
-	_box(Vector3(right_w, WALL_H, t), Vector3(-dx - right_w * 0.5, WALL_H * 0.5, hd), _wood)
+	_wall(Vector3(right_w, WALL_H, t), Vector3(-dx - right_w * 0.5, WALL_H * 0.5, hd), 3)
 	# Left of the door: beside, below and above the window opening.
 	var wx0 := WINDOW_X.x
 	var wx1 := WINDOW_X.y
-	_box(Vector3(wx0 - dx, WALL_H, t), Vector3((dx + wx0) * 0.5, WALL_H * 0.5, hd), _wood)
-	_box(Vector3(hw - wx1, WALL_H, t), Vector3((wx1 + hw) * 0.5, WALL_H * 0.5, hd), _wood)
-	_box(Vector3(wx1 - wx0, WINDOW_Y.x, t), Vector3((wx0 + wx1) * 0.5, WINDOW_Y.x * 0.5, hd), _wood)
-	_box(Vector3(wx1 - wx0, WALL_H - WINDOW_Y.y, t), Vector3((wx0 + wx1) * 0.5, (WALL_H + WINDOW_Y.y) * 0.5, hd), _wood)
-	_box(Vector3(DOOR_W, WALL_H - DOOR_H, t), Vector3(0, DOOR_H + (WALL_H - DOOR_H) * 0.5, hd), _wood)
-	# Door frame posts and the door itself, swung open against the outside of the front wall.
-	var frame := _mat(Color(0.3, 0.22, 0.15), 0.9)
-	for x in [-dx - 0.03, dx + 0.03]:
-		_box(Vector3(0.06, DOOR_H, 0.12), Vector3(x, DOOR_H * 0.5, hd), frame)
-	_box(Vector3(DOOR_W + 0.12, 0.07, 0.12), Vector3(0, DOOR_H + 0.03, hd), frame)
+	_wall(Vector3(wx0 - dx, WALL_H, t), Vector3((dx + wx0) * 0.5, WALL_H * 0.5, hd), 3)
+	_wall(Vector3(hw - wx1, WALL_H, t), Vector3((wx1 + hw) * 0.5, WALL_H * 0.5, hd), 3)
+	_wall(Vector3(wx1 - wx0, WINDOW_Y.x, t), Vector3((wx0 + wx1) * 0.5, WINDOW_Y.x * 0.5, hd), 3)
+	_wall(Vector3(wx1 - wx0, WALL_H - WINDOW_Y.y, t), Vector3((wx0 + wx1) * 0.5, (WALL_H + WINDOW_Y.y) * 0.5, hd), 3)
+	_wall(Vector3(DOOR_W, WALL_H - DOOR_H, t), Vector3(0, DOOR_H + (WALL_H - DOOR_H) * 0.5, hd), 3)
+	var boards := MeshInstance3D.new()
+	boards.name = "Boards"
+	boards.mesh = _boards.commit()
+	var bm := (_wood as StandardMaterial3D).duplicate() as StandardMaterial3D
+	bm.vertex_color_use_as_albedo = true
+	boards.material_override = bm
+	add_child(boards)
+	# Door frame: thick bevelled posts and lintel standing proud of the wall, and a thin casing
+	# around them, so the doorway has depth.
+	var frame := _planks("old_planks_02", 1.2, Color(0.52, 0.42, 0.34))
+	for x in [-dx - 0.035, dx + 0.035]:
+		_beam(Vector3(0.07, DOOR_H, 0.16), Vector3(x, DOOR_H * 0.5, hd), frame)
+		_beam(Vector3(0.05, DOOR_H + 0.06, 0.025), Vector3(x + signf(x) * 0.055, DOOR_H * 0.5 + 0.03, hd - 0.09), frame)
+	_beam(Vector3(DOOR_W + 0.14, 0.08, 0.16), Vector3(0, DOOR_H + 0.04, hd), frame)
+	_beam(Vector3(DOOR_W + 0.26, 0.06, 0.025), Vector3(0, DOOR_H + 0.1, hd - 0.09), frame)
+	# A worn threshold board.
+	_beam(Vector3(DOOR_W + 0.1, 0.03, 0.2), Vector3(0, 0.115, hd), frame)
 	var hinge := Node3D.new()
 	hinge.position = Vector3(-dx, 0, hd + 0.05)
 	hinge.rotation.y = -1.9
@@ -242,13 +412,16 @@ func _build_window() -> void:
 	var cy := (WINDOW_Y.x + WINDOW_Y.y) * 0.5
 	var w := WINDOW_X.y - WINDOW_X.x
 	var h := WINDOW_Y.y - WINDOW_Y.x
-	var frame := _mat(Color(0.42, 0.32, 0.22), 0.85)
+	# A deep bevelled frame with a casing proud of the wall and thin glazing bars set back.
+	var frame := _planks("old_planks_02", 1.4, Color(0.62, 0.5, 0.4))
 	for y in [WINDOW_Y.x, WINDOW_Y.y]:
-		_box(Vector3(w + 0.08, 0.05, 0.1), Vector3(cx, y, hd), frame)
+		_beam(Vector3(w + 0.1, 0.055, 0.14), Vector3(cx, y, hd), frame)
+		_beam(Vector3(w + 0.2, 0.045, 0.022), Vector3(cx, y + signf(y - cy) * 0.035, hd - 0.08), frame)
 	for x in [WINDOW_X.x, WINDOW_X.y]:
-		_box(Vector3(0.05, h, 0.1), Vector3(x, cy, hd), frame)
-	_box(Vector3(w, 0.03, 0.05), Vector3(cx, cy, hd), frame)
-	_box(Vector3(0.03, h, 0.05), Vector3(cx, cy, hd), frame)
+		_beam(Vector3(0.055, h, 0.14), Vector3(x, cy, hd), frame)
+		_beam(Vector3(0.045, h + 0.12, 0.022), Vector3(x + signf(x - cx) * 0.035, cy, hd - 0.08), frame)
+	_beam(Vector3(w, 0.026, 0.04), Vector3(cx, cy, hd + 0.01), frame, 0.006)
+	_beam(Vector3(0.026, h, 0.04), Vector3(cx, cy, hd + 0.01), frame, 0.006)
 	# Old, slightly dusty glass.
 	var glass := StandardMaterial3D.new()
 	glass.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
@@ -293,6 +466,65 @@ func _build_window() -> void:
 	_shaft = shaft
 	shaft.position = Vector3(cx - 0.05, cy - 0.28, hd - 0.42)
 	shaft.rotation = Vector3(-0.55, PI, 0.0)
+	_build_dust(Vector3(cx - 0.05, cy - 0.3, hd - 0.4), Vector3(w * 0.45, 0.5, 0.3))
+
+
+## A little dust drifting slowly in the window light (only by day; few specks, cheap).
+func _build_dust(at: Vector3, extents: Vector3) -> void:
+	var p := GPUParticles3D.new()
+	p.amount = 14 if Budgets.PHONE else 32
+	p.lifetime = 7.0
+	p.preprocess = 7.0
+	p.position = at
+	p.visibility_aabb = AABB(-extents * 1.5, extents * 3.0)
+	var pm := ParticleProcessMaterial.new()
+	pm.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_BOX
+	pm.emission_box_extents = extents
+	pm.gravity = Vector3(0, -0.004, 0)
+	pm.direction = Vector3(0.3, 0.2, -0.2)
+	pm.spread = 180.0
+	pm.initial_velocity_min = 0.005
+	pm.initial_velocity_max = 0.025
+	pm.scale_min = 0.6
+	pm.scale_max = 1.4
+	var fade := Gradient.new()
+	fade.set_color(0, Color(1, 1, 1, 0))
+	fade.set_color(1, Color(1, 1, 1, 0))
+	fade.add_point(0.3, Color(1, 1, 1, 1))
+	fade.add_point(0.7, Color(1, 1, 1, 1))
+	var ft := GradientTexture1D.new()
+	ft.gradient = fade
+	pm.color_ramp = ft
+	p.process_material = pm
+	var q := QuadMesh.new()
+	q.size = Vector2(0.006, 0.006)
+	var m := StandardMaterial3D.new()
+	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	m.billboard_mode = BaseMaterial3D.BILLBOARD_PARTICLES
+	m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	m.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+	m.vertex_color_use_as_albedo = true
+	m.albedo_color = Color(1.0, 0.9, 0.7, 0.55)
+	m.albedo_texture = _blob_texture_soft()
+	q.material = m
+	p.draw_pass_1 = q
+	p.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_child(p)
+	_dust = p
+
+
+static func _blob_texture_soft() -> GradientTexture2D:
+	var g := Gradient.new()
+	g.set_color(0, Color(1, 1, 1, 1))
+	g.set_color(1, Color(1, 1, 1, 0))
+	var tex := GradientTexture2D.new()
+	tex.gradient = g
+	tex.fill = GradientTexture2D.FILL_RADIAL
+	tex.fill_from = Vector2(0.5, 0.5)
+	tex.fill_to = Vector2(0.5, 0.0)
+	tex.width = 16
+	tex.height = 16
+	return tex
 
 
 static func _shaft_shader() -> Shader:
@@ -360,6 +592,21 @@ func _build_bench() -> void:
 	var trowel := _model("trowel_01", Vector3(-0.36, top + 0.035, 0.2), 0.75, 0.0, bench)
 	trowel.rotation = Vector3(PI * 0.5 - 0.02, -0.6, 0.0)
 	_model("watering_can_metal_01", Vector3(0.78, 0.05, DEPTH * 0.5 - 0.3), 1.1, 2.4, self)
+	# Contact shadows (0.6.1 review: the things floated): a soft dark patch under each thing on
+	# the bench, under the bench and the can on the floor, and along the foot of the walls.
+	var y := top + 0.004
+	_blob(Vector3(0.2, y, -0.08), Vector2(0.24, 0.3), 0.25, 0.8, bench)
+	_blob(Vector3(-0.04, y, 0.13), Vector2(0.38, 0.31), -0.12, 0.8, bench)
+	_blob(Vector3(-0.25, y, -0.04), Vector2(0.2, 0.15), -0.35, 0.9, bench)
+	_blob(Vector3(0.3, y, 0.17), Vector2(0.2, 0.2), 0.0, 0.9, bench)
+	_blob(Vector3(-0.03, y, -0.17), Vector2(0.28, 0.2), 1.45, 0.6, bench)
+	_blob(Vector3(-0.36, y, 0.2), Vector2(0.24, 0.1), -0.6, 0.6, bench)
+	var floor_y := 0.1015
+	_blob(Vector3(0.0, floor_y, BENCH_Z), Vector2(1.9, 1.1), 0.0, 0.85)
+	_blob(Vector3(0.78, floor_y, DEPTH * 0.5 - 0.3), Vector2(0.45, 0.45), 0.0, 0.8)
+	for side in [-1.0, 1.0]:
+		_blob(Vector3(side * (WIDTH * 0.5 - 0.05), floor_y, 0.0), Vector2(0.5, DEPTH * 1.1), 0.0, 0.5)
+	_blob(Vector3(0.0, floor_y, -DEPTH * 0.5 + 0.05), Vector2(WIDTH * 1.1, 0.5), 0.0, 0.5)
 
 
 func _register(name: String, node: Node3D, centre: Vector3, radius: float) -> void:
@@ -608,11 +855,14 @@ func _process(delta: float) -> void:
 	_time += delta
 	# The lantern flickers a little.
 	# By night the lantern is the room's light; by day it is only a warm touch.
-	var lamp := lerpf(2.2, 1.0, daylight) * _lamp_base
+	# (The phone's renderer lit the bench too brightly by day: a softer lamp there by day.)
+	var lamp := (lerpf(2.2, 1.0, daylight) if _lamp_base <= 1.0 else lerpf(1.5, 0.6, daylight)) * _lamp_base
 	_lamp.light_energy = lamp * (1.0 + 0.1 * sin(_time * 7.3) + 0.05 * sin(_time * 13.1))
 	if _window_sun:
 		_window_sun.light_energy = 0.45 * daylight
 		_window_sun.light_color = Color(0.7, 0.78, 1.0).lerp(Color(1.0, 0.9, 0.72), daylight)
+	if _dust:
+		_dust.visible = daylight > 0.15
 	if _shaft:
 		_shaft.visible = daylight > 0.05
 		_shaft.transparency = 1.0 - daylight

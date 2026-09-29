@@ -124,8 +124,11 @@ func _place(p: Array) -> void:
 	mm.instance_count = cards.size()
 	for i in range(cards.size()):
 		var e: Dictionary = cards[i]
-		var pos: Vector2 = e["pos"]
-		var s: Vector2 = SIZES[e["kind"]] * float(e["size"])
+		var pos: Vector2 = _loose(e)
+		# Smaller and sparser toward the edge of the shade, full grown where it is deep, so the
+		# ferns and flowers thin out into the meadow instead of ending in a block.
+		var grade := _grade(pos)
+		var s: Vector2 = SIZES[e["kind"]] * float(e["size"]) * grade
 		var basis := Basis(Vector3.UP, float(e["rot"])).scaled(Vector3(s.x, s.y, s.x))
 		mm.set_instance_transform(i, Transform3D(basis, Terrain.at(Vector3(pos.x, 0.0, pos.y)) + Vector3(0, -0.01, 0)))
 		# White anemones would glare in the shade: a little dimmer than the ferns.
@@ -135,8 +138,8 @@ func _place(p: Array) -> void:
 	mm2.instance_count = moss.size()
 	for i in range(moss.size()):
 		var e: Dictionary = moss[i]
-		var pos: Vector2 = e["pos"]
-		var w: float = SIZES["moss"].x * float(e["size"])
+		var pos: Vector2 = _loose(e)
+		var w: float = SIZES["moss"].x * float(e["size"]) * _grade(pos)
 		# Lying on the ground, tilted with its slope.
 		var at := Terrain.at(Vector3(pos.x, 0.0, pos.y))
 		var n := Vector3(Terrain.height(pos.x - 0.3, pos.y) - Terrain.height(pos.x + 0.3, pos.y), 0.6, Terrain.height(pos.x, pos.y - 0.3) - Terrain.height(pos.x, pos.y + 0.3)).normalized()
@@ -145,6 +148,25 @@ func _place(p: Array) -> void:
 		mm2.set_instance_transform(i, Transform3D(basis, at + Vector3(0, 0.02 + 0.004 * (i % 5), 0)))
 		var v := 0.85 + 0.25 * fposmod(float(e["rot"]) * 5.31, 1.0)
 		mm2.set_instance_color(i, Color(v, v, v))
+
+
+## A plant's spot, loosened from the plan's half-metre grid (the plants lined up in cells).
+func _loose(e: Dictionary) -> Vector2:
+	var r := float(e["rot"])
+	var pos: Vector2 = e["pos"]
+	var j := pos + Vector2(sin(r * 3.7), cos(r * 5.3)) * 0.28
+	return j if j.length() > Clearing.BARE_RADIUS + 0.15 else pos
+
+
+## How grown a plant is at this spot: 0.5 at the fraying edge of the shade .. 1.1 in deep shade.
+func _grade(pos: Vector2) -> float:
+	var s := Clearing.shade_at(map, pos.x, pos.y) + _ragged(pos.x, pos.y)
+	return lerpf(0.5, 1.1, smoothstep(0.2, 0.75, s))
+
+
+## A soft noise that frays the edge of the shade (the ground shader frays its litter alike).
+func _ragged(x: float, z: float) -> float:
+	return (sin(x * 1.7 + z * 0.6) * cos(z * 1.9 - x * 0.4) + sin(x * 4.1 - z * 3.3) * 0.4) * 0.12
 
 
 ## The sun meadow gives way in the shade: most clumps go, the rest stand lower and darker.
@@ -162,9 +184,11 @@ func _thin(mm: MultiMesh, seed: int) -> void:
 	for i in range(mm.instance_count):
 		var xf := mm.get_instance_transform(i)
 		var s := Clearing.shade_at(map, xf.origin.x, xf.origin.z)
+		if s > 0.02:
+			s = clampf(s + _ragged(xf.origin.x, xf.origin.z) * 1.5, 0.0, 1.0)
 		if s < 0.12:
 			continue
-		var keep := 1.0 - 0.92 * smoothstep(0.12, 0.7, s)
+		var keep := 1.0 - 0.9 * smoothstep(0.15, 0.8, s)
 		if fposmod(sin(i * 12.9898 + salt) * 43758.5453, 1.0) > keep:
 			xf.basis = Basis.from_scale(Vector3.ZERO)
 		else:

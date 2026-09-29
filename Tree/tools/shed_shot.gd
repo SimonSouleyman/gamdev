@@ -11,6 +11,7 @@ extends SceneTree
 ## fertiliser, a wire and a wire scar, repotting, a juniper after 14 care days, a linden cutting,
 ## the style pages and the bonsai's album page, and the juniper and the sill at night.
 ## Run: godot --path . -s tools/shed_shot.gd -- --shots=C:/some/folder [--days=6] [--species=linden] [--bonsai-only]
+## --quick: only the bench by day and at night (the lantern's light), then quit.
 
 var main: Node
 var shots := ""
@@ -22,6 +23,7 @@ var _game: GameState
 var _flip_day := 0
 var _flip_frame := 0
 var bonsai_only := false
+var quick := false
 
 
 func _initialize() -> void:
@@ -36,6 +38,8 @@ func _initialize() -> void:
 			flip = int(a.substr(7))
 		elif a == "--bonsai-only":
 			bonsai_only = true
+		elif a == "--quick":
+			quick = true
 	DirAccess.make_dir_recursive_absolute(shots)
 	main = load("res://main.tscn").instantiate()
 	main.ephemeral = true
@@ -173,6 +177,16 @@ func _run() -> void:
 	# First visit: every thing on the bench carries its label.
 	await _wait(38)
 	_shot("shed_menu")
+	if quick:
+		# On to the night: the window goes dark and the lantern lights the room.
+		while main.state.phase == GameState.Phase.DAY:
+			main.state.tick(0.5)
+		await _wait(20)
+		main.journal.clear_pages()
+		await _wait(20)
+		_shot("shed_night")
+		quit()
+		return
 	# Two photos for the album, into a tool folder (never the player's album).
 	Photos.DIR = "user://tool_photos"
 	Photos.clear()

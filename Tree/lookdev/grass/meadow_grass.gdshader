@@ -18,10 +18,17 @@ uniform float dew = 0.0;
 uniform float wet = 0.0;
 // Understory only: dims the white anemone cards by night (they read as glowing stars).
 uniform float night_dim = 1.0;
+// Calmer greens (the painted atlas is strong): 1 as painted, less toward grey.
+uniform float saturation = 1.0;
+// Far clumps lose their thin blades to the mipmaps and keep only the dense dark foot, which read
+// as black dots on the phone: lift the foot with distance (0 off).
+uniform float far_lift = 0.0;
 
 varying float root_shade;
 varying vec3 clump_pos;
 varying float cell_v;
+varying float shrink;
+varying float far;
 
 void vertex() {
 	vec3 world = (MODEL_MATRIX * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
@@ -31,7 +38,9 @@ void vertex() {
 	cell_v = cell;
 	UV = UV * 0.5 + vec2(mod(cell, 2.0), floor(cell / 2.0)) * 0.5;
 	float cam_dist = length(world - (INV_VIEW_MATRIX * vec4(0.0, 0.0, 0.0, 1.0)).xyz);
-	VERTEX *= 1.0 - smoothstep(fade_start, fade_end, cam_dist);
+	shrink = smoothstep(fade_start, fade_end, cam_dist);
+	far = smoothstep(4.0, 14.0, cam_dist);
+	VERTEX *= 1.0 - shrink;
 	float gust = sin(TIME * 0.7 + world.x * 0.21 + world.z * 0.17) * 0.5 + 0.5;
 	float sway = (sin(TIME * 2.1 + world.x * 1.3 + world.z * 0.9) * 0.6 + gust * 0.8) * wind_strength;
 	VERTEX.x += sway * 0.05 * top * top;
@@ -49,10 +58,13 @@ void fragment() {
 	vec4 tex = texture(clump_texture, UV);
 	// Alpha to coverage with the phone's MSAA: soft blade edges instead of hard ones that
 	// pop in and out between frames (the meadow shimmered, Simon 0.5.1).
-	ALPHA = tex.a;
+	// A shrinking far clump thins out instead of leaving its dark foot as a dot on the ground.
+	ALPHA = tex.a * (1.0 - 0.55 * shrink);
 	ALPHA_SCISSOR_THRESHOLD = 0.4;
 	ALPHA_ANTIALIASING_EDGE = 0.25;
 	ALBEDO = tex.rgb * COLOR.rgb * season_tint;
+	ALBEDO = mix(vec3(dot(ALBEDO, vec3(0.3, 0.59, 0.11))), ALBEDO, saturation);
+	ALBEDO *= 1.0 + (0.6 * shrink + far_lift * far) * (1.0 - root_shade);
 	// Blades shade each other near the ground.
 	AO = mix(0.35, 1.0, smoothstep(0.0, 0.6, root_shade));
 	AO_LIGHT_AFFECT = 0.5;
