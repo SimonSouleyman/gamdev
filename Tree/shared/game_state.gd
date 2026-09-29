@@ -448,8 +448,9 @@ func _sunrise() -> void:
 	sim.start_dawn_burst()
 	if was_seed and not sim.nutrients_spent():
 		diary.add(day_number(), "The seed sprouted at dawn.")
-	# A missed wish deposit glows faintly one more night; the new wish may point underground.
-	diary.new_wish(ground, day_number(), seed, roots)
+	# A missed wish deposit glows faintly one more night; the new wish may place a deposit ahead
+	# of the newest root tip, of what the tree is shorter of (Diary.plan_wish).
+	diary.new_wish(ground, day_number(), seed, roots, sim.resources)
 	_weather_note("morning")
 	morning_timer = 0.0
 	_event("sunrise")

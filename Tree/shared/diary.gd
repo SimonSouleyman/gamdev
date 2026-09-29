@@ -2,8 +2,8 @@ class_name Diary
 extends RefCounted
 ## The journal's diary: the game writes one or more lines per day, the player can add notes,
 ## and each morning brings an optional wish (design doc section 8). Pure data.
-## From 0.7 most wishes point at a wish deposit underground (Underground.WISH_DEPOSITS): it
-## glows at night, and reaching it writes a line with a small ink drawing (docs/notes/wish-0.7.md).
+## From 0.7 most wishes point at a wish deposit the generator places ahead of the newest root
+## tip (Underground.wish_deposits): it glows at night, and reaching it writes a line with a small ink drawing (docs/notes/wish-0.7.md).
 
 ## Each: {"day": int, "text": String, "by": "tree" | "player"}, plus "drawing": String (an ink
 ## sketch the journal draws beside the line: "rushes" or "clover") on a reached wish.
@@ -21,10 +21,13 @@ const UNDERGROUND_SHARE: float = 0.75
 ## A wish deposit counts as reachable when the straight line to it from some root node is free
 ## of rock and costs at most this share of a full calm tank (RootSystem.calm_life_force).
 const REACH_SHARE: float = 0.6
+## How far beyond the newest root tip the wish deposit goes: past where the leftover's fine
+## roots reach from a stub, so continuing the root is what finds it.
+const AHEAD_MIN: float = 5.5
+const AHEAD_MAX: float = 8.5
+const PLACE_TRIES: int = 24
 ## The root reached the patch when a main-root node lies within its radius plus this.
 const REACH_MARGIN: float = 0.35
-## A patch with fewer of its dots left (or more of them tapped) than this share is not picked.
-const MIN_LEFT_SHARE: float = 0.5
 ## Glow strength of today's wish deposit and of yesterday's missed one.
 const GLOW_TODAY: float = 1.0
 const GLOW_YESTERDAY: float = 0.45
@@ -56,33 +59,86 @@ func last(n: int) -> Array:
 
 
 ## An optional wish for the morning, pointing at something the meadow shows.
-## Deterministic from the save seed, the day and the roots grown so far.
-static func make_wish(ground: Underground, day: int, seed: int, roots: RootSystem = null) -> String:
-	return str(make_wish_target(ground, day, seed, roots)["text"])
+## Deterministic from the save seed, the day, the roots grown so far and what the tree lacks.
+static func make_wish(ground: Underground, day: int, seed: int, roots: RootSystem = null, res: Resources = null) -> String:
+	return str(plan_wish(ground, day, seed, roots, res)["text"])
 
 
-## The morning's wish: {"text": String, "patch": int (a wish deposit in ground.patches, or -1)}.
-## Only a wish deposit that tonight's root can reach is picked (see reachable).
-static func make_wish_target(ground: Underground, day: int, seed: int, roots: RootSystem = null) -> Dictionary:
+## The morning's wish, not yet placed: {"text", "kind" (-1 for a day wish), and for a wish
+## underground "center", "radius", "count", "from" (the newest root tip it continues from)}.
+## The deposit goes AHEAD_MIN to AHEAD_MAX beyond the newest root tip, outward from the trunk
+## where it can, never into rock, and only where a straight root from that tip costs at most
+## REACH_SHARE of a calm tank. Its kind is what the tree is shorter of, water or nitrogen.
+static func plan_wish(ground: Underground, day: int, seed: int, roots: RootSystem = null, res: Resources = null) -> Dictionary:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = hash([seed, "wish", day])
 	var underground := rng.randf() < UNDERGROUND_SHARE
 	var pick := rng.randi()
+	var coin := rng.randi() % 2
 	if underground:
-		var options := PackedInt32Array()
-		for p in ground.wish_patch_ids():
-			if is_fresh(ground, p, roots) and reachable(ground, p, roots):
-				options.append(p)
-		if not options.is_empty():
-			var p := options[pick % options.size()]
-			return {"text": wish_text(ground, p), "patch": p}
-	return {"text": DAY_WISHES[pick % DAY_WISHES.size()], "patch": -1}
+		var sys := roots if roots != null else RootSystem.new()
+		var kind := wish_kind(sys, res, coin)
+		var size := Underground.wish_size(kind, rng)
+		var tip := newest_tip(sys)
+		var center := place_ahead(ground, sys, sys.graph.positions[tip], float(size["radius"]), rng)
+		if center != Vector3.INF:
+			return {"text": wish_text_at(kind, center), "kind": kind, "center": center,
+				"radius": size["radius"], "count": size["count"], "from": tip}
+	return {"text": DAY_WISHES[pick % DAY_WISHES.size()], "kind": -1}
+
+
+## Water or nitrogen, whichever the tree has less of for its needs (`coin` without resources).
+static func wish_kind(sys: RootSystem, res: Resources, coin: int) -> int:
+	if res == null:
+		return Resources.Kind.WATER if coin == 0 else Resources.Kind.NITROGEN
+	var w := res.stock[Resources.Kind.WATER] / maxf(sys.species.needs[Resources.Kind.WATER], 0.01)
+	var n := res.stock[Resources.Kind.NITROGEN] / maxf(sys.species.needs[Resources.Kind.NITROGEN], 0.01)
+	return Resources.Kind.WATER if w <= n else Resources.Kind.NITROGEN
+
+
+## The node where the newest main root ended (the trunk before the first root).
+static func newest_tip(sys: RootSystem) -> int:
+	var main := sys.main_root_count - 1
+	if main < 0:
+		return 0
+	for id in range(sys.graph.size() - 1, 0, -1):
+		if sys.graph.get_flag(id, "main", -1) == main:
+			return id
+	return 0
+
+
+## A place AHEAD_MIN..AHEAD_MAX beyond `from`, outward from the trunk (turning further aside with
+## each try), free of rock, in the topsoil, inside the world, and within a calm tank's reach.
+## Vector3.INF if none was found.
+static func place_ahead(ground: Underground, sys: RootSystem, from: Vector3, radius: float, rng: RandomNumberGenerator) -> Vector3:
+	var flat := Vector2(from.x, from.z)
+	var base := flat.angle() if flat.length() > 0.8 else rng.randf() * TAU
+	var tank := sys.calm_life_force * REACH_SHARE
+	for i in range(PLACE_TRIES):
+		var spread := lerpf(0.5, PI, float(i) / (PLACE_TRIES - 1))
+		var a := base + rng.randf_range(-spread, spread)
+		var d := rng.randf_range(AHEAD_MIN, AHEAD_MAX)
+		var depth := clampf(-from.y + rng.randf_range(-0.3, 0.5), Underground.WISH_MIN_DEPTH, Underground.WISH_MAX_DEPTH)
+		var c := Vector3(from.x + cos(a) * d, -depth, from.z + sin(a) * d)
+		var r := Vector2(c.x, c.z).length()
+		if r > Underground.EXTENT - radius - 0.5 or r < 2.5:
+			continue
+		if ground.rock_at(c, radius + 0.3) >= 0:
+			continue
+		var goal := c - (c - from).normalized() * radius * 0.6
+		if line_cost(ground, sys, from, goal) <= tank:
+			return c
+	return Vector3.INF
 
 
 static func wish_text(ground: Underground, patch_id: int) -> String:
 	var patch: Dictionary = ground.patches[patch_id]
-	var where := Underground.compass(patch["center"])
-	if int(patch["kind"]) == Resources.Kind.WATER:
+	return wish_text_at(int(patch["kind"]), patch["center"])
+
+
+static func wish_text_at(kind: int, center: Vector3) -> String:
+	var where := Underground.compass(center)
+	if kind == Resources.Kind.WATER:
 		return "Today, reach the damp patch with the rushes in the %s." % where
 	return "Today, find what feeds the clover in the %s." % where
 
@@ -98,18 +154,6 @@ static func reached_text(ground: Underground, patch_id: int, night: int) -> Stri
 
 static func drawing_for(ground: Underground, patch_id: int) -> String:
 	return "rushes" if int(ground.patches[patch_id]["kind"]) == Resources.Kind.WATER else "clover"
-
-
-## Enough of the patch is left and not yet drunk by the roots.
-static func is_fresh(ground: Underground, patch_id: int, roots: RootSystem = null) -> bool:
-	var ids := ground.patch_dots(patch_id)
-	if ids.is_empty():
-		return false
-	var left := 0
-	for i in ids:
-		if ground.dot_collected[i] == 0 and ground.fullness(i) > 0.5 and (roots == null or not roots.tapped.has(i)):
-			left += 1
-	return left >= ids.size() * MIN_LEFT_SHARE
 
 
 ## A full calm tank reaches the patch from some root node (or the trunk): the straight line to
@@ -172,15 +216,16 @@ static func _positions(sys: RootSystem, ids: PackedInt32Array) -> Array[Vector3]
 	return out
 
 
-## Called at sunrise: a missed wish deposit glows faintly one more night; then the new wish.
-func new_wish(ground: Underground, day: int, seed: int, roots: RootSystem) -> void:
+## Called at sunrise: a missed wish deposit glows faintly one more night; then the new wish,
+## whose deposit the generator places now.
+func new_wish(ground: Underground, day: int, seed: int, roots: RootSystem, res: Resources = null) -> void:
 	last_patch = wish_patch if wish_patch >= 0 and not wish_reached else -1
-	var w := make_wish_target(ground, day, seed, roots)
-	wish = str(w["text"])
-	wish_patch = int(w["patch"])
 	wish_reached = false
-	if last_patch == wish_patch:
-		last_patch = -1
+	wish_patch = -1
+	var w := plan_wish(ground, day, seed, roots, res)
+	if int(w["kind"]) >= 0:
+		wish_patch = ground.add_wish_deposit(day, int(w["kind"]), w["center"], float(w["radius"]), int(w["count"]))
+	wish = str(w["text"]) if wish_patch >= 0 else DAY_WISHES[day % DAY_WISHES.size()]
 
 
 ## The deposits that glow tonight: [{"patch", "center", "radius", "strength"}].

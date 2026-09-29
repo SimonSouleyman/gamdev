@@ -47,16 +47,20 @@ var finds: Array = []
 ## first..end-1), "wish": bool (a wish deposit)}
 var patches: Array = []
 
-## Wish deposits (0.7): a few rich topsoil patches about WISH_SIZE times a normal one, one per
-## compass direction, that the daily wish can point at (Diary.make_wish_target). Generated after
-## everything else from their own RNG, so older saves keep their dot ids.
-const WISH_DEPOSITS: int = 8
+## Wish deposits (0.7): on a day whose wish points underground, the generator places one rich
+## topsoil patch about WISH_SIZE times a normal one, a few metres beyond the newest root tip, so
+## continuing tonight's root from there reaches it (Diary.plan_wish). Seeded from the save seed
+## and the day; its dots come after all older ids, so saves keep their deposit state.
+## Each placed: {"day": int, "kind": int, "center": Vector3, "radius": float, "count": int}.
+var wish_deposits: Array = []
 const WISH_SIZE: float = 1.5
 const WISH_RADIUS: float = 1.15
-const WISH_MIN_DIST: float = 3.5
-const WISH_MAX_DIST: float = 8.0
 const WISH_MIN_DEPTH: float = 0.6
 const WISH_MAX_DEPTH: float = 1.8
+## Normal rich topsoil patches: water 20 to 32 dots in 0.9 to 1.5 m, nitrogen 22 to 36 in 0.8 to 1.4 m.
+const NORMAL_COUNT := {Resources.Kind.WATER: 26.0, Resources.Kind.NITROGEN: 29.0}
+const NORMAL_RADIUS := {Resources.Kind.WATER: 1.2, Resources.Kind.NITROGEN: 1.1}
+const NORMAL_AMOUNT := {Resources.Kind.WATER: 1.0, Resources.Kind.NITROGEN: 1.2}
 
 var _rng := RandomNumberGenerator.new()
 var _grid: Dictionary = {}
@@ -109,34 +113,45 @@ func _generate() -> void:
 		var deep := -p.y > TOPSOIL
 		_add_dot(p, _pick_kind(deep), 0.5)
 	_generate_finds()
-	_generate_wish_deposits()
 
 
-## Normal rich topsoil patches hold nitrogen 22 to 36 dots (radius 0.8 to 1.4) and water 20 to 32
-## (0.9 to 1.5); a wish deposit holds WISH_SIZE times the mean and is WISH_RADIUS times as wide.
-func _generate_wish_deposits() -> void:
-	var rng := RandomNumberGenerator.new()
-	rng.seed = hash([seed, "wish_deposits"])
-	var saved := _rng.state
+
+## A wish deposit's size: WISH_SIZE times a normal rich patch of `kind`, drawn from `rng`.
+static func wish_size(kind: int, rng: RandomNumberGenerator) -> Dictionary:
+	return {
+		"radius": float(NORMAL_RADIUS[kind]) * WISH_RADIUS * rng.randf_range(0.92, 1.08),
+		"count": int(round(float(NORMAL_COUNT[kind]) * WISH_SIZE * rng.randf_range(0.92, 1.08))),
+	}
+
+
+## Places a wish deposit (from Diary.plan_wish). Returns its index in `patches`, or -1 when the
+## dot budget is full.
+func add_wish_deposit(day: int, kind: int, center: Vector3, radius: float, count: int) -> int:
+	if dot_count() + count > Budgets.NUTRIENT_DOTS_LOADED:
+		return -1
+	wish_deposits.append({"day": day, "kind": kind, "center": center, "radius": radius, "count": count})
+	return _place_wish_deposit(wish_deposits[-1])
+
+
+func _place_wish_deposit(w: Dictionary) -> int:
 	var saved_seed := _rng.seed
-	_rng.seed = hash([seed, "wish_deposit_dots"])
-	for i in range(WISH_DEPOSITS):
-		var kind := Resources.Kind.WATER if i % 2 == 0 else Resources.Kind.NITROGEN
-		var mean_count := 26.0 if kind == Resources.Kind.WATER else 29.0
-		var mean_radius := 1.2 if kind == Resources.Kind.WATER else 1.1
-		var radius := mean_radius * WISH_RADIUS * rng.randf_range(0.92, 1.08)
-		var count := int(round(mean_count * WISH_SIZE * rng.randf_range(0.92, 1.08)))
-		var center := Vector3.ZERO
-		for _try in range(12):
-			var a := (float(i) + rng.randf_range(-0.3, 0.3)) * TAU / WISH_DEPOSITS
-			var d := rng.randf_range(WISH_MIN_DIST, WISH_MAX_DIST)
-			center = Vector3(cos(a) * d, -rng.randf_range(WISH_MIN_DEPTH, WISH_MAX_DEPTH), sin(a) * d)
-			if rock_at(center, radius + 0.3) < 0:
-				break
-		_add_patch(kind, center, radius, count, 1.0 if kind == Resources.Kind.WATER else 1.2)
-		patches[-1]["wish"] = true
+	var saved := _rng.state
+	_rng.seed = hash([seed, "wish_dots", int(w["day"])])
+	var kind := int(w["kind"])
+	var first := dot_count()
+	_add_patch(kind, w["center"], float(w["radius"]), int(w["count"]), float(NORMAL_AMOUNT[kind]))
+	patches[-1]["wish"] = true
+	patches[-1]["day"] = int(w["day"])
 	_rng.seed = saved_seed
 	_rng.state = saved
+	for i in range(first, dot_count()):
+		var c := _cell(dot_positions[i])
+		if not _grid.has(c):
+			_grid[c] = PackedInt32Array()
+		var arr: PackedInt32Array = _grid[c]
+		arr.append(i)
+		_grid[c] = arr
+	return patches.size() - 1
 
 
 ## Indices into `patches` of the wish deposits.
@@ -397,14 +412,22 @@ func to_dict() -> Dictionary:
 	var found: Array = []
 	for f in finds:
 		found.append(f["found"])
+	var wishes: Array = []
+	for w in wish_deposits:
+		var c: Vector3 = w["center"]
+		wishes.append([w["day"], w["kind"], c.x, c.y, c.z, w["radius"], w["count"]])
 	return {"seed": seed, "collected": Marshalls.raw_to_base64(dot_collected),
-		"amounts": Marshalls.raw_to_base64(dot_amounts.to_byte_array()), "finds_found": found}
+		"amounts": Marshalls.raw_to_base64(dot_amounts.to_byte_array()), "finds_found": found,
+		"wish_deposits": wishes}
 
 
 static func from_dict(d: Dictionary) -> Underground:
 	var u := Underground.new(int(d.get("seed", 1)))
-	# A save from before the wish deposits (0.7) holds fewer dots: the new ones come after the
-	# old ids, so the saved state still lines up and the new deposits start full.
+	# The wish deposits placed so far, in the same order, so their dot ids come out the same.
+	for w in d.get("wish_deposits", []):
+		if w is Array and (w as Array).size() >= 7:
+			u.wish_deposits.append({"day": int(w[0]), "kind": int(w[1]), "center": Vector3(w[2], w[3], w[4]), "radius": float(w[5]), "count": int(w[6])})
+			u._place_wish_deposit(u.wish_deposits[-1])
 	var raw := Marshalls.base64_to_raw(str(d.get("collected", "")))
 	if raw.size() <= u.dot_collected.size():
 		for i in range(raw.size()):
