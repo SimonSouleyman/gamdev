@@ -2,11 +2,19 @@
 
 ## Progress (for resuming work)
 
-Kept current during the 0.6.x iteration (Simon, 2026-09-29: "reiterate and improve, visuals mostly,
-also gameplay"). Every finished step is committed and pushed; a fresh session reads this list.
-- Done: 0.6 (tag tree-v0.6), on Simon's phone.
-- In progress: fresh review of every scene and a critical play-through on PC (branch iterate-0.6).
-- Next: the plan from that review, as 0.6.1, 0.6.2 ...; new mechanics are asked first (0.7).
+Kept current during the 0.6.x iteration (Simon, 2026-09-29: rebuild the weakest pieces, all look
+areas one after another, tree care first then roots, mixed checking: a quick check per step and a
+full two-reviewer pass before each phone build). Every finished step is committed and pushed.
+The plan comes from the fresh review (all shots in GameDev/tree-qa/r1/shots):
+- Done: 0.6 (tag tree-v0.6), on Simon's phone; fresh review of every scene.
+- In progress: 0.6.1 quick fixes (camera pitch after the dive swipe, painted sky on the phone,
+  shed dark at night with the lantern, falling leaves, the daily wish as a scrap);
+  0.6.2 the tree rebuilt (crown shading and gaps, calmer green, real growth curve, camera pulls back).
+- Next: 0.6.3 tree care (the tree shows what it lacks, care page, pruning with a felt effect);
+  0.6.4 roots (touched dots worth more than the leftover, calm night length, easier steering,
+  boost costs life force); 0.6.5 clearing and shed; 0.6.6 bonsai look.
+- Asked first (0.7): a nightly target underground, branches the tree marks for pruning, bonsai
+  tools on the sill.
 - Open: the daytime tree-view frame rate on the phone is still unmeasured.
 
 ## v0.6 (2026-09-28)
