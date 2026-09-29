@@ -20,6 +20,10 @@ var life_force_per_tip: float = 0.02  # scaled with the 2-minute day (play test 
 ## Segments the tree may add per second at full light and full nutrients.
 ## Low enough that one night's nutrients last a good part of the day.
 var max_growth_per_second: float = 1.0
+## Soft Liebig floor: growth with a needed nutrient (N, P or K) used up, as a share of full speed.
+var liebig_floor: float = 0.45
+## How far a missing nutrient takes away the boost's extra light (0 = not at all, 1 = fully).
+var boost_liebig: float = 1.0
 ## Dawn burst: this share of what the nutrients can buy is released in the first seconds after sunrise.
 var dawn_burst_share: float = 0.25
 var dawn_burst_seconds: float = 10.0
@@ -124,11 +128,17 @@ func tick(delta: float) -> void:
 				1.0 if clock.boost_active else passive_steering)
 
 	# Growth budget: light x nutrient factor x species need.
-	var factor := Resources.growth_factor(resources.stock, species.needs)
+	var factor := Resources.growth_factor(resources.stock, species.needs, liebig_floor)
 	# Light is not capped at 1: the boosted sun (up to 3x) speeds growth at any hour.
 	var cap := max_pace()
 	var pace := cap if day_pace <= 0.0 else minf(day_pace, cap)
-	_growth_accum += pace * light * factor * delta
+	var grow_light := light
+	if clock.boost_active:
+		# A brighter sun cannot make up for a missing nutrient: the boost's extra light only
+		# counts as far as N, P and K allow (without the soft floor).
+		var calm := clock.sun_height()
+		grow_light = calm + (light - calm) * lerpf(1.0, Resources.growth_factor(resources.stock, species.needs, 0.0), boost_liebig)
+	_growth_accum += pace * grow_light * factor * delta
 	var budget := int(_growth_accum)
 	_growth_accum -= budget
 	budget += _dawn_burst_budget(delta, sun, top)
@@ -329,7 +339,7 @@ func _subtree_size(node_id: int) -> int:
 ## seconds of the day. It only changes when the growth happens, not how much: nutrients cap it.
 func start_dawn_burst() -> void:
 	shed_lower_branches()
-	var factor := Resources.growth_factor(resources.stock, species.needs)
+	var factor := Resources.growth_factor(resources.stock, species.needs, liebig_floor)
 	var burst_max := int(dawn_burst_max_nodes * pace_factor())
 	_burst_nodes_left = mini(burst_max, int(_affordable_nodes() * dawn_burst_share * factor))
 	_burst_rate = _burst_nodes_left / dawn_burst_seconds
@@ -363,7 +373,7 @@ func _dawn_burst_budget(delta: float, sun: Vector3, top: float) -> int:
 ## After the player moved the sun on: spread what is left over the rest of the day.
 func repace_rest_of_day() -> void:
 	var rest_seconds := maxf(10.0, (clock.daylight_fraction - clock.time_of_day) * clock.seconds_per_day)
-	var factor := maxf(Resources.growth_factor(resources.stock, species.needs), 0.15)
+	var factor := maxf(Resources.growth_factor(resources.stock, species.needs, liebig_floor), 0.15)
 	day_pace = maxf(0.05, _affordable_nodes() / (rest_seconds * 0.9 * factor))
 
 

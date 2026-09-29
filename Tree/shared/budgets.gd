@@ -54,4 +54,4 @@ const BONSAI_MARKERS: int = 220
 ## Max attraction markers alive in the tree canopy at once.
 const TREE_MARKERS: int = 2000
 ## Max main roots (one per night) a tree may grow; roughly a month plus spare nights.
-const MAX_MAIN_ROOTS: int = 40
+const MAX_MAIN_ROOTS: int = 45

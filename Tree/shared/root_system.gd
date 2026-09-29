@@ -93,6 +93,11 @@ var nightly_share: float = 0.05
 ## Water seeps back toward the old roots: they draw this many times the nightly share from water
 ## deposits, so a small root network still keeps the tree watered (soft failure).
 var nightly_water_factor: float = 2.0
+## Groundwater seeps into the main roots (not the fine roots): water per metre each night, so a
+## player who never finds a deposit still keeps the tree growing, only slower (soft failure).
+var seep_per_metre: float = 0.03
+## A metre of fine root draws this share of a main root's seep.
+var fine_seep_share: float = 0.3
 
 
 func _init(random_seed: int = 1) -> void:
@@ -482,7 +487,20 @@ func drink_tapped(ground: Underground, res: Resources) -> PackedFloat32Array:
 	var got := ground.collect(ids, res, nightly_share, species.water_draw * nightly_water_factor)
 	for j in range(got.size()):
 		totals[ground.dot_kinds[got[j]]] += ground.last_drawn[j]
+	if seep_per_metre > 0.0:
+		var seep := seep_length() * seep_per_metre
+		res.add(Resources.Kind.WATER, seep)
+		totals[Resources.Kind.WATER] += seep
 	return totals
+
+
+## Metres of root that groundwater seeps into: main roots in full, fine roots by fine_seep_share.
+func seep_length() -> float:
+	var total := 0.0
+	for id in range(1, graph.size()):
+		var metres := graph.positions[id].distance_to(graph.positions[graph.parents[id]])
+		total += metres if graph.get_flag(id, "fine", -1) < 0 else metres * fine_seep_share
+	return total
 
 
 ## Root nodules (alder): nitrogen made overnight, per metre of the whole root network.
