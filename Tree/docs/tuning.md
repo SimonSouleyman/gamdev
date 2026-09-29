@@ -110,6 +110,8 @@ that the tree reaches its height cap early and runs out of room to seed new grow
 
 ## What "broken" looks like
 
+For 0.7's three new mechanics, see also the list at the end of specs/0.7-candidates.md.
+
 Checked before every full review and phone build, with seeded runs over at least the five styles
 above and three seeds, on linden plus one fast and one slow species.
 
