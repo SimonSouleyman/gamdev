@@ -14,10 +14,19 @@ const AHEAD: float = -0.05
 ## Closer than this, a deposit off to the side needs a loop: only ones well ahead count.
 const NEAR: float = 1.2
 const NEAR_AHEAD: float = 0.45
+## A place to head for first, like a player following the wish's glow; Vector3.INF for none.
+## Once the tip is within goal_radius of it the bot chases deposits as usual.
+var goal: Vector3 = Vector3.INF
+var goal_radius: float = 1.0
 
 
 func stick_for(roots: RootSystem, ground: Underground, res: Resources = null) -> Vector2:
 	var tip := roots.tip_position
+	if goal != Vector3.INF:
+		if tip.distance_to(goal) <= goal_radius:
+			goal = Vector3.INF
+		else:
+			return steer_to(roots, goal, 2.5)
 	var weights := _kind_weights(roots, res)
 	var short := _shortest_kind(roots, res)
 	var best := -1
@@ -47,12 +56,16 @@ func stick_for(roots: RootSystem, ground: Underground, res: Resources = null) ->
 		var c := _best_patch(roots, ground, short, func(p: Vector3) -> float: return p.distance_to(tip) if p.distance_to(tip) > 0.5 else INF)
 		if c != Vector3.INF:
 			target = c
-	var want := (target - tip).normalized()
+	# Gentle near a deposit: the root's magnetism does the last bit.
+	return steer_to(roots, target, 1.5 if best >= 0 and tip.distance_to(target) < roots.magnet_radius else 2.5)
+
+
+## The stick that turns the tip toward `target`.
+static func steer_to(roots: RootSystem, target: Vector3, gain: float) -> Vector2:
+	var want := (target - roots.tip_position).normalized()
 	var h := roots.heading
 	var a := Vector2(h.x, h.z).angle_to(Vector2(want.x, want.z))
 	var pitch := asin(clampf(want.y, -1, 1)) - asin(clampf(h.y, -1, 1))
-	# Gentle near a deposit: the root's magnetism does the last bit.
-	var gain := 1.5 if best >= 0 and tip.distance_to(target) < roots.magnet_radius else 2.5
 	# Vector2.angle_to on (x, z) is clockwise seen from above; a positive stick turns right.
 	return Vector2(clampf(a * gain, -1, 1), clampf(pitch * gain, -1, 1))
 

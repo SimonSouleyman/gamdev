@@ -197,7 +197,7 @@ func test_journal_pages_show_once() -> void:
 func test_daily_wish_is_written_each_morning() -> void:
 	var g := _morning_after_first_night(13)
 	t.check(g.diary.wish.begins_with("Today"), "a wish: " + g.diary.wish)
-	var again := Diary.make_wish(g.ground, g.day_number(), g.seed)
+	var again := Diary.make_wish(g.ground, g.day_number(), g.seed, g.roots)
 	t.check_eq(again, g.diary.wish, "deterministic from the seed")
 
 

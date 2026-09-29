@@ -43,6 +43,7 @@ func _init() -> void:
 		preload("res://tests/test_almanac.gd"),
 		preload("res://tests/test_bonsai.gd"),
 		preload("res://tests/test_tree_growth_curve.gd"),
+		preload("res://tests/test_wish.gd"),
 	]
 	for script in tests:
 		var suite: RefCounted = script.new()
