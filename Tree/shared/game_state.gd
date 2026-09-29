@@ -71,6 +71,12 @@ const AWAY_REPORT_SECONDS: float = 3600.0
 ## middle of a game day does not change it. Mood only; not saved (a load asks again).
 var _weather: Dictionary = {}
 var _weather_day: int = -1
+## Shaded twigs that died back at the last sunrise (for the care page).
+var last_dieback: int = 0
+## Care (0.6.3): the reach check per kind, cached until the day, the roots or the tapped
+## deposits change (Care.reachable is a search over the deposits).
+var _reach_cache: Dictionary = {}
+var _reach_key: Array = []
 
 
 ## A new game: a seed is planted at sunset; the first night is the first root run.
@@ -426,6 +432,7 @@ func _sunrise() -> void:
 	if not was_seed:
 		sim.drink_upkeep()
 		var died := sim.shade_dieback(day_number())
+		last_dieback = died
 		if died > 0:
 			diary.add(day_number(), "%d shaded twig%s died back in the crown." % [died, "" if died == 1 else "s"])
 	# The ground under the crown changes with its shade: diary lines for what comes up first.
@@ -466,6 +473,38 @@ func _weather_note(part: String) -> void:
 func write_morning_line() -> void:
 	var tips := sim.tip_count()
 	diary.add(day_number(), "The %s is %.1f m tall with %d leaf cluster%s." % [tree_name(), sim.height(), tips, "" if tips == 1 else "s"])
+
+
+# --- care (0.6.3) -------------------------------------------------------------
+
+## The nearest untapped deposit of `kind` tonight's root can reach (Care.reachable), cached.
+func reach_for(kind: int) -> Dictionary:
+	var key := [day_number(), phase, roots.graph.size(), roots.tapped.size(), roots.main_root_count]
+	if key != _reach_key:
+		_reach_key = key
+		_reach_cache.clear()
+	if not _reach_cache.has(kind):
+		_reach_cache[kind] = Care.reachable(self, kind)
+	return _reach_cache[kind]
+
+
+## What the tree shows it lacks right now, 0..1 per Resources.Kind: only the strongest need,
+## and only one the player can act on tonight (a deposit of that kind in reach). Nothing on the
+## seed, on the first day or on a finished tree.
+func care_signals() -> PackedFloat32Array:
+	var out := PackedFloat32Array([0, 0, 0, 0])
+	if finished or is_seed() or day_number() <= 1:
+		return out
+	var shown := sim.care_shown()
+	var order := [0, 1, 2, 3]
+	order.sort_custom(func(a: int, b: int) -> bool: return shown[a] > shown[b])
+	for k: int in order:
+		if shown[k] < Care.SHOW_MIN:
+			break
+		if not reach_for(k).is_empty():
+			out[k] = shown[k]
+			break
+	return out
 
 
 ## The weather hook: a shower fell today (mushrooms come up in the shade for a few days).

@@ -23,6 +23,18 @@ uniform float autumn = 0.0;
 uniform float late = 0.0;
 uniform float autumn_hue = -1.0;
 uniform float wet = 0.0;
+// Care (0.6.3, GameState.care_signals): shape first, colour second. Thirst hangs the sprays
+// (tips drop and swing in, a sixth fold away); the others add a colour cue on top of the
+// shape cues HeroCrown bakes (smaller sprays on new shoots, fewer leaf masses).
+uniform float thirst = 0.0;
+uniform float pale = 0.0;
+uniform float dull = 0.0;
+uniform float scorch = 0.0;
+// Noon lift (0.6.3): the sunlit outside of the crown a little brighter, so it reads at noon.
+uniform float sun_lift = 0.3;
+// A soft daylight fill (0.6.3): sprays in the crown's own shadow read dark green, not black
+// (the blotches at noon). Set by the tree view from the daylight, so the night stays dark.
+uniform float day_fill = 0.0;
 
 varying vec2 leaf_hash;
 varying float occ;
@@ -56,6 +68,13 @@ void vertex() {
 	float flutter = sin(t * 5.0 + world.x * 3.1 + world.y * 2.3 + phase * 20.0) * 0.025 * tip;
 	vec3 bend = vec3(sin(t * 1.7 + phase * 9.0), -0.3, cos(t * 1.3 + phase * 7.0)) * 0.04 * tip * (0.4 + gust);
 	world += (sway + bend + vec3(0.0, flutter, 0.0)) * wind_strength;
+	// Thirst: the spray hangs from its stem, the tip drops and swings in towards the stem.
+	if (thirst > 0.001) {
+		float s = length(MODEL_MATRIX[0].xyz);
+		float hang = thirst * tip * tip;
+		world.y -= hang * s * 0.55;
+		world.xz = mix(world.xz, origin.xz, hang * 0.3);
+	}
 	VERTEX = (inverse(MODEL_MATRIX) * vec4(world, 1.0)).xyz;
 	vec3 mass_n = oct_decode(INSTANCE_CUSTOM.zw);
 	vec3 card_n = normalize((MODEL_MATRIX * vec4(NORMAL, 0.0)).xyz);
@@ -92,10 +111,22 @@ void fragment() {
 		col = mix(col, lum * turned, turn);
 		if (leaf_hash.x > 1.0 - late * 0.3) { discard; }
 	}
-	// The inside of the crown: darker leaves that see little sky and little sun.
-	col *= 1.0 - interior_dark * 0.4 * occ;
+	// Care cues, second to the shape: thirst greys and dulls, nitrogen pales towards
+	// yellow-green, phosphorus darkens with a purple tinge, potassium scorches the leaf edges.
+	if (thirst + pale + dull + scorch > 0.001) {
+		if (leaf_hash.x < thirst * 0.17) { discard; }
+		float l2 = dot(col, vec3(0.3, 0.59, 0.11));
+		col = mix(col, l2 * vec3(1.0, 1.02, 0.78), thirst * 0.3);
+		col = mix(col, l2 * vec3(1.3, 1.4, 0.55), pale * 0.35);
+		col = mix(col, col * vec3(0.72, 0.58, 0.78), dull * 0.4);
+		float edge = smoothstep(0.9, 0.55, tex.a);
+		col = mix(col, l2 * vec3(1.35, 0.8, 0.35), scorch * edge * 0.8);
+	}
+	// The inside of the crown: darker leaves that see little sky and little sun; the outside a
+	// little lifted, so the sunlit side reads at noon (0.6.3).
+	col *= (1.0 - interior_dark * 0.32 * occ) * (1.0 + sun_lift * (1.0 - occ));
 	ALBEDO = col * (1.0 - 0.2 * wet);
-	AO = 1.0 - occ * 0.6;
+	AO = 1.0 - occ * 0.45;
 	AO_LIGHT_AFFECT = 0.25;
 	if (!cheap) {
 		NORMAL_MAP = texture(spray_normal, UV).rgb;
@@ -104,7 +135,8 @@ void fragment() {
 	ROUGHNESS = mix(0.7, 0.45, wet);
 	SPECULAR = mix(0.18, 0.3, wet);
 	// Thin leaves glow when the sun is behind them, most at the crown's edge.
-	BACKLIGHT = translucency * col * 1.1 * (1.0 - occ * 0.8);
+	BACKLIGHT = translucency * col * 1.35 * (1.0 - occ * 0.8);
 	RIM = rim_strength * (1.0 - occ);
+	EMISSION = col * day_fill * (1.0 - occ * 0.5);
 	RIM_TINT = 0.5;
 }

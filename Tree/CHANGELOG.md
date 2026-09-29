@@ -15,6 +15,18 @@ then roots, mixed checking, work in parallel). Branch iterate-0.6; streams merge
   phone was locked last time). After the plan: adopt Tree/docs/design-practice.md.
 - Note: Simon's phone has 0.6 with his save restored (backup in GameDev/tree-shots/savebackup).
 
+## v0.6.3 (in progress, stream s-care): tree care
+- The tree shows what it lacks, shape first: thirsty leaves hang, new shoots short of nitrogen
+  stay sparse and small, short of phosphorus or potassium some leaf masses stay bare; colour only
+  as a second cue, so it reads in autumn too. A sign shows only while the need exists, only if
+  tonight's root can reach a dot of that kind, and eases out by mid-morning once met.
+- A care page in the journal (blue ribbon): what the tree lacks, which dots to steer for tonight
+  and roughly where, how the crown is shaped, what the last cut did.
+- Pruning answers: 0.3 of a cut comes back at the next sunrise, as two or three buds below the
+  cut and growth for the crown; pruning never finishes a tree sooner.
+- The crown a little lighter at noon (no black blotches in its own shadow).
+- Notes and tuning numbers for the design thread: docs/notes/care-0.6.3.md.
+
 ## v0.6.2 (in progress): the tree rebuilt
 - The crown as leaf masses at the twig ends: dark inside, light at the sunny rim, sky between
   the masses, olive leaves with a clean edge (no speckle).

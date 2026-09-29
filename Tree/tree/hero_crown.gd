@@ -40,9 +40,19 @@ static func spray_size(height: float) -> float:
 	return clampf(0.28 + height * 0.04, 0.3, 1.35)
 
 
+## Care cues baked into the crown (0.6.3), per unit of the signal: new shoots short of nitrogen
+## carry fewer and smaller sprays; short of phosphorus or potassium, some leaf masses stay bare
+## (inner and lower ones first).
+const N_SPRAYS := 0.55
+const N_SIZE := 0.35
+const PK_BARE := 0.33
+
+
 ## Fills `mm` (TRANSFORM_3D, colours and custom data on) with the crown of `sim`. Returns the
-## bounds of the leafy part of the crown.
-static func populate(mm: MultiMesh, sim: GrowthSim, seed: int) -> AABB:
+## bounds of the leafy part of the crown. `care` is GameState.care_signals() (empty: none).
+static func populate(mm: MultiMesh, sim: GrowthSim, seed: int, care: PackedFloat32Array = PackedFloat32Array()) -> AABB:
+	var n_short := care[Resources.Kind.NITROGEN] if care.size() == 4 else 0.0
+	var pk_short := maxf(care[Resources.Kind.PHOSPHORUS], care[Resources.Kind.POTASSIUM]) if care.size() == 4 else 0.0
 	var g := sim.graph
 	var height := sim.height()
 	var rng := RandomNumberGenerator.new()
@@ -62,9 +72,11 @@ static func populate(mm: MultiMesh, sim: GrowthSim, seed: int) -> AABB:
 	var cells := {}
 	for id in leafy:
 		var key := Vector3i(((g.positions[id] + offset) / cell).floor())
-		var acc: Array = cells.get(key, [Vector3.ZERO, 0])
+		var acc: Array = cells.get(key, [Vector3.ZERO, 0, 0])
 		acc[0] += g.positions[id]
 		acc[1] += 1
+		if id >= sim.young_from:
+			acc[2] += 1
 		cells[key] = acc
 	var keys := cells.keys()
 	keys.sort()
@@ -72,7 +84,7 @@ static func populate(mm: MultiMesh, sim: GrowthSim, seed: int) -> AABB:
 	var total_nodes := 0
 	for key in keys:
 		var acc: Array = cells[key]
-		masses.append([acc[0] / float(acc[1]), int(acc[1])])
+		masses.append([acc[0] / float(acc[1]), int(acc[1]), float(acc[2]) / float(acc[1]), key])
 		total_nodes += int(acc[1])
 	var mean_nodes := float(total_nodes) / masses.size()
 	last_masses = masses.size()
@@ -81,22 +93,38 @@ static func populate(mm: MultiMesh, sim: GrowthSim, seed: int) -> AABB:
 	# Enough sprays to close each mass, within the budget.
 	var want := 0
 	var plan: Array = []
+	var shrink: Array = []
 	for m in masses:
 		var weight := clampf(sqrt(float(m[1]) / mean_nodes), 0.7, 1.3)
 		var r := cell * 0.5 * weight
 		var n := clampi(int(3.0 + 8.0 * pow(r / card, 2.0)), 3, 24)
 		# A sapling's few shoots carry few leaves; a grown tree's twig stands for many.
 		n = mini(n, 1 + int(ceil(float(m[1]) * lerpf(0.3, 3.0, smoothstep(2.0, 15.0, height)))))
+		# Care: new shoots short of nitrogen carry fewer, smaller sprays.
+		var young: float = m[2] * n_short
+		n = maxi(1, int(round(n * (1.0 - N_SPRAYS * young))))
+		shrink.append(1.0 - N_SIZE * young)
+		# Care: short of phosphorus or potassium, a leaf mass stays bare (inner and lower first).
+		if pk_short > 0.0:
+			var rel_m: Vector3 = (m[0] - centre) / radii
+			var inner := clampf(1.0 - rel_m.length() * 0.7 - rel_m.y * 0.3, 0.0, 1.0)
+			var roll := float(posmod(hash([seed, "bare", m[3]]), 1000)) / 1000.0
+			if roll < pk_short * PK_BARE * (0.6 + 0.8 * inner):
+				n = 0
 		plan.append(n)
 		want += n
 	var squeeze := minf(1.0, float(BUDGET) / maxf(want, 1.0))
 	var count := 0
 	for k in range(plan.size()):
-		plan[k] = maxi(2, int(round(float(plan[k]) * squeeze)))
+		if int(plan[k]) > 0:
+			plan[k] = maxi(2, int(round(float(plan[k]) * squeeze)))
 		count += int(plan[k])
 	mm.instance_count = count
 	var i := 0
 	for k in range(masses.size()):
+		# Each mass has its own random stream, so a care cue that changes one mass (or leaves it
+		# bare) never reshuffles the rest of the crown.
+		rng.seed = hash([seed, "mass", masses[k][3]])
 		var at_mass: Vector3 = masses[k][0]
 		var weight := clampf(sqrt(float(masses[k][1]) / mean_nodes), 0.7, 1.3)
 		var r := cell * 0.5 * weight
@@ -122,7 +150,7 @@ static func populate(mm: MultiMesh, sim: GrowthSim, seed: int) -> AABB:
 				along = face.cross(Vector3.RIGHT)
 			along = along.normalized()
 			var side := along.cross(face).normalized()
-			var s := card * rng.randf_range(0.85, 1.2) / sqrt(squeeze)
+			var s := card * rng.randf_range(0.85, 1.2) / sqrt(squeeze) * float(shrink[k])
 			var basis := Basis(side, along, face).scaled(Vector3(s, s, s))
 			# The card's stem end is its origin: shift so the leaves sit around `at`.
 			mm.set_instance_transform(i, Transform3D(basis, at - along * s * 0.45))
