@@ -46,6 +46,10 @@ var _floor: Material
 var _time: float = 0.0
 var _lamp: OmniLight3D
 var _lamp_base: float = 1.0
+## The lantern's reach by day (its night pool is smaller).
+var _lamp_range: float = 4.5
+## The window's old glass.
+var _glass: StandardMaterial3D
 ## 0 at night .. 1 by day: the window light follows the clock and the lantern takes over at night
 ## (0.6 review: the shed was as bright at night as by day). Set by main while in the shed.
 var daylight: float = 1.0
@@ -386,6 +390,7 @@ func _build_room() -> void:
 	if RenderingServer.get_current_rendering_method() == "gl_compatibility":
 		_lamp_base = 2.0
 		_lamp.omni_range = 5.5
+	_lamp_range = _lamp.omni_range
 	_lamp.position = Vector3(-0.3, WALL_H - 0.35, -0.2)
 	add_child(_lamp)
 	var glass := MeshInstance3D.new()
@@ -427,6 +432,7 @@ func _build_window() -> void:
 	glass.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	glass.albedo_color = Color(0.85, 0.9, 0.85, 0.12)
 	glass.roughness = 0.15
+	_glass = glass
 	_box(Vector3(w, h, 0.005), Vector3(cx, cy, hd + 0.02), glass)
 	# The sill: a deep worn board inside the window, and a small bracket below it.
 	var sill_top := WINDOW_Y.x + 0.01
@@ -858,6 +864,13 @@ func _process(delta: float) -> void:
 	# (The phone's renderer lit the bench too brightly by day: a softer lamp there by day.)
 	var lamp := (lerpf(2.2, 1.0, daylight) if _lamp_base <= 1.0 else lerpf(1.5, 0.6, daylight)) * _lamp_base
 	_lamp.light_energy = lamp * (1.0 + 0.1 * sin(_time * 7.3) + 0.05 * sin(_time * 13.1))
+	# By night its light is a warm pool on the bench that falls off into dark walls; by day it
+	# reaches the whole room (0.6.3 review: at night the room was lit almost as by day).
+	_lamp.omni_range = lerpf(2.8, _lamp_range, daylight)
+	_lamp.omni_attenuation = lerpf(2.6, 1.0, daylight)
+	if _glass:
+		# The old glass mirrors the bright sky by day, not the dark night.
+		_glass.metallic_specular = lerpf(0.05, 0.5, daylight)
 	if _window_sun:
 		_window_sun.light_energy = 0.45 * daylight
 		_window_sun.light_color = Color(0.7, 0.78, 1.0).lerp(Color(1.0, 0.9, 0.72), daylight)

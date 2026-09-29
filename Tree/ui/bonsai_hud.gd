@@ -116,7 +116,8 @@ func _row(parent: Control) -> HBoxContainer:
 
 
 func _button(parent: Control, text: String, action: Callable) -> Button:
-	var b := Paper.ink_button(text, 27)
+	# The strip holds three rows: a little under the full tap size (Paper.INK_TAP) to fit.
+	var b := Paper.ink_button(text, 27, 60.0)
 	b.pressed.connect(func() -> void:
 		if view != null and not view.busy:
 			action.call())

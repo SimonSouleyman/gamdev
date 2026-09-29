@@ -49,7 +49,9 @@ func _ready() -> void:
 	_outline.mesh = _outline_mesh
 	var om := StandardMaterial3D.new()
 	om.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	om.albedo_color = Color(1.0, 0.8, 0.35, 0.9)
+	# A cool light blue: it stands out against a green crown and a yellow autumn one alike
+	# (0.6.3 review: the warm yellow vanished in a yellow crown).
+	om.albedo_color = Color(0.6, 0.92, 1.0, 1.0)
 	om.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	om.no_depth_test = true
 	_outline.material_override = om

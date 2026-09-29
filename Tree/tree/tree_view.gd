@@ -58,6 +58,8 @@ var night_override: float = -1.0
 ## Tools: tilts the camera up by this many radians (to photograph the sky).
 var look_up: float = 0.0
 var _sunset_since: float = -1.0
+## The garden shed is open (its camera looks out of the door into this world).
+var _in_shed: bool = false
 ## The season's look (Almanac.season_look) and today's weather, for the mood.
 var season: Dictionary = {}
 var weather: Dictionary = {}
@@ -465,6 +467,10 @@ func _clump_layer(tex: Texture2D) -> MultiMeshInstance3D:
 	var mat := ShaderMaterial.new()
 	mat.shader = preload("res://tree/grass_card.gdshader")
 	mat.set_shader_parameter("clump_texture", tex)
+	# The phone renderer shows the painted greens stronger: calmer, like the meadow grass
+	# (0.6.3 review: the upright tufts read neon).
+	if _compat:
+		mat.set_shader_parameter("saturation", 0.72)
 	mmi.material_override = mat
 	mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	mmi.custom_aabb = AABB(Vector3(-46, -1, -46), Vector3(92, 6, 92))
@@ -605,15 +611,32 @@ func _pill(parent: Control, dot: Color) -> Label:
 
 func set_shed_open(on: bool) -> void:
 	_scenery.set_shed_open(on)
+	_in_shed = on
 
 
 func set_hud_visible(on: bool) -> void:
 	hud.visible = on
 
 
+## What the crown shows it lacks (the strongest sign), and where tonight's root finds it; ""
+## while it shows nothing. The HUD's letters N, P and K go with the full names.
+func _care_words() -> String:
+	var c := care_now()
+	for k in range(4):
+		if c[k] >= Care.SHOW_MIN:
+			return "%s Steer tonight's root toward the %s dots." % [CARE_LOOKS[k], Care.DOT_WORDS[k]]
+	return ""
+
+
+const CARE_LOOKS: Array[String] = ["The leaves hang: thirsty.",
+	"The new shoots stay small and sparse: short of nitrogen (N).",
+	"Some leaf masses stay bare: short of phosphorus (P).",
+	"Some leaf masses stay bare: short of potassium (K)."]
+
+
 ## Names and dot colours of the nutrients the tree lacks right now, for the hint.
 func _missing_nutrients() -> Array:
-	var names := ["water", "nitrogen", "phosphorus", "potassium"]
+	var names := ["water", "nitrogen (N)", "phosphorus (P)", "potassium (K)"]
 	var colours := ["blue", "green", "orange", "violet"]
 	var n: Array[String] = []
 	var c: Array[String] = []
@@ -650,9 +673,13 @@ func _update_hud() -> void:
 				_hint.text = ("Almost nothing left to grow with today" if state.sim.nutrient_missing() and not state.sim.graph.is_full() and state.sim.resources.stock[0] >= state.sim.cost_per_node else "Nothing left to grow with today") + ". The leaves still gather life force for tonight."
 			elif prune_mode:
 				_hint.text = "Touch a branch to see where the shears would cut; lift the finger to cut."
+			elif _care_words() != "":
+				# What the crown shows, in the same words as the care page (0.6.3 review: the line
+				# named a need the tree did not show).
+				_hint.text = _care_words()
 			elif state.sim.nutrient_missing() and not state.is_seed():
-				# Which nutrient is short, and which dots to steer for tonight (play test review).
-				_hint.text = "Short of %s: steer tonight's root toward the %s dots." % _missing_nutrients()
+				# Today's stock ran out, but the tree lacks nothing it shows: what tonight can bring.
+				_hint.text = "Today's %s ran out; tonight's root can bring more from the %s dots." % _missing_nutrients()
 			elif _wish != "" and state.sim.clock.time_of_day < state.sim.clock.daylight_fraction * 0.35:
 				# The morning's wish, until mid-morning.
 				_hint.text = _wish
@@ -951,6 +978,13 @@ func _update_mood(_h: float) -> void:
 		_env.fog_sun_scatter += 0.08 * mist
 		if _compat:
 			_scenery.set_haze(_env.fog_light_color, lerpf(0.55, 0.85, mist))
+	if _in_shed and n > 0.0:
+		# From inside the shed at night the eye is used to the lantern: the moonlit fill that lets
+		# the tree read outside would light the room like day (0.6.3 review), so it falls away and
+		# the lantern's warm pool lights the bench; the night outside the door reads darker.
+		_env.ambient_light_energy *= lerpf(1.0, 0.18, n)
+		_sun_light.light_energy *= lerpf(1.0, 0.3, n)
+		_env.tonemap_exposure *= lerpf(1.0, 0.75, n)
 	_scenery.set_mood(n, r)
 	_understory.set_night(n)
 	var cam := get_viewport().get_camera_3d()

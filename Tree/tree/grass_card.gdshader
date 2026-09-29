@@ -11,6 +11,8 @@ uniform float fade_end = 42.0;
 // The season's colour (SeasonLook) and the sheen of rain.
 uniform vec3 season_tint = vec3(1.0);
 uniform float wet = 0.0;
+// Calmer greens on the phone renderer (like the meadow grass): 1 as painted, less toward grey.
+uniform float saturation = 1.0;
 
 void vertex() {
 	vec3 world = (MODEL_MATRIX * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
@@ -32,6 +34,10 @@ void fragment() {
 	if (dot(NORMAL, view_up) < 0.0) { NORMAL = -NORMAL; }
 	vec4 tex = texture(clump_texture, UV);
 	ALBEDO = tex.rgb * COLOR.rgb * season_tint * (1.0 - 0.15 * wet);
+	ALBEDO = mix(vec3(dot(ALBEDO, vec3(0.3, 0.59, 0.11))), ALBEDO, saturation);
+	// Blades shade each other near the ground, as in the meadow grass.
+	AO = mix(0.45, 1.0, smoothstep(0.0, 0.6, 1.0 - UV.y));
+	AO_LIGHT_AFFECT = 0.5;
 	ALPHA = tex.a;
 	ALPHA_SCISSOR_THRESHOLD = 0.4;
 	ALPHA_ANTIALIASING_EDGE = 0.3;

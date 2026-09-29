@@ -249,7 +249,7 @@ func _build_book() -> void:
 	PaperLook.apply_leather(cover)
 	cover.set_anchors_preset(Control.PRESET_FULL_RECT)
 	cover.offset_left = 8
-	cover.offset_right = -40
+	cover.offset_right = -60
 	cover.offset_top = 22
 	cover.offset_bottom = -18
 	_book.add_child(cover)
@@ -262,7 +262,7 @@ func _build_book() -> void:
 		edge.add_theme_stylebox_override("panel", sb)
 		edge.set_anchors_preset(Control.PRESET_FULL_RECT)
 		edge.offset_left = 40
-		edge.offset_right = -64 + i * 3
+		edge.offset_right = -86 + i * 3
 		edge.offset_top = 58
 		edge.offset_bottom = -52 + i * 3
 		edge.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -273,7 +273,8 @@ func _build_book() -> void:
 	PaperLook.apply(_book_page, "book_page", 11, 34.0)
 	_book_page.set_anchors_preset(Control.PRESET_FULL_RECT)
 	_book_page.offset_left = 40
-	_book_page.offset_right = -70
+	# Narrow enough that the ribbons (below) have room to carry their words (0.6.3 review).
+	_book_page.offset_right = -92
 	_book_page.offset_top = 56
 	_book_page.offset_bottom = -58
 	_book.add_child(_book_page)
@@ -330,14 +331,15 @@ func _build_book() -> void:
 		var b := Button.new()
 		b.text = k
 		b.focus_mode = Control.FOCUS_NONE
-		b.add_theme_font_override("font", Paper.hand_font(true))
-		b.add_theme_font_size_override("font_size", 22)
+		# The calm reading hand, large enough to read on a phone (0.6.3 review: 8 px in Caveat).
+		b.add_theme_font_override("font", Paper.hand_font(false))
+		b.add_theme_font_size_override("font_size", 26)
 		for fc in ["font_color", "font_hover_color", "font_pressed_color"]:
 			b.add_theme_color_override(fc, Color(0.98, 0.95, 0.88))
 		# The text sits clear of the V cut in the ribbon's end.
 		var pad := StyleBoxEmpty.new()
-		pad.content_margin_left = 10
-		pad.content_margin_right = 20
+		pad.content_margin_left = 16
+		pad.content_margin_right = 26
 		for s in ["normal", "hover", "pressed", "focus"]:
 			b.add_theme_stylebox_override(s, pad)
 		var cloth := Control.new()
@@ -355,8 +357,9 @@ func _build_book() -> void:
 				cloth.draw_line(Vector2(12, i + 2), Vector2(12, i + 6), col.lightened(0.35), 1.0))
 		b.add_child(cloth)
 		b.set_anchors_preset(Control.PRESET_TOP_RIGHT)
-		b.offset_left = -92
-		b.offset_right = -2
+		# Clear of the screen's edge; a longer word (clearer print) widens the ribbon over the page.
+		b.offset_left = -130
+		b.offset_right = -10
 		b.grow_horizontal = Control.GROW_DIRECTION_BEGIN
 		b.offset_top = y
 		b.offset_bottom = y + 110
@@ -458,7 +461,7 @@ func _build_care_tab() -> Control:
 func _refresh_care() -> void:
 	for c in _care_box.get_children():
 		c.queue_free()
-	_care_box.add_child(Paper.ink_label("Reading my tree", 32, Paper.INK, true))
+	_care_box.add_child(Paper.ink_label("Tree care", 32, Paper.INK, true))
 	for part in Care.page(state):
 		_care_box.add_child(Paper.ink_label(str(part["title"]), 27, Paper.RED_INK, true))
 		var text := Paper.ink_label(str(part["text"]), 25)

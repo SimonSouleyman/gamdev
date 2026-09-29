@@ -37,6 +37,9 @@ func _ready() -> void:
 	mat.set_shader_parameter("clump_texture", load(ATLAS))
 	mat.set_shader_parameter("cell_from_alpha", true)
 	mat.set_shader_parameter("wind_strength", 0.5)
+	# Calmer greens, like the meadow around them (GrassLook): the painted ferns read neon on the
+	# phone renderer by day and glowed by night (0.6.3 review).
+	mat.set_shader_parameter("saturation", 0.7 if _compat() else 0.84)
 	_cards.material_override = mat
 	_cards.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(_cards)
@@ -133,7 +136,11 @@ func _place(p: Array) -> void:
 		mm.set_instance_transform(i, Transform3D(basis, Terrain.at(Vector3(pos.x, 0.0, pos.y)) + Vector3(0, -0.01, 0)))
 		# White anemones would glare in the shade: a little dimmer than the ferns.
 		var v := (0.78 if e["kind"] == "anemone" else 0.9) + 0.2 * fposmod(float(e["rot"]) * 7.13, 1.0)
-		mm.set_instance_color(i, Color(v, v, v, (float(CELL[e["kind"]]) + 0.5) / 4.0))
+		var col := Color(v, v, v, (float(CELL[e["kind"]]) + 0.5) / 4.0)
+		if e["kind"] == "fern":
+			# In the shade of the crown, as deep as the meadow's lush grass (GrassLook.grass_colour).
+			col = Color(v * 0.68, v * 0.72, v * 0.64, col.a) if _compat() else Color(v * 0.75, v * 0.8, v * 0.74, col.a)
+		mm.set_instance_color(i, col)
 	var mm2 := _moss.multimesh
 	mm2.instance_count = moss.size()
 	for i in range(moss.size()):
@@ -148,6 +155,10 @@ func _place(p: Array) -> void:
 		mm2.set_instance_transform(i, Transform3D(basis, at + Vector3(0, 0.02 + 0.004 * (i % 5), 0)))
 		var v := 0.85 + 0.25 * fposmod(float(e["rot"]) * 5.31, 1.0)
 		mm2.set_instance_color(i, Color(v, v, v))
+
+
+static func _compat() -> bool:
+	return RenderingServer.get_current_rendering_method() == "gl_compatibility"
 
 
 ## A plant's spot, loosened from the plan's half-metre grid (the plants lined up in cells).

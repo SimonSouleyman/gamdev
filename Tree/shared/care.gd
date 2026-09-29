@@ -123,9 +123,9 @@ static func crown_shape(sim: GrowthSim) -> Dictionary:
 
 const NEED_LINES: Array[String] = [
 	"Thirsty: the leaves hang. The water the roots brought will not last the day.",
-	"Short of nitrogen: the new shoots stay sparse and small, the older leaves pale.",
-	"Short of phosphorus: fewer leaf masses, the leaves dark and dull.",
-	"Short of potassium: fewer leaf masses, the leaf edges brown.",
+	"Short of nitrogen (N): the new shoots stay sparse and small; while the leaves are green, they pale.",
+	"Short of phosphorus (P): some leaf masses stay bare; while the leaves are green, they darken.",
+	"Short of potassium (K): some leaf masses stay bare; while the leaves are green, their edges brown.",
 ]
 
 

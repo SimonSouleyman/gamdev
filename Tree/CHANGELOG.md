@@ -26,6 +26,12 @@ then roots, mixed checking, work in parallel). Branch iterate-0.6; streams merge
   cut and growth for the crown; pruning never finishes a tree sooner.
 - The crown a little lighter at noon (no black blotches in its own shadow).
 - Notes and tuning numbers for the design thread: docs/notes/care-0.6.3.md.
+- Look review fixes: ink buttons and pinboard scraps tap at least 9 mm (the ring stays small), the
+  resets on the cork in the notes' calm hand, journal ribbons readable and clear of the screen edge,
+  calm test-switch wording; care signs carried by shape (stronger), no colour cue once the leaves
+  turn, the HUD line says what the crown shows; night in the shed (lantern pool, dark walls, dark
+  door); ferns and upright tufts lit and calm on the phone; clearer sunrise/sunset words, a blue
+  pruning outline, "Tree care" page title.
 
 ## v0.6.2 (in progress): the tree rebuilt
 - The crown as leaf masses at the twig ends: dark inside, light at the sunny rim, sky between

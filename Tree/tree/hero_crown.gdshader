@@ -113,14 +113,17 @@ void fragment() {
 	}
 	// Care cues, second to the shape: thirst greys and dulls, nitrogen pales towards
 	// yellow-green, phosphorus darkens with a purple tinge, potassium scorches the leaf edges.
+	// In autumn the season's own yellows and browns would drown (or fake) these tints, so they
+	// fade out with the turning leaves and the shape alone carries the sign (0.6.3 review).
 	if (thirst + pale + dull + scorch > 0.001) {
 		if (leaf_hash.x < thirst * 0.17) { discard; }
+		float green = 1.0 - smoothstep(0.1, 0.5, max(autumn, late));
 		float l2 = dot(col, vec3(0.3, 0.59, 0.11));
-		col = mix(col, l2 * vec3(1.0, 1.02, 0.78), thirst * 0.3);
-		col = mix(col, l2 * vec3(1.3, 1.4, 0.55), pale * 0.35);
-		col = mix(col, col * vec3(0.72, 0.58, 0.78), dull * 0.4);
+		col = mix(col, l2 * vec3(1.0, 1.02, 0.78), thirst * 0.3 * green);
+		col = mix(col, l2 * vec3(1.3, 1.36, 0.42), pale * 0.6 * green);
+		col = mix(col, col * vec3(0.72, 0.58, 0.78), dull * 0.4 * green);
 		float edge = smoothstep(0.9, 0.55, tex.a);
-		col = mix(col, l2 * vec3(1.35, 0.8, 0.35), scorch * edge * 0.8);
+		col = mix(col, l2 * vec3(1.35, 0.8, 0.35), scorch * edge * 0.8 * green);
 	}
 	// The inside of the crown: darker leaves that see little sky and little sun; the outside a
 	// little lifted, so the sunlit side reads at noon (0.6.3).

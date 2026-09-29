@@ -182,9 +182,12 @@ func _run() -> void:
 		while main.state.phase == GameState.Phase.DAY:
 			main.state.tick(0.5)
 		await _wait(20)
+		# Past the dusk of the sunset hold (half a minute) into the full night.
+		main.tree_view._time += 60.0
 		main.journal.clear_pages()
 		await _wait(20)
 		_shot("shed_night")
+		print("shed night: phase %d, night %.2f, shed daylight %.2f" % [main.state.phase, main.tree_view.night_amount, main.shed.daylight])
 		quit()
 		return
 	# Two photos for the album, into a tool folder (never the player's album).

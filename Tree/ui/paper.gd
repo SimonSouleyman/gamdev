@@ -13,6 +13,9 @@ const RED_INK := Color(0.6, 0.18, 0.12)
 const LEATHER := Color(0.33, 0.2, 0.12)
 ## Tap area of a picture button on the HUD (about 110 px tall on a 1080x2400 phone).
 const PICTURE_TAP := Vector2(150, 96)
+## Least tap area of an ink button, in reference pixels: about 9 mm on a phone (53 px of a
+## 450 px wide screen; 0.6.3 review: "close", "write" and the album's words were 22-36 px).
+const INK_TAP := 88.0
 
 static var _cache: Dictionary = {}
 ## "clearer print" on the pinboard (0.6): one calm, legible hand everywhere, a size larger.
@@ -282,15 +285,18 @@ static func ink_label(text: String, size: int, color: Color = INK, bold: bool = 
 	return l
 
 
-## A word circled in ink, the journal's button.
-static func ink_button(text: String, size: int = 26) -> Button:
+## A word circled in ink, the journal's button. The ring hugs the word, but the tap area is at
+## least `tap` square (INK_TAP: about 9 mm on a phone), so a small word is still easy to hit.
+static func ink_button(text: String, size: int = 26, tap: float = INK_TAP) -> Button:
 	var b := Button.new()
 	b.text = text
 	b.focus_mode = Control.FOCUS_NONE
+	b.custom_minimum_size = Vector2(tap, tap)
 	b.add_theme_font_override("font", hand_font(true))
 	b.add_theme_font_size_override("font_size", size)
 	for k in ["font_color", "font_hover_color", "font_pressed_color", "font_focus_color"]:
 		b.add_theme_color_override(k, INK)
+	var rings := {}
 	for k in ["normal", "hover", "pressed", "focus"]:
 		var sb := StyleBoxFlat.new()
 		sb.bg_color = Color(0.2, 0.15, 0.1, 0.08 if k == "pressed" else 0.0)
@@ -299,14 +305,50 @@ static func ink_button(text: String, size: int = 26) -> Button:
 		sb.set_border_width_all(2)
 		sb.set_corner_radius_all(24)
 		sb.corner_detail = 5
-		sb.content_margin_left = 16
-		sb.content_margin_right = 16
-		sb.content_margin_top = 2
-		sb.content_margin_bottom = 4
 		# Slightly uneven, like a circle drawn by hand.
 		sb.expand_margin_left = 2
 		sb.expand_margin_top = 1
-		b.add_theme_stylebox_override(k, sb)
+		rings[k] = sb
+		# The button itself draws nothing: the ring is drawn around the word only (below).
+		var pad := StyleBoxEmpty.new()
+		pad.content_margin_left = 16
+		pad.content_margin_right = 16
+		pad.content_margin_top = 2
+		pad.content_margin_bottom = 4
+		b.add_theme_stylebox_override(k, pad)
+	b.draw.connect(func() -> void: _draw_ring(b, rings))
+	return b
+
+
+## The ink ring around an ink button's word, centred in its (larger) tap area.
+static func _draw_ring(b: Button, rings: Dictionary) -> void:
+	var mode := b.get_draw_mode()
+	var k := "normal"
+	if mode == BaseButton.DRAW_PRESSED or mode == BaseButton.DRAW_HOVER_PRESSED:
+		k = "pressed"
+	elif mode == BaseButton.DRAW_HOVER:
+		k = "hover"
+	var font := b.get_theme_font("font")
+	var fs := b.get_theme_font_size("font_size")
+	var ring := Vector2(font.get_string_size(b.text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x + 32.0, font.get_height(fs) + 6.0)
+	ring = ring.min(b.size)
+	b.draw_style_box(rings[k], Rect2((b.size - ring) * 0.5 + Vector2(0, -1), ring))
+
+
+## A paper scrap with a word on it, pinned somewhere (the pinboard's buttons): the calm reading
+## hand of the notes around it, and at least an INK_TAP tall scrap to tap.
+static func scrap_button(text: String, size: int, seed: int) -> Button:
+	var b := Button.new()
+	b.text = text
+	b.focus_mode = Control.FOCUS_NONE
+	b.custom_minimum_size = Vector2(INK_TAP * 1.4, INK_TAP)
+	b.add_theme_font_override("font", hand_font(false))
+	b.add_theme_font_size_override("font_size", size)
+	for k in ["font_color", "font_hover_color", "font_pressed_color", "font_focus_color"]:
+		b.add_theme_color_override(k, INK)
+	for k in ["normal", "hover", "pressed", "focus"]:
+		var tint := PAPER_SHADE if k == "pressed" else PAPER
+		b.add_theme_stylebox_override(k, paper_box(96, 48, seed, "all", 16.0, tint))
 	return b
 
 

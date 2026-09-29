@@ -64,9 +64,12 @@ func _draw() -> void:
 	var pulse := 1.0 + 0.15 * sin(_time * 3.0)
 	draw_circle(k, 34.0 * pulse, Color(1.0, 0.85, 0.4, 0.25))
 	draw_circle(k, 22.0, Color(1.0, 0.92, 0.6))
-	var font := Paper.hand_font(true)
-	draw_string(font, _arc_point(0.0) + Vector2(-30, 34), "sunrise", HORIZONTAL_ALIGNMENT_LEFT, -1, 26, Paper.PAPER)
-	draw_string(font, _arc_point(1.0) + Vector2(-40, 34), "sunset", HORIZONTAL_ALIGNMENT_LEFT, -1, 26, Paper.PAPER)
+	# The calm reading hand with a soft dark edge, so the words read over a bright sky or crown
+	# (0.6.3 review: the thin light hand was hard to read).
+	var font := Paper.hand_font(false)
+	for w in [["sunrise", _arc_point(0.0) + Vector2(-34, 36)], ["sunset", _arc_point(1.0) + Vector2(-42, 36)]]:
+		draw_string_outline(font, w[1], w[0], HORIZONTAL_ALIGNMENT_LEFT, -1, 28, 6, Color(0.1, 0.08, 0.05, 0.55))
+		draw_string(font, w[1], w[0], HORIZONTAL_ALIGNMENT_LEFT, -1, 28, Paper.PAPER)
 
 
 func _gui_input(event: InputEvent) -> void:

@@ -85,8 +85,8 @@ take nothing away: no wood, no height (broken list 14). Thirst still drops nothi
 | Tonight's life force estimate (`Care.expected_life_force`) | now + a calm rest of the day x 0.8 | 0.6 to 1.0 | Boosting spends some; the reach check stays on the safe side (broken 12). |
 | Reach (`Care.reachable`) | distance from the nearest root node x cost per metre at the deposit <= the estimate | fixed | The cost rises with distance and depth, so the deposit's own price is the upper bound. |
 | Droop (shader `thirst`) | tips drop up to 0.55 of a spray, a sixth of sprays fold away | 0.3 to 0.8 | Readable at the far camera in autumn colour. |
-| N cue | new-shoot sprays x0.45 count, x0.65 size; pale 0.3 | 0.3-0.7 | Shape first; pale is the second cue. |
-| P/K cue | up to a third of the leaf masses bare; tinge 0.3 | 0.2 to 0.45 | Fewer leaf masses, as the owner asked. |
+| N cue | new-shoot sprays x0.35 count, x0.58 size, older masses 0.4 of that; pale 0.6, none once the leaves turn | 0.3-0.7 | Shape first; pale is the second cue (0.6.3 look review: the shape alone must read in autumn). |
+| P/K cue | up to 0.45 of the leaf masses bare; tinge 0.3, none once the leaves turn | 0.2 to 0.5 | Fewer leaf masses, as the owner asked. |
 | Pruning refund (`GrowthSim.PRUNE_REFUND`) | 0.3 of the cut segments, next sunrise | 0.2 to 0.4 | The spec's range. Below 1, so pruning never speeds a tree up (broken 13). |
 | Share near the cut (`PRUNE_NEAR_SHARE`) | 0.7 of the refund, at least 2 segments per bud | 0.4 to 0.8 | The crown visibly fills in at the cut by the next day; one-segment shoots did not show. |
 | Markers around a cut (`PRUNE_MARKERS_MIN`/`MAX`) | half the cut, 6 to 30, within 1.2 m | 4 to 40 | Draws part of the day's ordinary growth to the cut: felt, but no extra growth. |

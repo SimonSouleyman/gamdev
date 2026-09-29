@@ -60,6 +60,9 @@ static func leaf_materials(scenery: Node) -> Array[ShaderMaterial]:
 static func grass_materials(view: TreeView) -> Array[ShaderMaterial]:
 	var out: Array[ShaderMaterial] = []
 	var nodes: Array = [view._grass, view._herbs, view._meadow2]
+	# The ferns and flowers in the crown's shade turn with the meadow.
+	if view._understory != null:
+		nodes.append_array(view._understory.get_children())
 	nodes.append_array(view._scenery.get_children())
 	for n in nodes:
 		var mmi := n as MultiMeshInstance3D

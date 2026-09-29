@@ -21,7 +21,7 @@ const TAG_TEXTS := {"journal": "journal", "album": "photo album", "seeds": "seed
 ## The switches on the options pinboard, in their order.
 const OPTION_NAMES := {"sound": "sound", "no_ui": "no UI (pure scenery)", "battery_saver": "battery saver",
 	"notifications": "a note each day", "vibration": "vibration", "clearer_print": "clearer print",
-	"any_species": "any species now (testing: planting replaces the current tree; opens the bonsai)"}
+	"any_species": "every seed and the bonsai now (a new seed takes this tree's place)"}
 
 var settings: Dictionary = {}
 var _tags_layer: Control
@@ -203,28 +203,33 @@ func _build_options() -> void:
 			pin.draw_circle(Vector2(127, 1), 3.0, Color(1, 0.7, 0.65)))
 		note.add_child(pin)
 		i += 1
-	var back := Paper.ink_button("back", 30)
+	# The board reaches a little lower, so the resets are pinned on the cork, clear of its frame
+	# and of "back" (0.6.3 review: in clearer print they ran over the frame).
+	board.offset_bottom = -170
+	var back := Paper.scrap_button("back", 30, 90)
 	back.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
-	back.offset_left = -60
-	back.offset_right = 60
-	back.offset_top = -210
-	back.offset_bottom = -160
-	back.add_theme_stylebox_override("normal", Paper.paper_box(96, 48, 90, "all", 14.0))
+	back.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	back.offset_left = -70
+	back.offset_right = 70
+	back.offset_top = -158
+	back.offset_bottom = -158 + Paper.INK_TAP
 	back.pressed.connect(func() -> void: _options.visible = false)
 	_options.add_child(back)
-	# Two resets pinned below the notes; each asks once more before it acts.
+	# Two resets pinned below the notes; each asks once more before it acts. The same calm hand
+	# as the notes above them.
 	var resets := HBoxContainer.new()
 	resets.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
-	resets.offset_left = -300
-	resets.offset_right = 300
-	resets.offset_top = -290
-	resets.offset_bottom = -236
+	resets.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	resets.offset_left = -320
+	resets.offset_right = 320
+	resets.offset_top = -296
+	resets.offset_bottom = -296 + Paper.INK_TAP
 	resets.alignment = BoxContainer.ALIGNMENT_CENTER
 	resets.add_theme_constant_override("separation", 30)
 	_options.add_child(resets)
 	for kind in ["tree", "all"]:
-		var b := Paper.ink_button("plant a new tree" if kind == "tree" else "start over", 26)
-		b.add_theme_stylebox_override("normal", Paper.paper_box(96, 48, 94 + resets.get_child_count(), "all", 14.0))
+		var b := Paper.scrap_button("plant a new tree" if kind == "tree" else "start over", 27, 94 + resets.get_child_count())
+		b.rotation_degrees = -1.2 if kind == "tree" else 1.0
 		var label: String = b.text
 		b.pressed.connect(func() -> void:
 			if b.has_meta("armed"):
@@ -619,7 +624,7 @@ func open_seeds(state: GameState, any_species: bool) -> void:
 	if state.finished:
 		text = "The %s has grown to its full size and dropped a seed. Which seed goes into the ground beside it?" % state.tree_name()
 	elif any_species:
-		text = "(Test switch: every species can be planted now. The %s is not finished yet.)" % state.tree_name()
+		text = "(Every seed is at hand now, from the pinboard. The %s is not finished yet.)" % state.tree_name()
 	else:
 		text = "Seeds saved for later: %s.
 

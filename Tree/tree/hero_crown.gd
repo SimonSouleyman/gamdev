@@ -43,9 +43,12 @@ static func spray_size(height: float) -> float:
 ## Care cues baked into the crown (0.6.3), per unit of the signal: new shoots short of nitrogen
 ## carry fewer and smaller sprays; short of phosphorus or potassium, some leaf masses stay bare
 ## (inner and lower ones first).
-const N_SPRAYS := 0.55
-const N_SIZE := 0.35
-const PK_BARE := 0.33
+## (0.6.3 review: the shape has to carry the sign on its own in autumn, so it is stronger, and
+## the older masses thin a little too, not only the day's new shoots.)
+const N_SPRAYS := 0.65
+const N_SIZE := 0.42
+const N_OLD := 0.4
+const PK_BARE := 0.45
 
 
 ## Fills `mm` (TRANSFORM_3D, colours and custom data on) with the crown of `sim`. Returns the
@@ -101,7 +104,7 @@ static func populate(mm: MultiMesh, sim: GrowthSim, seed: int, care: PackedFloat
 		# A sapling's few shoots carry few leaves; a grown tree's twig stands for many.
 		n = mini(n, 1 + int(ceil(float(m[1]) * lerpf(0.3, 3.0, smoothstep(2.0, 15.0, height)))))
 		# Care: new shoots short of nitrogen carry fewer, smaller sprays.
-		var young: float = m[2] * n_short
+		var young: float = lerpf(N_OLD, 1.0, m[2]) * n_short
 		n = maxi(1, int(round(n * (1.0 - N_SPRAYS * young))))
 		shrink.append(1.0 - N_SIZE * young)
 		# Care: short of phosphorus or potassium, a leaf mass stays bare (inner and lower first).

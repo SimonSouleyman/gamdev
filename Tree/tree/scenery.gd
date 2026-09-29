@@ -553,6 +553,9 @@ func _build_edge_herbs() -> void:
 		mat.set_shader_parameter("clump_texture", layer[1])
 		mat.set_shader_parameter("fade_start", clearing_radius * 2.0 + 20.0)
 		mat.set_shader_parameter("fade_end", clearing_radius * 2.0 + 50.0)
+		# Calmer on the phone renderer, like the meadow grass (0.6.3 review: neon tufts).
+		if RenderingServer.get_current_rendering_method() == "gl_compatibility":
+			mat.set_shader_parameter("saturation", 0.72)
 		mmi.material_override = mat
 		mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		add_child(mmi)
