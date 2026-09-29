@@ -2,24 +2,18 @@
 
 ## Progress (for resuming work)
 
-Kept current during the 0.6.x iteration (Simon, 2026-09-29: rebuild the weakest pieces, all look
-areas one after another, tree care first then roots, mixed checking: a quick check per step and a
-full two-reviewer pass before each phone build). Every finished step is committed and pushed.
-The plan comes from the fresh review (all shots in GameDev/tree-qa/r1/shots):
-- Done: 0.6 (tag tree-v0.6), on Simon's phone; fresh review of every scene; 0.6.1 quick fixes
-  (commit bed01af on branch iterate-0.6: dive-swipe camera pitch, painted phone sky, shed light
-  follows the clock, coloured falling leaves, the wish as a morning scrap).
-- In progress, in parallel (Simon 2026-09-29: work in parallel), each on its own branch and
-  worktree, merged into iterate-0.6 one at a time with a quick check:
-  - tree-062 (wt-tree062): the tree rebuilt (crown, real growth curve, camera by real height).
-  - s-roots (wt-roots): root runs worth steering, calm night length, easier steering, boost cost.
-  - s-clearing (wt-clearing): soft shade patch, meadow variation, shed depth and contact shadows.
-  - s-bonsai (wt-bonsai): juniper pads, trunk, wire framing.
-- Next: tree care (after tree-062: the tree shows what it lacks, care page, felt pruning); the
-  full two-reviewer pass; the phone build; Simon's workflow comments (after this plan).
-- Asked first (0.7): a nightly target underground, branches the tree marks for pruning, bonsai
-  tools on the sill.
-- Open: the daytime tree-view frame rate on the phone is still unmeasured.
+0.6.x iteration (Simon, 2026-09-29: rebuild the weakest pieces, all look areas, tree care first
+then roots, mixed checking, work in parallel). Branch iterate-0.6; streams merge into it.
+- Done and merged: 0.6.1 quick fixes; bonsai look (s-bonsai); clearing and shed look
+  (s-clearing); the tree rebuilt (tree-062); root runs (s-roots: dots worth steering, nights
+  under a minute, easier steering, boost costs); pinboard resets (plant a new tree / start over,
+  Simon chose both); beech slow start eased.
+- In progress: tree care (s-care, wt-care); softer for non-steering play (s-soft, wt-soft:
+  Simon chose "Softer": finish about day 36-40, every day grows).
+- Next: merge both, then the full two-reviewer check against Tree/docs/tuning.md (broken list)
+  and a look pass, then the phone build as 0.6.x (with the daytime frame-rate measurement; the
+  phone was locked last time). After the plan: adopt Tree/docs/design-practice.md.
+- Note: Simon's phone has 0.6 with his save restored (backup in GameDev/tree-shots/savebackup).
 
 ## v0.6.2 (in progress): the tree rebuilt
 - The crown as leaf masses at the twig ends: dark inside, light at the sunny rim, sky between
