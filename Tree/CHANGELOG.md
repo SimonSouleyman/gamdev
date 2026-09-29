@@ -6,13 +6,17 @@ Kept current during the 0.6.x iteration (Simon, 2026-09-29: rebuild the weakest 
 areas one after another, tree care first then roots, mixed checking: a quick check per step and a
 full two-reviewer pass before each phone build). Every finished step is committed and pushed.
 The plan comes from the fresh review (all shots in GameDev/tree-qa/r1/shots):
-- Done: 0.6 (tag tree-v0.6), on Simon's phone; fresh review of every scene.
-- In progress: 0.6.1 quick fixes (camera pitch after the dive swipe, painted sky on the phone,
-  shed dark at night with the lantern, falling leaves, the daily wish as a scrap);
-  0.6.2 the tree rebuilt (crown shading and gaps, calmer green, real growth curve, camera pulls back).
-- Next: 0.6.3 tree care (the tree shows what it lacks, care page, pruning with a felt effect);
-  0.6.4 roots (touched dots worth more than the leftover, calm night length, easier steering,
-  boost costs life force); 0.6.5 clearing and shed; 0.6.6 bonsai look.
+- Done: 0.6 (tag tree-v0.6), on Simon's phone; fresh review of every scene; 0.6.1 quick fixes
+  (commit bed01af on branch iterate-0.6: dive-swipe camera pitch, painted phone sky, shed light
+  follows the clock, coloured falling leaves, the wish as a morning scrap).
+- In progress, in parallel (Simon 2026-09-29: work in parallel), each on its own branch and
+  worktree, merged into iterate-0.6 one at a time with a quick check:
+  - tree-062 (wt-tree062): the tree rebuilt (crown, real growth curve, camera by real height).
+  - s-roots (wt-roots): root runs worth steering, calm night length, easier steering, boost cost.
+  - s-clearing (wt-clearing): soft shade patch, meadow variation, shed depth and contact shadows.
+  - s-bonsai (wt-bonsai): juniper pads, trunk, wire framing.
+- Next: tree care (after tree-062: the tree shows what it lacks, care page, felt pruning); the
+  full two-reviewer pass; the phone build; Simon's workflow comments (after this plan).
 - Asked first (0.7): a nightly target underground, branches the tree marks for pruning, bonsai
   tools on the sill.
 - Open: the daytime tree-view frame rate on the phone is still unmeasured.
