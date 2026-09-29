@@ -35,12 +35,11 @@ func _report(species_id: String, seed: int) -> String:
 	for day in range(45):
 		var lf := g.sim.resources.life_force
 		g.dive()
-		var start := 0 if g.roots.graph.size() <= 1 else g.roots.graph.size() - 1
-		g.start_run(start)
+		var bot := RootBot.new()
+		g.start_run(bot.pick_start(g.roots, g.ground, g.sim.resources))
 		var guard := 0
 		var t0 := Time.get_ticks_msec()
-		var bot := RootBot.new()
-		while g.steer(bot.stick_for(g.roots, g.ground), false, 1.0/30.0) and guard < 20000:
+		while g.steer(bot.stick_for(g.roots, g.ground, g.sim.resources), false, 1.0/30.0) and guard < 20000:
 			guard += 1
 		var t1 := Time.get_ticks_msec()
 		while g.phase == GameState.Phase.NIGHT: g.tick(0.2)

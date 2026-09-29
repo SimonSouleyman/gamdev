@@ -301,3 +301,139 @@ func test_a_tip_draws_each_deposit_once_per_run() -> void:
 		if u.dot_amounts[i] < u.dot_capacity[i] * (1.0 - 2.0 / Underground.DEPOSIT_SHARES) - 1e-4:
 			over += 1
 	t.check_eq(over, 0, "no deposit drained by lingering in one run")
+
+
+## An empty underground with only the given deposits (no rocks), for steering tests.
+func _clean_ground(dots: Array) -> Underground:
+	var u := Underground.new(7)
+	u.rock_centers = PackedVector3Array()
+	u.rock_radii = PackedFloat32Array()
+	u.dot_positions = PackedVector3Array(dots)
+	u.dot_kinds = PackedInt32Array()
+	u.dot_amounts = PackedFloat32Array()
+	u.dot_capacity = PackedFloat32Array()
+	u.dot_collected = PackedByteArray()
+	for _p in dots:
+		u.dot_kinds.append(Resources.Kind.WATER)
+		u.dot_amounts.append(4.0)
+		u.dot_capacity.append(4.0)
+		u.dot_collected.append(0)
+	u._build_grid()
+	return u
+
+
+## A run from a set point and heading on `u`; returns the root after `seconds` (or when it ended).
+func _steer_from(u: Underground, at: Vector3, heading: Vector3, stick: Vector2, seconds: float, magnet: bool = true) -> RootSystem:
+	var r := RootSystem.new(3)
+	if not magnet:
+		r.magnet_rate = 0.0
+	var res := Resources.new()
+	res.life_force = 30.0
+	r.start_run(0)
+	r.pace_run(30.0)
+	r.tip_position = at
+	r.heading = heading.normalized()
+	r._update_right()
+	for _i in range(int(seconds * 30.0)):
+		if not r.advance(stick, false, 1.0 / 30.0, u, res):
+			break
+	return r
+
+
+func test_the_tip_draws_more_from_a_deposit_than_a_fine_root() -> void:
+	# QA r1: ending early and letting fine roots gather beat steering to the deposits.
+	var r := RootSystem.new(1)
+	t.check(r.tip_share >= 2.0 * r.fine_share, "the tip draws at least twice a fine root's share (%.2f vs %.2f)" % [r.tip_share, r.fine_share])
+	var u := _clean_ground([Vector3(0, -1.0, -1.0), Vector3(0, -1.0, 1.0)])
+	var res := Resources.new()
+	r._collect_ids(PackedInt32Array([0]), u, res)
+	var tip := res.amount(Resources.Kind.WATER)
+	r._collect_ids(PackedInt32Array([1]), u, res, r.fine_share)
+	var fine := res.amount(Resources.Kind.WATER) - tip
+	t.check_near(tip, 4.0 * r.tip_share, 1e-5, "the tip's first contact")
+	t.check(tip > fine * 1.9, "touching a deposit pays about twice what a fine root gets (%.2f vs %.2f)" % [tip, fine])
+
+
+func test_leftover_fine_roots_reach_only_so_far() -> void:
+	var s := _setup(1000.0, 11)
+	var r: RootSystem = s[1]
+	r.start_run(0)
+	for _i in range(45):
+		r.advance(Vector2(0.3, 0), false, 1.0 / 30.0, s[0], s[2])
+	r.finish_early(s[0], s[2])
+	t.check(r._fine_reach <= r.fine_radius + r.fine_reach_max_extra + 1e-4, "the leftover widens the fine roots' reach only up to a cap (%.1f m)" % r._fine_reach)
+	t.check(r.count_flagged("fine", 0) <= Budgets.FINE_ROOTS_MAX_PER_MAIN_ROOT, "within the fine-root budget")
+
+
+func test_a_night_stays_calm_as_life_force_grows() -> void:
+	# QA r1: nights grew from 18 s to 80-110 s as the crown gathered more life force.
+	var lengths: Array = []
+	for life in [30.0, 120.0, 300.0]:
+		var s := _setup(life, 5)
+		var r: RootSystem = s[1]
+		r.start_run(0)
+		var seconds := _run(r, s[0], s[2], Vector2(0.25, -0.1)) / 30.0
+		t.check(seconds <= 60.0, "a root on %.0f life force takes at most a minute (%.0f s)" % [life, seconds])
+		t.check(seconds >= 15.0, "and is no rush either (%.0f s)" % seconds)
+		lengths.append(r.run_length)
+	t.check(lengths[1] > lengths[0] and lengths[2] > lengths[1], "more life force still grows a longer root (%s)" % str(lengths))
+	var r2 := RootSystem.new(1)
+	r2.pace_run(r2.calm_life_force * 0.5)
+	t.check_near(r2.run_cost_scale, 1.0, 1e-6, "a small tank pays the plain price per metre")
+	r2.pace_run(r2.calm_life_force * 4.0)
+	t.check(r2.run_cost_scale > 1.5, "a big tank pays more per metre (%.2f)" % r2.run_cost_scale)
+	t.check(r2.run_speed_scale > 1.0, "and its root grows faster (%.2f)" % r2.run_speed_scale)
+
+
+func test_magnetism_pulls_the_tip_onto_a_nearby_deposit() -> void:
+	# QA r1: steering onto a dot was hard, the root circled it. A deposit just off the heading
+	# is reached with the stick at rest; without the pull the root would pass it by.
+	var dot := Vector3(0, -2.0, -1.5)
+	var heading := Vector3(sin(deg_to_rad(40.0)), 0, -cos(deg_to_rad(40.0)))
+	var at := Vector3(0, -2.0, 0)
+	var u := _clean_ground([dot])
+	_steer_from(u, at, heading, Vector2.ZERO, 3.0)
+	t.check(u.dot_amounts[0] < u.dot_capacity[0], "the pull brings the tip onto the deposit")
+	var v := _clean_ground([dot])
+	_steer_from(v, at, heading, Vector2.ZERO, 3.0, false)
+	t.check_near(v.dot_amounts[0], v.dot_capacity[0], 1e-5, "without it the root passes by")
+
+
+func test_a_hard_turn_slows_the_tip_for_a_tighter_curve() -> void:
+	var u := _clean_ground([])
+	var at := Vector3(0, -3.0, -4.0)
+	var straight := _steer_from(u, at, Vector3.FORWARD, Vector2.ZERO, 2.0)
+	var hard := _steer_from(u, at, Vector3.FORWARD, Vector2(1, 0), 2.0)
+	t.check(hard.run_length < straight.run_length * 0.75, "full stick grows slower (%.2f vs %.2f m)" % [hard.run_length, straight.run_length])
+	# A full circle at full stick stays within about a metre across.
+	var circle := _steer_from(u, at, Vector3.FORWARD, Vector2(1, 0), TAU / hard.turn_rate)
+	var across := 0.0
+	for id in range(circle.run_first_new_id, circle.graph.size()):
+		across = maxf(across, circle.graph.positions[id].distance_to(at))
+	t.check(across < 1.0, "the tightest circle is under a metre across (%.2f m)" % across)
+
+
+func test_the_pace_survives_a_save() -> void:
+	var s := _setup(200.0, 5)
+	var r: RootSystem = s[1]
+	r.start_run(0)
+	r.advance(Vector2.ZERO, false, 1.0 / 30.0, s[0], s[2])
+	var d := RootSystem.from_dict(JSON.parse_string(JSON.stringify(r.to_dict())))
+	t.check_near(d.run_cost_scale, r.run_cost_scale, 1e-5, "the night's price per metre is kept")
+	t.check_near(d.run_speed_scale, r.run_speed_scale, 1e-5, "and its speed")
+
+
+func test_the_bot_aims_at_fresh_deposits_ahead() -> void:
+	var at := Vector3(0, -2.0, 0)
+	# Ahead and close but already tapped; ahead and further, fresh; close but behind.
+	var u := _clean_ground([Vector3(0, -2.0, -1.5), Vector3(0.8, -2.0, -3.0), Vector3(0, -2.0, 1.0)])
+	var r := RootSystem.new(3)
+	r.start_run(0)
+	r.tip_position = at
+	r.heading = Vector3.FORWARD
+	r._update_right()
+	r.tapped[0] = true
+	var bot := RootBot.new()
+	var stick := bot.stick_for(r, u)
+	t.check_eq(bot.target_id, 1, "the bot skips the tapped deposit and the one behind")
+	t.check(stick.x > 0.0, "and turns toward the fresh one (right)")

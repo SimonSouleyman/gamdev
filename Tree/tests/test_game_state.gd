@@ -341,3 +341,27 @@ func test_visitors_come_once_as_the_tree_grows() -> void:
 	t.check(first.has("butterflies"), "butterflies have come (%s, %.1f m)" % [str(first), g.sim.height()])
 	t.check(g.sim.height() < 8.0 or first.has("nest"), "a tall tree gets a nest")
 	t.check(not Visitors.arrive(g).has("butterflies"), "each visitor comes once")
+
+
+func test_steering_to_deposits_grows_the_biggest_tree() -> void:
+	# QA r1: ending each root after 2 m grew the biggest tree, chasing dots the smallest. Now the
+	# player who steers to the deposits leads; ending early still grows a tree, only a smaller one.
+	var strategies := preload("res://tools/strategies.gd")
+	var dots: Dictionary = strategies.play("dots", "linden", 14, 12)
+	var early: Dictionary = strategies.play("end_early", "linden", 14, 12)
+	t.check(int(dots["nodes"]) > int(early["nodes"]) * 1.1, "steering to deposits leads after 12 days (%d vs %d segments)" % [dots["nodes"], early["nodes"]])
+	t.check(int(early["nodes"]) > 200, "ending early still grows the tree (%d segments)" % early["nodes"])
+	var longest := 0
+	for s in dots["secs"]:
+		longest = maxi(longest, int(s))
+	t.check(longest <= 60, "no night's root takes more than a minute (%d s)" % longest)
+
+
+func test_boosting_trades_life_force_for_speed() -> void:
+	var c := DayCycle.new()
+	c.time_of_day = c.daylight_fraction * 0.5
+	var calm_light := c.light_level()
+	var calm_life := c.life_force_light()
+	c.boost_active = true
+	t.check(c.light_level() > calm_light * 1.3, "a boost grows faster")
+	t.check(c.life_force_light() <= calm_life * 0.6 + 1e-6, "but the leaves gather at most 60 % of the life force")

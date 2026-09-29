@@ -136,3 +136,14 @@ Each criterion has a test in `tests/` unless marked (visual), which Simon judges
 - Leaf masses: the crown's sprays are gathered at the twig ends into masses (budget 1800 on a phone, 3600 on a PC), shaded dark inside and light at the sunny rim, with sky between them; a clean alpha cut, no dither speckle; an olive, not neon, green (tests).
 - Camera: the frame follows the tree's real height (a sapling small in its clearing, a grown tree from further back); the album's morning photos all use one camera framed for the species' grown size, so the flip-book shows the tree growing (test).
 - (visual) `tools/compare_shot.gd` sheets of linden, oak and birch on days 2, 8 and 20 at dawn, noon and golden hour, summer and autumn, phone path.
+## 0.6.4 roots: touched deposits worth more, calm nights, easier steering, boost costs (QA r1)
+- The tip draws at least twice what a fine root draws from a deposit (tests/test_root_system.gd).
+- Leftover life force widens the fine roots' reach only up to a cap (test).
+- A night's root on 30, 120 or 300 life force takes 15-60 s real time, and more life force still grows a longer root (test); a big tank pays more per metre and grows faster (test).
+- A deposit just off the heading is reached with the stick at rest (magnetism); without the pull the root passes it (test).
+- A hard turn grows slower, so the tightest circle is under a metre across (test).
+- The night's pace survives a save (test).
+- The RootBot skips tapped deposits and ones behind the tip (test).
+- After 12 days steering to deposits leads ending early (linden, seed 14), ending early still grows, and no night's root takes more than a minute (tests/test_game_state.gd).
+- A boost grows faster but gathers at most 60 % of the life force (test).
+- Measured with tools/strategies.gd over seeds 3, 14, 27 and linden, birch, oak: chasing deposits finishes first (or level with always boosting), ending early 8-15 days later; month_report keeps every species within a week of its target.

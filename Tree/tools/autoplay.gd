@@ -113,7 +113,7 @@ func _process(delta: float) -> bool:
 	var tv: TreeView = main.tree_view
 	# The bot steers whenever a run is active.
 	if s.roots.run_active and rv.mode == RootView.Mode.RUN:
-		rv.scripted_stick = bot.stick_for(s.roots, s.ground)
+		rv.scripted_stick = bot.stick_for(s.roots, s.ground, s.sim.resources)
 	else:
 		rv.scripted_stick = null
 	match stage:

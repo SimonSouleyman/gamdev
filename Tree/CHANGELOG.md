@@ -29,6 +29,22 @@ The plan comes from the fresh review (all shots in GameDev/tree-qa/r1/shots):
   near its month, and constant boosting no longer stalls a tree for good.
 - The camera frames the tree's real height (a sapling small in its clearing); the album's
   morning photos share one camera framed for the grown tree, so the flip-book shows growth.
+## 0.6.4 roots (branch s-roots)
+
+QA r1 found that ending each root after 2 m grew the biggest tree, chasing dots the smallest,
+nights grew to 80-110 s, the tip circled the dots and boosting all day halved the month.
+- Worth: the tip draws 0.2 of a deposit, a fine root 0.1; deposits hold less (1.15 shares);
+  the old roots draw 0.05 a night (water twice that); the leftover's fine roots as before in
+  reach, but they draw half what the tip draws (they drew the same). Steering to deposits now
+  grows the biggest tree.
+- Calm nights: above 50 life force each metre costs more (square root of the tank) and the tip
+  grows faster (up to 1.8x, turning with it), so a root takes 20-60 s at any size.
+- Steering: a hard turn slows the tip by up to 40 % (tighter curve), a fresh deposit up to 1.8 m
+  ahead pulls the tip onto it, collect radius 0.7 m. RootBot aims at fresh deposits ahead
+  (skips tapped ones), prefers what the tree lacks and picks a start near a rich patch.
+- Boost: growth 2x (was 3x), life force 0.5 (was 0.4): always boosting now finishes within
+  about a day of calm play for linden and birch, 4 days sooner for oak (was up to 15 sooner).
+- tools/strategies.gd measures it all.
 
 ## v0.6 (2026-09-28)
 
