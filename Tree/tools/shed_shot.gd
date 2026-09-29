@@ -181,7 +181,9 @@ func _run() -> void:
 		# On to the night: the window goes dark and the lantern lights the room.
 		while main.state.phase == GameState.Phase.DAY:
 			main.state.tick(0.5)
-		await _wait(40)
+		await _wait(20)
+		main.journal.clear_pages()
+		await _wait(20)
 		_shot("shed_night")
 		quit()
 		return
