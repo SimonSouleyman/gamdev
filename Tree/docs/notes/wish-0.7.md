@@ -61,6 +61,7 @@ with a calm tank; aiming for it reaches it far more often than random steering (
 | Reach budget (`Diary.REACH_SHARE`) | straight-line cost at most 0.6 of a calm tank (`RootSystem.calm_life_force`, 50 today) | 0.4 to 0.8 | A steered root curves and sinks; the slack keeps "reachable" honest. |
 | Wishes that point underground (`Diary.UNDERGROUND_SHARE`) | 0.75 | 0.5 to 0.9 | Most days, but some days keep the old calm wishes about the sun and the tree. |
 | Reach distance (`Diary.REACH_MARGIN`) | a main-root node within the patch radius + 0.35 m of its centre | 0.2 to 0.6 | The tip passing through the patch; the collect radius does the drinking. |
+| Haze brightness close up (`near_level`) | 0.32 (additive), thinning to 0.3x with the camera inside it | 0.25 to 0.45 | "A little warmer": the dots inside stay readable. Reaching it swells the haze to 1.7x for 0.6 s, then it fades out over 2.6 s. |
 | Glow strength, today's / yesterday's missed | 1.0 / 0.45 | yesterday's 0.3 to 0.6 | Yesterday's is a reminder, not a second goal. |
 | Glow reach (`wish_glow.gdshader`) | full up to 7 m, then down to a faint floor of 0.22 held to 30 m, gone by 38 m | floor 0.15 to 0.35 | The dots fade out by 15 m during a run; the wish stays faintly visible beyond them. |
 | Pulse | 5.2 s period, 35 % depth | 4 to 8 s | Slow breathing, clearly different from the dots' quick flicker (1.7 rad/s). |
@@ -68,5 +69,31 @@ with a calm tank; aiming for it reaches it far more often than random steering (
 
 ## Checks
 
-See `tests/test_wish.gd` and `tools/strategies.gd --strats=wish,random`. Results are logged
-below after each tuning pass.
+`tests/test_wish.gd`: the deposit is 1.25 to 1.8x a normal rich patch of its kind, 5.5 to 8.5 m
+beyond the newest tip, in the topsoil under its rushes or clover, reachable by 0.6 of a calm tank;
+never in or behind rock (a day wish when nothing fits); it follows the scarcer of water and
+nitrogen; placed deposits survive save and load and an old save loads as it was; a missed wish
+glows at 0.45 one more night and costs nothing; reaching it writes the line with its drawing
+(which survives a save) and the glow settles; a night without life force still shows it.
+Aimed from the newest tip with a calm tank it was reached on 34 of 36 wish nights (639 nutrients),
+random steering from the trunk 1 of 44 (401 nutrients); four seeds, twelve nights each.
+
+`tools/strategies.gd`, linden, seeds 3 / 14 / 27, finish day ("-" = not by day 45). Run on
+branch s07-wish, which does **not** yet hold the 0.6.x soft and care merges (iterate-0.6
+5b5ecb1), so the slow styles are slower than on iterate-0.6. Compare within a row group only.
+
+| Style | Wishes off (`--set=wish_share=0`) | Wishes on | Wishes reached |
+|---|---|---|---|
+| tip (RootBot from the newest tip) | 33 / 35 / 37 | 31 / 29 / 32 | 2 of 17, 1 of 18, 4 of 24 |
+| wish (from the newest tip at the glow, then RootBot) | | 30 / 29 / 30 | 16 of 16, 20 of 20, 23 of 24 |
+| dots (RootBot, start by need) | 29 / 30 / 31 | 27 / 27 / 28 | 3 of 15, 4 of 18, 8 of 24 |
+| end_early | | 39 / - / 40 | 0 to 1 |
+| random | | - / - / - | |
+
+Nights with the wish style: 24 to 52 s real time. Continuing from the newest tip now beats ending
+early by 8 or more days, and following the glow does as well as the chase bot. The dots style got
+2 to 3 days faster (27 to 28, target 30, limit 26): watch it after the soft merge; the levers are
+WISH_SIZE and UNDERGROUND_SHARE.
+
+Shots: `GameDev/tree-qa/wish/` from `tools/wish_shot.gd` (overview, far at 10 m, near at 3.4 m,
+the moment it is reached, after, the diary line with its clover).

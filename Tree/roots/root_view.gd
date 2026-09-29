@@ -283,9 +283,9 @@ func _check_wish_reached() -> void:
 		var s0 := float(glow["strength"])
 		var tw := create_tween()
 		tw.set_parallel(true)
-		tw.tween_method(func(v: float) -> void: mat.set_shader_parameter("strength", v), s0, s0 * 2.4, 0.6).set_trans(Tween.TRANS_SINE)
-		tw.tween_property(m, "scale", m.scale * 1.35, 0.6).set_trans(Tween.TRANS_SINE)
-		tw.chain().tween_method(func(v: float) -> void: mat.set_shader_parameter("strength", v), s0 * 2.4, 0.0, 2.6).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
+		tw.tween_method(func(v: float) -> void: mat.set_shader_parameter("strength", v), s0, s0 * 1.7, 0.6).set_trans(Tween.TRANS_SINE)
+		tw.tween_property(m, "scale", m.scale * 1.15, 0.6).set_trans(Tween.TRANS_SINE)
+		tw.chain().tween_method(func(v: float) -> void: mat.set_shader_parameter("strength", v), s0 * 1.7, 0.0, 2.6).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
 		for i in ground.patch_dots(int(glow["patch"])):
 			_warm_dots.erase(i)
 			_set_dot(i)

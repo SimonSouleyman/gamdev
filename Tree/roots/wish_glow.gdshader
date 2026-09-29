@@ -17,7 +17,7 @@ uniform float gone_at = 38.0;
 uniform float pulse_period = 5.2;
 uniform float pulse_depth = 0.35;
 // Brightness of the haze close up (additive, so it never hides the dots inside it).
-uniform float near_level = 0.42;
+uniform float near_level = 0.32;
 
 varying float v_fade;
 
@@ -32,7 +32,7 @@ void vertex() {
 	float fade = mix(1.0, far_floor, smoothstep(near_full, fog_edge, d));
 	fade *= 1.0 - smoothstep(floor_until, gone_at, d);
 	// Inside the haze (the camera behind the tip, right at the patch) it thins out.
-	fade *= mix(0.35, 1.0, smoothstep(0.6 * s * 0.5, 1.2 * s * 0.5, d));
+	fade *= mix(0.3, 1.0, smoothstep(0.5 * s, 1.0 * s, d));
 	float breath = 0.5 + 0.5 * sin(TIME * 6.2831853 / pulse_period);
 	v_fade = fade * strength * (1.0 - pulse_depth + pulse_depth * breath);
 }

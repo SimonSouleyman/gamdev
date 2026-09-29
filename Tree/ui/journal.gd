@@ -36,7 +36,7 @@ var _tabs: Dictionary = {}  # name -> Control (content)
 var _tab_buttons: Dictionary = {}
 var _current_tab: String = "diary"
 ## Size of a diary line's ink drawing (a reached wish), in pixels.
-const DRAWING_SIZE: int = 64
+const DRAWING_SIZE: int = 88
 var _diary_text: RichTextLabel
 var _wish_label: Label
 var _note: LineEdit

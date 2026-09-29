@@ -92,6 +92,11 @@ func _process(delta: float) -> bool:
 				_next()
 		1:
 			rv.scripted_stick = bot.stick_for(s.roots, s.ground, s.sim.resources) if s.roots.run_active else null
+			# The root waits for the first move; a stick already pointing at the glow is too small.
+			rv.scripted_dive = bool(rv.get("_waiting_for_input"))
+			if stage_time > 90.0:
+				print("timed out steering")
+				_next()
 			var d := s.roots.tip_position.distance_to(glow["center"])
 			if stage_time > 1.2 and not has_meta("far"):
 				set_meta("far", true)

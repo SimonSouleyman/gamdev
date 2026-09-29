@@ -123,4 +123,4 @@ static func _ink(img: Image, x: int, y: int, a: float) -> void:
 		return
 	var old := img.get_pixel(x, y)
 	if a > old.a:
-		img.set_pixel(x, y, Color(Paper.INK, a * 0.92))
+		img.set_pixel(x, y, Color(Paper.INK, a))
