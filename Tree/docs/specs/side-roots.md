@@ -42,6 +42,15 @@ the way, and that root is a real anchor now". Neither feels like a mistake.
    leftover life force, at most 2.5 m. They get about 4 nodes per point of leftover. They drink
    at the fine share as well, and they draw in and grow over about 3 s at the end of the run so
    the player sees them spread.
+2b. Third level, new (Simon, 2026-09-30, 18:15 UTC: "aus Seitenwurzeln nochmal kleinere
+   Seitenwurzeln"): from the second-level roots, smaller roots branch once more. The leftover's
+   nodes split about 70 % to the second level and 30 % to the third. Third-level roots grow from
+   along and at the tips of the second level toward fresh dots within about 0.3 m plus 0.02 m per
+   point of leftover, at most 0.8 m; where no dot is that close they still sprout a few short
+   tips, so the fan reads as branched. They are drawn about half as thick as the second level and
+   a shade dimmer, drink at half the fine share (0.05), and grow in right after the second level
+   within the same 3 s. A third level only starts from a second-level root at least about 0.5 m
+   long.
 3. Thickening, new: the share of the night's tank spent on the player's own root sets how thick
    that root is drawn, from 1.0x (ended at once) to about 1.5x (tank run dry). A thicker root
    takes up to 1.25x groundwater seep per metre, so the full run has a small lasting gain.
@@ -61,14 +70,16 @@ at once still gets a small fan of side roots, as today's unsteered tree still fi
 **Edge cases.**
 - Stuck against rock: the leftover goes into the second level, as it goes into fine roots today.
 - Old saves: existing roots keep their thickness 1.0x and have no second level.
-- Node budget: the second level shares `FINE_ROOTS_MAX_PER_MAIN_ROOT` (600) with the first; the
+- Node budget: the second and third levels together get at most about 250 nodes per night (first
+  level 150), all within `FINE_ROOTS_MAX_PER_MAIN_ROOT` (600); the
   root graph size does not grow.
-- Phone: second-level roots are the thinnest thing drawn underground; they must still read in
+- Phone: third-level roots are the thinnest thing drawn underground; they must still read in
   the darker night view (see the darkness note in specs/0.8.md).
 - Oak (deep-root quirk) and birch (cheap topsoil) keep their quirks; the second level follows
   the same cost rules as fine roots (none, it is paid from the leftover).
 
-**Tuning levers.** Second-level reach base and per life force, nodes per life force, the
+**Tuning levers.** Second-level reach base and per life force, nodes per life force, the split
+between the second and third level, third-level reach and drink share, the node cap, the
 "near-empty" threshold, the thickness range, the seep bonus for thickness.
 
 ## What "broken" looks like
@@ -83,3 +94,7 @@ at once still gets a small fan of side roots, as today's unsteered tree still fi
 6. The second level costs a visible frame drop underground (below 30 fps where it held before)
    or pushes the root graph past its budget.
 7. Thickness or side roots change after the night is over (they are set once, at the run's end).
+8. With the third level, the underground drops below 30 fps on the Fairphone (where it held
+   before), a night's roots pass the node cap, or the three levels cannot be told apart at the
+   end-of-run camera (the third must read as finer and dimmer, never as a grey fuzz).
+9. The third level makes ending early pay: items 1 and 4 still hold with it.
