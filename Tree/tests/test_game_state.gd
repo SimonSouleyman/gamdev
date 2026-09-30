@@ -47,7 +47,8 @@ func test_tutorial_seed_then_first_run_then_sapling() -> void:
 	t.check_eq(g.phase, GameState.Phase.DAY, "sunrise after the run")
 	t.check(waited < 20.0, "the rest of the night passes quickly (%f s)" % waited)
 	t.check_eq(g.day_number(), 1, "day 1")
-	for _i in range(120):
+	# 70 s of the first day (0.8: linden's pace 0.92 grows the first minute's 20 segments by 60 s).
+	for _i in range(140):
 		g.tick(0.5)
 	t.check(g.sim.graph.size() > nodes_before + 20, "a sapling grew (%d nodes)" % g.sim.graph.size())
 	t.check(g.sim.height() > 0.5, "and it stands up (%f m)" % g.sim.height())

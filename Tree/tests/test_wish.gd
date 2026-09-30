@@ -72,7 +72,9 @@ func test_the_wish_places_a_bigger_deposit_ahead_of_the_newest_tip() -> void:
 			var ratio := u.patch_amount(p, true) / _normal_mean(u, int(patch["kind"]))
 			t.check(ratio > 1.25 and ratio < 1.8, "seed %d day %d: about 1.5x a normal rich patch (%.2f)" % [seed, day, ratio])
 			var ahead := Vector2(c.x - tip.x, c.z - tip.z).length()
-			t.check(ahead > Diary.AHEAD_MIN - 0.01 and ahead < Diary.AHEAD_MAX + 0.01, "a few metres beyond the newest tip (%.1f m)" % ahead)
+			# 0.8: a missed deposit ahead may be wished for again, a little nearer or further.
+			var slack := 0.01 if int(patch.get("day", day)) == day else 2.01
+			t.check(ahead > Diary.AHEAD_MIN - slack and ahead < Diary.AHEAD_MAX + slack, "a few metres beyond the newest tip (%.1f m)" % ahead)
 			t.check(-c.y < Underground.HINT_MAX_DEPTH, "in the topsoil, under a meadow hint")
 			var goal := c - (c - tip).normalized() * r * 0.6
 			t.check(Diary.line_cost(u, roots, tip, goal) <= roots.calm_life_force * Diary.REACH_SHARE, "a calm tank reaches it from the newest tip")
@@ -80,7 +82,7 @@ func test_the_wish_places_a_bigger_deposit_ahead_of_the_newest_tip() -> void:
 			var hinted := false
 			for h in u.surface_hints():
 				if (h["position"] as Vector3).distance_to(Vector3(c.x, 0, c.z)) < 0.01:
-					hinted = hinted or str(h["kind"]) == ("rushes" if int(patch["kind"]) == Resources.Kind.WATER else "clover")
+					hinted = hinted or str(h["kind"]) == Diary.DRAWINGS[int(patch["kind"])]
 			t.check(hinted, "the meadow shows what the wish names")
 			_night(u, roots, diary, day, true, wander)
 	t.check(placed > days * 0.55, "most wishes point underground (%d of %d)" % [placed, days])
@@ -180,28 +182,39 @@ func test_aiming_for_the_glow_reaches_it_and_beats_random_steering() -> void:
 	t.check(a[2] / a[0] > w[2] / maxf(1, w[0]), "and drinks more on those nights")
 
 
+## 0.8 (0.7 broken item 3): one glow at a time. A missed deposit glows faintly one more night
+## only when the new morning's wish is a day wish; a new wish's glow puts it out at once. Either
+## way the missed deposit stays in the soil as a plain deposit.
 func test_a_missed_wish_glows_one_more_night_then_fades() -> void:
-	var u := Underground.new(27)
-	var roots := RootSystem.new(27)
-	var diary := Diary.new()
-	var day := 1
-	while diary.wish_patch < 0:
-		diary.new_wish(u, day, 27, roots)
-		day += 1
-	var p := diary.wish_patch
-	var tonight := diary.glows(u)
-	t.check_eq(tonight.size(), 1, "one glow on the wish's night")
-	t.check_near(float(tonight[0]["strength"]), Diary.GLOW_TODAY, 1e-4, "at full strength")
-	# Missed: the next morning brings a new wish, the old deposit glows faintly one more night.
-	diary.new_wish(u, day, 27, roots)
-	var faint := diary.glows(u).filter(func(g: Dictionary) -> bool: return int(g["patch"]) == p)
-	t.check_eq(faint.size(), 1, "the missed deposit still glows the next night")
-	t.check_near(float(faint[0]["strength"]), Diary.GLOW_YESTERDAY, 1e-4, "fainter")
-	t.check(u.patch_amount(p) > u.patch_amount(p, true) * 0.99, "missing it cost nothing: it is all still there")
-	# The morning after, it is gone.
-	diary.new_wish(u, day + 1, 27, roots)
-	var later := diary.glows(u).filter(func(g: Dictionary) -> bool: return int(g["patch"]) == p)
-	t.check(later.is_empty(), "then it fades")
+	var faint_seen := 0
+	var replaced_seen := 0
+	for seed in [27, 3, 14, 42, 5, 8]:
+		var u := Underground.new(seed)
+		var roots := RootSystem.new(seed)
+		var diary := Diary.new()
+		for day in range(1, 16):
+			var before := diary.wish_patch
+			var missed := before >= 0 and not diary.wish_reached
+			diary.new_wish(u, day, seed, roots)
+			var glows := diary.glows(u)
+			t.check(glows.size() <= 1, "seed %d day %d: never two glows at once" % [seed, day])
+			if not missed:
+				continue
+			t.check(u.patch_amount(before) > u.patch_amount(before, true) * 0.99, "missing it cost nothing: it is all still there")
+			if diary.wish_patch >= 0:
+				replaced_seen += 1
+				t.check(glows.size() == 1 and int(glows[0]["patch"]) == diary.wish_patch and float(glows[0]["strength"]) == Diary.GLOW_TODAY, "a new wish: only its glow, at full strength")
+			else:
+				faint_seen += 1
+				t.check(glows.size() == 1 and int(glows[0]["patch"]) == before, "a day wish: yesterday's deposit still glows")
+				if glows.size() == 1:
+					t.check_near(float(glows[0]["strength"]), Diary.GLOW_YESTERDAY, 1e-4, "fainter")
+				# The morning after, it is gone (unless a new wish points at it again).
+				diary.new_wish(u, day + 100, seed, roots)
+				var later := diary.glows(u).filter(func(g: Dictionary) -> bool: return int(g["patch"]) == before and float(g["strength"]) < 1.0)
+				t.check(later.is_empty(), "then it fades")
+				break
+	t.check(faint_seen > 0 and replaced_seen > 0, "both cases seen (faint %d, replaced %d)" % [faint_seen, replaced_seen])
 
 
 func _first_morning(seed: int) -> GameState:
@@ -234,6 +247,8 @@ func test_reaching_it_writes_a_line_with_a_drawing_and_survives_a_save() -> void
 	t.check(p >= 0, "a wish underground")
 	g.skip_time(1.0)
 	t.check(g.phase == GameState.Phase.SUNSET, "evening")
+	# The tree has room for what the deposit holds (0.8: a night's finds fill only the room).
+	g.sim.resources.stock = PackedFloat32Array([0, 0, 0, 0])
 	g.dive()
 	t.check_eq(g.wish_glows().size(), 1, "the wish deposit glows tonight")
 	g.sim.resources.life_force = g.roots.calm_life_force
@@ -277,7 +292,7 @@ func test_a_night_without_life_force_still_shows_the_glow() -> void:
 
 
 func test_the_ink_drawings_are_drawn() -> void:
-	for kind in ["rushes", "clover"]:
+	for kind in ["rushes", "clover", "nettles", "stones"]:
 		var img := InkSketch.image(kind)
 		var inked := 0
 		for y in range(0, img.get_height(), 2):

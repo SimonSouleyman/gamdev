@@ -84,6 +84,7 @@ var quirk_text: String = ""
 
 static func linden() -> Species:
 	var s := Species.new()
+	s.pace = 0.92
 	s.finish_nodes = 2100
 	s.blossom_from = 18
 	s.blossom_to = 22
@@ -132,7 +133,7 @@ static func beech() -> Species:
 	s.gravitropism = -0.15
 	s.early_pace = 0.85  # slow start, but every early day still shows (0.6.x: 0.6 grew 16 segments on day 4)
 	s.early_days = 10
-	s.pace = 1.1
+	s.pace = 0.97
 	s.finish_nodes = 2080
 	s.shade_dieback = 0.0
 	s.calm_life_force = 1.25
@@ -157,6 +158,7 @@ static func sycamore() -> Species:
 	s.phototropism = 0.65
 	s.early_pace = 1.1
 	s.early_days = 8
+	s.pace = 0.8
 	s.finish_nodes = 1800
 	s.twin_buds = true
 	s.bark_tint = Color(0.5, 0.45, 0.39)
@@ -177,6 +179,7 @@ static func alder() -> Species:
 	s.apical_dominance = 0.4
 	s.phototropism = 0.35
 	s.gravitropism = 0.3
+	s.pace = 0.82
 	s.finish_nodes = 1740
 	s.nodule_nitrogen = 0.01
 	s.water_draw = 1.5
@@ -200,7 +203,7 @@ static func oak() -> Species:
 	s.gravitropism = -0.05
 	s.crookedness = 0.22
 	s.crown_base = 0.2
-	s.pace = 0.85
+	s.pace = 0.8
 	s.finish_nodes = 1970
 	s.target_days = 35
 	s.down_depth_cost = 0.5

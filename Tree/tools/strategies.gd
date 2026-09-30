@@ -21,7 +21,8 @@ extends SceneTree
 
 const FRAME: float = 1.0 / 30.0
 ## --set=name=value (repeatable): tuning overrides, applied to the RootSystem, or with a
-## "clock." prefix to the DayCycle or "sim." to the GrowthSim, before the first night.
+## "clock." prefix to the DayCycle, "sim." to the GrowthSim or "species." to its Species, before
+## the first night. --mix=, --deep=, --scatter=, --gap= try another soil (Underground.tool_arg).
 static var overrides: Dictionary = {}
 const ALL: Array = ["dots", "end_early", "straight_down", "random", "boost_all", "boost_quit"]
 
@@ -36,6 +37,7 @@ func _init() -> void:
 		if a.begins_with("--set="):
 			var kv := a.substr(6).split("=")
 			overrides[kv[0]] = float(kv[1])
+		Underground.tool_arg(a)
 		if a.begins_with("--species="):
 			species_id = a.substr(10)
 		elif a.begins_with("--seed="):
@@ -61,6 +63,8 @@ static func play(strat: String, species_id: String, seed: int, days: int, nights
 			g.sim.clock.set(str(k).substr(6), overrides[k])
 		elif str(k).begins_with("sim."):
 			g.sim.set(str(k).substr(4), overrides[k])
+		elif str(k).begins_with("species."):
+			g.sim.species.set(str(k).substr(8), overrides[k])
 		elif str(k) == "start_any":
 			pass
 		elif str(k) == "wish_share":

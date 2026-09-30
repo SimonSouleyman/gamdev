@@ -77,10 +77,24 @@ var _cores: MultiMeshInstance3D
 var _spray_mat: ShaderMaterial
 var _wires: MeshInstance3D
 var _root_ball: Node3D
+## Repot time shows on the pot itself (0.8, C4): the soil pushed up, roots circling on it at the
+## rim and a few peeking out under the pot's foot. Built when the bonsai asks to be repotted.
+var _rootbound: Node3D
+var _rootbound_key: String = ""
+var _rootbound_shown: bool = false
+## How far the soil rises when the roots fill the pot.
+const ROOTBOUND_LIFT: float = 0.007
 ## The tools on the sill (the can, the pellet tin, secateurs, tweezers, wire, trowel...).
 var tools: BonsaiTools
-## The pellets the tin gives (0 N, 1 P, 2 K), chosen on its paper slip; -1 until chosen.
-var pellet_kind: int = -1
+## The pellets the tin gives (0 N, 1 P, 2 K), chosen on its paper slip. Kept in the bonsai's
+## save (BonsaiSim.pellet_kind), so the next spoon is two taps, tin then soil (0.8, C1); before
+## the first choice the tin gives what the soil holds least of (BonsaiSim.tin_kind).
+var pellet_kind: int:
+	get:
+		return sim().tin_kind() if sim() != null else 0
+	set(kind):
+		if sim() != null and kind >= -1 and kind <= 2:
+			sim().pellet_kind = kind
 ## The sill thing under the pointer (for its label on a PC), "" if none.
 var hover: String = ""
 var _light: SpotLight3D
@@ -204,6 +218,8 @@ func _ready() -> void:
 		refresh(true)
 		tool_used.emit("shears"))
 	_build_soil_things()
+	_rootbound = Node3D.new()
+	_turn_node.add_child(_rootbound)
 	_build_tools()
 	_build_light()
 	camera = Camera3D.new()
@@ -514,7 +530,9 @@ func refresh(force: bool) -> void:
 		_show_pot(b.pot)
 	if _shown_species != b.species.id:
 		_apply_species(b.species)
-	var sig := [b.graph.size(), b.leafy_count(), b.day(), b.wired().size(), int(b.droop() * 4.0), b.turn, b.pot]
+	_update_rootbound(b)
+	var sig := [b.graph.size(), b.leafy_count(), b.day(), b.wired().size(), int(b.droop() * 4.0), b.turn, b.pot,
+		int(b.hunger(0) * 4.0), int(b.hunger(1) * 4.0), int(b.hunger(2) * 4.0)]
 	if not force and sig == _sig:
 		return
 	_sig = sig
@@ -768,6 +786,13 @@ func _populate_foliage(b: BonsaiSim, pads: Array[Pad]) -> void:
 	var cores := _cores.multimesh
 	cores.instance_count = pads.size()
 	var dark := Color(0.1, 0.19, 0.07) if conifer else Color(0.12, 0.2, 0.07)
+	# A hungry tree shows it (0.8, C4), natural signs only: short of nitrogen the needles pale
+	# toward yellow-green, short of phosphorus they dull to a bronze, short of potassium some tips
+	# brown.
+	var hunger_n := b.hunger(0)
+	var hunger_p := b.hunger(1)
+	var hunger_k := b.hunger(2)
+	dark = dark.lerp(Color(0.3, 0.32, 0.1), hunger_n * 0.6)
 	var core_scale := (1.0 if conifer else 0.8) * (0.85 if Budgets.PHONE else 1.0)
 	var i := 0
 	for pi in range(pads.size()):
@@ -818,6 +843,7 @@ func _populate_foliage(b: BonsaiSim, pads: Array[Pad]) -> void:
 				var tint := rng.randf_range(0.78, 1.14) * pad_tint
 				var occ := clampf(0.05 + 0.55 * (0.5 - nrm.y * 0.5) + 0.15 * low + (1.0 - depth) * 0.5, 0.0, 0.85)
 				var col := Color(tint, tint, tint * pad_blue, occ)
+				col = hungry_color(col, hunger_n, hunger_p, hunger_k > 0.0 and posmod(hash([m, _k, "k tips"]), 100) < int(hunger_k * K_TIP_SHARE * 100.0))
 				if burnt:
 					col = Color(1.15, 0.62, 0.3, col.a)
 				if droop > 0.0:
@@ -826,6 +852,22 @@ func _populate_foliage(b: BonsaiSim, pads: Array[Pad]) -> void:
 				var oct := _oct(nrm)
 				mm.set_instance_custom_data(i, Color(float(rng.randi() % 4), rng.randf(), oct.x, oct.y))
 				i += 1
+
+
+## Share of the sprays whose tips brown when the soil holds no potassium at all.
+const K_TIP_SHARE: float = 0.45
+
+
+## A spray's colour with the hunger signs (C4): nitrogen pales it toward yellow-green, phosphorus
+## dulls it toward bronze, and `k_tip` browns this spray's tip (potassium).
+static func hungry_color(col: Color, hunger_n: float, hunger_p: float, k_tip: bool) -> Color:
+	if hunger_n > 0.0:
+		col = col.lerp(Color(1.2, 1.12, 0.45, col.a), hunger_n * 0.65)
+	if hunger_p > 0.0:
+		col = col.lerp(Color(0.95, 0.66, 0.62, col.a), hunger_p * 0.5)
+	if k_tip:
+		col = col.lerp(Color(1.05, 0.72, 0.38, col.a), 0.75)
+	return col
 
 
 ## Octahedral encoding of a unit vector into 0..1 (the foliage shader decodes it).
@@ -1537,6 +1579,72 @@ func _root_ball_visible(on: bool) -> void:
 	if not on:
 		for c in _root_ball.get_children():
 			c.queue_free()
+
+
+## Repot time on the pot (C4): the soil (with its grit and pellets) pushed up a little, thin roots
+## circling on it along the rim, and a few root tips out under the pot's foot onto the sill.
+func _update_rootbound(b: BonsaiSim) -> void:
+	var due := b.repot_due and not _lifted
+	var key := "%s %s %d" % [str(due), b.pot, b.last_repot_day]
+	if key == _rootbound_key:
+		return
+	_rootbound_key = key
+	for c in _rootbound.get_children():
+		c.queue_free()
+	var lift := ROOTBOUND_LIFT if due else 0.0
+	for n in [_soil, _moss, _pellets]:
+		n.position.y = lift
+	_rootbound_shown = due
+	if not due:
+		return
+	var y := soil_height(b.pot) + lift
+	var half := soil_half(b.pot)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = hash([b.seed, "rootbound", b.last_repot_day])
+	# The strands hang from one hidden node deep in the pot (under the soil, the lines to it stay
+	# out of sight) and one under its foot.
+	var g := PlantGraph.new(Vector3(0, y - 0.03, 0), 400)
+	var foot := g.add_node(0, Vector3(0, 0.002, 0))
+	# Roots circling on the soil just inside the rim.
+	for s in range(6):
+		var a := TAU * (s + rng.randf_range(0.0, 0.5)) / 6.0
+		var last := g.add_node(0, Vector3(cos(a) * half.x * 0.9, y + 0.002, sin(a) * half.y * 0.9))
+		for _k in range(rng.randi_range(3, 5)):
+			a += rng.randf_range(0.1, 0.18)
+			var r := rng.randf_range(0.8, 0.95)
+			var n := g.add_node(last, Vector3(cos(a) * half.x * r, y + 0.002 + rng.randf_range(0.0, 0.002), sin(a) * half.y * r))
+			if n < 0:
+				break
+			last = n
+	# Out of the drainage hole: tips creeping from under the foot over the sill.
+	for s in range(5):
+		var a := TAU * (s + rng.randf_range(0.0, 0.6)) / 5.0
+		var last := g.add_node(foot, Vector3(cos(a) * half.x * 0.55, 0.002, sin(a) * half.y * 0.55))
+		for k in range(1, rng.randi_range(3, 6)):
+			a += rng.randf_range(-0.12, 0.12)
+			var r := 0.55 + k * rng.randf_range(0.13, 0.17)
+			var n := g.add_node(last, Vector3(cos(a) * half.x * r, 0.0025, sin(a) * half.y * r))
+			if n < 0:
+				break
+			last = n
+	for id in range(g.size()):
+		# The tips on the sill a little thicker, so they read beside the pot's foot.
+		g.radii[id] = 0.0 if id <= 1 else (0.002 if g.positions[id].y < 0.01 else 0.0013)
+	var rb := BranchMeshBuilder.new()
+	rb.radius_scale = 1.0
+	rb.min_radius = 0.0012
+	var roots := MeshInstance3D.new()
+	roots.mesh = rb.build(g)
+	var rm := StandardMaterial3D.new()
+	rm.albedo_color = Color(0.5, 0.38, 0.27)
+	rm.roughness = 0.75
+	roots.material_override = rm
+	_rootbound.add_child(roots)
+
+
+## Whether the pot shows it asks to be repotted (for tests).
+func shows_rootbound() -> bool:
+	return _rootbound_shown
 
 
 ## The root ball: the pot's shape in soil, with roots circling out of it (more the fuller the

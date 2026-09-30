@@ -21,8 +21,8 @@ const DEPOSIT_MIN := 0.1
 const DOT_WORDS: Array[String] = ["blue drop", "green leaf", "orange spark", "violet ring"]
 const HINT_WORDS: Array[String] = [
 	"rushes and a damp patch on the meadow mark water",
-	"clover and nettles on the meadow mark nitrogen",
-	"phosphorus lies in the topsoil, close under the grass",
+	"clover on the meadow marks nitrogen",
+	"nettles on the meadow mark phosphorus, close under the grass",
 	"potassium sits deep down beside the rocks",
 ]
 

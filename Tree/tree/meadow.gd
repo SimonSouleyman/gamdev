@@ -1,7 +1,8 @@
 class_name Meadow
 extends Node3D
 ## Read the meadow (design doc section 3): what grows on the surface hints at what lies below.
-## Rushes and a damp patch over water, clover or nettles over nitrogen, stones over shallow rock,
+## Rushes and a damp patch over water, clover over nitrogen, nettles over phosphorus (0.8; clover
+## or nettles over nitrogen in an older soil), stones over shallow rock,
 ## moss on the north side of the trunk. Grey-box plants, placed from Underground.surface_hints().
 
 var _rng := RandomNumberGenerator.new()

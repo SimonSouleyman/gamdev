@@ -8,7 +8,7 @@ const TEXTS: Dictionary = {
 	"first_run_done": ["The first root", "The root drank what it touched, and fine roots reached for what lay close by.\n\nAt sunrise the seed will use it all to grow."],
 	"sapling": ["A sapling", "The seed sprouted with the night's water and nutrients.\n\nTap anywhere and the sun shines brighter for an hour (tap again for more): the tree grows faster, but the leaves turn the light into less life force for tonight's root. The day runs on by itself.\n\nThe sun steers the crown: boosting in the morning grows it east, at noon south and taller, in the evening west. The small compass shows where east is. The arc at the top shows where the sun is: tap in the afternoon to grow west.\n\nThe pills at the top: the life force the leaves gather for tonight's root, and the water, nitrogen, phosphorus and potassium the roots brought.\n\nDrag to walk around the tree, pinch or scroll to zoom."],
 	"spent": ["Nothing left to grow with", "The tree has used up what the roots brought. The leaves still gather life force for tonight's root while the day runs out."],
-	"first_sunset": ["Sunset", "The day is over. Tap the ground to dive down to the roots.\n\nThe meadow hints at what lies below: rushes and a damp patch over water, clover and nettles over nitrogen, stones over rock."],
+	"first_sunset": ["Sunset", "The day is over. Tap the ground to dive down to the roots.\n\nThe meadow hints at what lies below: rushes and a damp patch over water, clover over nitrogen, nettles over phosphorus, stones over rock."],
 	"pick": ["A new root", "Tonight a root can start anywhere on the old roots, not only at a tip. Tap a point on a root to begin; drag to look around."],
 	"shears": ["The shears", "With the shears on, touch a branch (or point at it with the mouse): a mark shows where it would be cut, and the part that would fall is outlined. Slide along the tree to choose, lift the finger (or click) to cut. Off the tree, nothing is cut.
 
@@ -32,7 +32,7 @@ Shape it as I like with the shears, pinching and wire. The style pages show the 
 	"bonsai_shears": ["Shaping", "The pot keeps the bonsai small: it carries only so many twigs. Cutting one branch gives its strength to the buds inside, so the tree grows denser, not bigger. A third of it at most at once.
 
 A juniper keeps a cut branch as silver deadwood (jin); a cut close to the trunk strips a line of bark below it (shari)."],
-	"bonsai_pinch": ["Pinching", "A fresh tip, grown today or yesterday, can be pinched between two fingers: it stops, and the buds behind it take its share. The pads grow dense and close."],
+	"bonsai_pinch": ["Pinching", "A fresh tip, grown today or yesterday, can be pinched with the tweezers: it stops, and the buds behind it take its share. The pads grow dense and close."],
 	"bonsai_wire": ["Wire", "Copper coiled round a branch holds it in a new line. Over about four days the branch sets and keeps it.
 
 Take it off after that: left on too long, the wire bites into the bark, and the scar stays."],

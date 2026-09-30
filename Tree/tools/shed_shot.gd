@@ -432,7 +432,8 @@ func _tools_sequence(view: BonsaiView, b: BonsaiSim) -> void:
 	await _put_down(view)
 	await _seconds(0.6)
 	print("can put down: ", view.tool == "")
-	# The pellet tin: its slip chooses N, P or K, then a tap on the soil spoons them.
+	# The pellet tin: a tap on the soil spoons the remembered kind (0.8: before any choice, what
+	# the soil lacks most); the slip changes the kind.
 	await _tap_thing(view, "fertiliser")
 	await _point(soil + Vector2(110, -120))
 	await _seconds(0.5)
@@ -633,6 +634,30 @@ func _bonsai_sequence() -> void:
 	main.journal.clear_pages()
 	await _wait(3)
 	_shot("bonsai_watered")
+	# 0.8 (C4): the needs on the tree and the pot, natural signs only.
+	var fresh := b.soil.duplicate()
+	var was_due := b.repot_due
+	b.moisture = 0.6
+	b.soil = PackedFloat32Array([0.0, fresh[1], fresh[2]])
+	view.refresh(true)
+	await _wait(3)
+	_shot("bonsai_hungry_n")
+	b.soil = PackedFloat32Array([fresh[0], fresh[1], 0.0])
+	view.refresh(true)
+	await _wait(3)
+	_shot("bonsai_hungry_k")
+	b.soil = fresh
+	b.repot_due = true
+	view.refresh(true)
+	await _wait(3)
+	_shot("bonsai_repot_due")
+	view.look_from(0.0, 0.25, 0.5)
+	await _wait(4)
+	_shot("bonsai_repot_due_low")
+	b.repot_due = was_due
+	view.look_from(0.0, BonsaiView.PITCH, BonsaiView.DIST)
+	view.refresh(true)
+	await _wait(3)
 	# Fertiliser: the tin tilts, pellets land on the soil.
 	view.fertilise(0)
 	await _seconds(0.95)
