@@ -5,12 +5,12 @@
 Simon (2026-09-29, away): finish 0.6.x, then 0.7 (his three picks), then 0.8 (specs/0.8.md: fixes
 from the 0.7 check first, then dot shapes, backup, sharing, brush pile, app icon, live picture).
 Install each fully checked version on his phone (save backed up first); APKs in GameDev/tree-releases.
-- 0.6.3 done on iterate-0.6: tree care, Softer tuning, look fixes and balance fixes from the
-  two-reviewer check (docs/notes/care-0.6.3.md, soft-0.6.x.md, sim-0.6.3.md). Next: tag, main,
-  phone install.
-- 0.7 streams built, not yet merged: s07-wish (wt-wish: glowing wish deposit underground),
-  s07-bonsaitools (wt-bonsaitools: real tools on the sill). Still to build: branches the tree
-  marks for pruning. Then the full check with the balance list in specs/0.7-candidates.md.
+- 0.6.3 tagged (tree-v0.6.3), on main and on Simon's phone.
+- 0.7 tagged on iterate-0.7 (wish glow, bonsai tools on the sill, marked branches, look/UI fixes
+  from the 0.7 check). Balance findings of the 0.7 check go into 0.8 (Simon: "direkt in 0.8").
+- 0.8 streams: s08-shapes (dot shapes, brush pile with hedgehog), s08-backup (copy/load, share),
+  s08-live (live picture wallpaper + screen saver, new app icon) built; s08-balance (section 5
+  fixes) in progress. Then merge into iterate-0.8, full check, phone install.
 - Choices taken as "recommended" while Simon was away:
   - Scope after 0.7: new features too (Simon tapped it), 0.8 per the design thread's spec.
   - Live picture: wallpaper and screen saver, one animation (default until he answers).
@@ -21,9 +21,15 @@ Install each fully checked version on his phone (save backed up first); APKs in 
     costs a third of the night (tuning item 2).
   - A tree counts as finished only at 0.4 of its species' height (no "finished" bush).
   - The seed sack keeps "seeds" printed on it; its label says "seed bag".
-- Note: Simon's phone has 0.6 with his save; backups in GameDev/tree-shots/savebackup.
+  - Marked branches: natural signs only (dull yellow-grey sparse leaves, grey bark), no droop so
+    they differ from thirst; still angle-dependent (stronger would need outlines). Simon's call.
+  - One tool name: "shears" everywhere (also the bonsai's).
+  - Missed wish: stays a plain deposit, its glow goes when the next wish shows (design thread).
+  - Loading a copy first keeps the current game as a safety copy, undoable for a day.
+  - Live picture keeps the album's side but frames the tree from low eye height.
+- Note: Simon's phone has the newest installed version with his save; backups in GameDev/tree-shots/savebackup.
 
-## v0.7 (in progress)
+## v0.7: the wish underground, bonsai tools, marked branches
 - Branches the tree marks for pruning (natural signs only): a shaded twig that will die back in a
   day or two shows it first, with thin, limp, washed-out leaves and greying bark; at most three at
   a time, never on beech or the bonsai; the care page says in one line that a branch looks tired.
