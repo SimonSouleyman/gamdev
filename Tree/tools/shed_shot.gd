@@ -7,10 +7,15 @@ extends SceneTree
 ## --flip=25: instead, grow a tree for 25 days with a morning photo each day (into a tool folder),
 ## then open the album on the finished tree's flip-book page, photograph it mid-turn and at the
 ## end, and save the month as a video (the path is printed).
-## Then the bonsai (design doc section 16): the sill with the bonsai, bonsai mode, watering,
-## fertiliser, a wire and a wire scar, repotting, a juniper after 14 care days, a linden cutting,
-## the style pages and the bonsai's album page, and the juniper and the sill at night.
-## Run: godot --path . -s tools/shed_shot.gd -- --shots=C:/some/folder [--days=6] [--species=linden] [--bonsai-only]
+## Then the bonsai (design doc section 16): the sill with the bonsai and its tools, bonsai mode
+## with the tools' first-time labels (and in "clearer print"), each tool on the sill picked up
+## with a real tap, held and used (0.7: can, pellet tin and its N P K slip, secateurs, tweezers,
+## copper wire, the trowel on a day it does not ask, the carved arrows, the sketchbook and the
+## album card), watering, fertiliser, a wire and a wire scar, repotting with the trowel, a
+## juniper after 14 care days, a linden cutting, the style pages and the bonsai's album page, and
+## the juniper and the sill at night.
+## Run: godot --path . -s tools/shed_shot.gd -- --shots=C:/some/folder [--days=6] [--species=linden] [--bonsai-only [--tools-only]]
+## For the phone's look add `--rendering-method gl_compatibility` before `--` and `--phone` after it.
 ## --quick: only the bench by day and at night (the lantern's light), then quit.
 
 var main: Node
@@ -24,6 +29,8 @@ var _flip_day := 0
 var _flip_frame := 0
 var bonsai_only := false
 var quick := false
+## Only the sill's tools and repotting (with --bonsai-only), for a quick look.
+var tools_only := false
 
 
 func _initialize() -> void:
@@ -40,6 +47,8 @@ func _initialize() -> void:
 			bonsai_only = true
 		elif a == "--quick":
 			quick = true
+		elif a == "--tools-only":
+			tools_only = true
 	DirAccess.make_dir_recursive_absolute(shots)
 	main = load("res://main.tscn").instantiate()
 	main.ephemeral = true
@@ -172,6 +181,10 @@ func _run() -> void:
 	main.enter_shed(false)
 	if bonsai_only:
 		await _bonsai_sequence()
+		if tools_only:
+			quit()
+			return
+		await _bonsai_rest()
 		quit()
 		return
 	# First visit: every thing on the bench carries its label.
@@ -265,6 +278,7 @@ func _run() -> void:
 	_shot("loading")
 	main.shed_menu.show_loading(false)
 	await _bonsai_sequence()
+	await _bonsai_rest()
 	quit()
 
 
@@ -344,46 +358,45 @@ func _wire_focus(view: BonsaiView, b: BonsaiSim, id: int) -> Vector3:
 	return view.node_in_sill(chain[chain.size() / 2])
 
 
-## The tools answer real pointer input: a wire dragged onto a branch, a pinch, a cut.
-func _input_check(view: BonsaiView, b: BonsaiSim) -> void:
-	var trunk := b.trunk_chain()
-	var id := _side_branch(b, 3)
-	var at := view.plant_screen_position(id)
-	var base := view.plant_screen_position(b.graph.parents[id])
-	view.set_tool("wire")
+## Puts the tool in hand down with a tap on its place on the sill.
+func _put_down(view: BonsaiView) -> void:
+	if view.tool != "":
+		await _tap(view.tools.rest_point(view.camera, view.tool))
+
+
+## A real tap (press and release) at a canvas point.
+func _tap(at: Vector2) -> void:
 	_click(at, true)
+	_click(at, false)
+	await _wait(2)
+
+
+## The pointer moves to a canvas point (the held tool follows it).
+func _point(at: Vector2, pressed: bool = false) -> void:
 	var motion := InputEventMouseMotion.new()
-	motion.position = root.get_final_transform() * (at + Vector2(0, 80))
-	motion.relative = root.get_final_transform().basis_xform(Vector2(0, 80))
+	motion.position = root.get_final_transform() * at
+	motion.button_mask = MOUSE_BUTTON_MASK_LEFT if pressed else 0
 	Input.parse_input_event(motion)
-	_click(at + Vector2(0, 80), false)
-	await _wait(2)
-	print("wire by drag: wired ", b.wired(), " (branch ", id, ")")
-	_click(view.plant_screen_position(b.wired()[0]) if not b.wired().is_empty() else at, true)
-	_click(view.plant_screen_position(b.wired()[0]) if not b.wired().is_empty() else at, false)
-	await _wait(2)
-	print("tap removes it: wired ", b.wired())
-	view.set_tool("pinch")
-	var tip := -1
-	for t in b.living_tips():
-		if b.is_fresh_tip(t) and not trunk.has(t):
-			tip = t
-			break
-	if tip >= 0:
-		var p := view.plant_screen_position(tip)
-		_click(p, true)
-		_click(p, false)
-		await _wait(2)
-		print("pinch by tap: ", b.graph.get_flag(tip, "pinched", false), " (picked ", view.pick_tip(p), ")")
-	view.set_tool("shears")
-	var before := b.leafy_count()
-	var cut_at := view.plant_screen_position(_side_branch(b, 3))
-	_click(cut_at, true)
-	_click(cut_at, false)
-	await _wait(2)
-	print("cut by tap: %d -> %d green" % [before, b.leafy_count()])
-	view.set_tool("")
-	await _seconds(2.5)
+	await _wait(1)
+
+
+## Taps the thing `id` on the sill where it is on screen.
+func _tap_thing(view: BonsaiView, id: String) -> void:
+	var pts := view.object_screen_points()
+	if not pts.has(id):
+		print("not on screen: ", id)
+		return
+	await _tap(pts[id])
+
+
+## Taps a paper button of the bonsai's HUD by its text.
+func _tap_button(text: String) -> void:
+	for b in main.bonsai_hud.find_children("*", "Button", true, false):
+		var btn := b as Button
+		if btn.is_visible_in_tree() and btn.text.begins_with(text):
+			await _tap(btn.get_global_rect().get_center())
+			return
+	print("no button: ", text)
 
 
 func _click(at: Vector2, down: bool) -> void:
@@ -393,6 +406,181 @@ func _click(at: Vector2, down: bool) -> void:
 	# Input arrives in window pixels; the views work in the 720 x 1280 canvas.
 	e.position = root.get_final_transform() * at
 	Input.parse_input_event(e)
+
+
+## The tools on the sill, each picked up with a real tap, shown in the hand, used and put down.
+func _tools_sequence(view: BonsaiView, b: BonsaiSim) -> void:
+	var hud: BonsaiHud = main.bonsai_hud
+	var soil := view.plant_screen_position(0) + Vector2(0, 10)
+	var pts := view.object_screen_points()
+	print("sill things on screen: ", pts)
+	# Watering: pick up the can (it lifts), move toward the pot (it follows), tap the soil.
+	b.moisture = 0.02
+	view.refresh(true)
+	await _tap_thing(view, "water")
+	await _seconds(0.4)
+	_shot("tool_water_lifted")
+	await _point(soil + Vector2(-120, -160))
+	await _seconds(0.5)
+	_shot("tool_water_held")
+	var cn: Node3D = view.tools.items["water"]
+	await _tap(soil)
+	await _seconds(1.35)
+	_shot("tool_water_use")
+	await _seconds(1.2)
+	main.journal.clear_pages()
+	await _put_down(view)
+	await _seconds(0.6)
+	print("can put down: ", view.tool == "")
+	# The pellet tin: its slip chooses N, P or K, then a tap on the soil spoons them.
+	await _tap_thing(view, "fertiliser")
+	await _point(soil + Vector2(110, -120))
+	await _seconds(0.5)
+	_shot("tool_fertiliser_slip")
+	await _tap(soil)
+	await _seconds(0.3)
+	_shot("tool_fertiliser_choose_first")
+	await _tap_button("K")
+	await _seconds(0.2)
+	_shot("tool_fertiliser_chosen")
+	var k0 := b.soil[2]
+	await _tap(soil)
+	await _seconds(0.95)
+	_shot("tool_fertiliser_use")
+	await _seconds(1.2)
+	print("pellets K: %.2f -> %.2f" % [k0, b.soil[2]])
+	main.journal.clear_pages()
+	await _put_down(view)
+	await _seconds(0.5)
+	# The secateurs: touch a branch, the cut shows; lift to cut.
+	await _tap_thing(view, "shears")
+	main.journal.clear_pages()
+	var cut := _side_branch(b, 3)
+	var cut_at := view.plant_screen_position(cut)
+	await _point(cut_at)
+	await _seconds(0.5)
+	_shot("tool_shears_held")
+	var before := b.leafy_count()
+	_click(cut_at, true)
+	await _wait(3)
+	_shot("tool_shears_use")
+	_click(cut_at, false)
+	await _wait(3)
+	print("cut with the secateurs: %d -> %d green" % [before, b.leafy_count()])
+	await _seconds(0.8)
+	await _put_down(view)
+	# The tweezers: tap a fresh tip.
+	await _tap_thing(view, "pinch")
+	main.journal.clear_pages()
+	var trunk := b.trunk_chain()
+	var tip := -1
+	for t in b.living_tips():
+		if b.is_fresh_tip(t) and not trunk.has(t):
+			tip = t
+			break
+	if tip >= 0:
+		var p := view.plant_screen_position(tip)
+		await _point(p)
+		await _seconds(0.5)
+		_shot("tool_pinch_held")
+		await _tap(p)
+		print("pinched with the tweezers: ", b.graph.get_flag(tip, "pinched", false))
+	await _put_down(view)
+	# The copper wire: drag a branch into a new line.
+	await _tap_thing(view, "wire")
+	main.journal.clear_pages()
+	var wid := _side_branch(b, 3)
+	var at := view.plant_screen_position(wid)
+	await _point(at)
+	await _seconds(0.4)
+	_shot("tool_wire_held")
+	_click(at, true)
+	await _point(at + Vector2(0, 50), true)
+	await _point(at + Vector2(0, 90), true)
+	await _seconds(0.2)
+	_shot("tool_wire_use")
+	_click(at + Vector2(0, 90), false)
+	await _wait(3)
+	print("wired by drag: ", b.wired())
+	await _seconds(0.4)
+	_shot("tool_wire_done")
+	await _put_down(view)
+	# The trowel on a day the bonsai does not ask: a note says when.
+	b.repot_due = false
+	await _tap_thing(view, "trowel")
+	main.journal.clear_pages()
+	await _point(soil + Vector2(-60, -40))
+	await _tap(soil)
+	await _seconds(0.4)
+	_shot("tool_trowel_not_yet")
+	# The pot turned by a carved arrow, and by a sideways drag on its rim.
+	await _put_down(view)
+	var turn0 := b.turn
+	await _tap_thing(view, "turn_right")
+	await _seconds(0.3)
+	_shot("tool_turn_arrow")
+	await _seconds(0.6)
+	print("turned by the arrow: %d -> %d" % [turn0, b.turn])
+	var rim := view.plant_screen_position(0) + Vector2(-40, 60)
+	_click(rim, true)
+	await _point(rim + Vector2(40, 0), true)
+	await _point(rim + Vector2(90, 0), true)
+	_click(rim + Vector2(90, 0), false)
+	await _seconds(0.9)
+	print("and by a drag on the pot: -> %d" % b.turn)
+	# The sketchbook, the album card and the box of cuttings open their pages.
+	await _tap_thing(view, "styles")
+	await _wait(4)
+	_shot("tool_sketchbook_page")
+	hud.close_sheet()
+	await _tap_thing(view, "album")
+	await _wait(4)
+	_shot("tool_album_page")
+	hud.close_sheet()
+	await _wait(2)
+
+
+## Repotting with the trowel: it asks, the trowel lifts it out, the secateurs trim the root ball,
+## a pot is picked on the slip, the trowel puts it back in fresh soil.
+func _repot_sequence(view: BonsaiView, b: BonsaiSim) -> void:
+	b.repot_due = true
+	view.look_from(0.0, BonsaiView.PITCH, BonsaiView.DIST)
+	main.journal.clear_pages()
+	await _wait(3)
+	var soil := view.plant_screen_position(0) + Vector2(0, 10)
+	await _tap_thing(view, "trowel")
+	main.journal.clear_pages()
+	await _point(soil + Vector2(-60, -40))
+	await _seconds(0.4)
+	_shot("repot_trowel_held")
+	await _tap(soil)
+	await _seconds(0.3)
+	_shot("repot_trowel_dig")
+	await _seconds(0.9)
+	main.journal.clear_pages()
+	await _wait(2)
+	_shot("repot_lifted")
+	await _tap_thing(view, "shears")
+	main.journal.clear_pages()
+	var ball := view.plant_screen_position(0) + Vector2(20, -20)
+	await _point(ball)
+	await _tap(ball)
+	await _tap(ball)
+	await _seconds(0.3)
+	_shot("repot_trimmed")
+	await _tap_button("grey rectangle")
+	await _wait(3)
+	_shot("repot_pot_picked")
+	await _tap_thing(view, "trowel")
+	await _point(soil + Vector2(-60, -40))
+	await _tap(soil)
+	await _seconds(1.0)
+	main.journal.clear_pages()
+	await _wait(3)
+	_shot("repot_done")
+	print("repotted: pot %s, due %s" % [b.pot, b.repot_due])
+	await _put_down(view)
+	await _seconds(0.5)
 
 
 func _bonsai_sequence() -> void:
@@ -419,9 +607,20 @@ func _bonsai_sequence() -> void:
 	await _seconds(1.3)
 	main.journal.clear_pages()
 	await _wait(3)
+	# First visit: every thing on the sill carries its label.
 	_shot("bonsai_mode")
 	var view: BonsaiView = main.bonsai_view
-	await _input_check(view, b)
+	main._apply_setting("clearer_print", true)
+	await _wait(8)
+	_shot("bonsai_mode_clearer_print")
+	main._apply_setting("clearer_print", false)
+	await _wait(3)
+	await _tools_sequence(view, b)
+	await _wait(12)
+	_shot("bonsai_tools_used")
+	if tools_only:
+		await _repot_sequence(view, b)
+		return
 	# Watering: the can tilts over the pot, the soil darkens.
 	b.moisture = 0.02
 	view.refresh(true)
@@ -470,26 +669,16 @@ func _bonsai_sequence() -> void:
 	await _wait(4)
 	_shot("bonsai_wire_scar")
 	view.set_tool("")
-	# Repotting: lift out, trim the root ball, pick the pot, fresh soil.
-	b.repot_due = true
-	view.look_from(0.0, 0.2, BonsaiView.DIST)
-	view.repot_lift()
-	await _seconds(0.9)
-	_shot("bonsai_repot_lift")
-	view.repot_trim()
-	view.repot_trim()
-	await _wait(3)
-	_shot("bonsai_repot_trimmed")
-	view.repot_pick("rectangle")
-	main.bonsai_hud._open_repot()
-	await _wait(4)
-	_shot("bonsai_repot_pot")
-	main.bonsai_hud.close_sheet()
-	view.repot_finish()
-	await _seconds(0.9)
-	main.journal.clear_pages()
-	await _wait(3)
-	_shot("bonsai_repotted")
+	await _seconds(0.5)
+	await _repot_sequence(view, b)
+
+
+## The bonsai over longer care: a juniper after 14 days, its album and style pages, a linden
+## cutting, back to the bench, and the night.
+func _bonsai_rest() -> void:
+	var st: GameState = main.state
+	var view: BonsaiView = main.bonsai_view
+	var b: BonsaiSim
 	# A juniper after 14 care days of watering, pellets, pinching and a few cuts (a fresh one
 	# from the nursery, so the days count from its first).
 	b = BonsaiSim.starter(hash([42, "bonsai"]))

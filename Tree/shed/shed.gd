@@ -434,10 +434,12 @@ func _build_window() -> void:
 	glass.roughness = 0.15
 	_glass = glass
 	_box(Vector3(w, h, 0.005), Vector3(cx, cy, hd + 0.02), glass)
-	# The sill: a deep worn board inside the window, and a small bracket below it.
+	# The sill: a deep worn board inside the window, reaching into the room far enough for the
+	# bonsai's tools in a row before the pot (0.7), on two small brackets.
 	var sill_top := WINDOW_Y.x + 0.01
-	_box(Vector3(w + 0.16, 0.035, 0.24), Vector3(cx, sill_top - 0.0175, hd - 0.1), _planks("wood_table_worn", 0.9, Color(0.85, 0.8, 0.74)))
-	_box(Vector3(0.04, 0.12, 0.14), Vector3(cx, sill_top - 0.1, hd - 0.08), frame)
+	_box(Vector3(w + 0.24, 0.035, 0.44), Vector3(cx, sill_top - 0.0175, hd - 0.2), _planks("wood_table_worn", 0.9, Color(0.85, 0.8, 0.74)))
+	for bx in [-0.16, 0.16]:
+		_box(Vector3(0.035, 0.12, 0.3), Vector3(cx + bx, sill_top - 0.095, hd - 0.17), frame)
 	bonsai_spot = Node3D.new()
 	bonsai_spot.name = "bonsai_spot"
 	bonsai_spot.position = Vector3(cx, sill_top, hd - 0.1)

@@ -9,12 +9,24 @@ extends Node3D
 ## a third as the limit), pinching and wire. It only reads the simulation and calls its methods.
 
 signal tool_used(kind: String)
+## A tool was picked up from the sill (its first-time page).
+signal tool_picked(id: String)
+## The sketchbook, the album card or the box of cuttings was tapped (their pages).
+signal object_tapped(id: String)
+## A short word for the status scrap ("not yet", "choose N, P or K first").
+signal said(text: String)
 
 ## Window side is +Z of the sill anchor (Shed.bonsai_spot); the room is -Z.
-const FOCUS := Vector3(0.0, 0.2, 0.0)
+const FOCUS := Vector3(0.0, 0.14, -0.06)
 ## The default look: far enough that pot and crown sit between the status scrap and the tools.
 const DIST := 0.8
+## The default look down onto the sill: pot, crown and the row of tools before it.
+const PITCH := 0.45
 const PICK_RADIUS := 44.0
+## The tap radius of the things on the sill: finger size on a phone (docs/notes/bonsai-tools-0.7.md).
+const TOOL_TAP := 52.0
+## A held tool floats this far beside and below the pointer, so it never hides what it points at.
+const HOLD_OFFSET := Vector2(70.0, 40.0)
 ## The copper wire: its thickness and one coil turn, in bonsai units.
 const WIRE_RADIUS := 0.009
 const WIRE_PITCH := 0.14
@@ -39,7 +51,8 @@ var camera: Camera3D
 ## Bonsai mode: the close camera is on and the tools answer.
 var active: bool = false
 var input_enabled: bool = true
-## "", "shears", "pinch" or "wire".
+## The tool in hand (BonsaiTools.HELD: "water", "fertiliser", "shears", "pinch" (the
+## tweezers), "wire", "trowel"), or "".
 var tool: String = ""
 var pruning: Pruning
 ## A tool animation is playing (watering, pellets, turning, repotting).
@@ -64,11 +77,12 @@ var _cores: MultiMeshInstance3D
 var _spray_mat: ShaderMaterial
 var _wires: MeshInstance3D
 var _root_ball: Node3D
-var _can: Node3D
-var _can_rest: Transform3D
-var _water: CPUParticles3D
-var _tin: Node3D
-var _tin_rest: Transform3D
+## The tools on the sill (the can, the pellet tin, secateurs, tweezers, wire, trowel...).
+var tools: BonsaiTools
+## The pellets the tin gives (0 N, 1 P, 2 K), chosen on its paper slip; -1 until chosen.
+var pellet_kind: int = -1
+## The sill thing under the pointer (for its label on a PC), "" if none.
+var hover: String = ""
 var _light: SpotLight3D
 var _preview: MeshInstance3D
 var _preview_mesh := ImmediateMesh.new()
@@ -79,7 +93,7 @@ var _sig: Array = []
 var _timer: float = 0.0
 ## Camera orbit around the pot (sill frame): yaw 0 looks from the room toward the window.
 var _yaw: float = 0.0
-var _pitch: float = 0.28
+var _pitch: float = PITCH
 var _dist: float = DIST
 var _focus: Vector3 = FOCUS
 var _blend: float = 1.0
@@ -87,6 +101,14 @@ var _from: Transform3D
 var _from_fov: float = 50.0
 var _press: Vector2
 var _pressing: bool = false
+## The sill thing a press began on (a tap on it picks it up or opens it).
+var _down_object: String = ""
+## The press began on the pot (a sideways drag turns it).
+var _pot_press: bool = false
+var _pointer: Vector2
+var _pick_at: Vector2
+## The pointer moved since the tool was picked up: from then on the tool follows it.
+var _hold_moved: bool = false
 var _drag: String = ""
 var _wire_id: int = -1
 var _wire_target: Vector3
@@ -264,93 +286,10 @@ func _build_soil_things() -> void:
 	_lift.add_child(_root_ball)
 
 
-## The watering can and the fertiliser tin wait on the sill beside the pot.
+## The tools lie on the sill beside the pot (shed/bonsai_tools.gd).
 func _build_tools() -> void:
-	_can = (load("res://assets/shed/watering_can_metal_01/watering_can_metal_01_1k.gltf") as PackedScene).instantiate()
-	_can.scale = Vector3.ONE * 0.42
-	_can.position = Vector3(0.17, 0.0, -0.02)
-	_can.rotation.y = -2.2
-	_base.add_child(_can)
-	_can_rest = _can.transform
-	_water = CPUParticles3D.new()
-	_water.emitting = false
-	_water.amount = 160
-	_water.lifetime = 0.5
-	_water.direction = Vector3(0, -1, 0)
-	_water.spread = 6.0
-	_water.initial_velocity_min = 0.25
-	_water.initial_velocity_max = 0.4
-	_water.gravity = Vector3(0, -3.0, 0)
-	_water.emission_shape = CPUParticles3D.EMISSION_SHAPE_SPHERE
-	_water.emission_sphere_radius = 0.012
-	var drop := SphereMesh.new()
-	drop.radius = 0.0016
-	drop.height = 0.007
-	drop.radial_segments = 5
-	drop.rings = 2
-	_water.mesh = drop
-	var wm := StandardMaterial3D.new()
-	wm.albedo_color = Color(0.8, 0.88, 0.98, 0.55)
-	wm.metallic_specular = 1.0
-	wm.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	wm.roughness = 0.05
-	_water.material_override = wm
-	_water.local_coords = false
-	_base.add_child(_water)
-	# The fertiliser tin: an old tin with a paper label and its lid.
-	_tin = Node3D.new()
-	_tin.position = Vector3(-0.16, 0.0, 0.02)
-	_base.add_child(_tin)
-	var tin_mat := StandardMaterial3D.new()
-	tin_mat.albedo_color = Color(0.5, 0.52, 0.5)
-	tin_mat.metallic = 0.8
-	tin_mat.roughness = 0.45
-	var body := MeshInstance3D.new()
-	var cyl := CylinderMesh.new()
-	cyl.top_radius = 0.026
-	cyl.bottom_radius = 0.026
-	cyl.height = 0.05
-	cyl.radial_segments = 20
-	body.mesh = cyl
-	body.material_override = tin_mat
-	body.position.y = 0.025
-	_tin.add_child(body)
-	var label := MeshInstance3D.new()
-	var band := CylinderMesh.new()
-	band.top_radius = 0.0265
-	band.bottom_radius = 0.0265
-	band.height = 0.028
-	band.radial_segments = 20
-	label.mesh = band
-	var paper := StandardMaterial3D.new()
-	paper.albedo_texture = load("res://assets/paper/paper_beige.png")
-	paper.albedo_color = Color(0.92, 0.84, 0.66)
-	paper.roughness = 0.95
-	label.material_override = paper
-	label.position.y = 0.024
-	_tin.add_child(label)
-	var words := Label3D.new()
-	words.text = "N P K"
-	words.font = Paper.hand_font(true)
-	words.font_size = 48
-	words.pixel_size = 0.00032
-	words.modulate = Paper.INK
-	words.outline_size = 0
-	words.shaded = true
-	words.position = Vector3(0, 0.025, -0.0275)
-	words.rotation.y = PI
-	_tin.add_child(words)
-	var lid := MeshInstance3D.new()
-	var lc := CylinderMesh.new()
-	lc.top_radius = 0.0275
-	lc.bottom_radius = 0.0275
-	lc.height = 0.006
-	lc.radial_segments = 20
-	lid.mesh = lc
-	lid.material_override = tin_mat
-	lid.position.y = 0.052
-	_tin.add_child(lid)
-	_tin_rest = _tin.transform
+	tools = BonsaiTools.new()
+	_base.add_child(tools)
 
 
 ## The window is the bonsai's sun: light from one fixed side, as bright as the day outside.
@@ -547,6 +486,22 @@ func _process(delta: float) -> void:
 		_cores.visible = _fade < 0.15
 		_spray_mat.set_shader_parameter("fade", _fade)
 	_update_camera(delta)
+	_follow_pointer(delta)
+
+
+## The tool in hand: lifted where it lay, then following the pointer (beside it, a little
+## nearer the eye than the tree, so it reads in front of it).
+func _follow_pointer(delta: float) -> void:
+	if not active or tool == "" or busy or tools.held != tool:
+		return
+	var target: Transform3D
+	if not _hold_moved:
+		target = tools.lifted_pose(tool)
+	else:
+		var depth := camera.global_position.distance_to(to_global(_focus)) - BonsaiTools.HOLD_NEARER
+		var at := tools.to_local(camera.project_position(_pointer + HOLD_OFFSET, depth))
+		target = tools.hold_pose(tool, at, tools.to_local(camera.global_position) - at)
+	tools.follow(target, delta)
 
 
 ## Rebuilds what changed (every half second; `force` after a tool).
@@ -1025,6 +980,7 @@ func _update_camera(delta: float) -> void:
 func enter(from: Camera3D) -> void:
 	active = true
 	tool = ""
+	tools.reset()
 	_from = from.global_transform
 	_from_fov = from.fov
 	_blend = 0.0
@@ -1050,18 +1006,53 @@ func leave(to: Camera3D, done: Callable) -> void:
 		done.call())
 
 
+## Picks up a tool from the sill (`t`, one of BonsaiTools.HELD) or puts the one in hand down ("").
 func set_tool(t: String) -> void:
-	tool = t
+	if busy or t == tool:
+		return
 	pruning.preview(-1)
 	_preview_mesh.clear_surfaces()
 	_drag = ""
 	_pressing = false
+	if tools.held != "":
+		tools.put_down()
+	tool = t
+	if t != "":
+		tools.hold(t)
+		_hold_moved = false
+		_pick_at = _pointer
+		_play("wire" if t in ["shears", "pinch", "wire", "trowel"] else "pot")
+		tool_picked.emit(t)
+
+
+## A tap on a thing on the sill: a tool is picked up or put down, the arrows turn the pot, the
+## sketchbook, the album card and the cuttings open their pages (object_tapped).
+func tap_object(id: String) -> void:
+	if busy:
+		return
+	if id in BonsaiTools.HELD:
+		set_tool("" if tool == id else id)
+	elif id == "turn_left":
+		turn_pot(-1)
+	elif id == "turn_right":
+		turn_pot(1)
+	else:
+		object_tapped.emit(id)
+
+
+## Where the things on the sill are on screen, id -> Vector2 (for tests and the labels).
+func object_screen_points() -> Dictionary:
+	return tools.screen_points(camera)
 
 
 # --- input -----------------------------------------------------------------------------
 
 func _unhandled_input(event: InputEvent) -> void:
-	if not active or not input_enabled or busy or state == null or state.bonsai == null or _blend < 1.0:
+	if not active or not input_enabled or state == null or state.bonsai == null or _blend < 1.0:
+		return
+	if event is InputEventMouse or event is InputEventScreenDrag or event is InputEventScreenTouch:
+		_track_pointer(event.position)
+	if busy:
 		return
 	if event is InputEventScreenTouch:
 		var t := event as InputEventScreenTouch
@@ -1080,14 +1071,14 @@ func _unhandled_input(event: InputEvent) -> void:
 		_touches[d.index] = d.position
 		if _touches.size() == 2 and _pinch_dist > 0.0:
 			var pts: Array = _touches.values()
-			_dist = clampf(_pinch_zoom * _pinch_dist / maxf((pts[0] as Vector2).distance_to(pts[1]), 1.0), 0.3, 1.05)
+			_dist = clampf(_pinch_zoom * _pinch_dist / maxf((pts[0] as Vector2).distance_to(pts[1]), 1.0), 0.3, 1.1)
 		return
 	if event is InputEventMouseButton:
 		var m := event as InputEventMouseButton
 		if m.pressed and m.button_index == MOUSE_BUTTON_WHEEL_UP:
-			_dist = clampf(_dist * 0.92, 0.3, 1.05)
+			_dist = clampf(_dist * 0.92, 0.3, 1.1)
 		elif m.pressed and m.button_index == MOUSE_BUTTON_WHEEL_DOWN:
-			_dist = clampf(_dist * 1.08, 0.3, 1.05)
+			_dist = clampf(_dist * 1.08, 0.3, 1.1)
 		elif m.button_index == MOUSE_BUTTON_LEFT:
 			if m.pressed:
 				_begin(m.position)
@@ -1097,8 +1088,17 @@ func _unhandled_input(event: InputEvent) -> void:
 		var mm := event as InputEventMouseMotion
 		if _pressing:
 			_move(mm.position, mm.relative)
-		elif tool == "shears":
-			pruning.preview(pruning.pick(mm.position))
+		else:
+			hover = tools.pick(camera, mm.position, TOOL_TAP)
+			if tool == "shears" and not _lifted and hover == "":
+				pruning.preview(pruning.pick(mm.position))
+
+
+## The pointer, which the held tool follows (a finger on the phone, the cursor on a PC).
+func _track_pointer(pos: Vector2) -> void:
+	if tool != "" and not _hold_moved and pos.distance_to(_pick_at) > 24.0:
+		_hold_moved = true
+	_pointer = pos
 
 
 func _begin(pos: Vector2) -> void:
@@ -1107,14 +1107,23 @@ func _begin(pos: Vector2) -> void:
 	_pressing = true
 	_press = pos
 	_drag = ""
+	_pot_press = false
+	# The tool in hand answers where it floats only off the tree: on it, the tap uses the tool.
+	_down_object = tools.pick(camera, pos, TOOL_TAP, not on_bonsai(pos))
+	if _down_object != "":
+		_pick_at = pos
+		return
 	match tool:
 		"shears":
-			var id := pruning.pick(pos)
-			pruning.preview(id)
-			_drag = "prune" if id >= 0 else ""
+			if not _lifted:
+				var id := pruning.pick(pos)
+				pruning.preview(id)
+				_drag = "prune" if id >= 0 else ""
 		"wire":
 			_wire_id = pick_branch(pos)
 			_drag = "wire" if _wire_id >= 0 else ""
+		"":
+			_pot_press = on_pot(pos)
 
 
 func _move(pos: Vector2, rel: Vector2) -> void:
@@ -1126,8 +1135,12 @@ func _move(pos: Vector2, rel: Vector2) -> void:
 			_wire_target = _drag_point(pos)
 			_draw_wire_preview()
 			return
+		"pot":
+			return
 	if _drag == "" and pos.distance_to(_press) > 10.0:
-		_drag = "orbit"
+		_down_object = ""
+		# A sideways drag on the pot turns it; anywhere else the view goes round the pot.
+		_drag = "pot" if _pot_press and absf(pos.x - _press.x) > absf(pos.y - _press.y) else "orbit"
 	if _drag == "orbit":
 		# Round the pot, but only on the room's side of the window.
 		_yaw = clampf(_yaw - rel.x * 0.007, -1.25, 1.25)
@@ -1140,6 +1153,12 @@ func _end(pos: Vector2) -> void:
 	_pressing = false
 	var b := state.bonsai
 	var moved := pos.distance_to(_press) > 12.0
+	if _down_object != "":
+		var id := _down_object
+		_down_object = ""
+		if not moved:
+			tap_object(id)
+		return
 	match _drag:
 		"prune":
 			if pruning.target >= 0:
@@ -1162,15 +1181,74 @@ func _end(pos: Vector2) -> void:
 					refresh(true)
 					tool_used.emit("wire")
 			return
+		"pot":
+			_drag = ""
+			if absf(pos.x - _press.x) > 30.0:
+				turn_pot(1 if pos.x > _press.x else -1)
+			return
 	if _drag == "orbit":
 		_drag = ""
 		return
-	if tool == "pinch" and not moved:
-		var id := pick_tip(pos)
-		if id >= 0 and b.pinch(id):
-			_play("snip")
-			refresh(true)
-			tool_used.emit("pinch")
+	if not moved:
+		use_at(pos)
+
+
+## The tool in hand used at a screen point (a tap on the tree, its soil or its pot).
+func use_at(pos: Vector2) -> void:
+	var b := state.bonsai
+	match tool:
+		"pinch":
+			var id := pick_tip(pos)
+			if id >= 0 and b.pinch(id):
+				_play("snip")
+				refresh(true)
+				tool_used.emit("pinch")
+		"water":
+			if on_bonsai(pos):
+				water()
+		"fertiliser":
+			if on_bonsai(pos):
+				if pellet_kind < 0:
+					said.emit("First choose N, P or K on the slip.")
+				else:
+					fertilise(pellet_kind)
+		"trowel":
+			if on_bonsai(pos) and use_trowel() == "not_yet":
+				var n := days_to_repot()
+				said.emit("Not yet: it asks to be repotted about every seventh day (in %d day%s)." % [n, "" if n == 1 else "s"])
+		"shears":
+			if _lifted and on_bonsai(pos):
+				repot_trim()
+
+
+## Whether a screen point is on the bonsai, its soil or its pot (a loose column round the pot).
+func on_bonsai(screen: Vector2) -> bool:
+	var top := soil_height(sim().pot) + sim().height() * BonsaiSim.UNIT_METRES + 0.04 + (0.12 if _lifted else 0.0)
+	return _in_column(screen, 0.17, -0.01, top)
+
+
+## Whether a screen point is on the pot itself (a sideways drag there turns it).
+func on_pot(screen: Vector2) -> bool:
+	var half := soil_half(sim().pot)
+	return _in_column(screen, maxf(half.x, half.y) + 0.015, -0.01, soil_height(sim().pot) + 0.015)
+
+
+## Whether the ray through a screen point meets the upright column round the pot's axis
+## (`radius`, from `y0` to `y1` above the pot's base) where it crosses the axis.
+func _in_column(screen: Vector2, radius: float, y0: float, y1: float) -> bool:
+	var axis := _base.global_position
+	var from := camera.project_ray_origin(screen)
+	var dir := camera.project_ray_normal(screen)
+	var n := camera.global_position - axis
+	n.y = 0.0
+	if n.length() < 1e-4:
+		return false
+	n = n.normalized()
+	var denom := dir.dot(n)
+	if absf(denom) < 1e-5:
+		return false
+	var rel := from + dir * ((axis - from).dot(n) / denom) - axis
+	return Vector2(rel.x, rel.z).length() < radius and rel.y > y0 and rel.y < y1
 
 
 ## The nearest living branch segment to a screen point (graph id, or -1).
@@ -1267,29 +1345,30 @@ func _play(kind: String, seconds: float = 0.0) -> void:
 		get_tree().create_timer(seconds).timeout.connect(_player.stop)
 
 
-## The watering can lifts, tilts over the pot and pours; the soil darkens.
+## The watering can goes over the pot, tilts and pours; the soil darkens. Then it is back in
+## the hand (or on the sill, if it was not picked up).
 func water() -> void:
 	if busy or sim() == null:
 		return
 	busy = true
+	var can: Node3D = tools.items["water"]
 	var tw := create_tween()
 	var over := Transform3D(Basis(Vector3.UP, -PI * 0.5), Vector3(0.14, 0.2, -0.02))
 	var tilt := over.basis * Basis(Vector3.RIGHT, 0.7)
-	tw.tween_property(_can, "transform", Transform3D(over.basis.scaled(Vector3.ONE * 0.42), over.origin), 0.5).set_trans(Tween.TRANS_SINE)
-	tw.tween_property(_can, "transform", Transform3D(tilt.scaled(Vector3.ONE * 0.42), over.origin + Vector3(0, -0.01, 0)), 0.35)
+	tw.tween_property(can, "transform", over, 0.5).set_trans(Tween.TRANS_SINE)
+	tw.tween_property(can, "transform", Transform3D(tilt, over.origin + Vector3(0, -0.01, 0)), 0.35)
 	tw.tween_callback(func() -> void:
 		# From the rose at the end of the spout.
-		_water.global_position = _can.to_global(Vector3(0.0, 0.16, 0.27))
-		_water.emitting = true
+		tools.water_fx.global_position = (can.get_child(0) as Node3D).to_global(Vector3(0.0, 0.16, 0.27))
+		tools.water_fx.emitting = true
 		_play("water", 1.4))
 	tw.tween_interval(0.7)
 	tw.tween_callback(func() -> void:
 		sim().water()
 		tool_used.emit("water"))
 	tw.tween_interval(0.6)
-	tw.tween_callback(func() -> void: _water.emitting = false)
-	tw.tween_property(_can, "transform", _can_rest, 0.6).set_trans(Tween.TRANS_SINE)
-	tw.tween_callback(func() -> void: busy = false)
+	tw.tween_callback(func() -> void: tools.water_fx.emitting = false)
+	tw.tween_callback(_tool_home.bind("water"))
 
 
 ## The tin tilts over the pot and a spoon of pellets of one nutrient lands on the soil.
@@ -1297,19 +1376,62 @@ func fertilise(kind: int) -> void:
 	if busy or sim() == null:
 		return
 	busy = true
+	var tin: Node3D = tools.items["fertiliser"]
 	var tw := create_tween()
-	var over := Vector3(-0.05, 0.14, 0.0)
-	tw.tween_property(_tin, "position", over, 0.45).set_trans(Tween.TRANS_SINE)
-	tw.tween_property(_tin, "rotation:z", -1.2, 0.3)
+	var rest: Transform3D = tools.rests["fertiliser"]
+	tw.tween_property(tin, "transform", Transform3D(rest.basis, Vector3(-0.05, 0.14, 0.0)), 0.45).set_trans(Tween.TRANS_SINE)
+	tw.tween_property(tin, "rotation:z", -1.2, 0.3)
 	tw.tween_callback(func() -> void:
 		_play("pellets", 0.8)
 		var burnt := sim().fertilise(kind)
 		refresh(true)
 		tool_used.emit("burn" if burnt > 0 else "fertiliser"))
 	tw.tween_interval(0.4)
-	tw.tween_property(_tin, "rotation:z", 0.0, 0.3)
-	tw.tween_property(_tin, "transform", _tin_rest, 0.45).set_trans(Tween.TRANS_SINE)
+	tw.tween_property(tin, "rotation:z", 0.0, 0.3)
+	tw.tween_callback(_tool_home.bind("fertiliser"))
+
+
+## After a tool's motion: in the hand it follows the pointer again, else it goes to its place.
+func _tool_home(id: String) -> void:
+	if tools.held == id:
+		busy = false
+		return
+	var tw := create_tween()
+	tw.tween_property(tools.items[id], "transform", tools.rests[id], 0.5).set_trans(Tween.TRANS_SINE)
 	tw.tween_callback(func() -> void: busy = false)
+
+
+## The trowel: on a repot day it loosens the soil and the tree comes out with its root ball;
+## with the tree out, it puts it back in fresh soil. Returns "lift", "in" or "not_yet" ("" when
+## nothing can happen now).
+func use_trowel() -> String:
+	if busy or sim() == null:
+		return ""
+	if _lifted:
+		repot_finish()
+		return "in"
+	if not sim().repot_due:
+		return "not_yet"
+	busy = true
+	var trowel: Node3D = tools.items["trowel"]
+	var start := trowel.transform
+	var dig := Transform3D(start.basis.rotated(Vector3.RIGHT, 0.6), Vector3(0.05, soil_height(sim().pot) + 0.02, -0.06))
+	var tw := create_tween()
+	tw.tween_property(trowel, "transform", dig, 0.3).set_trans(Tween.TRANS_SINE)
+	tw.tween_property(trowel, "transform", Transform3D(dig.basis, dig.origin + Vector3(0, -0.015, 0.02)), 0.2)
+	tw.tween_callback(func() -> void:
+		busy = false
+		repot_lift())
+	tw.tween_property(trowel, "transform", start, 0.3).set_trans(Tween.TRANS_SINE)
+	return "lift"
+
+
+## Days until the bonsai asks to be repotted (0 when it asks now).
+func days_to_repot() -> int:
+	var b := sim()
+	if b == null or b.repot_due:
+		return 0
+	return maxi(1, BonsaiSim.REPOT_DAYS - (b.day() - b.last_repot_day))
 
 
 ## Turns the pot a quarter (the window side changes).
@@ -1385,6 +1507,11 @@ func is_lifted() -> bool:
 
 func trim_share() -> float:
 	return _trim
+
+
+## The pot picked while repotting.
+func new_pot() -> String:
+	return _new_pot
 
 
 func _root_ball_visible(on: bool) -> void:

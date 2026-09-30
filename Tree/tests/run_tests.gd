@@ -6,6 +6,7 @@ var _failures: int = 0
 var _passes: int = 0
 var _current: String = ""
 var _logger := ErrorCounter.new()
+var _ran := false
 
 
 ## Counts script errors, so a test that crashes half-way fails instead of passing silently.
@@ -22,6 +23,18 @@ class ErrorCounter extends Logger:
 
 func _init() -> void:
 	OS.add_logger(_logger)
+
+
+## The suites run on the first frame, when the root is in the tree (a test can put a view in a
+## viewport and project points, as the bonsai's sill tools do).
+func _process(_delta: float) -> bool:
+	if not _ran:
+		_ran = true
+		_run_all()
+	return false
+
+
+func _run_all() -> void:
 	var tests := [
 		preload("res://tests/test_plant_graph.gd"),
 		preload("res://tests/test_space_colonization.gd"),

@@ -422,3 +422,174 @@ func test_style_pages_and_bonsai_pages_exist() -> void:
 	var b := BonsaiSim.starter(3)
 	b._new_day_passed()
 	t.check(BonsaiHud.album_lines(b)[0].begins_with("Day 0:"), "the album page starts on day 0")
+
+
+# --- 0.7: the tools on the windowsill (docs/notes/bonsai-tools-0.7.md) ---------------------
+
+## Bonsai mode in a phone-shaped view (720 x 1600, a 1080 x 2400 screen), the default close-up.
+func _sill_view(g: GameState) -> Array:
+	var vp := SubViewport.new()
+	vp.size = Vector2i(720, 1600)
+	vp.disable_3d = false
+	t.root.add_child(vp)
+	var v := BonsaiView.new()
+	vp.add_child(v)
+	v.setup(g)
+	v.visible = true
+	v.active = true
+	v.camera.current = true
+	v.look_from(0.0, BonsaiView.PITCH, BonsaiView.DIST)
+	v._update_camera(0.0)
+	return [vp, v]
+
+
+## Runs the tools' motions to their end (no frames pass in the test runner).
+func _finish(v: BonsaiView) -> void:
+	for _i in range(6):
+		for tw in v.get_tree().get_processed_tweens():
+			tw.custom_step(5.0)
+
+
+func test_sill_tools_are_finger_size_on_a_phone() -> void:
+	var g := GameState.new_game(41)
+	g.ensure_bonsai(true)
+	var made := _sill_view(g)
+	var v: BonsaiView = made[1]
+	var pts := v.object_screen_points()
+	var all := BonsaiTools.HELD + BonsaiTools.TAPPED
+	for id in all:
+		t.check(pts.has(id), "on screen in the close-up: " + id)
+		if not pts.has(id):
+			continue
+		var p: Vector2 = pts[id]
+		t.check(p.x >= 30.0 and p.x <= 690.0 and p.y >= 220.0 and p.y <= 1540.0, "inside the phone's screen, below the status scrap: %s at %s" % [id, p])
+		t.check_eq(v.tools.pick(v.camera, p, BonsaiView.TOOL_TAP), id, "a tap on it finds it")
+	# Finger size: a tap area about 9 mm across, and no two overlap.
+	t.check(BonsaiView.TOOL_TAP * 2.0 >= 100.0, "tap areas at least 100 canvas pixels across")
+	for i in range(all.size()):
+		for j in range(i + 1, all.size()):
+			if pts.has(all[i]) and pts.has(all[j]):
+				var d := (pts[all[i]] as Vector2).distance_to(pts[all[j]])
+				t.check(d >= BonsaiView.TOOL_TAP * 2.0, "%s and %s apart (%d px)" % [all[i], all[j], int(d)])
+	(made[0] as Node).free()
+
+
+func test_sill_tools_do_what_the_paper_menu_did() -> void:
+	var g := GameState.new_game(43)
+	g.ensure_bonsai(true)
+	var b := g.bonsai
+	b.clock.time_of_day = b.clock.daylight_fraction * 0.3
+	for _d in range(3):
+		b.advance(6.0)
+	var made := _sill_view(g)
+	var v: BonsaiView = made[1]
+	var soil := v.plant_screen_position(0) + Vector2(0, 10)
+	t.check(v.on_bonsai(soil), "the soil is on the bonsai")
+	t.check(not v.on_bonsai(v.object_screen_points()["pinch"]), "the front row is not")
+	# One tap picks a tool up, a tap on it (or its place) puts it down.
+	v.tap_object("water")
+	t.check_eq(v.tool, "water", "the can is in hand")
+	t.check_eq(v.tools.pick(v.camera, v.tools.rest_point(v.camera, "water"), BonsaiView.TOOL_TAP), "water", "its place answers")
+	v.tap_object("water")
+	t.check_eq(v.tool, "", "put down again")
+	_finish(v)
+	# Watering.
+	v.tap_object("water")
+	b.moisture = 0.1
+	v.use_at(soil)
+	_finish(v)
+	t.check(b.moisture > 0.5, "the can waters the soil")
+	t.check_eq(v.tool, "water", "and is still in hand")
+	# Swapping: tapping the tin puts the can down.
+	v.tap_object("fertiliser")
+	t.check_eq(v.tool, "fertiliser", "the tin is in hand")
+	var said := [""]
+	v.said.connect(func(s: String) -> void: said[0] = s)
+	var k0 := b.soil[2]
+	v.pellet_kind = -1
+	v.use_at(soil)
+	_finish(v)
+	t.check(said[0] != "" and is_equal_approx(b.soil[2], k0), "no choice on the slip yet: nothing happens, a note says why")
+	v.pellet_kind = 2
+	v.use_at(soil)
+	_finish(v)
+	t.check(b.soil[2] > k0, "a spoon of K pellets")
+	# The tweezers pinch a fresh tip.
+	v.tap_object("pinch")
+	var trunk := b.trunk_chain()
+	var tip := -1
+	for id in b.living_tips():
+		if b.is_fresh_tip(id) and not trunk.has(id):
+			tip = id
+			break
+	t.check(tip >= 0, "a fresh tip to pinch")
+	if tip >= 0:
+		v.use_at(v.plant_screen_position(tip))
+		t.check(b.graph.get_flag(tip, "pinched", false) == true, "the tweezers pinch it")
+	# The carved arrows turn the pot.
+	v.set_tool("")
+	_finish(v)
+	var turn0 := b.turn
+	v.tap_object("turn_right")
+	_finish(v)
+	t.check_eq(b.turn, posmod(turn0 + 1, 4), "the right arrow turns the pot a quarter")
+	v.tap_object("turn_left")
+	_finish(v)
+	t.check_eq(b.turn, turn0, "the left arrow turns it back")
+	# The sketchbook, the album card and the box of cuttings open their pages.
+	var opened: Array[String] = []
+	v.object_tapped.connect(func(id: String) -> void: opened.append(id))
+	for id in ["styles", "album", "cuttings"]:
+		v.tap_object(id)
+	t.check_eq(opened, ["styles", "album", "cuttings"] as Array[String], "the pages open from the sill")
+	(made[0] as Node).free()
+
+
+func test_trowel_repots_only_when_asked() -> void:
+	var g := GameState.new_game(44)
+	g.ensure_bonsai(true)
+	var b := g.bonsai
+	var made := _sill_view(g)
+	var v: BonsaiView = made[1]
+	var soil := v.plant_screen_position(0) + Vector2(0, 10)
+	b.repot_due = false
+	v.tap_object("trowel")
+	t.check_eq(v.use_trowel(), "not_yet", "on other days the trowel only says when")
+	t.check(not v.is_lifted() and v.days_to_repot() >= 1, "not lifted; days to wait known")
+	b.repot_due = true
+	v.use_at(soil)
+	_finish(v)
+	t.check(v.is_lifted(), "on a repot day the trowel lifts the tree out")
+	v.tap_object("shears")
+	v.use_at(soil)
+	t.check(v.trim_share() > 0.0, "the secateurs trim the root ball")
+	v.repot_pick("oval")
+	v.tap_object("trowel")
+	v.use_at(soil)
+	_finish(v)
+	t.check(not v.is_lifted() and b.pot == "oval" and not b.repot_due, "the trowel puts it back in fresh soil, in the new pot")
+	(made[0] as Node).free()
+
+
+func test_tool_labels_until_used_once() -> void:
+	var g := GameState.new_game(45)
+	g.ensure_bonsai(true)
+	var hud := BonsaiHud.new()
+	t.root.add_child(hud)
+	var v := BonsaiView.new()
+	t.root.add_child(v)
+	hud.state = g
+	hud.view = v
+	for id in BonsaiTools.LABELS:
+		t.check(hud.is_new(id), "a first-time label: " + id)
+	v.tool_used.emit("water")
+	v.tool_used.emit("burn")
+	v.tool_used.emit("unwire")
+	v.tool_used.emit("repot")
+	v.object_tapped.emit("styles")
+	for id in ["water", "fertiliser", "wire", "trowel", "styles"]:
+		t.check(not hud.is_new(id), "used once, no label: " + id)
+	t.check(hud.is_new("shears"), "the others keep theirs")
+	hud.close_sheet()
+	hud.free()
+	v.free()
