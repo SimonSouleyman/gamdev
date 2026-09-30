@@ -1,9 +1,9 @@
-# Spec: hold to fast-forward the day (0.8.1)
+# Spec: hold to fast-forward the day (0.8.2)
 
 Written 2026-09-30 from Simon's note (17:52 UTC): "Im Baummodus soll man den Boost weiterhin mit
 einem Tap starten. Wenn man den Bildschirm gedrückt hält, soll die Zeit vorspulen. Also der Tag
 soll mit den gesetzten Boosts an den richtigen Zeitpunkten 4x schneller vergehen." A new input,
-so it is specced first; it lands in 0.8.1 together with the side roots (Simon, 17:58 UTC: everything straight into 0.8.1) (specs/side-roots.md).
+so it is specced first; it lands in 0.8.2 together with the side roots (Simon, 18:29 UTC: fixes in 0.8.1, new features in 0.8.2) (specs/side-roots.md).
 
 **Purpose.** Let a player who has set the day's boosts watch the rest of the day unfold without
 waiting it out, while the tap stays the one decision of the day.

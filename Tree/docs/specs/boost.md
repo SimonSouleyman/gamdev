@@ -9,7 +9,7 @@ finished linden in 15 instead of 30 days; seeded runs: 14 to 37 days).
 **What the player should feel.** A small, fair trade. "I pushed the crown west this evening, so
 tonight's root is short." Never guilt, never a wall.
 
-**Input.** A tap anywhere by day: one game hour of brighter sun, up to three ahead (unchanged). From 0.8.1 holding the screen fast-forwards the day instead (specs/fast-forward.md); a hold never boosts.
+**Input.** A tap anywhere by day: one game hour of brighter sun, up to three ahead (unchanged). From 0.8.2 holding the screen fast-forwards the day instead (specs/fast-forward.md); a hold never boosts.
 
 **Output.** Growth at up to 3x speed toward the boosted sun; life force for tonight clearly lower
 than after a calm hour. The life force scrap should show the difference as it happens.
