@@ -174,7 +174,7 @@ func _build_options() -> void:
 	board.set_anchors_preset(Control.PRESET_FULL_RECT)
 	board.offset_left = 30
 	board.offset_right = -30
-	board.offset_top = 110
+	board.offset_top = BOARD_TOP
 	board.offset_bottom = -230
 	_options.add_child(board)
 	var names := OPTION_NAMES
@@ -184,8 +184,8 @@ func _build_options() -> void:
 		note.add_theme_stylebox_override("panel", Paper.paper_box(200, 90, 80 + i, "all", 18.0))
 		# Two columns; the long test switch gets the last row to itself.
 		var last := i == names.size() - 1
-		note.position = Vector2(60 + (i % 2) * 300, 50 + (i / 2) * 145)
-		note.custom_minimum_size = Vector2(560 if last else 260, 130)
+		note.position = Vector2(60 + (i % 2) * 300, 36 + (i / 2) * 128)
+		note.custom_minimum_size = Vector2(560 if last else 260, 120)
 		note.rotation_degrees = [-3.0, 2.0, 1.5, -2.0, 2.5, -1.0, 1.0][i]
 		board.add_child(note)
 		var c := CheckBox.new()
@@ -214,14 +214,14 @@ func _build_options() -> void:
 		i += 1
 	# The board reaches a little lower, so the resets are pinned on the cork, clear of its frame
 	# and of "back" (0.6.3 review: in clearer print they ran over the frame).
-	board.offset_bottom = -170
+	board.offset_bottom = BOARD_BOTTOM
 	var back := Paper.scrap_button("back", 30, 90)
 	back.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
 	back.grow_horizontal = Control.GROW_DIRECTION_BOTH
 	back.offset_left = -70
 	back.offset_right = 70
-	back.offset_top = -158
-	back.offset_bottom = -158 + Paper.INK_TAP
+	back.offset_top = BACK_BOTTOM - Paper.INK_TAP
+	back.offset_bottom = BACK_BOTTOM
 	back.pressed.connect(func() -> void:
 		backup_notes.reset()
 		_options.visible = false)
@@ -233,8 +233,8 @@ func _build_options() -> void:
 	resets.grow_horizontal = Control.GROW_DIRECTION_BOTH
 	resets.offset_left = -320
 	resets.offset_right = 320
-	resets.offset_top = -296
-	resets.offset_bottom = -296 + Paper.INK_TAP
+	resets.offset_top = RESETS_BOTTOM - Paper.INK_TAP
+	resets.offset_bottom = RESETS_BOTTOM
 	resets.alignment = BoxContainer.ALIGNMENT_CENTER
 	resets.add_theme_constant_override("separation", 30)
 	_options.add_child(resets)
@@ -257,18 +257,33 @@ func _build_options() -> void:
 						b.text = label))
 		resets.add_child(b)
 	# 0.8: the save backup, pinned between the switches and the resets (its note slip above it;
-	# the switches' rows moved closer to make room).
+	# the switches' rows moved closer to make room). On the phone the live picture's scrap sits
+	# between the backup and the resets, so the backup moves up by one row.
 	backup_notes = BackupNotes.new()
 	backup_notes.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
 	backup_notes.grow_horizontal = Control.GROW_DIRECTION_BOTH
 	backup_notes.grow_vertical = Control.GROW_DIRECTION_BEGIN
 	backup_notes.offset_left = -320
 	backup_notes.offset_right = 320
-	backup_notes.offset_top = -314
-	backup_notes.offset_bottom = -314
+	var backup_bottom := LIVE_BOTTOM - Paper.INK_TAP - ROW_GAP if show_live_note else RESETS_BOTTOM - Paper.INK_TAP - ROW_GAP
+	backup_notes.offset_top = backup_bottom
+	backup_notes.offset_bottom = backup_bottom
 	_options.add_child(backup_notes)
 	_add_live_note(board)
 	_options.visible = false
+
+
+## The pinboard's layout, in reference pixels from the screen's top (BOARD_TOP) and bottom (the
+## rest). From the bottom up: "back" below the board, then on the cork the resets, the live
+## picture's scrap (phone only), the backup notes with their slip growing upward; the switches
+## fill the board from the top. Every tap target is at least Paper.INK_TAP tall; checked at
+## 450x800 and 720x1280, normal and clearer print, with the phone path (tools/backup_shot.gd --phone).
+const BOARD_TOP := 60
+const BOARD_BOTTOM := -140
+const BACK_BOTTOM := -40
+const ROW_GAP := 12.0
+const RESETS_BOTTOM := BOARD_BOTTOM - 15.0
+const LIVE_BOTTOM := RESETS_BOTTOM - Paper.INK_TAP - ROW_GAP
 
 
 ## The live picture (specs/0.8.md section 6): a scrap pinned under the notes that says, in one line
@@ -289,17 +304,21 @@ func _add_live_note(board: Control) -> void:
 	board.add_child(live_note)
 
 
-## Closed: a small scrap below the notes. Open: held up in the middle of the board with its line.
+## Closed: a small scrap in the row above the resets. Open: the same scrap, grown upward over the
+## backup notes' row with its line (the backup steps aside until it is closed), so it never covers
+## a switch. The live note is the board's child and the offsets are the screen's, so the board's
+## own bottom offset is taken off.
 func _place_live_note(open: bool) -> void:
 	live_note.text = LIVE_HOW if open else LIVE_NOTE
-	live_note.set_anchors_preset(Control.PRESET_CENTER if open else Control.PRESET_CENTER_BOTTOM)
+	live_note.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
 	live_note.grow_horizontal = Control.GROW_DIRECTION_BOTH
-	live_note.grow_vertical = Control.GROW_DIRECTION_BOTH if open else Control.GROW_DIRECTION_BEGIN
-	live_note.offset_left = -280 if open else -150
-	live_note.offset_right = 280 if open else 150
-	live_note.offset_top = -70 if open else -196
-	live_note.offset_bottom = 70 if open else -140
+	live_note.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	live_note.offset_left = -280 if open else -180
+	live_note.offset_right = 280 if open else 180
+	live_note.offset_top = LIVE_BOTTOM - Paper.INK_TAP * (2.0 if open else 1.0) - (ROW_GAP if open else 0.0) - BOARD_BOTTOM
+	live_note.offset_bottom = LIVE_BOTTOM - BOARD_BOTTOM
 	live_note.rotation_degrees = -0.6 if open else 0.8
+	backup_notes.visible = not open
 
 
 ## Cork in a wooden frame: speckled noise, generated once.
@@ -327,6 +346,7 @@ func open_options() -> void:
 	for k in _toggles:
 		(_toggles[k] as CheckBox).set_pressed_no_signal(bool(settings.get(k, false)))
 	backup_notes.reset()
+	_place_live_note(false)
 	_options.visible = true
 
 

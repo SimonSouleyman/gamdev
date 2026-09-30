@@ -6,7 +6,8 @@ extends SceneTree
 ## polaroid.png), the flip-book page with "send", and the torn page offering a sunrise save.
 ## Everything goes to tool folders, never the player's save, album or copies.
 ## Run: godot --path . -s tools/backup_shot.gd -- --shots=C:/some/folder
-## For the phone's look add `--rendering-method gl_compatibility` before `--` and `--phone` after it.
+## For the phone's look add `--rendering-method gl_compatibility` before `--` and `--phone` after it;
+## `--phone` also pins the live picture's scrap ("the tree on my phone") on the board.
 
 var main: Node
 var shots := ""
@@ -23,6 +24,8 @@ func _initialize() -> void:
 	Backup.COPIES_DIR = "user://tool_backup_copies"
 	Polaroid.DIR = "user://tool_backup_sent"
 	ShedMenu.open_folders = false
+	if Budgets.PHONE:
+		ShedMenu.show_live_note = true
 	main = load("res://main.tscn").instantiate()
 	main.ephemeral = true
 	root.add_child(main)
@@ -121,9 +124,19 @@ func _run() -> void:
 	notes.offer_undo()
 	await _wait(6)
 	_shot("06b_undo_offer_clear_print")
+	if menu.live_note.visible:
+		menu.live_note.pressed.emit()
+		await _wait(4)
+		_shot("06f_live_note_open_clear_print")
+		menu.live_note.pressed.emit()
 	Paper.set_clear_print(false, root)
 	await _wait(4)
 	_shot("06c_undo_offer")
+	if menu.live_note.visible:
+		menu.live_note.pressed.emit()
+		await _wait(4)
+		_shot("06e_live_note_open")
+		menu.live_note.pressed.emit()
 	notes._on_undo()
 	await _wait(4)
 	_shot("06d_undo_armed")

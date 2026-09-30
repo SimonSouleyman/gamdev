@@ -49,7 +49,7 @@ func _init() -> void:
 	slip.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_note_strip.add_child(slip)
 	slip.add_child(_note)
-	undo_button = Paper.ink_button("take back the game before", 22, 46.0)
+	undo_button = Paper.ink_button("take back the game before", 22)
 	undo_button.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	undo_button.pressed.connect(_on_undo)
 	undo_button.visible = false
