@@ -49,11 +49,28 @@ const N_SPRAYS := 0.65
 const N_SIZE := 0.42
 const N_OLD := 0.4
 const PK_BARE := 0.45
+## A twig the tree marks for pruning (0.7, notes/marks-0.7.md): its sprays thin by this share at
+## full sign (more in autumn, where the colour cannot carry it), and its leaves go dull: paler,
+## greyer, washed out (a multiply on the spray colour).
+const MARK_THIN := 0.45
+const MARK_THIN_AUTUMN := 0.7
+const MARK_DULL := 1.0
+const MARK_DULL_TINT := Color(1.45, 1.2, 1.8)
+## The marked twig's share of its leaf mass is at least this (a lone tip is still a clump).
+const MARK_MIN_SHARE := 0.75
+## Its sprays hang towards the ground by this share and are this much smaller.
+const MARK_HANG := 0.6
+const MARK_SMALL := 0.2
+## Bark greying (shader: 1 - vertex alpha): a marked twig at full sign, a twig that died back.
+const MARK_BARK := 0.7
+const WITHERED_BARK := 0.85
 
 
 ## Fills `mm` (TRANSFORM_3D, colours and custom data on) with the crown of `sim`. Returns the
 ## bounds of the leafy part of the crown. `care` is GameState.care_signals() (empty: none).
-static func populate(mm: MultiMesh, sim: GrowthSim, seed: int, care: PackedFloat32Array = PackedFloat32Array()) -> AABB:
+## `autumn` (0..1, the season look) makes a marked twig's sign sparser rather than duller.
+static func populate(mm: MultiMesh, sim: GrowthSim, seed: int, care: PackedFloat32Array = PackedFloat32Array(), autumn: float = 0.0) -> AABB:
+	var tired := sim.tired_nodes()
 	var n_short := care[Resources.Kind.NITROGEN] if care.size() == 4 else 0.0
 	var pk_short := maxf(care[Resources.Kind.PHOSPHORUS], care[Resources.Kind.POTASSIUM]) if care.size() == 4 else 0.0
 	var g := sim.graph
@@ -75,11 +92,15 @@ static func populate(mm: MultiMesh, sim: GrowthSim, seed: int, care: PackedFloat
 	var cells := {}
 	for id in leafy:
 		var key := Vector3i(((g.positions[id] + offset) / cell).floor())
-		var acc: Array = cells.get(key, [Vector3.ZERO, 0, 0])
+		var acc: Array = cells.get(key, [Vector3.ZERO, 0, 0, 0.0, 0, Vector3.ZERO])
 		acc[0] += g.positions[id]
 		acc[1] += 1
 		if id >= sim.young_from:
 			acc[2] += 1
+		if tired.has(id):
+			acc[3] = maxf(float(acc[3]), float(tired[id]))
+			acc[4] += 1
+			acc[5] += g.positions[id]
 		cells[key] = acc
 	var keys := cells.keys()
 	keys.sort()
@@ -87,7 +108,9 @@ static func populate(mm: MultiMesh, sim: GrowthSim, seed: int, care: PackedFloat
 	var total_nodes := 0
 	for key in keys:
 		var acc: Array = cells[key]
-		masses.append([acc[0] / float(acc[1]), int(acc[1]), float(acc[2]) / float(acc[1]), key])
+		# [centre, nodes, young share, key, mark strength, marked share, marked twig's centre]
+		var tired_at: Vector3 = acc[5] / float(acc[4]) if int(acc[4]) > 0 else acc[0] / float(acc[1])
+		masses.append([acc[0] / float(acc[1]), int(acc[1]), float(acc[2]) / float(acc[1]), key, float(acc[3]), float(acc[4]) / float(acc[1]), tired_at])
 		total_nodes += int(acc[1])
 	var mean_nodes := float(total_nodes) / masses.size()
 	last_masses = masses.size()
@@ -97,6 +120,7 @@ static func populate(mm: MultiMesh, sim: GrowthSim, seed: int, care: PackedFloat
 	var want := 0
 	var plan: Array = []
 	var shrink: Array = []
+	var tired_plan: Array = []
 	for m in masses:
 		var weight := clampf(sqrt(float(m[1]) / mean_nodes), 0.7, 1.3)
 		var r := cell * 0.5 * weight
@@ -114,6 +138,15 @@ static func populate(mm: MultiMesh, sim: GrowthSim, seed: int, care: PackedFloat
 			var roll := float(posmod(hash([seed, "bare", m[3]]), 1000)) / 1000.0
 			if roll < pk_short * PK_BARE * (0.6 + 0.8 * inner):
 				n = 0
+		# A marked twig: its share of the mass (at least MARK_MIN_SHARE, so a short twig still
+		# shows) thins out; shape first, so it reads in autumn too.
+		var tired_m: float = m[4]
+		var tired_n := 0
+		if tired_m > 0.0 and n > 0:
+			var own := maxi(1, int(round(n * clampf(maxf(float(m[5]), MARK_MIN_SHARE), 0.0, 1.0))))
+			tired_n = maxi(1, int(round(own * (1.0 - lerpf(MARK_THIN, MARK_THIN_AUTUMN, clampf(autumn, 0.0, 1.0)) * tired_m))))
+			n = n - own + tired_n
+		tired_plan.append(tired_n)
 		plan.append(n)
 		want += n
 	var squeeze := minf(1.0, float(BUDGET) / maxf(want, 1.0))
@@ -139,12 +172,17 @@ static func populate(mm: MultiMesh, sim: GrowthSim, seed: int, care: PackedFloat
 		var sunny := clampf(0.5 + 0.35 * out.y + 0.25 * (rel.length() - 0.6), 0.0, 1.0)
 		var mass_tint := Color(1.0, 1.0, 1.0).lerp(Color(1.04, 1.02, 0.88), sunny * rng.randf_range(0.1, 0.6))
 		mass_tint = mass_tint * rng.randf_range(0.88, 1.04)
+		# The first sprays of a mass with a marked twig are that twig's: around it, dull, hanging.
+		var tired_left := mini(int(tired_plan[k]), int(plan[k]))
 		for _s in range(int(plan[k])):
+			var tired_k: float = masses[k][4] if _s < tired_left else 0.0
 			# A direction over the mass, mostly on its upper and outer side.
 			var d := Vector3(rng.randfn(), rng.randfn(), rng.randfn()).normalized()
 			if d.dot(mass_up) < -0.1:
 				d = (d + mass_up * 1.2).normalized()
 			var at := at_mass + d * r * rng.randf_range(0.35, 0.9)
+			if tired_k > 0.0:
+				at = (masses[k][6] as Vector3) + (at - at_mass) * 0.6
 			# Leaves face out of the mass and up to the light.
 			var face := (d * 0.6 + out * 0.3 + Vector3.UP * 0.35 + Vector3(rng.randf_range(-0.3, 0.3), 0, rng.randf_range(-0.3, 0.3))).normalized()
 			var along := (d + Vector3.UP * 0.25 + Vector3(rng.randf_range(-0.6, 0.6), rng.randf_range(-0.3, 0.3), rng.randf_range(-0.6, 0.6)))
@@ -152,8 +190,12 @@ static func populate(mm: MultiMesh, sim: GrowthSim, seed: int, care: PackedFloat
 			if along.length_squared() < 1e-3:
 				along = face.cross(Vector3.RIGHT)
 			along = along.normalized()
+			# A marked twig's sprays hang limp and a little smaller (shape, so it reads in autumn).
+			if tired_k > 0.0:
+				along = along.lerp(Vector3.DOWN, MARK_HANG * tired_k).normalized()
+				face = (face - along * face.dot(along)).normalized()
 			var side := along.cross(face).normalized()
-			var s := card * rng.randf_range(0.85, 1.2) / sqrt(squeeze) * float(shrink[k])
+			var s := card * rng.randf_range(0.85, 1.2) / sqrt(squeeze) * float(shrink[k]) * (1.0 - MARK_SMALL * tired_k)
 			var basis := Basis(side, along, face).scaled(Vector3(s, s, s))
 			# The card's stem end is its origin: shift so the leaves sit around `at`.
 			mm.set_instance_transform(i, Transform3D(basis, at - along * s * 0.45))
@@ -166,6 +208,8 @@ static func populate(mm: MultiMesh, sim: GrowthSim, seed: int, care: PackedFloat
 			var low := clampf(-spray_rel.y, 0.0, 1.0)
 			var occlusion := clampf(depth * 1.1 + under * 0.55 + low * 0.3, 0.0, 0.92)
 			var c := mass_tint * rng.randf_range(0.92, 1.06)
+			if tired_k > 0.0:
+				c = c.lerp(c * MARK_DULL_TINT, MARK_DULL * tired_k)
 			mm.set_instance_color(i, Color(c.r, c.g, c.b * rng.randf_range(0.9, 1.05), occlusion))
 			var e := oct_encode(n)
 			mm.set_instance_custom_data(i, Color(float(rng.randi() % 4), rng.randf(), e.x, e.y))
@@ -181,24 +225,60 @@ static func leafy_nodes(sim: GrowthSim) -> PackedInt32Array:
 	var height := sim.height()
 	var reach := clampi(int(10.0 - height * 0.4), 4, 9)
 	var bare_below := sim.crown_base()
-	# Segments from each node to its nearest living tip (children have larger ids).
-	var to_tip := PackedInt32Array()
-	to_tip.resize(n)
-	to_tip.fill(1 << 20)
-	for id in range(n - 1, -1, -1):
-		if g.get_flag(id, "dead", false):
-			continue
-		var best := 1 << 20
-		var any := false
-		for c in (g.children[id] as Array):
-			if not g.get_flag(c, "dead", false):
-				any = true
-				best = mini(best, to_tip[c] + 1)
-		to_tip[id] = best if any else 0
+	var to_tip := segments_to_tip(g)
 	var out := PackedInt32Array()
 	for id in range(2, n):
 		if to_tip[id] <= reach and g.radii[id] < LEAF_RADIUS and g.positions[id].y >= bare_below and not g.get_flag(id, "dead", false):
 			out.append(id)
+	return out
+
+
+## Segments from each node to its nearest living leaf tip (children have larger ids); NO_TIP for
+## dead wood and for a twig whose shaded end died back (flag "withered", GrowthSim.shade_dieback):
+## it stays bare, as it is no leaf cluster in the sim either.
+const NO_TIP := 1 << 20
+
+
+static func segments_to_tip(g: PlantGraph) -> PackedInt32Array:
+	var n := g.size()
+	var to_tip := PackedInt32Array()
+	to_tip.resize(n)
+	to_tip.fill(NO_TIP)
+	for id in range(n - 1, -1, -1):
+		if g.get_flag(id, "dead", false):
+			continue
+		var best := NO_TIP
+		var any := false
+		for c in (g.children[id] as Array):
+			if not g.get_flag(c, "dead", false) and to_tip[c] < NO_TIP:
+				any = true
+				best = mini(best, to_tip[c] + 1)
+		if any:
+			to_tip[id] = best
+		else:
+			var living := false
+			for c in (g.children[id] as Array):
+				if not g.get_flag(c, "dead", false):
+					living = true
+			to_tip[id] = NO_TIP if living or g.get_flag(id, "withered", false) else 0
+	return to_tip
+
+
+## Bark colours per node for the branch mesh (BranchMeshBuilder.node_colors): white, with the
+## alpha lowered where the bark greys (bark.gdshader): a marked twig by its sign, the thin wood
+## of a twig that died back in the shade.
+static func bark_colors(sim: GrowthSim) -> PackedColorArray:
+	var g := sim.graph
+	var out := PackedColorArray()
+	out.resize(g.size())
+	out.fill(Color(1, 1, 1, 1))
+	var to_tip := segments_to_tip(g)
+	for id in range(g.size()):
+		if to_tip[id] >= NO_TIP and g.radii[id] < LEAF_RADIUS and not g.get_flag(id, "dead", false):
+			out[id] = Color(1, 1, 1, 1.0 - WITHERED_BARK)
+	var tired := sim.tired_nodes()
+	for id: int in tired:
+		out[id] = Color(1, 1, 1, minf(out[id].a, 1.0 - MARK_BARK * float(tired[id])))
 	return out
 
 

@@ -23,6 +23,13 @@ Install each fully checked version on his phone (save backed up first); APKs in 
   - The seed sack keeps "seeds" printed on it; its label says "seed bag".
 - Note: Simon's phone has 0.6 with his save; backups in GameDev/tree-shots/savebackup.
 
+## v0.7 (in progress)
+- Branches the tree marks for pruning (natural signs only): a shaded twig that will die back in a
+  day or two shows it first, with thin, limp, washed-out leaves and greying bark; at most three at
+  a time, never on beech or the bonsai; the care page says in one line that a branch looks tired.
+  Cut it or leave it: left alone it dies back as before (and now stays a bare grey twig). A dying
+  tip gives nothing back when cut. Notes and numbers: docs/notes/marks-0.7.md.
+
 ## v0.6.3: tree care, softer nights, review fixes
 - The tree shows what it lacks, shape first: thirsty leaves hang, new shoots short of nitrogen
   stay sparse and small, short of phosphorus or potassium some leaf masses stay bare; colour only

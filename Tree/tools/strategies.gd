@@ -15,6 +15,9 @@ extends SceneTree
 ##   boost_morning  the RootBot / boosted the first third of each day
 ##   tip            the RootBot from the newest root tip (continuing the last root) / calm days
 ##   wish           from the newest root tip toward the wish's glow, then the RootBot / calm days
+##   cut_marks      the RootBot / calm days, and every noon each twig the tree marks is cut at
+##                  its fork (0.7, broken list 9: never sooner than dots)
+##   cut_marks_tip  as cut_marks, but only the marked tip itself is cut (the smallest cut)
 
 const FRAME: float = 1.0 / 30.0
 ## --set=name=value (repeatable): tuning overrides, applied to the RootSystem, or with a
@@ -91,7 +94,7 @@ static func play(strat: String, species_id: String, seed: int, days: int, nights
 				if strat == "wish" and not glows.is_empty():
 					bot.goal = glows[0]["center"]
 					bot.goal_radius = float(glows[0]["radius"]) * 0.5
-			elif strat == "dots" or strat.begins_with("boost_") and not quits:
+			elif strat == "dots" or strat.begins_with("cut_marks") or strat.begins_with("boost_") and not quits:
 				var starter := RootBot.new()
 				starter.start_by_need = not overrides.has("start_any")
 				from = starter.pick_start(g.roots, g.ground, g.sim.resources)
@@ -123,10 +126,14 @@ static func play(strat: String, species_id: String, seed: int, days: int, nights
 		while g.phase == GameState.Phase.NIGHT:
 			g.tick(0.25)
 		var before := g.sim.living_nodes()
+		var pruned := false
 		while g.phase == GameState.Phase.DAY:
 			var tod: float = g.sim.clock.time_of_day / g.sim.clock.daylight_fraction
 			if boosts and (strat != "boost_morning" or tod < 0.33):
 				g.boost_hour()
+			if strat.begins_with("cut_marks") and not pruned and tod >= 0.5:
+				pruned = true
+				cut_marks(g.sim, strat == "cut_marks_tip")
 			g.tick(0.5)
 		if not g.finished:
 			least = mini(least, g.sim.living_nodes() - before)
@@ -148,6 +155,19 @@ static func play(strat: String, species_id: String, seed: int, days: int, nights
 		wished += 1
 	return {"strat": strat, "species": species_id, "seed": seed, "finish": finish_day, "heights": heights, "nodes": g.sim.living_nodes(),
 		"secs": secs, "lens": lens, "least": least, "lf_left": lf_left, "wished": wished, "reached": reached}
+
+
+## Cuts every twig the tree marks right now: at its fork, or (`tip_only`) only the tip.
+## Returns the segments cut.
+static func cut_marks(sim: GrowthSim, tip_only: bool = false) -> int:
+	var cut := 0
+	for m in sim.marks.duplicate():
+		if sim.mark_strength(m) <= 0.0:
+			continue
+		var twig := sim.marked_twig(int(m["id"]))
+		if not twig.is_empty():
+			cut += sim.prune(twig[0] if tip_only else twig[-1])
+	return cut
 
 
 static func summary(r: Dictionary) -> String:

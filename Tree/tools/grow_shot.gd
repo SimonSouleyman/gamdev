@@ -9,6 +9,9 @@ extends SceneTree
 ## --overdraw: photograph the overdraw view instead (Forward+ and Mobile renderers only):
 ## the brighter, the more layers each pixel was shaded in.
 ## --pitch=0.5 --zoom=0.8: look down more / step closer (the ground under the crown).
+## --marks: the twigs the tree marks for pruning (0.7): a photo from the side of the most visible
+## marked twig, then each marked twig is cut at its fork and a second photo follows
+## (<tag>marks_before.png, <tag>marks_after.png); prints where the marks are.
 ## --rain: a shower on the last day (Clearing.after_rain), so the mushrooms are up.
 ## Mood (section 17): --season=spring|summer|autumn|late_autumn, --weather=rain|mist|dew|clear,
 ## --moon=<phase 0..1>, --date=YYYY-MM-DD (Almanac.read_cmdline); --night=<0..1> photographs the
@@ -36,6 +39,7 @@ var tag := ""
 var look_up := 0.0
 var face_moon := false
 var settle := 0
+var marks := false
 
 
 func _initialize() -> void:
@@ -58,6 +62,8 @@ func _initialize() -> void:
 			rain = true
 		elif a == "--prune":
 			prune = true
+		elif a == "--marks":
+			marks = true
 		elif a == "--dive":
 			dive = true
 		elif a == "--overdraw":
@@ -101,6 +107,22 @@ func _initialize() -> void:
 	# Stop at noon of the last day (or at sunset for --night).
 	while g.sim.clock.time_of_day < g.sim.clock.daylight_fraction * hour and g.phase == GameState.Phase.DAY:
 		g.tick(0.5)
+	# --marks: go on a day at a time (at most a week) until two twigs or more show the sign.
+	var extra := 0
+	while marks and g.sim.marks.size() < 2 and extra < 7:
+		extra += 1
+		while g.phase == GameState.Phase.DAY:
+			g.tick(0.5)
+		g.dive()
+		g.start_run(0 if g.roots.graph.size() <= 1 else g.roots.graph.size() - 1)
+		var bot2 := RootBot.new()
+		var guard2 := 0
+		while g.steer(bot2.stick_for(g.roots, g.ground), false, 1.0 / 30.0) and guard2 < 20000:
+			guard2 += 1
+		while g.phase == GameState.Phase.NIGHT:
+			g.tick(0.25)
+		while g.sim.clock.time_of_day < g.sim.clock.daylight_fraction * hour and g.phase == GameState.Phase.DAY:
+			g.tick(0.5)
 	while night >= 0.0 and g.phase == GameState.Phase.DAY:
 		g.tick(0.5)
 	if rain:
@@ -131,6 +153,8 @@ func _process(_delta: float) -> bool:
 		return _dive_frames()
 	if prune:
 		return _prune_frames()
+	if marks:
+		return _marks_frames()
 	var names := ["from_north", "from_east", "from_south"]
 	var yaws := [PI, PI * 0.5, 0.0]
 	if only_yaw > -99.0:
@@ -229,5 +253,42 @@ func _prune_frames() -> bool:
 		print("cut ", view.pruning.cut(), " segments")
 		view._rebuild()
 	if frame > 82:
+		quit()
+	return false
+
+
+## --marks: photograph the marked twigs from their side, cut them at the fork, photograph again.
+func _marks_frames() -> bool:
+	var sim := view.state.sim
+	if frame == 2:
+		var best := Vector3.ZERO
+		var best_out := -1.0
+		for m in sim.marks:
+			var p := sim.graph.positions[int(m["id"])]
+			print("mark: tip %d at (%.1f, %.1f, %.1f), due day %d, shown since day %d, strength %.2f, twig %d segments" % [int(m["id"]), p.x, p.y, p.z, int(m["due"]), int(m["since"]), sim.mark_strength(m), sim.marked_twig(int(m["id"])).size()])
+			if Vector2(p.x, p.z).length() > best_out:
+				best_out = Vector2(p.x, p.z).length()
+				best = p
+		view._yaw = atan2(best.x, best.z) if only_yaw < -99.0 else only_yaw
+		view._pitch = pitch
+		view._zoom = zoom
+	if frame == 250:
+		RenderingServer.force_draw(false)
+		root.get_viewport().get_texture().get_image().save_png(shots_dir.path_join("%smarks_before.png" % tag))
+		for m in sim.marks:
+			var at := view.camera.unproject_position(view.to_global(sim.graph.positions[int(m["id"])]))
+			print("mark on screen: tip %d at (%d, %d)" % [int(m["id"]), int(at.x), int(at.y)])
+	if frame == 252:
+		var n := 0
+		for m in sim.marks.duplicate():
+			var twig := sim.marked_twig(int(m["id"]))
+			if not twig.is_empty():
+				n += sim.prune(twig[-1])
+		print("cut %d segments of marked twigs" % n)
+		view._rebuild()
+	if frame == 400:
+		RenderingServer.force_draw(false)
+		root.get_viewport().get_texture().get_image().save_png(shots_dir.path_join("%smarks_after.png" % tag))
+	if frame > 402:
 		quit()
 	return false
