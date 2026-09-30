@@ -53,6 +53,15 @@ MJPEG AVI, so `VideoSaver.java` (on a worker thread):
    ask for it, so there it fails cleanly (`video_saved(false)`, the AVI stays in the user folder).
 4. Emits `video_saved(ok)` on Godot's render thread. The temporary MP4 is deleted either way.
 
+## TreeLive: the live wallpaper and screen saver (0.8)
+
+A second, plain Android library in `treelive/` (no Godot dependency, no Google services, no
+permission): `TreeWallpaperService` (WallpaperService) and `TreeDreamService` (DreamService) draw
+the tree the game renders into `user://live_picture` (the app's files dir) with a small Canvas
+renderer, in their own process `:live`. Built as `addons/tree_phone/bin/tree_live-release.aar`
+(`gradlew.bat :treelive:copyAarToAddon`), which the export plugin adds beside TreePhone's AAR.
+Details, battery reasoning and how to switch it on: `docs/notes/live-icon-0.8.md`.
+
 ## Layout
 
 - `treephone/` the library module (Java). Manifest: permissions, plugin meta-data

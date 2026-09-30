@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- A live wallpaper is offered where the phone has them; the game installs anywhere. -->
+    <uses-feature
+        android:name="android.software.live_wallpaper"
+        android:required="false" />
+
+    <application>
+        <!-- The live wallpaper (home and lock screen). BIND_WALLPAPER guards the service (only the
+             system binds it); the app asks for no permission. Its own small process, so the
+             wallpaper never keeps the game's engine in memory. -->
+        <service
+            android:name="de.simonsouleyman.treelive.TreeWallpaperService"
+            android:label="@string/tree_live_name"
+            android:permission="android.permission.BIND_WALLPAPER"
+            android:process=":live"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.service.wallpaper.WallpaperService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.service.wallpaper"
+                android:resource="@xml/tree_live_wallpaper" />
+        </service>
+
+        <!-- The screen saver (Settings > Display > Screen saver), the same animation. -->
+        <service
+            android:name="de.simonsouleyman.treelive.TreeDreamService"
+            android:label="@string/tree_live_name"
+            android:permission="android.permission.BIND_DREAM_SERVICE"
+            android:process=":live"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.service.dreams.DreamService" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+            <meta-data
+                android:name="android.service.dream"
+                android:resource="@xml/tree_live_dream" />
+        </service>
+    </application>
+</manifest>

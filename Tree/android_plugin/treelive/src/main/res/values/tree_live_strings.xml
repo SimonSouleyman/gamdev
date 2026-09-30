@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="tree_live_name">Tree</string>
+    <string name="tree_live_description">Your tree from the game, moving softly in the wind. The light follows the real time of day.</string>
+</resources>

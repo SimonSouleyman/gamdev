@@ -147,3 +147,10 @@ Each criterion has a test in `tests/` unless marked (visual), which Simon judges
 - After 12 days steering to deposits leads ending early (linden, seed 14), ending early still grows, and no night's root takes more than a minute (tests/test_game_state.gd).
 - A boost grows faster but gathers at most 60 % of the life force (test).
 - Measured with tools/strategies.gd over seeds 3, 14, 27 and linden, birch, oak: chasing deposits finishes first (or level with always boosting), ending early 8-15 days later; month_report keeps every species within a week of its target.
+## 0.8 live picture and app icon (specs/0.8.md sections 6 and 7)
+- The live picture shows only the tree of the last save with its grass line and a sky; no HUD, forest, shed or text (LiveExport draws in a world of its own; visual: `tools/live_shot.gd`).
+- The light follows the real time: German sunrise and sunset by date, golden light at a low sun, night an hour after sunset, the moon's real phase (tests/test_live_picture.gd); the phone's copy of the maths gives identical numbers (`tools/live_parity.gd`).
+- The crown sways softly, the trunk's foot and the picture's edges stay; 12 frames a second (test).
+- The crown stays below the lock screen's clock on phone screens and the view never pans (test).
+- The meta file round trip; a newer, broken or foreign picture is refused and the last good one stays; no picture shows the bundled sapling (tests; LiveData.java).
+- The app icon: a linden from the game's growth on a pale-blue sky and a grass line, crown inside the adaptive icon's safe circle, readable at 48 px (visual: `tools/render_app_icon.gd -- --qa=`).

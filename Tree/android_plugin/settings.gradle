@@ -16,3 +16,6 @@ dependencyResolutionManagement {
 
 rootProject.name = "tree_phone"
 include ":treephone"
+// The live picture (wallpaper and screen saver): a plain Android library of its own, no Godot
+// dependency (specs/0.8.md section 6, docs/notes/live-icon-0.8.md).
+include ":treelive"

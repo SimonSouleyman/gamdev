@@ -25,7 +25,8 @@ class TreePhoneExportPlugin extends EditorExportPlugin:
 
 	func _get_android_libraries(_platform: EditorExportPlatform, _debug: bool) -> PackedStringArray:
 		# Relative to res://addons/. One release AAR serves debug and release exports.
-		return PackedStringArray(["tree_phone/bin/tree_phone-release.aar"])
+		# tree_live: the live wallpaper and screen saver (android_plugin/treelive, no Godot code).
+		return PackedStringArray(["tree_phone/bin/tree_phone-release.aar", "tree_phone/bin/tree_live-release.aar"])
 
 	func _get_android_dependencies(_platform: EditorExportPlatform, _debug: bool) -> PackedStringArray:
 		# Plain Android APIs only: no Maven dependencies.

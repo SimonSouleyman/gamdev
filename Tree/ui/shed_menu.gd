@@ -267,7 +267,39 @@ func _build_options() -> void:
 	backup_notes.offset_top = -314
 	backup_notes.offset_bottom = -314
 	_options.add_child(backup_notes)
+	_add_live_note(board)
 	_options.visible = false
+
+
+## The live picture (specs/0.8.md section 6): a scrap pinned under the notes that says, in one line
+## when tapped, how to put the tree on the phone's home screen or screen saver. Phone only (a PC has
+## no live wallpaper); tools may show it.
+const LIVE_NOTE := "the tree on my phone"
+const LIVE_HOW := "Hold the home screen: Wallpapers, Tree. While charging: Settings, Display, Screen saver."
+static var show_live_note: bool = Phone.is_available()
+var live_note: Button
+
+
+func _add_live_note(board: Control) -> void:
+	live_note = Paper.scrap_button(LIVE_NOTE, 24, 97)
+	live_note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	live_note.visible = show_live_note
+	_place_live_note(false)
+	live_note.pressed.connect(func() -> void: _place_live_note(live_note.text == LIVE_NOTE))
+	board.add_child(live_note)
+
+
+## Closed: a small scrap below the notes. Open: held up in the middle of the board with its line.
+func _place_live_note(open: bool) -> void:
+	live_note.text = LIVE_HOW if open else LIVE_NOTE
+	live_note.set_anchors_preset(Control.PRESET_CENTER if open else Control.PRESET_CENTER_BOTTOM)
+	live_note.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	live_note.grow_vertical = Control.GROW_DIRECTION_BOTH if open else Control.GROW_DIRECTION_BEGIN
+	live_note.offset_left = -280 if open else -150
+	live_note.offset_right = 280 if open else 150
+	live_note.offset_top = -70 if open else -196
+	live_note.offset_bottom = 70 if open else -140
+	live_note.rotation_degrees = -0.6 if open else 0.8
 
 
 ## Cork in a wooden frame: speckled noise, generated once.

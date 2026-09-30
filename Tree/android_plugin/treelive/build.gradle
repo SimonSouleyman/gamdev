@@ -1,0 +1,34 @@
+plugins {
+    id "com.android.library"
+}
+
+// The live picture of the tree (specs/0.8.md section 6): a live wallpaper and a screen saver
+// sharing one small Canvas renderer. Plain Android, no Godot or Google dependency; it only reads
+// the layers the game writes into its files dir (user://live_picture).
+android {
+    namespace "de.simonsouleyman.treelive"
+    compileSdk 36
+    // The Android SDK on this PC has build-tools 36.0.0 only.
+    buildToolsVersion "36.0.0"
+
+    defaultConfig {
+        minSdk 24
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    buildFeatures {
+        buildConfig false
+    }
+}
+
+// Copies the release AAR into the Godot addon, beside TreePhone's; the export plugin adds both.
+tasks.register("copyAarToAddon", Copy) {
+    dependsOn "assembleRelease"
+    from(layout.buildDirectory.file("outputs/aar/treelive-release.aar"))
+    into(file("../../addons/tree_phone/bin"))
+    rename { "tree_live-release.aar" }
+}
