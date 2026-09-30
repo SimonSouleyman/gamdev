@@ -1,8 +1,8 @@
 # Spec: side roots from the fine roots, and thicker roots for a full run
 
 Written 2026-09-30 from Simon's 0.8 phone notes (17:43 UTC). It is a changed mechanic, so it is
-specced before it is built (design-practice.md). By the versioning rule it is a new feature, so
-it belongs to **0.9**; the three other notes from the same test are 0.8.x fixes (specs/0.8.md,
+specced before it is built (design-practice.md). Simon (2026-09-30, 17:45 UTC) keeps it in 0.8.x
+rather than 0.9: it lands as **0.8.2**, after the 0.8.1 fixes from the same test (specs/0.8.md,
 "Simon's 0.8 phone notes"). Numbers are levers, not orders; the build thread records what it
 picks in tuning.md.
 
