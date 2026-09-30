@@ -45,6 +45,22 @@ Install each fully checked version on his phone (save backed up first); APKs in 
   word no longer hides behind the book; the diary's wish sketch sits under its line; sill tools
   a little further apart and the stray lid gone.
 
+## v0.8 (in progress)
+- Shapes on the nutrient dots (specs/0.8.md section 1): water glows as a drop, nitrogen a leaf,
+  phosphorus a four-point spark, potassium a ring, so the dots read without colour (red-green
+  colour blindness, a grey screenshot). Same quads and draw call underground (an atlas in the
+  dot shader); far dots in the fog fade to one round glow. The marks also show on the HUD pills,
+  the care page, the pages that name the dots, and the bonsai's pellet slip; hints say
+  "the blue drop dots". Always on. Notes: docs/notes/shapes-brush-0.8.md.
+- Brush pile with a hedgehog (section 4): cut branches lie on a pile of sticks at the clearing
+  edge away from the shed from the next sunrise, growing with each cut (one merged mesh, at most
+  40 sticks). After 40 cut segments a hedgehog moves in two sunrises later and snuffles out at
+  dusk on about half the evenings (less from 25 October, never from 20 November until spring),
+  with a diary line and an ink sketch the first time; after 80 a wren may sing from the pile by
+  day. Rain darkens the sticks. Mood only; fresh for each tree; the bonsai's cuttings stay out.
+- Tools: grow_shot.gd `--roots` (the underground, also in grey), `--cut=`, `--hedgehog=`,
+  `--wren=`, `--pile_close`.
+
 ## v0.6.3: tree care, softer nights, review fixes
 - The tree shows what it lacks, shape first: thirsty leaves hang, new shoots short of nitrogen
   stay sparse and small, short of phosphorus or potassium some leaf masses stay bare; colour only

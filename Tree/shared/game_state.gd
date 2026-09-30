@@ -29,6 +29,8 @@ var roots: RootSystem
 var diary := Diary.new()
 ## The ground under the crown: shade plants and mushrooms, the first collection (Clearing).
 var clearing := Clearing.new()
+## The brush pile of this tree's cuttings and its hedgehog and wren (0.8, BrushPile). Mood only.
+var brush := BrushPile.new()
 var phase: Phase = Phase.DAY
 ## Tonight's single run was used.
 var run_used: bool = false
@@ -254,8 +256,10 @@ func _tick_loop(delta: float) -> void:
 				if not _spent_announced and (sim.nutrients_spent() or sim.nutrient_missing()):
 					_spent_announced = true
 					_event("spent")
+			_brush_visitors()
 		Phase.SUNSET:
-			pass  # time holds until the player taps the ground
+			# Time holds until the player taps the ground; the hedgehog may still come out.
+			_brush_visitors()
 		Phase.NIGHT:
 			if night_empty and not night_done:
 				_empty_timer += delta
@@ -452,6 +456,9 @@ func _sunrise() -> void:
 	if sim.species.in_blossom(day_number()) and not sim.species.in_blossom(day_number() - 1):
 		diary.add(day_number(), "The %s is in blossom. The bees have come, and the leaves are busier than ever." % tree_name())
 		_event("blossom")
+	# Yesterday's cuttings lie on the brush pile now (0.8).
+	if brush.sunrise(day_number()):
+		diary.add(day_number(), PILE_LINE)
 	sim.start_dawn_burst()
 	if was_seed and not sim.nutrients_spent():
 		diary.add(day_number(), "The seed sprouted at dawn.")
@@ -461,6 +468,34 @@ func _sunrise() -> void:
 	_weather_note("morning")
 	morning_timer = 0.0
 	_event("sunrise")
+
+
+# --- the brush pile (0.8) -------------------------------------------------------
+
+const HEDGEHOG_LINE := "At dusk a hedgehog snuffled out of the brush pile at the edge of the clearing and back in again. It has moved into my cuttings."
+const WREN_LINE := "A wren sang from the brush pile, loud for such a small bird."
+const PILE_LINE := "The branches I cut lie on a pile of sticks at the edge of the clearing now."
+
+
+## A branch of the tree was cut (tree/pruning.gd): it goes onto the brush pile at sunrise.
+func cut_to_pile(segments: int) -> void:
+	brush.add_cut(segments)
+
+
+## The hedgehog at dusk and the wren by day, each at most once a day (BrushPile). The first
+## visit of each writes a diary line; they count as this tree's visitors.
+func _brush_visitors() -> void:
+	var clock := sim.clock
+	var share := minf(1.0, clock.time_of_day / clock.daylight_fraction)
+	var day := day_number()
+	if brush.hedgehog_due(day, share, Almanac.today(), seed):
+		brush.hedgehog_day = day
+		if first_time("visitor_hedgehog"):
+			diary.add(day, HEDGEHOG_LINE, "tree", "hedgehog")
+	if brush.wren_due(day, share, seed):
+		brush.wren_day = day
+		if first_time("visitor_wren"):
+			diary.add(day, WREN_LINE)
 
 
 ## The weather of the current game day (design doc section 17: mood only).
@@ -612,6 +647,7 @@ func to_dict() -> Dictionary:
 		"clearing": clearing.to_dict(),
 		"bonsai": bonsai.to_dict() if bonsai != null else null,
 		"bonsai_resting": bonsai_resting,
+		"brush": brush.to_dict(),
 	}
 
 
@@ -641,6 +677,8 @@ static func from_dict(d_in: Dictionary) -> GameState:
 			g.grove.append({"species": str(t.get("species", "linden")), "days": int(t.get("days", 0)), "seed": int(t.get("seed", 0))})
 	for k in d.get("seen_pages", []):
 		g.seen_pages[str(k)] = true
+	if d.get("brush") is Dictionary:
+		g.brush = BrushPile.from_dict(d["brush"])
 	if d.get("bonsai") is Dictionary:
 		g.bonsai = BonsaiSim.from_dict(d["bonsai"])
 	if d.get("bonsai_resting") is Dictionary:

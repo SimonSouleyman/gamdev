@@ -331,7 +331,7 @@ func test_care_page_reads_the_tree() -> void:
 	for part in Care.page(g):
 		text += str(part["title"]) + ": " + str(part["text"]) + "\n"
 	t.check("Thirsty" in text, "names the thirst:\n" + text)
-	t.check("blue dots" in text, "says which dots to steer for")
+	t.check("blue drop dots" in text, "says which dots to steer for, by colour and shape (0.8)")
 	t.check("The crown" in text and "The last cut" in text, "the crown's shape and the last cut")
 	var id := _branch(g.sim, 30, 5)
 	g.sim.prune(id)

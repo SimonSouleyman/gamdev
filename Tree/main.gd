@@ -298,7 +298,7 @@ func _spent_page() -> void:
 		return
 	var body := Pages.body("spent")
 	var missing: Array[String] = []
-	var names: Array[String] = ["water (blue dots)", "nitrogen (green dots)", "phosphorus (orange dots)", "potassium (violet dots)"]
+	var names: Array[String] = ["water (blue drop dots)", "nitrogen (green leaf dots)", "phosphorus (orange spark dots)", "potassium (violet ring dots)"]
 	for k in range(4):
 		if state.sim.resources.stock[k] < state.sim.cost_per_node * state.sim.species.needs[k]:
 			missing.append(names[k])
