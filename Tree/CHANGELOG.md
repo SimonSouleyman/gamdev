@@ -2,15 +2,18 @@
 
 ## Progress (for resuming work)
 
-Simon (2026-09-29, away): finish 0.6.x, then 0.7 (his three picks), then 0.8 (specs/0.8.md: fixes
-from the 0.7 check first, then dot shapes, backup, sharing, brush pile, app icon, live picture).
-Install each fully checked version on his phone (save backed up first); APKs in GameDev/tree-releases.
-- 0.6.3 tagged (tree-v0.6.3), on main and on Simon's phone.
-- 0.7 tagged on iterate-0.7 (wish glow, bonsai tools on the sill, marked branches, look/UI fixes
-  from the 0.7 check). Balance findings of the 0.7 check go into 0.8 (Simon: "direkt in 0.8").
-- 0.8 streams: s08-shapes (dot shapes, brush pile with hedgehog), s08-backup (copy/load, share),
-  s08-live (live picture wallpaper + screen saver, new app icon) built; s08-balance (section 5
-  fixes) in progress. Then merge into iterate-0.8, full check, phone install.
+State 2026-09-30 (PC switched off by Simon): 0.8 is tagged (tree-v0.8), on main and installed on
+Simon's phone with his save (backups in GameDev/tree-shots/savebackup/pre-0.8). APKs in
+GameDev/tree-releases. Away mode is over: open questions go to Simon again (via the coordinator).
+- Next: 0.8.1 on branch s08-sim (worktree GameDev/wt-sim08), unfinished WIP commit: players who
+  boost all day and end every root at once (boost_quit) must finish by ~day 40 (linden s3, beech
+  s3, alder s14 don't by day 45); oak boost_morning s3 is 15.2 % faster than dots (limit 15 %).
+  Welcome but optional: oak straight_down day 43 (limit ~42), alder end_early s3 11 days after
+  dots (limit 10). Review: GameDev/tree-qa/check-0.8/playthrough.md. Numbers with reasons go to
+  docs/notes/balance-0.8.md; tuning.md belongs to the design thread. Then the full check and
+  install as 0.8.1.
+- Known minor: hedgehog only ~9-15 px at the tree's foot; marked branches are subtle; care
+  signals rarely show now that nothing starves (design question).
 - Choices taken as "recommended" while Simon was away:
   - Scope after 0.7: new features too (Simon tapped it), 0.8 per the design thread's spec.
   - Live picture: wallpaper and screen saver, one animation (default until he answers).
