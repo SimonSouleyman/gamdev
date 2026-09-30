@@ -71,9 +71,9 @@ at once still gets a small fan of side roots, as today's unsteered tree still fi
 - Stuck against rock: the leftover goes into the second level, as it goes into fine roots today.
 - Old saves: existing roots keep their thickness 1.0x and have no second level.
 - Node budget: the second and third levels together get at most about 250 nodes per night (first
-  level 150), and all levels share `FINE_ROOTS_MAX_PER_MAIN_ROOT` (600) with the first; the
+  level 150), all within `FINE_ROOTS_MAX_PER_MAIN_ROOT` (600); the
   root graph size does not grow.
-- Phone: second-level roots are the thinnest thing drawn underground; they must still read in
+- Phone: third-level roots are the thinnest thing drawn underground; they must still read in
   the darker night view (see the darkness note in specs/0.8.md).
 - Oak (deep-root quirk) and birch (cheap topsoil) keep their quirks; the second level follows
   the same cost rules as fine roots (none, it is paid from the leftover).
