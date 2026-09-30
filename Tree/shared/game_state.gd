@@ -393,7 +393,16 @@ func _on_run_done() -> void:
 		day_number() + 1, roots.run_length, t[0], t[1], t[2], t[3]])
 	if roots.leftover_spent > 1.0 and roots.count_flagged("fine", roots.main_root_count - 1) > 0:
 		diary.add(day_number(), "The rest of the night's life force (%.0f) went into fine roots around it." % roots.leftover_spent)
+	# The root reached the glowing wish deposit: a line with a small ink drawing (0.7).
+	var reached := diary.check_reached(ground, roots, day_number(), day_number() + 1)
+	if reached >= 0:
+		_event("wish:%d" % reached)
 	_event("run_done")
+
+
+## The wish deposits that glow underground tonight (Diary.glows).
+func wish_glows() -> Array:
+	return diary.glows(ground)
 
 
 ## Grown to the species' full size: into the grove; the seed bag offers the next seed.
@@ -446,7 +455,9 @@ func _sunrise() -> void:
 	sim.start_dawn_burst()
 	if was_seed and not sim.nutrients_spent():
 		diary.add(day_number(), "The seed sprouted at dawn.")
-	diary.wish = Diary.make_wish(ground, day_number(), seed)
+	# A missed wish deposit glows faintly one more night; the new wish may place a deposit ahead
+	# of the newest root tip, of what the tree is shorter of (Diary.plan_wish).
+	diary.new_wish(ground, day_number(), seed, roots, sim.resources)
 	_weather_note("morning")
 	morning_timer = 0.0
 	_event("sunrise")

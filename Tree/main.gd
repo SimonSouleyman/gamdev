@@ -148,6 +148,7 @@ func start(p_state: GameState) -> void:
 	journal.state = state
 	shed_menu.set_tree_name(state.tree_name())
 	tree_view.setup(state)
+	_meadow_wishes = state.ground.wish_deposits.size()
 	# The test switch "any species now" also opens the bonsai.
 	state.ensure_bonsai(bool(journal.settings.get("any_species", false)))
 	bonsai_view.setup(state)
@@ -195,6 +196,8 @@ func _show_underground(on: bool) -> void:
 ## The simulation runs in fixed steps, so the tree grows the same at 30 fps (battery saver),
 ## 60 fps or 120 fps from the same seed.
 const SIM_STEP := 1.0 / 30.0
+## Wish deposits the meadow shows plants for (it is rebuilt when a new one is placed).
+var _meadow_wishes: int = -1
 var _sim_accum: float = 0.0
 
 
@@ -268,6 +271,10 @@ func _handle_events() -> void:
 				_page_once("first_run_done")
 				save()
 			"sunrise":
+				# The day's wish may have placed a deposit: its rushes or clover come up on the meadow.
+				if state.ground.wish_deposits.size() != _meadow_wishes:
+					_meadow_wishes = state.ground.wish_deposits.size()
+					tree_view.refresh_meadow()
 				_rise()
 			"morning":
 				_morning()
@@ -350,6 +357,8 @@ func _dive() -> void:
 
 
 func _enter_night_view() -> void:
+	# The day's wish glows underground, also on a quiet night (0.7).
+	root_view.set_wish_glows(state.wish_glows())
 	if state.roots.run_active:
 		root_view.resume_run()
 	elif state.night_empty or state.run_used:

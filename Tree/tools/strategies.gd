@@ -13,6 +13,8 @@ extends SceneTree
 ##   boost_all      the RootBot / the sun boosted all day long
 ##   boost_quit     ended after 1 m / boosted all day long
 ##   boost_morning  the RootBot / boosted the first third of each day
+##   tip            the RootBot from the newest root tip (continuing the last root) / calm days
+##   wish           from the newest root tip toward the wish's glow, then the RootBot / calm days
 
 const FRAME: float = 1.0 / 30.0
 ## --set=name=value (repeatable): tuning overrides, applied to the RootSystem, or with a
@@ -58,6 +60,8 @@ static func play(strat: String, species_id: String, seed: int, days: int, nights
 			g.sim.set(str(k).substr(4), overrides[k])
 		elif str(k) == "start_any":
 			pass
+		elif str(k) == "wish_share":
+			Diary.underground_share = overrides[k]
 		elif str(k) == "capacity":
 			for i in range(g.ground.dot_count()):
 				g.ground.dot_capacity[i] *= overrides[k]
@@ -80,14 +84,20 @@ static func play(strat: String, species_id: String, seed: int, days: int, nights
 		if g.can_start_run():
 			# From the tip of the last root, or from the trunk after a night the root could not grow.
 			var from := 0 if g.roots.graph.size() <= 1 or (lens.size() > 0 and lens[-1] == 0) else g.roots.graph.size() - 1
-			if strat == "dots" or strat.begins_with("boost_") and not quits:
+			var bot := RootBot.new()
+			if strat == "tip" or strat == "wish":
+				from = Diary.newest_tip(g.roots)
+				var glows := g.wish_glows()
+				if strat == "wish" and not glows.is_empty():
+					bot.goal = glows[0]["center"]
+					bot.goal_radius = float(glows[0]["radius"]) * 0.5
+			elif strat == "dots" or strat.begins_with("boost_") and not quits:
 				var starter := RootBot.new()
 				starter.start_by_need = not overrides.has("start_any")
 				from = starter.pick_start(g.roots, g.ground, g.sim.resources)
 			elif strat == "random":
 				from = 0  # a player who does not plan starts at the trunk
 			g.start_run(from)
-			var bot := RootBot.new()
 			var stick := Vector2.ZERO
 			var guard := 0
 			while guard < 30000:
@@ -129,13 +139,20 @@ static func play(strat: String, species_id: String, seed: int, days: int, nights
 			finish_day = day + 1
 			heights["fin"] = g.sim.height()
 			break
+	var wished := 0
+	var reached := 0
+	for e in g.diary.entries:
+		if e.has("drawing"):
+			reached += 1
+	for w in g.ground.wish_deposits:
+		wished += 1
 	return {"strat": strat, "species": species_id, "seed": seed, "finish": finish_day, "heights": heights, "nodes": g.sim.living_nodes(),
-		"secs": secs, "lens": lens, "least": least, "lf_left": lf_left}
+		"secs": secs, "lens": lens, "least": least, "lf_left": lf_left, "wished": wished, "reached": reached}
 
 
 static func summary(r: Dictionary) -> String:
 	var hs: Dictionary = r["heights"]
 	var h := func(d: Variant) -> String: return ("%.1f" % hs[d]) if hs.has(d) else "-"
-	return "%-14s %-8s seed %-3d h10 %s  h20 %s  h30 %s  hfin %s  finished %s  least/day %d  lf left %.0f | night s %s | root m %s" % [
+	return "%-14s %-8s seed %-3d h10 %s  h20 %s  h30 %s  hfin %s  finished %s  least/day %d  lf left %.0f  wishes reached %d/%d | night s %s | root m %s" % [
 		r["strat"], r["species"], r["seed"], h.call(10), h.call(20), h.call(30), h.call("fin"),
-		str(r["finish"]) if r["finish"] > 0 else "never", r["least"], r["lf_left"], str(r["secs"]), str(r["lens"])]
+		str(r["finish"]) if r["finish"] > 0 else "never", r["least"], r["lf_left"], r.get("reached", 0), r.get("wished", 0), str(r["secs"]), str(r["lens"])]

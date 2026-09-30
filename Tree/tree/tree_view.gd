@@ -187,6 +187,12 @@ func refresh_clearing() -> void:
 	_understory.refresh(state, [_grass, _herbs, _meadow2], _ground_mat)
 
 
+## The meadow's plants again, after the day's wish placed a new deposit (its rushes or clover).
+func refresh_meadow() -> void:
+	_meadow.build(state.ground)
+	RockLook.apply_meadow(_meadow)
+
+
 func _build_clearing(r: float) -> void:
 	_clearing = r
 	Terrain.edge = r

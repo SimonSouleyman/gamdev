@@ -35,6 +35,8 @@ var _book_page: PanelContainer
 var _tabs: Dictionary = {}  # name -> Control (content)
 var _tab_buttons: Dictionary = {}
 var _current_tab: String = "diary"
+## Size of a diary line's ink drawing (a reached wish), in pixels.
+const DRAWING_SIZE: int = 88
 var _diary_text: RichTextLabel
 var _wish_label: Label
 var _note: LineEdit
@@ -592,15 +594,18 @@ func _refresh_diary() -> void:
 	_book_title.text = "My " + state.tree_name()
 	_wish_label.text = ("A wish: " + state.diary.wish) if state.diary.wish != "" else ""
 	_wish_label.visible = state.diary.wish != ""
-	var out := ""
+	_diary_text.clear()
 	var last_day := -1
 	for e in state.diary.entries:
 		var day := int(e["day"])
 		if day != last_day:
-			out += "\n[b]Day %d[/b]\n" % day
+			_diary_text.append_text("\n[b]Day %d[/b]\n" % day)
 			last_day = day
-		out += ("[i][color=#8a2c1e]%s[/color][/i]\n" if e["by"] == "player" else "%s\n") % str(e["text"]).replace("[", "[lb]")
-	_diary_text.text = out
+		# A reached wish (0.7): a small ink drawing beside its line.
+		if e.has("drawing"):
+			_diary_text.add_image(InkSketch.texture(str(e["drawing"])), DRAWING_SIZE, DRAWING_SIZE, Color.WHITE, INLINE_ALIGNMENT_CENTER)
+			_diary_text.append_text(" ")
+		_diary_text.append_text(("[i][color=#8a2c1e]%s[/color][/i]\n" if e["by"] == "player" else "%s\n") % str(e["text"]).replace("[", "[lb]"))
 	for c in _pages_list.get_children():
 		c.queue_free()
 	var any := false
