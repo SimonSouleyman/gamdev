@@ -131,40 +131,54 @@ static func wind_offset(u: float, v: float, t: float, ground_y: float, crown_top
 	return Vector2(dx, dy)
 
 
-## Where cloud i (0..2) floats at time t: x as a share of the screen width (it leaves on the right
-## and comes back on the left), y as a share of the height, in the sky above the crown.
+## Where cloud i (0..2) floats at time t: its middle, x as a share of the screen width (it leaves
+## on the right and comes back on the left), y as a share of the height, in the sky above the
+## crown. Slow: a screen width in about 20 to 35 minutes.
 static func cloud_position(i: int, t: float) -> Vector2:
-	var speed: float = [0.0021, 0.0015, 0.0012][i % 3]
-	var start: float = [0.1, 0.55, 0.85][i % 3]
-	var y: float = [0.1, 0.19, 0.05][i % 3]
-	return Vector2(fposmod(start + t * speed, 1.6) - 0.3, y)
+	var speed: float = [0.0008, 0.0006, 0.0005][i % 3]
+	var start: float = [0.2, 0.75, 1.3][i % 3]
+	var y: float = [0.08, 0.17, 0.03][i % 3]
+	return Vector2(fposmod(start + t * speed, 2.2) - 0.6, y)
 
 
-## A cloud's shape: soft round puffs (x, y, radius) as shares of the cloud's width, their density
-## added up (LiveRenderer.cloudBitmap and LivePreview.cloud_image draw the same).
-const CLOUD_PUFFS: Array[Vector3] = [Vector3(-0.28, 0.05, 0.16), Vector3(-0.12, 0.0, 0.2), Vector3(0.06, -0.04, 0.22),
-	Vector3(0.24, 0.02, 0.17), Vector3(0.36, 0.07, 0.11), Vector3(-0.38, 0.09, 0.1), Vector3(0.0, 0.08, 0.2)]
+## Cloud widths as a share of the screen width, and their height as a share of their width: wide,
+## thin veils, each its own shape (cloud_image).
+const CLOUD_WIDTHS: Array[float] = [1.0, 0.8, 0.62]
+const CLOUD_ASPECT := 0.25
+const CLOUD_SIZE := Vector2i(512, 128)
+const CLOUD_FILES: Array[String] = ["cloud_0.webp", "cloud_1.webp", "cloud_2.webp"]
 
 
-## A cloud's density at a point (x, y as shares of its width, from its middle): 0..1.
-static func cloud_density(x: float, y: float) -> float:
-	var a := 0.0
-	for p in CLOUD_PUFFS:
-		var d2 := ((x - p.x) * (x - p.x) + (y - p.y) * (y - p.y)) / (p.z * p.z)
-		a += maxf(0.0, 1.0 - d2) * 0.7
-	# A flatter underside, as fair-weather clouds have.
-	return clampf(a, 0.0, 1.0) * (1.0 - smoothstep(0.08, 0.16, y))
+## Cloud i as a soft white image with alpha: layered noise, stretched sideways into streaks, thinning
+## out toward its edges, never a hard edge. The game writes these beside the layers (LiveExport),
+## the phone only draws them.
+static func cloud_image(i: int) -> Image:
+	var n := FastNoiseLite.new()
+	n.seed = 71 + i * 13
+	n.noise_type = FastNoiseLite.TYPE_SIMPLEX_SMOOTH
+	n.frequency = 0.007
+	n.fractal_octaves = 5
+	n.fractal_gain = 0.55
+	var w := CLOUD_SIZE.x
+	var h := CLOUD_SIZE.y
+	var img := Image.create(w, h, false, Image.FORMAT_RGBA8)
+	for y in range(h):
+		for x in range(w):
+			var u := (x + 0.5) / w * 2.0 - 1.0
+			var v := (y + 0.5) / h * 2.0 - 1.0
+			# A long soft oval, a little flatter underneath.
+			var e := 1.0 - smoothstep(0.35, 1.0, Vector2(u, v * (1.25 if v > 0.0 else 1.0)).length())
+			var d := n.get_noise_2d(x * 0.6, y * 1.8) * 0.5 + 0.5
+			var a := smoothstep(0.36, 0.74, d * (0.7 + 0.3 * e)) * e
+			img.set_pixel(x, y, Color(1, 1, 1, a * 0.9))
+	return img
 
 
-## Cloud widths as a share of the screen width.
-const CLOUD_WIDTHS: Array[float] = [0.42, 0.3, 0.24]
-
-
-## The clouds' colour (alpha: how solid): white by day, warm at a low sun, faint and grey-blue at
-## night.
+## The clouds' colour (alpha: how solid): a pale white veil by day, warm at a low sun, faint and
+## grey-blue at night. Low contrast on purpose.
 static func cloud_color(golden: float, night: float) -> Color:
-	var c := Color(1.0, 1.0, 1.0, 0.75).lerp(Color(1.0, 0.84, 0.7, 0.8), golden)
-	return c.lerp(Color(0.3, 0.34, 0.46, 0.35), night)
+	var c := Color(1.0, 1.0, 1.0, 0.55).lerp(Color(1.0, 0.86, 0.74, 0.6), golden)
+	return c.lerp(Color(0.3, 0.34, 0.46, 0.25), night)
 
 
 ## Star i of STARS: x and y as shares of the screen (in the upper sky), z its size in pixels at a
@@ -232,6 +246,7 @@ static func make_meta(species_id: String, day: int, height: float, files: Dictio
 		"saved": saved_unix, "size": [LAYER_SIZE.x, LAYER_SIZE.y], "layers": files.duplicate(),
 		"ground_y": snappedf(ground_y, 0.0001), "crown_top": snappedf(crown_top, 0.0001),
 		"horizon_y": snappedf(horizon_y, 0.0001), "ground_color": ground_color.to_html(false),
+		"clouds": CLOUD_FILES.duplicate(),
 	}
 
 
@@ -267,7 +282,19 @@ static func parse_meta(d: Variant) -> Dictionary:
 		"height": float(m.get("height", 0.0)), "saved": int(m.get("saved", 0)),
 		"size": Vector2i(int(size[0]), int(size[1])), "layers": (layers as Dictionary).duplicate(),
 		"ground_y": ground_y, "crown_top": crown_top, "horizon_y": horizon_y, "ground_color": Color.html(color),
+		"clouds": _clouds_of(m.get("clouds", [])),
 	}
+
+
+## The cloud files named in a meta (optional: none means a clear sky). Plain names only.
+static func _clouds_of(v: Variant) -> Array[String]:
+	var out: Array[String] = []
+	if v is Array:
+		for f in v:
+			var s := str(f)
+			if s != "" and not s.contains("/") and not s.contains("\\") and not s.contains(".."):
+				out.append(s)
+	return out
 
 
 static func meta_path(dir: String = DIR) -> String:

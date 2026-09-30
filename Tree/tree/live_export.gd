@@ -28,10 +28,10 @@ var _last_signature: String = ""
 ## game's sun (TreeView._update_sun): morning light from the east, evening from the west, the
 ## night a cool moonlit fill in which the tree still reads.
 const LIGHTS := {
-	"dawn": {"dir": Vector3(0.93, 0.2, 0.3), "color": Color(1.0, 0.72, 0.45), "energy": 1.5, "ambient": Color(0.62, 0.62, 0.7), "ambient_energy": 0.75, "exposure": 1.2, "saturation": 1.0},
-	"day": {"dir": Vector3(0.55, 0.7, 0.45), "color": Color(1.0, 0.96, 0.9), "energy": 1.55, "ambient": Color(0.58, 0.64, 0.72), "ambient_energy": 0.8, "exposure": 1.1, "saturation": 1.0},
-	"dusk": {"dir": Vector3(-0.93, 0.2, 0.3), "color": Color(1.0, 0.68, 0.4), "energy": 1.5, "ambient": Color(0.66, 0.6, 0.66), "ambient_energy": 0.75, "exposure": 1.2, "saturation": 1.0},
-	"night": {"dir": Vector3(-0.3, 0.8, 0.5), "color": Color(0.6, 0.66, 0.9), "energy": 0.35, "ambient": Color(0.42, 0.5, 0.74), "ambient_energy": 0.42, "exposure": 1.0, "saturation": 0.6},
+	"dawn": {"dir": Vector3(0.93, 0.2, 0.3), "color": Color(1.0, 0.72, 0.45), "energy": 1.5, "ambient": Color(0.62, 0.62, 0.7), "ambient_energy": 0.75, "exposure": 1.2, "saturation": 1.0, "haze": Color(0.86, 0.74, 0.62)},
+	"day": {"dir": Vector3(0.55, 0.7, 0.45), "color": Color(1.0, 0.96, 0.9), "energy": 1.55, "ambient": Color(0.58, 0.64, 0.72), "ambient_energy": 0.8, "exposure": 1.1, "saturation": 1.0, "haze": Color(0.66, 0.74, 0.78)},
+	"dusk": {"dir": Vector3(-0.93, 0.2, 0.3), "color": Color(1.0, 0.68, 0.4), "energy": 1.5, "ambient": Color(0.66, 0.6, 0.66), "ambient_energy": 0.75, "exposure": 1.2, "saturation": 1.0, "haze": Color(0.86, 0.7, 0.58)},
+	"night": {"dir": Vector3(-0.3, 0.8, 0.5), "color": Color(0.6, 0.66, 0.9), "energy": 0.35, "ambient": Color(0.42, 0.5, 0.74), "ambient_energy": 0.42, "exposure": 1.0, "saturation": 0.6, "haze": Color(0.12, 0.15, 0.24)},
 }
 
 
@@ -80,7 +80,16 @@ func _render(view: TreeView, state: GameState) -> bool:
 	sun.directional_shadow_max_distance = maxf(30.0, cam.global_position.length() * 2.0)
 	sv.add_child(sun)
 	# No grass between the camera and the tree (it would stand huge in front of the lens).
-	_add_scene(sv, view, minf(GRASS_RADIUS, Vector2(cam.global_position.x, cam.global_position.z).length() * 0.6))
+	_add_scene(sv, view, Vector2(cam.global_position.x, cam.global_position.z).length())
+	# A soft haze over the far meadow, so the grass line fades into the sky's foot instead of
+	# ending in a hard dark band.
+	var cam_dist := Vector2(cam.global_position.x, cam.global_position.z).length()
+	env.fog_enabled = true
+	env.fog_mode = Environment.FOG_MODE_DEPTH
+	env.fog_depth_begin = cam_dist + 6.0
+	env.fog_depth_end = cam_dist + 90.0
+	env.fog_depth_curve = 0.8
+	env.fog_density = 0.85
 	var foot := cam.unproject_position(Vector3.ZERO)
 	var ground_y := clampf(foot.y / float(size.y), 0.05, 1.0)
 	var images := {}
@@ -94,6 +103,7 @@ func _render(view: TreeView, state: GameState) -> bool:
 		env.ambient_light_energy = l["ambient_energy"]
 		env.tonemap_exposure = l["exposure"]
 		env.adjustment_saturation = l["saturation"]
+		env.fog_light_color = l["haze"]
 		sv.render_target_update_mode = SubViewport.UPDATE_ONCE
 		await RenderingServer.frame_post_draw
 		var img := sv.get_texture().get_image()
@@ -151,11 +161,15 @@ static func frame_camera(cam: Camera3D, size: Vector2, height: float, crown_widt
 
 ## The tree, its crown, the meadow grass and the ground: the game's own meshes and materials.
 ## The ground is laid flat to the horizon (the game's swells and the rise toward the forest would
-## hide the tree's foot from this low view), with the meadow's grass clumps near the tree set on it.
+## hide the tree's foot from this low view). The meadow's grass clumps around the tree are set on
+## it and repeated in tiles from behind the tree to just before the camera, so the meadow runs
+## from the picture's bottom edge to the haze (no bare dark band).
 const GRASS_RADIUS := 16.0
+## No grass closer to the camera than this (it would stand huge in front of the lens).
+const GRASS_CLEAR := 4.0
 
 
-func _add_scene(sv: SubViewport, view: TreeView, grass_radius: float) -> void:
+func _add_scene(sv: SubViewport, view: TreeView, cam_dist: float) -> void:
 	var trunk := MeshInstance3D.new()
 	trunk.mesh = view._tree_mesh.mesh
 	trunk.material_override = view._tree_mesh.material_override
@@ -168,9 +182,15 @@ func _add_scene(sv: SubViewport, view: TreeView, grass_radius: float) -> void:
 	for layer in [view._grass, view._meadow2]:
 		var src := layer as MultiMeshInstance3D
 		var g := MultiMeshInstance3D.new()
-		g.multimesh = flat_grass(src.multimesh, grass_radius)
-		g.material_override = src.material_override
-		g.custom_aabb = AABB(Vector3(-GRASS_RADIUS, -1, -GRASS_RADIUS), Vector3(GRASS_RADIUS * 2.0, 3, GRASS_RADIUS * 2.0))
+		g.multimesh = flat_grass(src.multimesh, GRASS_RADIUS, cam_dist)
+		# Its own copy of the material: the game's fades the grass by its own camera's distance.
+		var mat := src.material_override as ShaderMaterial
+		if mat != null:
+			mat = mat.duplicate() as ShaderMaterial
+			mat.set_shader_parameter("fade_start", cam_dist + GRASS_RADIUS * 3.0)
+			mat.set_shader_parameter("fade_end", cam_dist + GRASS_RADIUS * 3.0 + 20.0)
+		g.material_override = mat
+		g.custom_aabb = AABB(Vector3(-GRASS_RADIUS, -1, -cam_dist - GRASS_RADIUS), Vector3(GRASS_RADIUS * 2.0, 3, cam_dist + GRASS_RADIUS * 4.0))
 		g.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		sv.add_child(g)
 	var ground := MeshInstance3D.new()
@@ -183,27 +203,40 @@ func _add_scene(sv: SubViewport, view: TreeView, grass_radius: float) -> void:
 	sv.add_child(ground)
 
 
-## The clumps of a meadow layer within `radius` of the trunk, set down on flat ground.
-static func flat_grass(src: MultiMesh, radius: float) -> MultiMesh:
+## The clumps of a meadow layer within `radius` of the trunk, set down on flat ground and repeated
+## in tiles along the view (the camera stands `cam_dist` north of the tree, TreeView.ALBUM_YAW):
+## one tile behind the tree, as many as reach toward the camera, none within GRASS_CLEAR of it.
+static func flat_grass(src: MultiMesh, radius: float, cam_dist: float) -> MultiMesh:
+	var toward := Vector3(sin(TreeView.ALBUM_YAW), 0.0, cos(TreeView.ALBUM_YAW))
+	var step := radius * 1.9
+	var tiles := ceili(maxf(cam_dist - GRASS_CLEAR, 0.0) / step)
+	var picks: Array[Transform3D] = []
+	var from: Array[int] = []
+	for i in range(src.instance_count):
+		var xf := src.get_instance_transform(i)
+		var o := xf.origin
+		if Vector2(o.x, o.z).length() >= radius:
+			continue
+		for k in range(-1, tiles + 1):
+			var p := Vector3(o.x, -0.02, o.z) + toward * (step * k)
+			if p.dot(toward) > cam_dist - GRASS_CLEAR:
+				continue
+			var t := xf
+			t.origin = p
+			picks.append(t)
+			from.append(i)
 	var mm := MultiMesh.new()
 	mm.transform_format = MultiMesh.TRANSFORM_3D
 	mm.use_colors = src.use_colors
 	mm.use_custom_data = src.use_custom_data
 	mm.mesh = src.mesh
-	var keep: Array[int] = []
-	for i in range(src.instance_count):
-		var o := src.get_instance_transform(i).origin
-		if Vector2(o.x, o.z).length() < radius:
-			keep.append(i)
-	mm.instance_count = keep.size()
-	for j in range(keep.size()):
-		var xf := src.get_instance_transform(keep[j])
-		xf.origin.y = -0.02
-		mm.set_instance_transform(j, xf)
+	mm.instance_count = picks.size()
+	for j in range(picks.size()):
+		mm.set_instance_transform(j, picks[j])
 		if src.use_colors:
-			mm.set_instance_color(j, src.get_instance_color(keep[j]))
+			mm.set_instance_color(j, src.get_instance_color(from[j]))
 		if src.use_custom_data:
-			mm.set_instance_custom_data(j, src.get_instance_custom_data(keep[j]))
+			mm.set_instance_custom_data(j, src.get_instance_custom_data(from[j]))
 	return mm
 
 
@@ -246,12 +279,21 @@ static func measure(img: Image) -> Dictionary:
 static func write(to_dir: String, images: Dictionary, meta: Dictionary) -> bool:
 	var files: Dictionary = meta["layers"]
 	var ok := [false]
-	var task := WorkerThreadPool.add_task(func() -> void: ok[0] = encode_layers(to_dir, images, files))
+	var task := WorkerThreadPool.add_task(func() -> void: ok[0] = encode_layers(to_dir, images, files) and ensure_clouds(to_dir))
 	var tree := Engine.get_main_loop() as SceneTree
 	while not WorkerThreadPool.is_task_completed(task):
 		await tree.process_frame
 	WorkerThreadPool.wait_for_task_completion(task)
 	return bool(ok[0]) and commit(to_dir, meta)
+
+
+## The cloud images (LivePicture.cloud_image) beside the layers, written once. Any thread.
+static func ensure_clouds(to_dir: String) -> bool:
+	for i in range(LivePicture.CLOUD_FILES.size()):
+		var path := to_dir.path_join(LivePicture.CLOUD_FILES[i])
+		if not FileAccess.file_exists(path) and LivePicture.cloud_image(i).save_webp(path, true, WEBP_QUALITY) != OK:
+			return false
+	return true
 
 
 ## Writes each layer image (name -> Image) under its file name (name -> file). Any thread.

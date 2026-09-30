@@ -28,6 +28,11 @@ func load_from(dir: String) -> bool:
 		if img == null or img.is_empty():
 			return false
 		layers[name] = ImageTexture.create_from_image(img)
+	_clouds.clear()
+	for f in meta.get("clouds", []):
+		var c := Image.load_from_file(ProjectSettings.globalize_path(dir.path_join(f)))
+		if c != null and not c.is_empty():
+			_clouds.append(ImageTexture.create_from_image(c))
 	return true
 
 
@@ -60,13 +65,13 @@ func _draw() -> void:
 		for i in range(pts.size()):
 			pts[i] = c + pts[i] * r
 		draw_colored_polygon(pts, Color(0.95, 0.94, 0.86, alpha))
-	# The clouds drift.
-	_make_clouds()
+	# The clouds drift (the images the game wrote beside the layers; none: a clear sky).
 	var cc := LivePicture.cloud_color(m["golden"], night)
-	for i in range(3):
+	for i in range(_clouds.size()):
 		var p := LivePicture.cloud_position(i, t)
 		var cw := LivePicture.CLOUD_WIDTHS[i] * w
-		draw_texture_rect(_clouds[i], Rect2(p.x * w - cw * 0.5, p.y * h - cw * 0.25, cw, cw * 0.5), false, cc)
+		var ch := cw * LivePicture.CLOUD_ASPECT
+		draw_texture_rect(_clouds[i], Rect2(p.x * w - cw * 0.5, p.y * h - ch * 0.5, cw, ch), false, cc)
 	# The ground beside a narrowed picture.
 	if rect.position.x > 0.5:
 		draw_rect(Rect2(0, horizon_px, w, h - horizon_px), meta["ground_color"])
@@ -97,21 +102,3 @@ func _draw_layer(tex: Texture2D, rect: Rect2, alpha: float) -> void:
 				uvs.append(uv)
 				pts.append(rect.position + (uv + off) * rect.size)
 			draw_polygon(pts, PackedColorArray([Color(1, 1, 1, alpha)]), uvs, tex)
-
-
-func _make_clouds() -> void:
-	if not _clouds.is_empty():
-		return
-	for i in range(3):
-		_clouds.append(ImageTexture.create_from_image(cloud_image(256, 128)))
-
-
-## One cloud: soft white puffs (LivePicture.CLOUD_PUFFS) in a w x h image.
-static func cloud_image(w: int, h: int) -> Image:
-	var img := Image.create(w, h, false, Image.FORMAT_RGBA8)
-	for y in range(h):
-		for x in range(w):
-			var p := Vector2((x + 0.5) / w - 0.5, ((y + 0.5) / h - 0.5) * float(h) / w)
-			var a := LivePicture.cloud_density(p.x, p.y)
-			img.set_pixel(x, y, Color(1, 1, 1, a))
-	return img

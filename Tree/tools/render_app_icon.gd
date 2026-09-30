@@ -5,15 +5,15 @@ extends SceneTree
 ## the tree as the foreground layer with the whole crown inside the safe circle (66 of 108 dp), so
 ## round, squircle and square masks all keep it. Also the legacy square icons and the project icon.
 ## The old icon stays in icons/v0.7 to swap back.
-## Run (needs a window): godot --path . -s tools/render_app_icon.gd -- [--seed=42] [--days=20]
+## Run (needs a window): godot --path . -s tools/render_app_icon.gd -- [--seed=2026] [--days=16]
 ##   [--qa=C:/folder] (512, 192 and 48 px previews with round and squircle masks, light and dark)
 ##   [--turn=2] [--dry] (previews only, the repo's icons are not written)
 
-var seed := 42
+var seed := 2026
 var days := 16
 ## The tree turned by this many quarter turns (its fullest side toward the viewer; picked from a
 ## contact sheet of seeds, days and sides, 0.8).
-var turn := 2
+var turn := 1
 var qa_dir := ""
 var dry := false
 
@@ -24,9 +24,11 @@ const K := 4
 const LAYER := 432
 const SAFE_RADIUS := 66.0 / 108.0 * 0.5
 const VISIBLE := 72.0 / 108.0
-## Where the trunk's foot stands (share of the layer from the top) and the crown's room inside the
-## safe circle (a small margin).
-const FOOT_Y := 0.745
+## Where the trunk's foot stands (share of the layer from the top; low, in the grass, so the crown
+## gets the most of the circle) and the crown's room inside the safe circle (a small margin). Only
+## the crown must be inside the circle: the lowest 30 % of the tree (bare trunk) may reach below it
+## into the grass, which every mask keeps near the middle.
+const FOOT_Y := 0.8
 const FIT := 0.97
 ## The sky: a clear pale blue, lighter toward the horizon (soft morning), and the grass line.
 const SKY_TOP := Color(0.42, 0.63, 0.88)
@@ -108,7 +110,7 @@ func _render_tree(view: TreeView, game: GameState) -> Dictionary:
 	env.background_mode = Environment.BG_CLEAR_COLOR
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
 	env.ambient_light_color = Color(0.6, 0.66, 0.74)
-	env.ambient_light_energy = 0.85
+	env.ambient_light_energy = 1.15
 	env.tonemap_mode = Environment.TONE_MAPPER_ACES
 	env.tonemap_exposure = 1.15
 	env.adjustment_enabled = true
@@ -153,7 +155,16 @@ func _place_tree(img: Image, foot: Vector2) -> Image:
 	var r := SAFE_RADIUS * n * FIT
 	# The largest scale that keeps every opaque pixel (sampled) inside the circle.
 	var s := 10.0
-	for y in range(0, img.get_height(), 3):
+	var top := float(img.get_height())
+	for y in range(img.get_height()):
+		for x in range(0, img.get_width(), 4):
+			if img.get_pixel(x, y).a >= 0.3:
+				top = y
+				break
+		if top < img.get_height():
+			break
+	var crown_bottom := foot.y - (foot.y - top) * 0.3
+	for y in range(0, int(crown_bottom), 3):
 		for x in range(0, img.get_width(), 3):
 			if img.get_pixel(x, y).a < 0.3:
 				continue

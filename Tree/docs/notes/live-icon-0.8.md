@@ -63,15 +63,27 @@ calendar live. If the game is not opened for weeks, the tree keeps its last look
 **Wind.** A 12x24 bitmap mesh: the foot stands still, the crown bends more the higher it is
 (k^1.6), a slow gust plus a quicker flutter, the crown top moving about 1.2 % of the tree's height
 (`LivePicture.WIND` = 0.012 [PLACEHOLDER]); the grass below the foot ripples by 0.2 % of the
-width; the picture's side edges stay put. Three soft clouds drift across the top of the sky
-(a screen width in 8 to 14 minutes).
+width; the picture's side edges stay put.
+
+**Clouds** (follow-up review: the first puff shapes read as cartoon stamps). Three soft, wide,
+thin veils, each its own shape: the game draws them once from layered noise stretched sideways,
+fading out long before the image edge (`LivePicture.cloud_image`, 512x128) and writes them beside
+the layers (`cloud_0..2.webp`, named in the meta; none named means a clear sky). The phone only
+draws them, tinted and at low contrast (alpha 0.55 by day, warm at a low sun, 0.25 at night),
+0.6 to 1.0 of the screen wide, a quarter as high, a screen width in 20 to 35 minutes.
+
+**Meadow** (same review: the ground at the bottom was a flat dark band). The game's grass clumps
+around the tree are repeated in tiles from behind the tree to 4 m before the camera, with their
+own copy of the grass material (the game's fades grass by its own camera's distance), and a soft
+haze of the light's colour lies over the far meadow, so the grass runs to the picture's bottom
+edge and fades into the sky's foot instead of ending at a hard line.
 
 **One maths, two copies.** `shared/live_picture.gd` (tested) and `LiveScene.java` (the phone)
 hold the same functions line by line: `sun_times`/`sunTimes`, `sun_height`, `light_mix`,
 `golden_of`, `sky_colors`, `cloud_color`, `moment`, `wind_offset`, `cloud_position`,
-`cloud_density`, `star`, `moon_outline`, `layout`, plus `Almanac.moon_phase` and
+`star`, `moon_outline`, `layout`, plus `Almanac.moon_phase` and
 `moon_lit_fraction`. `tools/live_parity.gd` and `android_plugin/treelive/parity/Parity.java` print
-both for 45 moments, 20 wind points, stars, a layout and a cloud density: identical to six decimals
+both for 45 moments, 20 wind points, stars and a layout: identical to six decimals
 (2026-09-30). `tools/live_preview.gd` is the desktop copy of `LiveRenderer`'s drawing, used for the
 frames in `GameDev/tree-qa/live-icon`.
 
@@ -104,13 +116,16 @@ Not yet measured on the Fairphone; the reasoning:
   in one line. The picture changes after the game saw a new morning or sunset.
 
 ## App icon (section 7)
-- `tools/render_app_icon.gd`: a linden grown by the game (seed 42, 16 days, the root bot, 15.6 m),
-  summer look, turned a half turn so its fullest side faces the viewer (picked from a contact sheet
-  of six seeds, two ages, four sides), rendered with the game's bark and crown in soft morning
+- `tools/render_app_icon.gd`: a linden grown by the game (seed 2026, 16 days, the root bot,
+  15.3 m), summer look, turned a quarter turn so its fullest, roundest side faces the viewer
+  (picked from contact sheets of six seeds, ages 16 to 24 and four sides: older trees were not
+  fuller, this side was; follow-up review 2026-09-30), rendered with the game's bark and crown in soft morning
   light from the east (the viewer's left), transparent background.
 - Adaptive icon: background layer = a clear pale-blue sky (lighter toward the horizon) and a low
-  grass line with a gentle swell; foreground = the tree only, scaled so every opaque pixel lies
-  inside the safe circle (66 of 108 dp, 97 % of it), the trunk's foot a little into the grass.
+  grass line with a gentle swell; foreground = the tree only, scaled so the crown (all but the
+  lowest 30 % of the tree, the bare trunk) lies inside the safe circle (66 of 108 dp, 97 % of it),
+  the trunk's foot low in the grass at 0.8 of the layer. A brighter fill (ambient 1.15) keeps the
+  inner crown from reading as dark holes at 48 px.
   Round, squircle and square masks keep the whole crown (14f). Nothing else in it (14g).
 - Also written: `icons/icon_mono_432.png` (Android 13 themed icon, the white silhouette),
   `icons/icon_192.png` and `icons/icon_full.png` (512, legacy square icons: the visible middle),

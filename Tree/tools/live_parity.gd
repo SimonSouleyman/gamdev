@@ -23,7 +23,6 @@ func _initialize() -> void:
 		out += "s %.6f %.6f %.6f\n" % [s.x, s.y, s.z]
 	var r := LivePicture.layout(Vector2(1080, 2400), Vector2(540, 960), 0.1, 0.9)
 	out += "l %.3f %.3f %.3f %.3f\n" % [r.position.x, r.position.y, r.size.x, r.size.y]
-	out += "c %.6f\n" % LivePicture.cloud_density(0.05, 0.02)
 	var f := FileAccess.open(OS.get_cmdline_user_args()[0], FileAccess.WRITE)
 	f.store_string(out)
 	quit()

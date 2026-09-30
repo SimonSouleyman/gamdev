@@ -17,7 +17,7 @@ import java.util.TimeZone;
 
 /**
  * Draws one frame of the live picture onto a Canvas: the sky in the real time's light (gradient,
- * stars, the moon in its real phase, three drifting clouds), then the tree's layers mixed by that
+ * stars, the moon in its real phase, three soft clouds the game drew, drifting), then the tree's layers mixed by that
  * light and bent by the wind (a Canvas bitmap mesh). Shared by the wallpaper and the screen saver.
  * The desktop copy is res://tools/live_preview.gd; the maths is LiveScene (= LivePicture).
  *
@@ -47,8 +47,6 @@ final class LiveRenderer {
     private final float[] off = new float[2];
     private final Path moonPath = new Path();
     private final RectF dst = new RectF();
-    private Bitmap[] clouds;
-    private int cloudsFor = -1;
     private PorterDuffColorFilter cloudFilter;
     private int cloudFilterColor;
     private int skyW = -1;
@@ -88,12 +86,6 @@ final class LiveRenderer {
         if (data != null) {
             data.recycle();
             data = null;
-        }
-        if (clouds != null) {
-            for (Bitmap b : clouds) {
-                b.recycle();
-            }
-            clouds = null;
         }
     }
 
@@ -173,9 +165,6 @@ final class LiveRenderer {
     }
 
     private void drawClouds(Canvas c, int w, int h, LiveScene.Moment m, double t) {
-        if (clouds == null || cloudsFor != w) {
-            makeClouds(w);
-        }
         double[] cc = LiveScene.cloudColor(m.golden, m.night);
         int col = rgb(new double[]{cc[0], cc[1], cc[2]}, cc[3]);
         if (cloudFilter == null || col != cloudFilterColor) {
@@ -184,40 +173,19 @@ final class LiveRenderer {
         }
         paint.setColorFilter(cloudFilter);
         paint.setAlpha(255);
-        for (int i = 0; i < 3; i++) {
+        for (int i = 0; i < data.clouds.length && i < 3; i++) {
+            if (data.clouds[i] == null) {
+                continue;
+            }
             double[] p = LiveScene.cloudPosition(i, t);
             float cw = (float) (LiveScene.CLOUD_WIDTHS[i] * w);
+            float ch = (float) (cw * LiveScene.CLOUD_ASPECT);
             float x = (float) (p[0] * w - cw * 0.5);
-            float y = (float) (p[1] * h - cw * 0.25);
-            dst.set(x, y, x + cw, y + cw * 0.5f);
-            c.drawBitmap(clouds[i], null, dst, paint);
+            float y = (float) (p[1] * h - ch * 0.5);
+            dst.set(x, y, x + cw, y + ch);
+            c.drawBitmap(data.clouds[i], null, dst, paint);
         }
         paint.setColorFilter(null);
-    }
-
-    /** One cloud bitmap per cloud, a quarter of its size on screen (they are soft anyway). */
-    private void makeClouds(int w) {
-        if (clouds != null) {
-            for (Bitmap b : clouds) {
-                b.recycle();
-            }
-        }
-        clouds = new Bitmap[3];
-        for (int i = 0; i < 3; i++) {
-            int bw = Math.max(32, (int) (LiveScene.CLOUD_WIDTHS[i] * w / 2));
-            int bh = bw / 2;
-            int[] px = new int[bw * bh];
-            for (int y = 0; y < bh; y++) {
-                for (int x = 0; x < bw; x++) {
-                    double u = (x + 0.5) / bw - 0.5;
-                    double v = ((y + 0.5) / bh - 0.5) * bh / bw;
-                    int a = (int) (255 * LiveScene.cloudDensity(u, v));
-                    px[y * bw + x] = Color.argb(a, 255, 255, 255);
-                }
-            }
-            clouds[i] = Bitmap.createBitmap(px, bw, bh, Bitmap.Config.ARGB_8888);
-        }
-        cloudsFor = w;
     }
 
     private void drawTree(Canvas c, float[] r, LiveScene.Moment m, double t) {

@@ -114,6 +114,10 @@ func test_meta_round_trip_and_refusals() -> void:
 	t.check_eq(m.get("size"), LivePicture.LAYER_SIZE, "size")
 	t.check((m.get("ground_color", Color.BLACK) as Color).is_equal_approx(Color.html(Color(0.2, 0.3, 0.1).to_html(false))), "ground colour")
 	t.check_eq((m.get("layers", {}) as Dictionary).get("night"), "tree_1_night.webp", "layer names")
+	t.check_eq(m.get("clouds"), LivePicture.CLOUD_FILES, "cloud names")
+	var clear := _meta()
+	clear.erase("clouds")
+	t.check((LivePicture.parse_meta(clear).get("clouds") as Array).is_empty(), "no clouds named: a clear sky, still a picture")
 	var newer := _meta()
 	newer["version"] = LivePicture.VERSION + 1
 	t.check(LivePicture.parse_meta(newer).is_empty(), "a newer picture is refused (the phone keeps its own)")
@@ -152,6 +156,9 @@ func test_layers_and_meta_on_disk() -> void:
 		t.check(img != null and img.get_width() == 40 and img.get_pixel(20, 5).a < 0.1 and img.get_pixel(20, 50).a > 0.9, "layer %s keeps its clear sky" % name)
 	t.check(not FileAccess.file_exists(DIR.path_join("tree_3_day.webp")), "older layers are removed")
 	t.check(not FileAccess.file_exists(DIR.path_join(LivePicture.META + ".tmp")), "no half-written meta left")
+	t.check(LiveExport.ensure_clouds(DIR), "the clouds are written")
+	for f in LivePicture.CLOUD_FILES:
+		t.check(FileAccess.file_exists(DIR.path_join(f)), "cloud %s beside the layers" % f)
 	# Written again: the new set replaces the old one whole.
 	var files2 := {}
 	for name in LivePicture.LAYERS:
@@ -159,11 +166,39 @@ func test_layers_and_meta_on_disk() -> void:
 	t.check(LiveExport.encode_layers(DIR, images, files2) and LiveExport.commit(DIR, LivePicture.make_meta("oak", 4, 1.1, files2, 0.9, 0.3, 0.34, Color.GREEN, 8)), "written again")
 	t.check_eq(LivePicture.read_meta(DIR).get("day"), 4, "the new picture")
 	t.check(not FileAccess.file_exists(DIR.path_join("tree_7_day.webp")), "the old set is gone")
+	t.check(FileAccess.file_exists(DIR.path_join(LivePicture.CLOUD_FILES[0])), "the clouds stay")
 	var m := LiveExport.measure(images["day"])
 	t.check_near(m["crown_top"], 20.0 / 60.0, 0.02, "the picture's top measured")
 	t.check_near(m["horizon_y"], 20.0 / 60.0, 0.02, "the horizon measured")
 	_clear()
 	t.check(LivePicture.read_meta(DIR).is_empty(), "no picture: nothing to read (the phone shows its sapling)")
+
+
+func test_clouds_are_soft_varied_veils() -> void:
+	var imgs: Array[Image] = []
+	for i in range(3):
+		imgs.append(LivePicture.cloud_image(i))
+	for img in imgs:
+		var w := img.get_width()
+		var h := img.get_height()
+		var edge := 0.0
+		for x in range(w):
+			edge = maxf(edge, maxf(img.get_pixel(x, 0).a, img.get_pixel(x, h - 1).a))
+		for y in range(h):
+			edge = maxf(edge, maxf(img.get_pixel(0, y).a, img.get_pixel(w - 1, y).a))
+		t.check(edge < 0.02, "a cloud fades out before its image's edge")
+		var jump := 0.0
+		var most := 0.0
+		for y in range(0, h, 2):
+			for x in range(1, w):
+				var a := img.get_pixel(x, y).a
+				most = maxf(most, a)
+				jump = maxf(jump, absf(a - img.get_pixel(x - 1, y).a))
+		t.check(most > 0.3, "a cloud is there")
+		t.check(jump < 0.12, "no hard edge inside a cloud (largest step %.3f)" % jump)
+	t.check(imgs[0].get_data() != imgs[1].get_data() and imgs[1].get_data() != imgs[2].get_data(), "each cloud its own shape")
+	t.check(LivePicture.CLOUD_ASPECT <= 0.3 and LivePicture.CLOUD_WIDTHS[0] >= 0.6, "wide and thin")
+	t.check(LivePicture.cloud_color(0.0, 0.0).a <= 0.6, "low contrast by day")
 
 
 func test_signature_changes_with_the_tree() -> void:

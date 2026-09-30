@@ -27,6 +27,8 @@ final class LiveData {
     static final String FALLBACK = "live_fallback";
 
     final Bitmap[] layers = new Bitmap[LiveScene.LAYERS.length];
+    /** The soft cloud images the game wrote (none: a clear sky). */
+    Bitmap[] clouds = new Bitmap[0];
     int width;
     int height;
     double groundY;
@@ -62,6 +64,10 @@ final class LiveData {
                     return null;
                 }
             }
+            d.clouds = new Bitmap[d.cloudNames.length];
+            for (int i = 0; i < d.cloudNames.length; i++) {
+                d.clouds[i] = BitmapFactory.decodeFile(new File(dir, d.cloudNames[i]).getPath());
+            }
             d.stamp = meta.lastModified();
             return d;
         } catch (Exception e) {
@@ -86,6 +92,14 @@ final class LiveData {
                     return null;
                 }
             }
+            d.clouds = new Bitmap[d.cloudNames.length];
+            for (int i = 0; i < d.cloudNames.length; i++) {
+                try (InputStream img = ctx.getAssets().open(FALLBACK + "/" + d.cloudNames[i])) {
+                    d.clouds[i] = BitmapFactory.decodeStream(img);
+                } catch (Exception e) {
+                    d.clouds[i] = null;
+                }
+            }
             d.stamp = 0;
             return d;
         } catch (Exception e) {
@@ -95,6 +109,7 @@ final class LiveData {
     }
 
     private final String[] names = new String[LiveScene.LAYERS.length];
+    private String[] cloudNames = new String[0];
 
     /** LivePicture.parse_meta: null when the meta cannot be used. */
     static LiveData parse(String json) {
@@ -125,6 +140,15 @@ final class LiveData {
             }
             String c = m.optString("ground_color", "");
             d.groundColor = Color.parseColor(c.startsWith("#") ? c : "#" + c);
+            JSONArray clouds = m.optJSONArray("clouds");
+            java.util.ArrayList<String> cn = new java.util.ArrayList<>();
+            for (int i = 0; clouds != null && i < clouds.length() && i < 3; i++) {
+                String f = clouds.optString(i, "");
+                if (!f.isEmpty() && !f.contains("/") && !f.contains("\\") && !f.contains("..")) {
+                    cn.add(f);
+                }
+            }
+            d.cloudNames = cn.toArray(new String[0]);
             return d;
         } catch (Exception e) {
             return null;
@@ -136,6 +160,12 @@ final class LiveData {
             if (layers[i] != null) {
                 layers[i].recycle();
                 layers[i] = null;
+            }
+        }
+        for (int i = 0; i < clouds.length; i++) {
+            if (clouds[i] != null) {
+                clouds[i].recycle();
+                clouds[i] = null;
             }
         }
     }

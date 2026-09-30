@@ -82,8 +82,8 @@ final class LiveScene {
 
     /** LivePicture.cloud_color: {r, g, b, a}. */
     static double[] cloudColor(double golden, double night) {
-        double[] c = mix4(new double[]{1.0, 1.0, 1.0, 0.75}, new double[]{1.0, 0.84, 0.7, 0.8}, golden);
-        return mix4(c, new double[]{0.3, 0.34, 0.46, 0.35}, night);
+        double[] c = mix4(new double[]{1.0, 1.0, 1.0, 0.55}, new double[]{1.0, 0.86, 0.74, 0.6}, golden);
+        return mix4(c, new double[]{0.3, 0.34, 0.46, 0.25}, night);
     }
 
     static double[] mix3(double[] a, double[] b, double t) {
@@ -146,27 +146,16 @@ final class LiveScene {
         out[1] = (float) dy;
     }
 
-    static final double[] CLOUD_SPEED = {0.0021, 0.0015, 0.0012};
-    static final double[] CLOUD_START = {0.1, 0.55, 0.85};
-    static final double[] CLOUD_Y = {0.1, 0.19, 0.05};
-    static final double[] CLOUD_WIDTHS = {0.42, 0.3, 0.24};
-    static final double[][] CLOUD_PUFFS = {{-0.28, 0.05, 0.16}, {-0.12, 0.0, 0.2}, {0.06, -0.04, 0.22},
-            {0.24, 0.02, 0.17}, {0.36, 0.07, 0.11}, {-0.38, 0.09, 0.1}, {0.0, 0.08, 0.2}};
+    static final double[] CLOUD_SPEED = {0.0008, 0.0006, 0.0005};
+    static final double[] CLOUD_START = {0.2, 0.75, 1.3};
+    static final double[] CLOUD_Y = {0.08, 0.17, 0.03};
+    static final double[] CLOUD_WIDTHS = {1.0, 0.8, 0.62};
+    static final double CLOUD_ASPECT = 0.25;
 
-    /** LivePicture.cloud_position: {x, y} as shares of the screen. */
+    /** LivePicture.cloud_position: the cloud's middle {x, y} as shares of the screen. */
     static double[] cloudPosition(int i, double t) {
         int k = i % 3;
-        return new double[]{fposmod(CLOUD_START[k] + t * CLOUD_SPEED[k], 1.6) - 0.3, CLOUD_Y[k]};
-    }
-
-    /** LivePicture.cloud_density. */
-    static double cloudDensity(double x, double y) {
-        double a = 0.0;
-        for (double[] p : CLOUD_PUFFS) {
-            double d2 = ((x - p[0]) * (x - p[0]) + (y - p[1]) * (y - p[1])) / (p[2] * p[2]);
-            a += Math.max(0.0, 1.0 - d2) * 0.7;
-        }
-        return Math.max(0.0, Math.min(1.0, a)) * (1.0 - smoothstep(0.08, 0.16, y));
+        return new double[]{fposmod(CLOUD_START[k] + t * CLOUD_SPEED[k], 2.2) - 0.6, CLOUD_Y[k]};
     }
 
     static final int STARS = 46;
