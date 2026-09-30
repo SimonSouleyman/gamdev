@@ -5,13 +5,13 @@ and the reason. [PLACEHOLDER] means the value has not been felt on the phone yet
 be off. Each code change to such a number updates this table in the same or the next pull
 request (design-practice.md).
 
-Values below are the settled 0.6.x numbers on the build thread's integration branch
-`iterate-0.6` (after the new tree 0.6.2, the roots 0.6.4 and the "Softer" month, Simon
-2026-09-29; 1366 tests green). They reach `main` when that branch is merged. Tree care (0.6.3,
-branch `s-care`) is not merged yet. Where a value changed from tag tree-v0.6, the old value is
-in brackets. None of the 0.6.x values has been played on the phone yet.
+Values below are the settled 0.6.3 numbers on `main` (tag work for v0.6.3, 2026-09-30: the new
+tree, tree care, the roots, "Softer" and the balance fixes after the 0.6.3 play-through; notes in
+docs/notes/sim-0.6.3.md, care-0.6.3.md, soft-0.6.x.md). 0.6.3 is on Simon's phone since
+2026-09-30 00:25 UTC; none of these values has been felt there by Simon yet. Where a value changed
+in 0.6.x, the tree-v0.6 value is in brackets.
 
-Last checked against the code: 2026-09-29 22:45 UTC. File and constant in brackets.
+Last checked against the code: 2026-09-30 00:35 UTC. File and constant in brackets.
 
 ## Clock and pacing
 
@@ -22,13 +22,15 @@ Last checked against the code: 2026-09-29 22:45 UTC. File and constant in bracke
 | Night hold while the root runs (`NIGHT_HOLD_MARGIN`) | clock stops 0.5 s before dawn until the run ends | fixed | The run is never cut off by sunrise, so night length is set by the run. |
 | Night fast-forward after the run (`NIGHT_FAST_FORWARD`) | 30x | 10 to 60 | The rest of the night passes in about 2 s. |
 | Empty night visit (`EMPTY_NIGHT_VISIT`) | 5 s | 3 to 10 | A night without life force is a short look, not a wait. |
-| Real run length | at most 51 s in the build thread's runs (was up to 112 s) | 20 to 60 s | [PLACEHOLDER] Set by the calm-night pacing below. Not yet felt on the phone. |
+| Real run length (`RootSystem.run_seconds_for`) | 34 s x sqrt(life force / 150), between 20 and 44 s (was up to 112 s) | 20 to 60 s | [PLACEHOLDER] The night follows the tank, so a boosted day's night is clearly shorter; longest night in the sweeps 50 to 51 s. |
 | Dawn burst (`GrowthSim.dawn_burst_share`) | 0.25 of affordable growth, max 30 nodes, over 10 s | 0.15 to 0.35 | The night's purchase shows at once, with the twinkle. |
 | Morning line delay (`MORNING_DELAY`) | 11 s | fixed | Just after the dawn burst. |
 | Finish size (`Species.finish_nodes`) | linden 2100 (1800), birch 1880 (1740), beech 2080, sycamore 1800 (2150), alder 1740, oak 1970 | per species | [PLACEHOLDER] Retuned for the new tree's growth curve so each species hits its month (below). |
-| Days to finish, steered | linden 27 to 29, birch 23, oak 31 to 37 | linden 27 to 33, birch 23 to 27, oak 32 to 38 | [PLACEHOLDER] A month per tree is a pillar. |
-| Days to finish, never steered | linden 35 to 38, birch 31 to 33, oak 41 to 42 | linden 34 to 40 | [PLACEHOLDER] Simon, "Softer" (2026-09-29): a tree still finishes without steering, clearly later. |
-| Least growth on any day | 25 segments | at least 20 | Every day must show visible growth (design doc section 7). |
+| Days to finish, steered (meadow play, seeds 3/14/27) | linden 29/30/32, birch 23/23/25, beech 29/29/30, sycamore 27/27/28, alder 27/27/26, oak 34/32/34 | linden 26 to 34, birch 22 to 28, oak 31 to 39 | [PLACEHOLDER] A month per tree is a pillar. |
+| Days to finish, never steered (end early, straight down, random) | linden 37 to 38, birch 30 to 33, beech 34 to 35, sycamore 32 to 33, alder 30 to 36, oak 40 to 43 | about 5 to 10 days after steered | [PLACEHOLDER] Simon, "Softer" (2026-09-29): a tree still finishes without steering, clearly later. |
+| Least growth on any day | 24 segments in every style except boost+quit (19 to 20 on linden, beech, sycamore) | at least 20 | Every day must show visible growth (design doc section 7). Boost+quit gives up the night by design. |
+| Finish height (`GrowthSim.FINISH_HEIGHT_SHARE`) | a finished tree also stands at least 0.4 of its species' height (12 m linden, 10 m birch) | 0.3 to 0.5 | New in 0.6.3: a tree pruned hard every day "finished" as a 2 m bush. |
+| Seedling floor (`SEEDLING_FLOOR`) | growth never below 0.6 of full speed on days 1 to 3 | 0.5 to 0.7 | New in 0.6.3: unsteered oak and beech grew barely 21 segments on days 2 and 3. |
 | Growth cap per second (`max_growth_per_second` x species pace) | 1 node/s x light | 0.7 to 1.5 | Calm growth is capped so the nutrients last the day. |
 | Node cost (`cost_per_node` x (1 + nodes/380)) | 0.08 rising with size | 0.05 to 0.12 base | A big tree needs more per segment, so growth spreads over the month. |
 | Young leaves (`young_leaf_bonus`) | up to 2.2x life force while the tree is small, easing off as it grows | 1 to 2.5 | [PLACEHOLDER] The new tree starts as a thin whip with few leaves; this keeps its first nights worth steering. |
@@ -40,9 +42,9 @@ Last checked against the code: 2026-09-29 22:45 UTC. File and constant in bracke
 | Life force per leaf cluster (`life_force_per_tip`) | 0.02 per tip per second x light | 0.01 to 0.04 | Scaled to the 2 min day. |
 | Self-shading (`effective_leaves`) | tips up to 50, then sqrt(50 x tips) | fixed | A big crown yields less per leaf. |
 | Boost growth (`boost_multiplier`) | 2x light for growth (3x) | 2 to 3 | [PLACEHOLDER] A tap should visibly speed growth; 3x made constant boosting finish far too early. |
-| Boost life force (`boost_life_force_factor`) | 0.5x while boosted (0.4x) | 0.3 to 0.6 | [PLACEHOLDER] The trade: a boosted day leaves a shorter root. |
+| Boost life force (`boost_life_force_factor`) | 0.35x while boosted (0.4x, briefly 0.5x) | 0.3 to 0.5 | [PLACEHOLDER] The trade: a fully boosted day's root is now 35 to 41 % shorter in metres and 34 to 39 % in seconds (beech 60 % and 48 %). |
 | Boost without nutrients (`boost_liebig`) | 1.0: the extra light counts only as far as N, P and K allow | 0 to 1 | A brighter sun cannot make up for a missing nutrient, so boosting a hungry tree gives nothing. |
-| Constant boost vs steering | constant boost 27 to 28 days on linden, 1 to 2 days faster than steering | within 15 % | [PLACEHOLDER] Inside the broken-list limit; open for later per the build thread. |
+| Constant boost vs steering | boost all day: linden 30, birch 22 to 23, oak 34 to 36; at most 2 days faster than steering (birch boost in the morning 21 against 23, -9 %) | within 15 % | [PLACEHOLDER] Inside the broken-list limit. Boost all day and end every root at once is now the slowest style (beech 40 to 44). |
 | Boost length and stacking (`boost_hour`) | one game hour per tap, up to three ahead | fixed | Survey 1 and play test 3. |
 | Seed life force (`SEED_LIFE_FORCE`) | 20 | 15 to 30 | Enough for the first root from the seed. |
 | Offline growth (`apply_offline`) | one real day away = 20 s of mid-morning growth | 10 to 40 s | Coming back shows a little growth; never a reason to stay away. |
@@ -55,14 +57,16 @@ Last checked against the code: 2026-09-29 22:45 UTC. File and constant in bracke
 |---|---|---|---|
 | Root cost per metre (`RootSystem.base_cost_per_metre`) | 1.0 x (1 + 0.06 x distance + 0.12 x depth) | base 0.8 to 2 | Far and deep costs more (design doc section 5). |
 | Birch topsoil cost, oak downward depth cost | 0.7x, 0.5x | per quirk | Section 15 quirks. |
-| Calm-night pacing (`calm_life_force`, `cost_exponent`, `calm_run_seconds`) | above 50 life force each metre costs more (power 0.5) and the tip grows faster, so a run takes about 30 s | 30 to 45 s | [PLACEHOLDER] Nights had grown to 80 to 110 s; a bigger tank now buys a longer root in about the same time. |
+| Calm-night pacing (`calm_life_force`, `cost_exponent`, `calm_run_seconds`, `calm_ref_life_force`) | above 50 life force each metre costs more (power 0.5); the run lasts 34 s x sqrt(tank / 150), 20 to 44 s | 30 to 45 s at a full calm tank | [PLACEHOLDER] Nights had grown to 80 to 110 s. |
+| Pacing during the run (`_repace`, `MAX_REPACE_SCALE`, `REPACE_EASE`) | the tip's speed eases toward (life force left / local price) / time left, at most 3x base, over 1.5 s | fixed | Cheap metres near the trunk made early nights run 54 to 58 s. |
+| Boxed-in start (`STUCK_RESTART_SECONDS`) | a start boxed in before its first segment restarts at the trunk after 1.2 s | 1 to 2 s | A 0 m, 4 s night with life force in hand. |
 | Tip speed scale (`MIN_SPEED_SCALE`, `MAX_SPEED_SCALE`) | 0.65 to 1.8 of the base speed | fixed | A small tank still lasts about 20 s; a big one does not run long. |
 | Root speed / dive speed (`speed`, `dive_speed`) | 0.9 / 1.3 m/s before scaling | 0.8 to 1.5 | Base speed; the pacing above scales it. |
 | Turn rate (`turn_rate`), turn slowdown (`turn_slowdown`) | 1.7 rad/s, scaled with speed; a hard turn slows the tip by up to 0.4 | 0.2 to 0.5 slowdown | [PLACEHOLDER] The root no longer circles a deposit it is steered at. |
 | Gentle magnetism (`magnet_radius`, `magnet_rate`) | a fresh deposit within 1.8 m ahead bends the heading at 1.3 rad/s, less while the stick is held hard | 1 to 2.5 m | [PLACEHOLDER] Easier steering without taking the choice away. |
 | Pickup radius (`collect_radius`) | 0.7 m (0.55) | 0.5 to 1.0 | [PLACEHOLDER] Dots were easy to miss. |
 | Main root node cap (`ROOT_MAX_NODES_PER_MAIN_ROOT` x `step_length`) | 400 x 0.25 m = 100 m | fixed budget | No longer reached with calm nights. |
-| Main roots per tree (`MAX_MAIN_ROOTS`) | 45 (40) | 40 to 60 | A long tree (oak, unsteered) needs more nights of roots. |
+| Main roots per tree (`MAX_MAIN_ROOTS`, `has_room_for_root`) | a root starts while one more full root (400 path + 600 fine nodes) fits a graph sized for 45; about 80 to 90 nights fit (was a hard stop at 40) | fixed | After night 45 no root could start and a pruned oak piled up 2780 life force; now at most 235 at dusk. |
 | First contact share, tip (`FIRST_SHARE`, `tip_share`) | 0.2 of a deposit's capacity (0.4) | 0.15 to 0.4 | With smaller deposits (below) the tip still takes a clear share. |
 | First contact share, fine root (`fine_share`) | 0.1 (was the same as the tip) | 0.05 to 0.15 | Steering to a deposit pays twice what a fine root gets: this is what made quitting early lose. |
 | Deposit size (`DEPOSIT_SHARES`) | 1.15 (4) | 1 to 2 | [PLACEHOLDER] Smaller deposits, so a reached deposit does not pay for weeks. |
@@ -71,19 +75,42 @@ Last checked against the code: 2026-09-29 22:45 UTC. File and constant in bracke
 | Groundwater seepage (`seep_per_metre`, `fine_seep_share`) | 0.03 water per metre of main root per night; a metre of fine root 0.3 of that | 0.01 to 0.05 | [PLACEHOLDER] New with "Softer": a tree that is never steered still gets water, so it finishes (about day 36 to 40). |
 | Nutrient regrowth (`REGROW_SHARE`) | 0.05 of drunk dots per night | 0.02 to 0.1 | The soil is never exhausted for good. |
 | Soft Liebig floor (`GrowthSim.liebig_floor`) | 0.45 (0.35) | 0.35 to 0.5 | [PLACEHOLDER] A missing N, P or K slows growth to about half, never stops it; raised with "Softer". |
-| Water upkeep (`WATER_UPKEEP_PER_LEAF`) | 0.01 water per effective leaf at sunrise (beech 1.3x) | 0.005 to 0.02 | Leaves drink every day. Care (0.6.3) shows it. |
+| Stock hold (`GrowthSim.hold_days`, `stock_room`) | the old roots' draw, the seep and alder's nodules fill each stock only up to 2 days of a calm day's need; the new root's own finds are never held back | 1.5 to 3 | [PLACEHOLDER] New in 0.6.3: stocks grew to 5 to 10 days, so a dry night never showed (B3). Water now covers more than 2 days on 0 to 10 of a month's days (oak and birch seed 27: 14 of 33, 10 of 24). A lossy water drain was tried and dropped: it slowed every style. |
+| Water upkeep (`WATER_UPKEEP_PER_LEAF`) | 0.01 water per effective leaf at sunrise (beech 1.3x) | 0.005 to 0.02 | Leaves drink every day. Thirst shows on the 6th night when the roots stop finding water; in ordinary neglect N, P or K run short first, so thirst stays rare (a design call taken as "keep rare" while Simon is away). |
 | Shade dieback (`SHADE_DIEBACK_SHARE`) | 5 % of shaded tips per day (birch 10 %, beech 0) | 2 to 10 % | Soft failure from the growth model. |
 
-## Care and pruning
+## Care and pruning (0.6.3)
 
 | Variable | Value | Range | Reason |
 |---|---|---|---|
 | Largest cut (`tree/pruning.gd`) | a fifth of the living tree | fixed | Soft failure: never the trunk, never more than a fifth. |
-| Pruning effect | none beyond removing wood (markers go to the rest of the crown) | to be set in 0.6.3 | [PLACEHOLDER] Audit: pruning has no felt effect. Spec in specs/care-and-pruning.md. |
-| Care signals | none | to be set in 0.6.3 | [PLACEHOLDER] Spec in specs/care-and-pruning.md. |
+| Pruning refund (`GrowthSim.PRUNE_REFUND`) | 0.3 of the cut segments, at the next sunrise | 0.2 to 0.4 | [PLACEHOLDER] Below 1, so pruning never speeds a tree up (broken 13). |
+| Share near the cut (`PRUNE_NEAR_SHARE`), buds (`PRUNE_BUDS`), reach (`PRUNE_BUD_REACH`) | 0.7 of the refund; 2 buds (3 for a cut of 20 or more), at least 2 segments each, within 1.2 m below the cut | 0.4 to 0.8; 2 to 3; about 1 m | The crown visibly fills in at the cut by the next day. |
+| Markers around a cut (`PRUNE_MARKERS_MIN`/`MAX`) | half the cut, 6 to 30, within 1.2 m | 4 to 40 | Draws some of the day's ordinary growth to the cut: felt, no extra growth. |
+| Daily refund cap | 0.3 x a fifth of the living tree | fixed | The one-fifth rule caps several cuts a day. |
+| Twin buds (sycamore) | the two fork segments are paid with nutrients and taken from the following growth; no refund on a forked cut | fixed | Cutting 20 tips a day finished a sycamore 3 days sooner; now 36 to 38 against 27 to 28 unpruned. |
+| Care sign starts / full (`Care.NEED_START`, `NEED_FULL`) | the stock covers less than 0.75 / 0.25 of a calm day | 0.6 to 0.9 / 0.1 to 0.4 | [PLACEHOLDER] Shows only when the stock clearly will not last the day. |
+| Care sign easing (`Care.EASE_SHARE`) | over the first 35 % of daylight | 20 to 50 % | Eased over the morning, gone by noon (broken 11). |
+| Care reach check (`Care.expected_life_force`, `reachable`) | a sign shows only if tonight's estimated tank (now + a calm rest of the day x 0.8) reaches a dot of that kind | 0.6 to 1.0 | Never a need the player cannot act on (broken 12). |
+| Care cues | thirst: tips drop up to 0.55 of a spray, a sixth fold away; N: new sprays fewer (x0.35) and smaller (x0.58), pale 0.6; P/K: up to 0.45 of leaf masses bare, tinge 0.3; no colour once the leaves turn | see care-0.6.3.md | [PLACEHOLDER] Shape first, so it reads in autumn. |
 | Bonsai largest cut (`bonsai_sim.gd`) | a third | fixed | Section 16. |
 
-## Seeded runs on iterate-0.6, 2026-09-29 22:50 UTC (what happened)
+## Build thread sweeps after the 0.6.3 balance fixes, 2026-09-30 (what happened)
+
+From docs/notes/sim-0.6.3.md (headless, seeds 3/14/27, the build thread's `tools/strategies.gd`
+and `tools/qa_care.gd`). Finish days are in the tables above. Pruning 20 tips a day never finishes a
+tree sooner than leaving it unpruned (sycamore 36 to 38 against 27 to 28). Cutting a fifth every
+noon now leaves a bush that does not finish by day 45. Oak runs past night 45 and spends its tank
+each night. No style leaves life force unused after a night. Water: a tree whose roots stop
+finding water shows thirst on the 6th night; in ordinary neglect it is short of N, P or K first.
+
+**Steering from the tip, with the 0.7 glow (reported by the build thread, 0.7 not yet on main):**
+the glowing wish deposit now makes steering from the newest root tip pay off, which answers the
+risk in the section below (chasing dots from the newest tip was barely better than ending the
+root at once). It is to be confirmed with numbers in 0.7's full check (0.7 broken item 1, this
+table's item 5).
+
+## Seeded runs on iterate-0.6, 2026-09-29 22:50 UTC (what happened, before the 0.6.3 fixes)
 
 Same script and seeds (3 / 14 / 27, linden, finish day), on the settled 0.6.x numbers. Two new
 styles use the game's own `RootBot.pick_start`, which starts the root where the meadow points to
