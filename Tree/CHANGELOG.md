@@ -2,20 +2,28 @@
 
 ## Progress (for resuming work)
 
-0.6.x iteration (Simon, 2026-09-29: rebuild the weakest pieces, all look areas, tree care first
-then roots, mixed checking, work in parallel). Branch iterate-0.6; streams merge into it.
-- Done and merged: 0.6.1 quick fixes; bonsai look (s-bonsai); clearing and shed look
-  (s-clearing); the tree rebuilt (tree-062); root runs (s-roots: dots worth steering, nights
-  under a minute, easier steering, boost costs); pinboard resets (plant a new tree / start over,
-  Simon chose both); beech slow start eased.
-- In progress: tree care (s-care, wt-care); softer for non-steering play (s-soft, wt-soft:
-  Simon chose "Softer": finish about day 36-40, every day grows).
-- Next: merge both, then the full two-reviewer check against Tree/docs/tuning.md (broken list)
-  and a look pass, then the phone build as 0.6.x (with the daytime frame-rate measurement; the
-  phone was locked last time). After the plan: adopt Tree/docs/design-practice.md.
-- Note: Simon's phone has 0.6 with his save restored (backup in GameDev/tree-shots/savebackup).
+Simon (2026-09-29, away): finish 0.6.x, then 0.7 (his three picks), then 0.8 (specs/0.8.md: fixes
+from the 0.7 check first, then dot shapes, backup, sharing, brush pile, app icon, live picture).
+Install each fully checked version on his phone (save backed up first); APKs in GameDev/tree-releases.
+- 0.6.3 done on iterate-0.6: tree care, Softer tuning, look fixes and balance fixes from the
+  two-reviewer check (docs/notes/care-0.6.3.md, soft-0.6.x.md, sim-0.6.3.md). Next: tag, main,
+  phone install.
+- 0.7 streams built, not yet merged: s07-wish (wt-wish: glowing wish deposit underground),
+  s07-bonsaitools (wt-bonsaitools: real tools on the sill). Still to build: branches the tree
+  marks for pruning. Then the full check with the balance list in specs/0.7-candidates.md.
+- Choices taken as "recommended" while Simon was away:
+  - Scope after 0.7: new features too (Simon tapped it), 0.8 per the design thread's spec.
+  - Live picture: wallpaper and screen saver, one animation (default until he answers).
+  - Shed at night: dark room with a lantern pool, a little moonlight so the tree reads outside.
+  - Thirst stays rare: a neglected tree runs short of N/P/K first; the seep stays 0.03 (lower
+    pushed unsteered linden past day 40). Design call left to the design thread.
+  - Boost life force 0.5 -> 0.35 and night length follows the tank (20-44 s), so a boosted day
+    costs a third of the night (tuning item 2).
+  - A tree counts as finished only at 0.4 of its species' height (no "finished" bush).
+  - The seed sack keeps "seeds" printed on it; its label says "seed bag".
+- Note: Simon's phone has 0.6 with his save; backups in GameDev/tree-shots/savebackup.
 
-## v0.6.3 (in progress, stream s-care): tree care
+## v0.6.3: tree care, softer nights, review fixes
 - The tree shows what it lacks, shape first: thirsty leaves hang, new shoots short of nitrogen
   stay sparse and small, short of phosphorus or potassium some leaf masses stay bare; colour only
   as a second cue, so it reads in autumn too. A sign shows only while the need exists, only if
