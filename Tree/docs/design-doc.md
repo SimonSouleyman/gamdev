@@ -250,6 +250,7 @@ The loop on three time scales. The fun hypothesis, the one thing that must feel 
 - **Never:** streaks, login rewards, withering as a threat, shop, ads, leaderboards (section 17, design-practice.md).
 
 ## Decision log
+- 2026-09-30 (Simon, 18:31 UTC, for 0.8.1): fix the noon crown (too dark, blotchy) and the juniper bonsai (disc-like pads, thick trunk); the live wallpaper and screen saver must actually animate (they showed a still picture); the day's wish points at a far patch on about half its underground days. Dying branches stay as they are.
 - 2026-09-30 (Simon, 18:29 UTC, answering the coordinator's review of the 0.8.1 list): **split again**: fixes are 0.8.1, the new features (seed pictures, side roots, fast-forward, the shorter journal) are 0.8.2. **A much wider root field** in 0.8.1: patches far apart in a bigger volume, so reaching one can take a root continued over nights. **Frame rate** measured on the phone underground and by day in the 0.8.1 check. **Plain dots stay**, colour-blind help later. **The root melody stays** without a switch; four low notes in turn are enough.
 - 2026-09-30 (Simon, card at 18:17 UTC, "Ins Tagebuch", for 0.8.1): the pot on the shed bench goes; its "My <tree>" page becomes the journal's first page.
 - 2026-09-30 (Simon, 18:15 UTC, for 0.8.1): **a third level of roots**: smaller roots branch off the second-level side roots, fed by about 30 % of the leftover life force, shorter, finer and dimmer, with a node cap for the phone (specs/side-roots.md).
