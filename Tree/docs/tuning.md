@@ -104,11 +104,32 @@ noon now leaves a bush that does not finish by day 45. Oak runs past night 45 an
 each night. No style leaves life force unused after a night. Water: a tree whose roots stop
 finding water shows thirst on the 6th night; in ordinary neglect it is short of N, P or K first.
 
-**Steering from the tip, with the 0.7 glow (reported by the build thread, 0.7 not yet on main):**
-the glowing wish deposit now makes steering from the newest root tip pay off, which answers the
-risk in the section below (chasing dots from the newest tip was barely better than ending the
-root at once). It is to be confirmed with numbers in 0.7's full check (0.7 broken item 1, this
-table's item 5).
+**0.7 full check, 2026-09-30 01:50 UTC (what happened; build thread, iterate-0.7 at f2302f3,
+seeds 3/14/27, 469 nights of start-pick play).** Finish days by style:
+
+| Species | follow the glow from the newest tip | start pick (meadow) | end every root at once |
+|---|---|---|---|
+| linden | 29 / 29 / 30 | 30 / 27 / 30 | 36 / 36 / 36 |
+| birch | 24 / 24 / 24 | 23 / 23 / 24 | 32 / 29 / 32 |
+| beech | 29 / 30 / 30 | 28 / 29 / 29 | 35 / 35 / 35 |
+| sycamore | 30 / 27 / 27 | 27 / 25 / 26 | 33 / 33 / 33 |
+| alder | 28 / 26 / 27 | 26 / 29 / 26 | 31 / 30 / 31 |
+| oak | 35 / 34 / 36 | 33 / 33 / 33 | 40 / 41 / 41 |
+
+Steering from the tip now pays: following the glow reaches it on about 9 nights in 10 and beats
+random steering by 6 to 8 days, and it is as good as the start pick, so the risk in the section
+below is closed (0.7 broken item 1 and this table's item 5 pass). Nights ran 38 to 50 s (item 7
+passes).
+
+Nutrients: the kind the tree was shortest of was always in reach (B1 passes). Days at the soft
+floor (growth about half): birch 4 %, linden 31, oak 34, sycamore 35, beech 43, alder 46, mostly
+phosphorus (B2 broken). One kind held more than two days of stock: alder 100 % of days, birch 58,
+oak 55, water or nitrogen (B3 broken; alder's nitrogen is its nodule quirk). 27 to 43 rich
+patches lay in one night's reach against a limit of about 15 (B4 broken). A missed glow stayed at
+0.45 beside the new one on 4 to 17 nights a month (0.7 item 3 broken; the spec now says the old
+glow goes out when a new one shows). Bonsai: pellets take 3 taps (C1 broken), the repot slip
+buttons are small (C1, D5), needs do not show on the tree or pot (C4). All go into 0.8 section 5
+(build thread branch s08-balance, numbers in docs/notes/balance-0.8.md).
 
 ## Seeded runs on iterate-0.6, 2026-09-29 22:50 UTC (what happened, before the 0.6.3 fixes)
 
@@ -222,8 +243,10 @@ above and three seeds, on linden plus one fast and one slow species.
 9. A tree finishes outside its target by more than 15 % (linden 26 to 34 days) in the calm
    style, or the same style spreads by more than a week across seeds.
 10. Any played day grows fewer than about 20 segments (no visible growth that day).
-10a. A tree whose roots are never steered (every root ended at once) does not finish by about
-   day 40 (Simon, 2026-09-29: "Softer"), or finishes as fast as a steered one (item 4).
+10a. A tree whose roots are never steered (every root ended at once) finishes more than about
+   10 days after its steered days, or not by about day 42 for oak and day 40 for the rest (Simon,
+   2026-09-29: "Softer"; ruled per species on 2026-09-30, since oak's month is longer), or
+   finishes as fast as a steered one (item 4).
 
 **Care and pruning** (once 0.6.3 exists)
 11. A care signal shows while nothing is lacking, or stays after the need was met for a full
