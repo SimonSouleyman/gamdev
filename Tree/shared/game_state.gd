@@ -21,6 +21,8 @@ const NIGHT_HOLD_MARGIN: float = 0.5
 const MORNING_DELAY: float = 11.0
 ## Share of the drunk dots that come back into the soil each night.
 const REGROW_SHARE: float = 0.05
+## The save's format number. A backup copy with a higher one is from a newer Tree (Backup).
+const SAVE_VERSION: int = 2
 
 var seed: int = 1
 var sim: GrowthSim
@@ -627,7 +629,7 @@ func first_time(page: String) -> bool:
 
 func to_dict() -> Dictionary:
 	return {
-		"version": 2,
+		"version": SAVE_VERSION,
 		"seed": seed,
 		"sim": SaveData.flatten_sim(sim.to_dict()),
 		"underground": ground.to_dict(),

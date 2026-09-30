@@ -11,8 +11,17 @@ Godot 4.7 Android plugin (v2) for Tree. Singleton `TreePhone`, plain Android API
 | `scheduleDaily(hour, minute, title, text)` | Daily reminder via `AlarmManager` (inexact `setAndAllowWhileIdle`, re-armed after each firing; exact only if `canScheduleExactAlarms()`). Channel `tree_daily`. Tap opens the game. Re-armed after reboot, app update and clock change. |
 | `cancelDaily()` | Stops the reminder. |
 | `saveVideoToGallery(aviPath: String, album: String) -> bool` | Month time-lapse: MJPEG AVI (absolute path) to H.264 MP4 in the gallery under `Movies/<album>`. Runs on its own thread: returns `true` once started (`false` if the file is missing or a video is already being saved), then emits `video_saved(ok: bool)`. See below. |
+| `createDocument(srcPath: String, name: String, mime: String) -> bool` | 0.8 backup: Android's "save as" picker (`ACTION_CREATE_DOCUMENT`) for the file, suggesting `name`; copies it there on a worker thread. Emits `document_saved(result)`. |
+| `openDocument(destPath: String) -> bool` | 0.8 backup: Android's "open" picker (`ACTION_OPEN_DOCUMENT`); copies the chosen file to `destPath` (at most 512 MB). Emits `document_opened(result)`. |
+| `shareFile(path: String, mime: String) -> String` | 0.8 sharing: the share sheet (`ACTION_SEND` through the chooser, no title or text) with the file, served read-only by `ShareProvider` from the cache folder `share`. Returns the result at once. |
+| `shareVideo(aviPath: String) -> bool` | 0.8 sharing: the month's MJPEG AVI as an MP4 (VideoSaver's encoder) in the share sheet. Emits `shared(result)`. |
 
-Signals: `notification_permission_result(granted: bool)`, `video_saved(ok: bool)`.
+Signals: `notification_permission_result(granted: bool)`, `video_saved(ok: bool)`,
+`document_saved(result: String)`, `document_opened(result: String)`, `shared(result: String)`.
+Result words: `ok`, `cancelled`, `no_room`, `too_big`, `no_app`, `failed`. The game uses them
+through `res://shared/phone_files.gd` (`PhoneFiles`). The file provider (`ShareProvider`,
+authority `<package>.treeshare`) replaces androidx FileProvider so the plugin needs no library;
+a `<queries>` block lets the game see whether any app takes a picture or a video (Android 11+).
 
 Game code uses the wrapper `res://shared/phone.gd` (`class_name Phone`), which is a no-op on PC.
 

@@ -4,6 +4,7 @@ import android.Manifest;
 import android.app.Activity;
 import android.app.WallpaperManager;
 import android.content.Context;
+import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
@@ -32,6 +33,9 @@ public class TreePhonePlugin extends GodotPlugin {
     private static final String SIGNAL_VIDEO = "video_saved";
 
     private final AtomicBoolean savingVideo = new AtomicBoolean(false);
+    private static final String SIGNAL_SHARED = "shared";
+    private final Documents documents = new Documents(this);
+    private final AtomicBoolean sharingVideo = new AtomicBoolean(false);
 
     public TreePhonePlugin(Godot godot) {
         super(godot);
@@ -47,6 +51,10 @@ public class TreePhonePlugin extends GodotPlugin {
         Set<SignalInfo> signals = new HashSet<>();
         signals.add(new SignalInfo(SIGNAL_PERMISSION, Boolean.class));
         signals.add(new SignalInfo(SIGNAL_VIDEO, Boolean.class));
+        // 0.8: save backup and sharing (Documents, Sharer).
+        signals.add(new SignalInfo(Documents.SIGNAL_SAVED, String.class));
+        signals.add(new SignalInfo(Documents.SIGNAL_OPENED, String.class));
+        signals.add(new SignalInfo(SIGNAL_SHARED, String.class));
         return signals;
     }
 
@@ -177,6 +185,88 @@ public class TreePhonePlugin extends GodotPlugin {
                 runOnRenderThread(() -> emitSignal(SIGNAL_VIDEO, result));
             }
         }, "TreePhone-video");
+        worker.start();
+        return true;
+    }
+
+    // --- 0.8: save backup (Storage Access Framework) and sharing (share sheet) ----------------
+
+    /** Emits a signal on Godot's render thread (for the helper classes). */
+    void emitLater(String signal, Object... args) {
+        runOnRenderThread(() -> emitSignal(signal, args));
+    }
+
+    /**
+     * Android's own "save as" picker for the file at srcPath (the backup zip), suggesting name.
+     * Returns true once the picker opens; the answer arrives as document_saved(result) with
+     * "ok", "cancelled", "no_room" or "failed".
+     */
+    @UsedByGodot
+    public boolean createDocument(String srcPath, String name, String mime) {
+        return documents.create(getActivity(), srcPath, name, mime);
+    }
+
+    /**
+     * Android's own "open" picker; the chosen file is copied to destPath (absolute). Returns true
+     * once the picker opens; the answer arrives as document_opened(result) with "ok",
+     * "cancelled", "too_big", "no_room" or "failed".
+     */
+    @UsedByGodot
+    public boolean openDocument(String destPath) {
+        return documents.open(getActivity(), destPath);
+    }
+
+    @Override
+    public void onMainActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onMainActivityResult(requestCode, resultCode, data);
+        documents.onResult(getActivity(), requestCode, resultCode, data);
+    }
+
+    /**
+     * Opens the share sheet with the file (absolute path; a Polaroid PNG). Returns "ok" once the
+     * sheet is up, "no_app" when no app takes the kind, "failed" otherwise.
+     */
+    @UsedByGodot
+    public String shareFile(String path, String mime) {
+        Activity activity = getActivity();
+        if (activity == null || path == null || !new File(path).isFile()) {
+            return "failed";
+        }
+        File staged = Sharer.stage(activity.getApplicationContext(), new File(path));
+        return Sharer.open(activity, staged, mime == null || mime.isEmpty() ? "image/png" : mime);
+    }
+
+    /**
+     * The month time-lapse (MJPEG AVI, absolute path) as an MP4 in the share sheet. The encoding
+     * runs on its own thread: returns true once started, then emits shared(result) with "ok",
+     * "no_app" or "failed".
+     */
+    @UsedByGodot
+    public boolean shareVideo(String aviPath) {
+        Activity activity = getActivity();
+        if (activity == null || aviPath == null || !new File(aviPath).isFile() || !sharingVideo.compareAndSet(false, true)) {
+            return false;
+        }
+        Context ctx = activity.getApplicationContext();
+        Thread worker = new Thread(() -> {
+            String result = "failed";
+            try {
+                File dir = ShareProvider.folder(ctx);
+                if (dir.isDirectory() || dir.mkdirs()) {
+                    String base = new File(aviPath).getName();
+                    int dot = base.lastIndexOf('.');
+                    File mp4 = new File(dir, (dot > 0 ? base.substring(0, dot) : base) + ".mp4");
+                    if (VideoSaver.toMp4(aviPath, mp4)) {
+                        result = Sharer.open(activity, mp4, "video/mp4");
+                    }
+                }
+            } catch (Throwable t) {
+                Log.w(TAG, "shareVideo crashed", t);
+            } finally {
+                sharingVideo.set(false);
+                emitLater(SIGNAL_SHARED, result);
+            }
+        }, "TreePhone-share");
         worker.start();
         return true;
     }

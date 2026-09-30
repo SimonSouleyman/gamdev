@@ -91,6 +91,23 @@ final class VideoSaver {
         }
     }
 
+    /** Converts the AVI into an MP4 at mp4 without touching the gallery (sharing, 0.8). */
+    static boolean toMp4(String aviPath, File mp4) {
+        try {
+            Avi parsed = parse(readAll(new File(aviPath)));
+            if (parsed.frames.isEmpty()) {
+                return false;
+            }
+            encode(parsed, mp4);
+            return mp4.isFile();
+        } catch (Exception e) {
+            Log.w(TAG, "toMp4 failed for " + aviPath, e);
+            //noinspection ResultOfMethodCallIgnored
+            mp4.delete();
+            return false;
+        }
+    }
+
     // --- reading the AVI -------------------------------------------------------------------
 
     static byte[] readAll(File f) throws IOException {
