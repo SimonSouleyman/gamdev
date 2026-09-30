@@ -18,6 +18,8 @@ extends SceneTree
 ## --marks: the twigs the tree marks for pruning (0.7): a photo from the side of the most visible
 ## marked twig, then each marked twig is cut at its fork and a second photo follows
 ## (<tag>marks_before.png, <tag>marks_after.png); prints where the marks are.
+## --hint_patches: a phosphorus and a potassium wish deposit in front of the tree in the game's
+## default view (north of the trunk), so their meadow signs (nettles, comfrey) are in the photos.
 ## --rain: a shower on the last day (Clearing.after_rain), so the mushrooms are up.
 ## Mood (section 17): --season=spring|summer|autumn|late_autumn, --weather=rain|mist|dew|clear,
 ## --moon=<phase 0..1>, --date=YYYY-MM-DD (Almanac.read_cmdline); --night=<0..1> photographs the
@@ -52,6 +54,7 @@ var look_up := 0.0
 var face_moon := false
 var settle := 0
 var marks := false
+var hint_patches := false
 
 
 func _initialize() -> void:
@@ -76,6 +79,8 @@ func _initialize() -> void:
 			prune = true
 		elif a == "--marks":
 			marks = true
+		elif a == "--hint_patches":
+			hint_patches = true
 		elif a == "--dive":
 			dive = true
 		elif a == "--roots":
@@ -159,6 +164,9 @@ func _initialize() -> void:
 		g.tick(0.5)
 	if rain:
 		g.after_rain()
+	if hint_patches:
+		var depth := minf(0.8, Underground.HINT_MAX_DEPTH - 0.1)
+		print("hint patches: ", g.ground.add_wish_deposit(g.day_number(), Resources.Kind.PHOSPHORUS, Vector3(2.6, -depth, -3.6), 1.3, 30), " ", g.ground.add_wish_deposit(g.day_number(), Resources.Kind.POTASSIUM, Vector3(-2.4, -depth, -4.2), 1.3, 30))
 	g.take_events()
 	if cut_days > 0:
 		print("brush pile: %d segments, %d sticks" % [g.brush.wood, g.brush.stick_count()])
@@ -237,6 +245,12 @@ func _process(_delta: float) -> bool:
 		root.get_viewport().get_texture().get_image().save_png(shots_dir.path_join("%stree_day%d_h%d_%s.png" % [tag, days, int(hour * 100), names[i - 1]]))
 		if stats:
 			_print_stats(names[i - 1])
+		# Where the hedgehog is in the photo (0.8 review: it was a few pixels at the edge).
+		var bp := view.brush_pile
+		if bp.hedgehog.visible and view.camera.is_position_in_frustum(bp.hedgehog.global_position):
+			print("hedgehog on screen at ", view.camera.unproject_position(bp.hedgehog.global_position), ", ", snappedf(view.camera.global_position.distance_to(bp.hedgehog.global_position), 0.1), " m from the camera")
+		elif bp.hedgehog.visible:
+			print("hedgehog out of frame")
 	if i < names.size():
 		view._yaw = yaws[i]
 		view._pitch = pitch

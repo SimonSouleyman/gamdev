@@ -29,7 +29,7 @@ var _last_signature: String = ""
 ## night a cool moonlit fill in which the tree still reads.
 const LIGHTS := {
 	"dawn": {"dir": Vector3(0.93, 0.2, 0.3), "color": Color(1.0, 0.72, 0.45), "energy": 1.5, "ambient": Color(0.62, 0.62, 0.7), "ambient_energy": 0.75, "exposure": 1.2, "saturation": 1.0, "haze": Color(0.86, 0.74, 0.62)},
-	"day": {"dir": Vector3(0.55, 0.7, 0.45), "color": Color(1.0, 0.96, 0.9), "energy": 1.55, "ambient": Color(0.58, 0.64, 0.72), "ambient_energy": 0.8, "exposure": 1.1, "saturation": 1.0, "haze": Color(0.66, 0.74, 0.78)},
+	"day": {"dir": Vector3(0.55, 0.7, 0.45), "color": Color(1.0, 0.96, 0.9), "energy": 1.55, "ambient": Color(0.58, 0.64, 0.72), "ambient_energy": 0.8, "exposure": 1.1, "saturation": 1.0, "haze": Color(0.62, 0.74, 0.86)},
 	"dusk": {"dir": Vector3(-0.93, 0.2, 0.3), "color": Color(1.0, 0.68, 0.4), "energy": 1.5, "ambient": Color(0.66, 0.6, 0.66), "ambient_energy": 0.75, "exposure": 1.2, "saturation": 1.0, "haze": Color(0.86, 0.7, 0.58)},
 	"night": {"dir": Vector3(-0.3, 0.8, 0.5), "color": Color(0.6, 0.66, 0.9), "energy": 0.35, "ambient": Color(0.42, 0.5, 0.74), "ambient_energy": 0.42, "exposure": 1.0, "saturation": 0.6, "haze": Color(0.12, 0.15, 0.24)},
 }
@@ -90,6 +90,9 @@ func _render(view: TreeView, state: GameState) -> bool:
 	env.fog_depth_end = cam_dist + 90.0
 	env.fog_depth_curve = 0.8
 	env.fog_density = 0.85
+	# The haze at the horizon no brighter than the sky's foot above it (0.8 review: the fully hazed
+	# far ground drew a near-white band along the horizon, the tone mapper lifting it).
+	env.fog_light_energy = 0.72
 	var foot := cam.unproject_position(Vector3.ZERO)
 	var ground_y := clampf(foot.y / float(size.y), 0.05, 1.0)
 	var images := {}
@@ -110,6 +113,9 @@ func _render(view: TreeView, state: GameState) -> bool:
 		if img == null or img.is_empty():
 			sv.queue_free()
 			return false
+		# The clear sky's pixels take their opaque neighbours' colour before the resize (0.8 review:
+		# the cubic filter mixed the clear colour into the edge, a pale seam along the horizon).
+		img.fix_alpha_edges()
 		img.resize(LivePicture.LAYER_SIZE.x, LivePicture.LAYER_SIZE.y, Image.INTERPOLATE_CUBIC)
 		images[name] = img
 	sv.queue_free()
@@ -182,7 +188,7 @@ func _add_scene(sv: SubViewport, view: TreeView, cam_dist: float) -> void:
 	for layer in [view._grass, view._meadow2]:
 		var src := layer as MultiMeshInstance3D
 		var g := MultiMeshInstance3D.new()
-		g.multimesh = flat_grass(src.multimesh, GRASS_RADIUS, cam_dist)
+		g.multimesh = flat_grass(src.multimesh, GRASS_RADIUS, cam_dist, layer == view._meadow2)
 		# Its own copy of the material: the game's fades the grass by its own camera's distance.
 		var mat := src.material_override as ShaderMaterial
 		if mat != null:
@@ -206,7 +212,13 @@ func _add_scene(sv: SubViewport, view: TreeView, cam_dist: float) -> void:
 ## The clumps of a meadow layer within `radius` of the trunk, set down on flat ground and repeated
 ## in tiles along the view (the camera stands `cam_dist` north of the tree, TreeView.ALBUM_YAW):
 ## one tile behind the tree, as many as reach toward the camera, none within GRASS_CLEAR of it.
-static func flat_grass(src: MultiMesh, radius: float, cam_dist: float) -> MultiMesh:
+## `flowered`: the layer's clumps carry their kind in the colour's alpha (GrassLook.apply_meadow2);
+## its clover and flowers keep FLOWER_CLEAR further back, so no flower head is cut by the
+## picture's bottom edge (0.8 review); the fine grass there fills the edge.
+const FLOWER_CLEAR := 5.5
+
+
+static func flat_grass(src: MultiMesh, radius: float, cam_dist: float, flowered: bool = false) -> MultiMesh:
 	var toward := Vector3(sin(TreeView.ALBUM_YAW), 0.0, cos(TreeView.ALBUM_YAW))
 	var step := radius * 1.9
 	var tiles := ceili(maxf(cam_dist - GRASS_CLEAR, 0.0) / step)
@@ -220,6 +232,8 @@ static func flat_grass(src: MultiMesh, radius: float, cam_dist: float) -> MultiM
 		for k in range(-1, tiles + 1):
 			var p := Vector3(o.x, -0.02, o.z) + toward * (step * k)
 			if p.dot(toward) > cam_dist - GRASS_CLEAR:
+				continue
+			if flowered and src.use_colors and src.get_instance_color(i).a > 0.5 and p.dot(toward) > cam_dist - GRASS_CLEAR - FLOWER_CLEAR:
 				continue
 			var t := xf
 			t.origin = p

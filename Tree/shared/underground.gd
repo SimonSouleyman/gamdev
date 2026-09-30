@@ -495,7 +495,7 @@ func touch_finds(p: Vector3) -> Array:
 
 
 ## Surface hints for the meadow: what grows above what lies below (design doc "Read the meadow").
-## Each: {"kind": "rushes"|"damp"|"clover"|"nettles"|"stones"|"moss", "position": Vector3 (y = 0), "radius": float}
+## Each: {"kind": "rushes"|"damp"|"clover"|"nettles"|"comfrey"|"stones"|"moss", "position": Vector3 (y = 0), "radius": float}
 func surface_hints() -> Array:
 	var out: Array = []
 	var clover_turn := true
@@ -522,9 +522,10 @@ func surface_hints() -> Array:
 				if layout >= 2 or bool(patch.get("wish", false)):
 					out.append({"kind": "nettles", "position": ground, "radius": r})
 			Resources.Kind.POTASSIUM:
-				# Potassium weathers out of stone: a wish for it shows loose stones above it.
+				# A wish for potassium shows comfrey above it: its deep roots bring potash up
+				# (gardeners make potash feed of it). Stones mean shallow rock only (0.8 review).
 				if bool(patch.get("wish", false)):
-					out.append({"kind": "stones", "position": ground, "radius": r})
+					out.append({"kind": "comfrey", "position": ground, "radius": r})
 	for i in range(rock_centers.size()):
 		var top := -rock_centers[i].y - rock_radii[i]
 		if top < 1.2:

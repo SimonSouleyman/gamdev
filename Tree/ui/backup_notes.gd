@@ -26,6 +26,8 @@ var _busy := false
 var _armed_path := ""
 var _armed_manifest: Dictionary = {}
 var _arm_serial := 0
+## The live picture's open note lies where the slip would grow (ShedMenu): the slip waits.
+var _slip_hidden := false
 
 
 func _init() -> void:
@@ -49,7 +51,7 @@ func _init() -> void:
 	slip.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_note_strip.add_child(slip)
 	slip.add_child(_note)
-	undo_button = Paper.ink_button("take back the game before", 22)
+	undo_button = Paper.ink_button("take back the game before", 25)
 	undo_button.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	undo_button.pressed.connect(_on_undo)
 	undo_button.visible = false
@@ -75,15 +77,25 @@ func set_note(text: String) -> void:
 	_note.text = text
 	_note.visible = text != ""
 	undo_button.visible = false
-	_note_strip.visible = text != ""
+	_note_strip.visible = text != "" and not _slip_hidden
 
 
-## After a load (and on the board for a day after it): the game before can be taken back.
+## After a load (and on the board for a day after it): the game before can be taken back. The
+## slip always says what the word does (0.8 review: on a reopened board it held the word alone).
 func offer_undo() -> void:
 	if not Backup.can_undo_load():
 		return
+	if _note.text == "":
+		_note.text = "A copy was loaded; the game before it is kept."
+		_note.visible = true
 	undo_button.visible = true
-	_note_strip.visible = true
+	_note_strip.visible = not _slip_hidden
+
+
+## Hides the note slip while the live picture's open note lies above the backup notes.
+func hide_slip(on: bool) -> void:
+	_slip_hidden = on
+	_note_strip.visible = not on and (_note.text != "" or undo_button.visible)
 
 
 func _on_undo() -> void:

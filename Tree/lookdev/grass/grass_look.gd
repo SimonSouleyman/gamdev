@@ -31,6 +31,8 @@ static func apply(view: TreeView) -> void:
 		# and on a path it is trodden down: short and lying over.
 		var tall := lerpf(0.78, 1.6, m.g) * lerpf(0.88, 1.12, m.r)
 		var trod := smoothstep(0.15, 0.8, m.b)
+		# On the hedgehog's run (BrushPile) even the tall patches stay short.
+		tall = lerpf(tall, 0.7, BrushPile.on_run(Vector2(p.x, p.z), edge))
 		var basis := xf.basis.scaled(Vector3(0.9, 1.6 * tall * lerpf(1.0, 0.35, trod), 0.9))
 		if trod > 0.05:
 			var axis := Vector3(rng.randf_range(-1, 1), 0.0, rng.randf_range(-1, 1)).normalized()
@@ -122,6 +124,8 @@ static func apply_meadow2(view: TreeView) -> void:
 			cell = 1
 		# Short fine grass and clover hold on along a path; flowers and sedge do not.
 		var trod := smoothstep(0.15, 0.8, m.b)
+		# The hedgehog's run (BrushPile) keeps no sedge or tall flowers either.
+		trod = maxf(trod, BrushPile.on_run(Vector2(p.x, p.z), radius - 1.0) * 0.6)
 		if trod > 0.4 and (cell == 1 or cell == 3):
 			cell = 0 if cell == 1 else 2
 		var s: Vector4 = sizes[cell]

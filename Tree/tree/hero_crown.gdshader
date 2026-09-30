@@ -40,6 +40,9 @@ uniform float day_fill = 0.0;
 // a multiply on the summer green, then a saturation cut.
 uniform vec3 green_grade = vec3(1.0);
 uniform float saturation = 1.0;
+// The leaves' sheen (0.8 review: on the phone the noon sheen and the tone mapper together turned
+// the sunlit side cream; the tree view lowers it there).
+uniform float sheen = 0.18;
 
 varying vec2 leaf_hash;
 varying float occ;
@@ -158,7 +161,7 @@ void fragment() {
 		NORMAL_MAP_DEPTH = 0.5;
 	}
 	ROUGHNESS = mix(0.7, 0.45, wet);
-	SPECULAR = mix(0.18, 0.3, wet);
+	SPECULAR = mix(sheen, 0.3, wet);
 	// Thin leaves glow when the sun is behind them, most at the crown's edge.
 	BACKLIGHT = translucency * col * 1.35 * (1.0 - occ * 0.8);
 	RIM = rim_strength * (1.0 - occ);

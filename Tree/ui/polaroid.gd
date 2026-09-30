@@ -1,8 +1,8 @@
 class_name Polaroid
 extends RefCounted
 ## 0.8 "send": a photo from the album as the Polaroid it is in the album (the photo cropped
-## square, the white card and the handwritten caption), drawn on its own, without any HUD, lying
-## on the album's page. The card is built exactly as ShedMenu builds the album's cards, then
+## square, the white card and the handwritten caption), drawn on its own, without any HUD; it is
+## laid out on the album's page and cut out along the card's edge. The card is built exactly as ShedMenu builds the album's cards, then
 ## drawn three times as large, so text and paper stay sharp on another phone.
 
 ## The album card's size in the album (ShedMenu._build_album) and the page around it.
@@ -69,9 +69,14 @@ static func render(host: Node, photo_path: String) -> String:
 	await RenderingServer.frame_post_draw
 	await RenderingServer.frame_post_draw
 	var img := vp.get_texture().get_image()
+	# Only the Polaroid itself goes out, not the album page around it (0.8 review).
+	var at := Rect2i(Vector2i((card.position * SCALE).round()), Vector2i((card.size * SCALE).round()))
 	vp.queue_free()
 	if img == null or img.is_empty():
 		return ""
+	at = at.intersection(Rect2i(Vector2i.ZERO, img.get_size()))
+	if at.has_area():
+		img = img.get_region(at)
 	DirAccess.make_dir_recursive_absolute(DIR)
 	var out := path_for(photo_path)
 	return out if img.save_png(out) == OK else ""

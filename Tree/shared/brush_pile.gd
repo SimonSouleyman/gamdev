@@ -31,15 +31,26 @@ const WREN_TO: float = 0.6
 const MAX_STICKS: int = 40
 const FIRST_STICKS: int = 4
 const SEGMENTS_PER_STICK: int = 3
-## Where the pile lies: on the clearing edge opposite the shed (the shed stands at +z), a little
-## toward the west, and this far inside the edge (the camera's orbit stays further in).
-const BEARING: Vector2 = Vector2(-0.34, -0.94)
+## Where the pile lies (0.8 review): on the far clearing edge the game's camera looks at (it
+## starts north of the tree, looking south, where the hidden shed stands at +z), 16 degrees
+## west of the shed, so it sits inside the phone's narrow default framing beside the tree and
+## still clear of the shed; this far inside the edge (the camera's orbit stays further in).
+const BEARING: Vector2 = Vector2(-0.276, 0.961)
 const EDGE_INSET: float = 1.6
 ## The pile's reach from its centre when full, along the edge and across it (metres).
 const HALF_LENGTH: float = 1.5
 const HALF_DEPTH: float = 0.65
 ## The edge's herbs, flowers and shrubs keep this far from the pile's centre (Scenery).
 const CLEAR_RADIUS: float = 1.9
+## The hedgehog's run (0.8 review): from the pile across the meadow to the tree's foot (a
+## hedgehog forages for beetles under a tree), ending beside the trunk on the pile's side, this
+## far out to the side, so the trunk never hides it from the camera; at most RUN_MAX long; this
+## wide each side. Tall plants keep off it and the grass on it is trodden short, so the hedgehog
+## is seen on its evening walk where the camera looks. The pile lies 25 to 30 m from the camera,
+## where a 30 cm hedgehog is a few pixels; at the tree's foot it is as big as a true size allows.
+const RUN_END_BESIDE_TRUNK: float = 2.5
+const RUN_MAX: float = 24.0
+const RUN_HALF_WIDTH: float = 0.9
 
 ## Segments cut since the last sunrise (lying in the grass until then).
 var fallen: int = 0
@@ -121,6 +132,42 @@ static func roll(seed: int, day: int, what: String) -> float:
 static func position(radius: float) -> Vector3:
 	var b := BEARING.normalized() * (radius - EDGE_INSET)
 	return Vector3(b.x, 0.0, b.y)
+
+
+## Where the run ends: beside the trunk on the pile's side (y = the ground's z).
+static func run_end(radius: float) -> Vector2:
+	var c := position(radius)
+	var to := Vector2(signf(c.x) * RUN_END_BESIDE_TRUNK, 0.0) - Vector2(c.x, c.z)
+	return Vector2(c.x, c.z) + to.limit_length(RUN_MAX)
+
+
+## The run's direction (unit, on the ground plane) and length from the pile's middle.
+static func run_dir(radius: float) -> Vector2:
+	var c := position(radius)
+	return (run_end(radius) - Vector2(c.x, c.z)).normalized()
+
+
+static func run_length(radius: float) -> float:
+	var c := position(radius)
+	return run_end(radius).distance_to(Vector2(c.x, c.z))
+
+
+## How much a ground point lies on the hedgehog's run for a clearing of `radius` metres: 1 on
+## it, fading to 0 over half a metre beside it and at its inner end. Includes the pile's spot.
+static func on_run(p: Vector2, radius: float) -> float:
+	var c3 := position(radius)
+	var c := Vector2(c3.x, c3.z)
+	var inward := run_dir(radius)
+	var rel := p - c
+	var along := rel.dot(inward)
+	var across := absf(rel.dot(Vector2(-inward.y, inward.x)))
+	if along < 0.0:
+		# Behind the pile's middle: only the pile's own spot.
+		return 1.0 - smoothstep(CLEAR_RADIUS - 0.5, CLEAR_RADIUS, rel.length())
+	var side := 1.0 - smoothstep(RUN_HALF_WIDTH, RUN_HALF_WIDTH + 0.5, across)
+	var length := run_length(radius)
+	var end := 1.0 - smoothstep(length - 0.5, length, along)
+	return maxf(side * end, 1.0 - smoothstep(CLEAR_RADIUS - 0.5, CLEAR_RADIUS, rel.length()))
 
 
 func to_dict() -> Dictionary:

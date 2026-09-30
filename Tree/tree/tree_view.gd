@@ -89,9 +89,12 @@ var care_override := PackedFloat32Array()
 const DAY_FILL := 0.09
 ## The crown's colour on the phone renderer (0.7 review, notes/fix-0.7.md): less red in the
 ## summer green (lime to mid green), a little less saturation, a softer sunlit lift.
-const CROWN_GRADE_PHONE := Vector3(0.93, 0.97, 1.0)
-const CROWN_SATURATION_PHONE := 0.76
-const CROWN_SUN_LIFT_PHONE := 0.2
+## (0.8 review: the sunlit south side still went pale cream-lime at noon on the phone, where
+## the tone mapper whitens bright greens: a deeper grade, no lift and less sheen there; notes/fix-0.8.md.)
+const CROWN_GRADE_PHONE := Vector3(0.84, 0.92, 0.94)
+const CROWN_SATURATION_PHONE := 0.8
+const CROWN_SUN_LIFT_PHONE := 0.06
+const CROWN_SHEEN_PHONE := 0.08
 ## And a little more daylight fill there, so the calmer green does not sink into black blotches.
 const DAY_FILL_PHONE := 0.13
 var _fill_set: float = -1.0
@@ -406,6 +409,7 @@ func _build_world() -> void:
 		_spray_mat.set_shader_parameter("green_grade", CROWN_GRADE_PHONE)
 		_spray_mat.set_shader_parameter("saturation", CROWN_SATURATION_PHONE)
 		_spray_mat.set_shader_parameter("sun_lift", CROWN_SUN_LIFT_PHONE)
+		_spray_mat.set_shader_parameter("sheen", CROWN_SHEEN_PHONE)
 	_leaves.material_override = _spray_mat
 	# The player's tree catches the light at its edges, so it reads against the forest wall.
 	_leaf_mat.set_shader_parameter("rim_strength", 0.1)

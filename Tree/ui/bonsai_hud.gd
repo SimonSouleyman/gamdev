@@ -22,7 +22,7 @@ const STYLE_TEXTS := {
 const TOOL_HINTS := {
 	"": "Pick up a tool from the sill. Drag to look round, pinch to come closer.",
 	"water": "Tap the soil to water. Tap the can again to put it down.",
-	"fertiliser": "Choose N, P or K on the slip, then tap the soil.",
+	"fertiliser": "Tap the soil for the marked pellets; the slip changes the kind.",
 	"shears": "Touch a branch: the mark shows the cut, the outline what falls. Lift to cut (a third at most).",
 	"pinch": "Tap a fresh tip (grown today or yesterday) with the tweezers: the buds behind it fill in.",
 	"wire": "Touch a branch and drag it into its new line; the copper holds it. Tap a wired branch to take the wire off.",
@@ -50,6 +50,8 @@ var _labels_layer: Control
 var _labels: Dictionary = {}  # sill thing id -> PanelContainer
 var _pellet_slip: PanelContainer
 var _pellet_buttons: Array[Button] = []
+## The kind the slip and the tin's label last showed (-1: not yet).
+var _shown_kind: int = -1
 var _repot_slip: PanelContainer
 var _pot_buttons: Dictionary = {}  # pot id -> Button
 var _sheet: Control
@@ -156,35 +158,61 @@ func _build_labels() -> void:
 		i += 1
 
 
-## The pellet tin's slip: which pellets the next spoon gives.
+## The pellet tin's slip: which pellets the next spoon gives. A narrow slip with the three kinds
+## one under the other, each its mark, letter and word in one ink ring; the kind the tin gives
+## now is ringed in red ink (0.8 review: the ring cut through the words, the orange word was
+## unreadable, and the slip covered the crown and the tin).
 func _build_pellet_slip() -> void:
 	_pellet_slip = PanelContainer.new()
-	_pellet_slip.add_theme_stylebox_override("panel", Paper.paper_box(300, 150, 183, "all", 12.0))
-	_pellet_slip.rotation_degrees = 1.5
+	_pellet_slip.add_theme_stylebox_override("panel", Paper.paper_box(200, 300, 183, "all", 12.0))
+	_pellet_slip.rotation_degrees = 1.2
 	_pellet_slip.visible = false
 	_root.add_child(_pellet_slip)
 	var box := VBoxContainer.new()
-	box.add_theme_constant_override("separation", 4)
+	box.add_theme_constant_override("separation", 2)
 	_pellet_slip.add_child(box)
 	var head := Paper.ink_label("which pellets?", 22, Paper.FAINT_INK)
 	head.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	box.add_child(head)
-	var row := HBoxContainer.new()
-	row.alignment = BoxContainer.ALIGNMENT_CENTER
-	row.add_theme_constant_override("separation", 8)
-	box.add_child(row)
 	for k in range(3):
 		var kind := k
-		var b := Paper.ink_button("%s\n%s" % [PELLETS[k], PELLET_WORDS[k]], 23)
-		b.custom_minimum_size = Vector2(96, 96)
-		b.add_theme_color_override("font_color", Resources.KIND_COLORS[k + 1].darkened(0.45))
-		# The nutrient's mark above its letter (0.8), as on the dots underground.
+		var b := Button.new()
+		b.text = "%s  %s" % [PELLETS[k], PELLET_WORDS[k]]
+		b.focus_mode = Control.FOCUS_NONE
+		b.custom_minimum_size = Vector2(172, Paper.INK_TAP)
+		b.add_theme_font_override("font", Paper.hand_font(true))
+		b.add_theme_font_size_override("font_size", 24)
+		for c in ["font_color", "font_hover_color", "font_pressed_color", "font_focus_color"]:
+			b.add_theme_color_override(c, Paper.INK)
+		for st in ["normal", "hover", "pressed", "focus"]:
+			var pad := StyleBoxEmpty.new()
+			pad.content_margin_left = 20
+			pad.content_margin_right = 14
+			b.add_theme_stylebox_override(st, pad)
+		# The nutrient's mark before its letter (0.8), as on the dots underground.
 		b.icon = NutrientMarks.icon(k + 1, 30)
-		b.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		b.vertical_icon_alignment = VERTICAL_ALIGNMENT_TOP
+		b.icon_alignment = HORIZONTAL_ALIGNMENT_LEFT
+		b.add_theme_constant_override("h_separation", 10)
+		b.alignment = HORIZONTAL_ALIGNMENT_LEFT
 		b.pressed.connect(func() -> void: choose_pellets(kind))
-		row.add_child(b)
+		b.draw.connect(func() -> void: _draw_pellet_ring(b, kind))
+		box.add_child(b)
 		_pellet_buttons.append(b)
+
+
+## The ink ring round one kind on the slip: round the mark and the word together, red and
+## heavier for the kind the tin gives now.
+func _draw_pellet_ring(b: Button, kind: int) -> void:
+	var on := view != null and view.pellet_kind == kind
+	var sb := StyleBoxFlat.new()
+	sb.draw_center = on
+	sb.bg_color = Color(0.6, 0.18, 0.12, 0.08)
+	sb.border_color = Paper.RED_INK if on else (Paper.RED_INK if b.is_hovered() else Paper.FAINT_INK)
+	sb.set_border_width_all(4 if on else 2)
+	sb.set_corner_radius_all(30)
+	sb.corner_detail = 6
+	sb.expand_margin_left = 1
+	b.draw_style_box(sb, Rect2(Vector2(6, 6), b.size - Vector2(12, 12)))
 
 
 ## Chooses the pellets the tin gives next (0 N, 1 P, 2 K).
@@ -192,17 +220,19 @@ func choose_pellets(kind: int) -> void:
 	if view == null:
 		return
 	view.pellet_kind = kind
-	for k in range(3):
-		var b := _pellet_buttons[k]
-		var on := k == kind
-		for s in ["normal", "hover", "pressed", "focus"]:
-			var sb := b.get_theme_stylebox(s) as StyleBoxFlat
-			if sb != null:
-				sb = sb.duplicate() as StyleBoxFlat
-				sb.border_color = Paper.RED_INK if on else Paper.INK
-				sb.set_border_width_all(4 if on else 2)
-				sb.bg_color = Color(0.6, 0.18, 0.12, 0.1) if on else Color(0.2, 0.15, 0.1, 0.0)
-				b.add_theme_stylebox_override(s, sb)
+	_show_pellet_kind()
+
+
+## The slip, the tin's label and the hint follow the kind the tin gives (the remembered one, or
+## before any choice what the soil lacks most), also when the slip opens or after a restart.
+func _show_pellet_kind() -> void:
+	if view == null:
+		return
+	_shown_kind = view.pellet_kind
+	for b in _pellet_buttons:
+		b.queue_redraw()
+	if _labels.has("fertiliser"):
+		((_labels["fertiliser"] as PanelContainer).get_child(0) as Label).text = "pellets %s" % PELLETS[_shown_kind]
 
 
 ## While the tree is out of its pot: the pots to choose from, low on the screen under the tools
@@ -361,18 +391,44 @@ func _place_repot_slip() -> void:
 	_repot_slip.offset_bottom = bottom - room.y
 
 
-## The pellet slip floats above the tin while it is in hand.
+## The pellet slip lies while the tin is in hand (also while it pours: a choice then is for the
+## next spoon), at the screen's edge beside the tree, clear of the crown, the tin and the status
+## scrap (0.8 review: it covered the crown and the tin).
 func _place_pellet_slip() -> void:
-	var on := view.tool == "fertiliser" and not _sheet.visible and not view.busy
+	if view.pellet_kind != _shown_kind:
+		_show_pellet_kind()
+	var on := view.tool == "fertiliser" and not _sheet.visible
+	if on and not _pellet_slip.visible:
+		_show_pellet_kind()
 	_pellet_slip.visible = on
 	if not on:
 		return
 	var room := _root.size
 	_pellet_slip.size = _pellet_slip.get_combined_minimum_size()
-	# Above the tin's place on the sill, so it stays put while the tin follows the finger.
-	var at := view.tools.rest_point(view.camera, "fertiliser")
-	var pos := at + Vector2(-_pellet_slip.size.x * 0.5, -_pellet_slip.size.y - 70.0)
-	_pellet_slip.position = pos.clamp(Vector2(10, 260), Vector2(maxf(room.x - _pellet_slip.size.x - 10.0, 10.0), maxf(room.y - _pellet_slip.size.y - 10.0, 10.0)))
+	_pellet_slip.position = pellet_slip_spot(room, _pellet_slip.size)
+
+
+## Where the slip lies: the right or the left edge, below the notes at the top, whichever side
+## covers least of the crown, the tin and the album card (screen rectangles of them).
+func pellet_slip_spot(room: Vector2, size: Vector2) -> Vector2:
+	var top := maxf((_status.get_parent() as Control).get_global_rect().end.y, _back.get_global_rect().end.y) + 12.0
+	var avoid: Array[Rect2] = [view.crown_screen_rect()]
+	var pts := view.object_screen_points()
+	for id in ["fertiliser", "water", "album"]:
+		if pts.has(id):
+			avoid.append(Rect2(pts[id] - Vector2(70, 90), Vector2(140, 150)))
+	var best := Vector2.ZERO
+	var best_cost := INF
+	for x in [room.x - size.x - 12.0, 12.0]:
+		for y in [top, top + 60.0, top + 120.0]:
+			var r := Rect2(Vector2(x, minf(y, room.y - size.y - 10.0)), size)
+			var cost := 0.0
+			for a in avoid:
+				cost += r.intersection(a).get_area()
+			if cost < best_cost - 1.0:
+				best_cost = cost
+				best = r.position
+	return best
 
 
 # --- sheets ------------------------------------------------------------------------------

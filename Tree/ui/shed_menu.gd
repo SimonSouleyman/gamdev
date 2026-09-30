@@ -213,9 +213,10 @@ func _build_options() -> void:
 		note.add_child(pin)
 		i += 1
 	# The board reaches a little lower, so the resets are pinned on the cork, clear of its frame
-	# and of "back" (0.6.3 review: in clearer print they ran over the frame).
+	# and of "close" (0.6.3 review: in clearer print they ran over the frame).
 	board.offset_bottom = BOARD_BOTTOM
-	var back := Paper.scrap_button("back", 30, 90)
+	# "close", as the journal and the album say for leaving a page (0.8 review: one word).
+	var back := Paper.scrap_button("close", 30, 90)
 	back.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
 	back.grow_horizontal = Control.GROW_DIRECTION_BOTH
 	back.offset_left = -70
@@ -274,7 +275,7 @@ func _build_options() -> void:
 
 
 ## The pinboard's layout, in reference pixels from the screen's top (BOARD_TOP) and bottom (the
-## rest). From the bottom up: "back" below the board, then on the cork the resets, the live
+## rest). From the bottom up: "close" below the board, then on the cork the resets, the live
 ## picture's scrap (phone only), the backup notes with their slip growing upward; the switches
 ## fill the board from the top. Every tap target is at least Paper.INK_TAP tall; checked at
 ## 450x800 and 720x1280, normal and clearer print, with the phone path (tools/backup_shot.gd --phone).
@@ -304,21 +305,29 @@ func _add_live_note(board: Control) -> void:
 	board.add_child(live_note)
 
 
-## Closed: a small scrap in the row above the resets. Open: the same scrap, grown upward over the
-## backup notes' row with its line (the backup steps aside until it is closed), so it never covers
-## a switch. The live note is the board's child and the offsets are the screen's, so the board's
-## own bottom offset is taken off.
+## Closed: a small scrap in the row above the resets. Open: its line on a larger scrap in the
+## free cork above the backup notes, in the notes' own hand size, while the backup notes stay
+## where they are (0.8 review: the open note was small and took the backup's place); only the
+## backup's note slip steps aside until it is closed. It never covers a switch. The live note is
+## the board's child and the offsets are the screen's, so the board's own bottom offset is taken off.
 func _place_live_note(open: bool) -> void:
 	live_note.text = LIVE_HOW if open else LIVE_NOTE
+	var size := 27 if open else 24
+	live_note.add_theme_font_size_override("font_size", size)
+	if live_note.has_meta("paper_sizes"):
+		live_note.set_meta("paper_sizes", {"font_size": size})
+	Paper.print_control(live_note)
 	live_note.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
 	live_note.grow_horizontal = Control.GROW_DIRECTION_BOTH
 	live_note.grow_vertical = Control.GROW_DIRECTION_BEGIN
-	live_note.offset_left = -280 if open else -180
-	live_note.offset_right = 280 if open else 180
-	live_note.offset_top = LIVE_BOTTOM - Paper.INK_TAP * (2.0 if open else 1.0) - (ROW_GAP if open else 0.0) - BOARD_BOTTOM
-	live_note.offset_bottom = LIVE_BOTTOM - BOARD_BOTTOM
+	live_note.offset_left = -290 if open else -180
+	live_note.offset_right = 290 if open else 180
+	# Open: its bottom a row above the backup notes' row (which ends a row above the live row).
+	var bottom := LIVE_BOTTOM - (2.0 * Paper.INK_TAP + 2.0 * ROW_GAP if open else 0.0)
+	live_note.offset_top = bottom - Paper.INK_TAP * (2.0 if open else 1.0) - BOARD_BOTTOM
+	live_note.offset_bottom = bottom - BOARD_BOTTOM
 	live_note.rotation_degrees = -0.6 if open else 0.8
-	backup_notes.visible = not open
+	backup_notes.hide_slip(open)
 
 
 ## Cork in a wooden frame: speckled noise, generated once.

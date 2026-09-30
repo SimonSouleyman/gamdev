@@ -1,7 +1,8 @@
 class_name InkSketch
 extends RefCounted
 ## Small ink drawings for the diary (0.7): a tuft of rushes for a reached damp patch, a clover
-## for a reached nitrogen patch; from 0.8 a nettle for phosphorus and loose stones for potassium. Drawn in code with soft pen strokes, once, then cached.
+## for a reached nitrogen patch; from 0.8 a nettle for phosphorus and comfrey for potassium (0.8
+## review: stones only ever mean rock). Drawn in code with soft pen strokes, once, then cached.
 
 const SIZE: int = 128
 static var _cache: Dictionary = {}
@@ -25,8 +26,8 @@ static func image(kind: String) -> Image:
 			_hedgehog(img)
 		"nettles":
 			_nettles(img)
-		"stones":
-			_stones(img)
+		"comfrey":
+			_comfrey(img)
 	return img
 
 
@@ -78,26 +79,32 @@ static func _nettles(img: Image) -> void:
 		_blob(img, Vector2(70.0 + k * 4.5, 62.0 + k * k * 0.7), Vector2(1.6, 1.6))
 
 
-static func _stones(img: Image) -> void:
-	# A few loose stones half sunk in the ground, with a crack or two.
-	_curve(img, [Vector2(10, 104), Vector2(50, 101), Vector2(88, 105), Vector2(118, 102)], 2.2)
-	var stones := [[Vector2(36, 92), Vector2(20, 13)], [Vector2(78, 90), Vector2(24, 16)], [Vector2(104, 97), Vector2(11, 7)], [Vector2(56, 100), Vector2(9, 5)]]
-	for st in stones:
-		var c: Vector2 = st[0]
-		var r: Vector2 = st[1]
-		var pts: Array = []
-		for k in range(10):
-			var a := PI + k * PI / 9.0
-			var wob := 1.0 + 0.08 * sin(k * 2.3 + c.x)
-			pts.append(c + Vector2(cos(a) * r.x, sin(a) * r.y) * wob)
-		_curve(img, pts, 2.6)
-		# A little shading under each stone's belly.
-		for k in range(3):
-			var x := c.x - r.x * 0.5 + k * r.x * 0.5
-			_stroke(img, Vector2(x, c.y - 2.0), Vector2(x + r.x * 0.25, c.y - 5.0), 1.2)
-	_stroke(img, Vector2(74, 80), Vector2(80, 88), 1.2)
-	_stroke(img, Vector2(80, 88), Vector2(77, 95), 1.2)
-	_stroke(img, Vector2(30, 86), Vector2(38, 84), 1.2)
+static func _comfrey(img: Image) -> void:
+	# Comfrey: big, rough, pointed leaves arching out of one clump, and a leafy stem with a curled
+	# spray of hanging bell flowers.
+	_curve(img, [Vector2(10, 116), Vector2(64, 112), Vector2(118, 116)], 2.2)
+	var base := Vector2(62, 112)
+	for leaf: Array in [[Vector2(14, 84), 0.9], [Vector2(30, 66), 1.0], [Vector2(96, 70), 1.0], [Vector2(114, 90), 0.85]]:
+		var tip: Vector2 = leaf[0]
+		var w: float = 11.0 * float(leaf[1])
+		var mid := base.lerp(tip, 0.5) + Vector2(0, -8)
+		var n := Vector2(tip.y - base.y, base.x - tip.x).normalized() * w
+		_curve(img, [base, mid + n, tip], 2.0, 1.0)
+		_curve(img, [base, mid - n * 0.8, tip], 2.0, 1.0)
+		# The midrib.
+		_curve(img, [base, mid, tip], 1.2, 0.6)
+	# The flowering stem with two small leaves, curling over at the top.
+	_curve(img, [Vector2(62, 112), Vector2(60, 70), Vector2(64, 40), Vector2(78, 26), Vector2(90, 30)], 2.4, 1.2)
+	for side in [-1.0, 1.0]:
+		var at := Vector2(61, 66)
+		_curve(img, [at, at + Vector2(side * 12.0, -10.0), at + Vector2(side * 20.0, -6.0)], 1.6, 0.8)
+	# Hanging bells along the curl, each on a short stalk: narrow at the top, flared at the mouth.
+	for p in [Vector2(72, 30), Vector2(81, 28), Vector2(89, 32), Vector2(95, 39)]:
+		var top: Vector2 = p + Vector2(0.5, 4.0)
+		_stroke(img, p, top, 1.2)
+		_curve(img, [top, top + Vector2(-2.6, 5.0), top + Vector2(-4.2, 11.0)], 1.6, 1.2)
+		_curve(img, [top, top + Vector2(2.6, 5.0), top + Vector2(4.2, 11.0)], 1.6, 1.2)
+		_curve(img, [top + Vector2(-4.2, 11.0), top + Vector2(0.0, 12.6), top + Vector2(4.2, 11.0)], 1.4)
 
 
 static func _rushes(img: Image) -> void:

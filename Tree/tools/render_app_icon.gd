@@ -5,12 +5,13 @@ extends SceneTree
 ## the tree as the foreground layer with the whole crown inside the safe circle (66 of 108 dp), so
 ## round, squircle and square masks all keep it. Also the legacy square icons and the project icon.
 ## The old icon stays in icons/v0.7 to swap back.
-## Run (needs a window): godot --path . -s tools/render_app_icon.gd -- [--seed=2026] [--days=16]
+## Run (needs a window): godot --path . -s tools/render_app_icon.gd -- [--seed=2026] [--days=22]
 ##   [--qa=C:/folder] (512, 192 and 48 px previews with round and squircle masks, light and dark)
 ##   [--turn=2] [--dry] (previews only, the repo's icons are not written)
 
 var seed := 2026
-var days := 16
+## (0.8 review: day 22, a fuller crown at 48 px than day 16 after the 0.8 balance changes.)
+var days := 22
 ## The tree turned by this many quarter turns (its fullest side toward the viewer; picked from a
 ## contact sheet of seeds, days and sides, 0.8).
 var turn := 1
@@ -69,7 +70,7 @@ func _run() -> void:
 	for i in range(4):
 		await process_frame
 	var tree := await _render_tree(view, game)
-	var fg := _place_tree(tree["image"], tree["foot"])
+	var fg := _fuller(_place_tree(tree["image"], tree["foot"]))
 	var bg := _background()
 	var mono := _monochrome(fg)
 	var full := bg.duplicate() as Image
@@ -185,6 +186,85 @@ func _place_tree(img: Image, foot: Vector2) -> Image:
 	var pos := Vector2i((at - foot * s).round())
 	out.blit_rect(small, Rect2i(Vector2i.ZERO, small.get_size()), pos)
 	print("tree scale %.3f, crown in the safe circle" % s)
+	return out
+
+
+## A little fuller crown for 48 px (0.8 review: the sky through the crown's gaps made it read thin
+## on the home screen): the small gaps inside the crown are filled with the crown's own green,
+## a shade darker (the inside of a crown is in shade), behind the leaves; the outline stays.
+## Worked at the layer's own size (LAYER), then laid under the full-size tree.
+const FILL_RADIUS := 4
+const FILL_FROM := 0.5
+const FILL_SHADE := 0.25
+
+
+func _fuller(fg: Image) -> Image:
+	var n := LAYER
+	var small := fg.duplicate() as Image
+	small.resize(n, n, Image.INTERPOLATE_BILINEAR)
+	var a := PackedFloat32Array()
+	var rgb := PackedColorArray()
+	a.resize(n * n)
+	rgb.resize(n * n)
+	for y in range(n):
+		for x in range(n):
+			var c := small.get_pixel(x, y)
+			a[y * n + x] = c.a
+			rgb[y * n + x] = Color(c.r * c.a, c.g * c.a, c.b * c.a, c.a)
+	for _pass in range(2):
+		a = _box(a, n, FILL_RADIUS)
+		rgb = _box_colors(rgb, n, FILL_RADIUS)
+	var back := Image.create(n, n, false, Image.FORMAT_RGBA8)
+	for y in range(n):
+		for x in range(n):
+			var i := y * n + x
+			var k := smoothstep(FILL_FROM, 0.8, a[i])
+			if k <= 0.0 or rgb[i].a <= 0.0:
+				continue
+			var c := Color(rgb[i].r / rgb[i].a, rgb[i].g / rgb[i].a, rgb[i].b / rgb[i].a).darkened(FILL_SHADE)
+			back.set_pixel(x, y, Color(c.r, c.g, c.b, k))
+	back.resize(fg.get_width(), fg.get_height(), Image.INTERPOLATE_BILINEAR)
+	back.blend_rect(fg, Rect2i(Vector2i.ZERO, fg.get_size()), Vector2i.ZERO)
+	return back
+
+
+static func _box(src: PackedFloat32Array, n: int, r: int) -> PackedFloat32Array:
+	var tmp := PackedFloat32Array()
+	tmp.resize(n * n)
+	var out := PackedFloat32Array()
+	out.resize(n * n)
+	for y in range(n):
+		for x in range(n):
+			var sum := 0.0
+			for d in range(-r, r + 1):
+				sum += src[y * n + clampi(x + d, 0, n - 1)]
+			tmp[y * n + x] = sum / (2 * r + 1)
+	for y in range(n):
+		for x in range(n):
+			var sum := 0.0
+			for d in range(-r, r + 1):
+				sum += tmp[clampi(y + d, 0, n - 1) * n + x]
+			out[y * n + x] = sum / (2 * r + 1)
+	return out
+
+
+static func _box_colors(src: PackedColorArray, n: int, r: int) -> PackedColorArray:
+	var tmp := PackedColorArray()
+	tmp.resize(n * n)
+	var out := PackedColorArray()
+	out.resize(n * n)
+	for y in range(n):
+		for x in range(n):
+			var sum := Color(0, 0, 0, 0)
+			for d in range(-r, r + 1):
+				sum += src[y * n + clampi(x + d, 0, n - 1)]
+			tmp[y * n + x] = sum / (2 * r + 1)
+	for y in range(n):
+		for x in range(n):
+			var sum := Color(0, 0, 0, 0)
+			for d in range(-r, r + 1):
+				sum += tmp[clampi(y + d, 0, n - 1) * n + x]
+			out[y * n + x] = sum / (2 * r + 1)
 	return out
 
 
