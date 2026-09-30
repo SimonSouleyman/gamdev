@@ -57,19 +57,58 @@ const WISH_SIZE: float = 1.5
 const WISH_RADIUS: float = 1.15
 const WISH_MIN_DEPTH: float = 0.6
 const WISH_MAX_DEPTH: float = 1.8
-## Normal rich topsoil patches: water 20 to 32 dots in 0.9 to 1.5 m, nitrogen 22 to 36 in 0.8 to 1.4 m.
-const NORMAL_COUNT := {Resources.Kind.WATER: 26.0, Resources.Kind.NITROGEN: 29.0}
-const NORMAL_RADIUS := {Resources.Kind.WATER: 1.2, Resources.Kind.NITROGEN: 1.1}
-const NORMAL_AMOUNT := {Resources.Kind.WATER: 1.0, Resources.Kind.NITROGEN: 1.2}
+
+## The soil's layout. 1: the 0.1 to 0.7 soil (27 rich patches, 1400 scattered dots). 2 (0.8,
+## docs/notes/balance-0.8.md): fewer but larger topsoil patches set apart from each other, more
+## phosphorus, and nettles on the meadow over phosphorus. A save keeps the layout it was made
+## with, so its dot ids stay the same.
+const LAYOUT: int = 2
+var layout: int = LAYOUT
+
+## Layout 2, the rich topsoil patches per kind: [patches, min dots, max dots, min radius,
+## max radius, amount per dot]. A static var so tools can try other mixes; the game never
+## changes it.
+static var mix: Dictionary = {
+	Resources.Kind.WATER: [2, 36, 46, 1.3, 1.8, 0.8],
+	Resources.Kind.NITROGEN: [2, 40, 52, 1.2, 1.7, 1.45],
+	Resources.Kind.PHOSPHORUS: [2, 40, 52, 1.2, 1.7, 1.1],
+	Resources.Kind.POTASSIUM: [0, 30, 40, 1.1, 1.5, 1.2],
+}
+## Layout 2: deep water veins [patches, min dots, max dots], scattered single dots, and the
+## least distance between two rich topsoil patches' centres (horizontal).
+static var deep_water: Array = [1, 55, 75]
+## Layout 2: the dots of each kind in the small mixed starter patch where the first roots head
+## (layout 1: 10, 8, 7, 7). Richer, so the young tree is not short in its first week, when its
+## roots cannot reach the rich patches yet (they lie 3 m or more out).
+static var starter: Array = [12, 16, 14, 10]
+static var scatter: int = 700
+static var patch_gap: float = 3.2
+## Layout 2: the nearest a rich topsoil patch lies to the trunk (layout 1: 3 m), so a young tree's
+## short roots reach one in its first week.
+static var patch_near: float = 2.2
+## Layout 2 topsoil patches lie shallower than HINT_MAX_DEPTH, so each one shows on the meadow.
+const PATCH_MAX_DEPTH: float = 2.0
+
+## A normal rich topsoil patch in layout 1 (the wish deposit is WISH_SIZE times one): [dots,
+## radius, amount per dot]. Water 20 to 32 dots in 0.9 to 1.5 m, nitrogen 22 to 36 in 0.8 to 1.4 m,
+## phosphorus 16 to 26 in 0.7 to 1.2 m; potassium sits by the rocks, 8 dots a rock.
+const NORMAL_V1 := {
+	Resources.Kind.WATER: [26.0, 1.2, 1.0], Resources.Kind.NITROGEN: [29.0, 1.1, 1.2],
+	Resources.Kind.PHOSPHORUS: [21.0, 0.95, 1.2], Resources.Kind.POTASSIUM: [16.0, 0.9, 1.2],
+}
 
 var _rng := RandomNumberGenerator.new()
 var _grid: Dictionary = {}
 
 
-func _init(random_seed: int = 1) -> void:
+func _init(random_seed: int = 1, layout_version: int = LAYOUT) -> void:
 	seed = random_seed
+	layout = layout_version
 	_rng.seed = hash([random_seed, "underground"])
-	_generate()
+	if layout <= 1:
+		_generate()
+	else:
+		_generate_v2()
 	_build_grid()
 
 
@@ -115,12 +154,96 @@ func _generate() -> void:
 	_generate_finds()
 
 
+## Layout 2 (0.8): fewer, larger rich patches, set apart so each is its own choice on the
+## meadow; phosphorus as rich as nitrogen; half the scattered dots (B4 of the 0.7 check).
+func _generate_v2() -> void:
+	_generate_rocks()
+	var start := Vector3(0.0, -0.8, -1.2)
+	for k in range(4):
+		_add_patch(k, start, 0.9, int(starter[k]), 1.0)
+	# The kinds take turns, so no kind always gets the first (best spaced) places.
+	var order: Array[int] = []
+	var most := 0
+	for k in mix:
+		most = maxi(most, int(mix[k][0]))
+	for i in range(most):
+		for k in [Resources.Kind.PHOSPHORUS, Resources.Kind.NITROGEN, Resources.Kind.WATER, Resources.Kind.POTASSIUM]:
+			if i < int(mix[k][0]):
+				order.append(k)
+	var centres: Array[Vector3] = []
+	for k in order:
+		var m: Array = mix[k]
+		var c := _spaced_point(centres, 0.5, PATCH_MAX_DEPTH, patch_near)
+		centres.append(c)
+		_add_patch(k, c, _rng.randf_range(float(m[3]), float(m[4])), _rng.randi_range(int(m[1]), int(m[2])), float(m[5]))
+	for _i in range(int(deep_water[0])):
+		_add_patch(Resources.Kind.WATER, _random_point(4.0, DEPTH - 1.0, 2.0), _rng.randf_range(1.6, 2.4), _rng.randi_range(int(deep_water[1]), int(deep_water[2])), 1.4)
+	for r in range(rock_centers.size()):
+		if -rock_centers[r].y > 3.0:
+			_add_potassium_around_rock(r)
+	for _i in range(scatter):
+		var p := _random_point(0.2, DEPTH, 0.8)
+		_add_dot(p, _pick_kind(-p.y > TOPSOIL), 0.5)
+	_generate_finds()
+
+
+## A topsoil point at least patch_gap (horizontally) from every point in `taken`; after 30 tries
+## the one farthest from the others.
+func _spaced_point(taken: Array[Vector3], min_depth: float, max_depth: float, min_dist: float) -> Vector3:
+	var best := Vector3.ZERO
+	var best_gap := -1.0
+	for _t in range(30):
+		var p := _random_point(min_depth, max_depth, min_dist)
+		var gap := INF
+		for q in taken:
+			gap = minf(gap, Vector2(p.x - q.x, p.z - q.z).length())
+		if gap >= patch_gap:
+			return p
+		if gap > best_gap:
+			best_gap = gap
+			best = p
+	return best
+
+
+## For the balancing tools: applies one command-line argument that tries another layout-2 mix
+## (--mix=kind:field=value, --deep=patches,min,max, --scatter=n, --gap=metres). Returns false
+## for any other argument. The game never calls it.
+static func tool_arg(a: String) -> bool:
+	if a.begins_with("--mix="):
+		var kv := a.substr(6).split("=")
+		var kf := kv[0].split(":")
+		mix[int(kf[0])][int(kf[1])] = float(kv[1])
+	elif a.begins_with("--deep="):
+		var dv := a.substr(7).split(",")
+		deep_water = [int(dv[0]), int(dv[1]), int(dv[2])]
+	elif a.begins_with("--starter="):
+		var sv := a.substr(10).split(",")
+		starter = [int(sv[0]), int(sv[1]), int(sv[2]), int(sv[3])]
+	elif a.begins_with("--scatter="):
+		scatter = int(a.substr(10))
+	elif a.begins_with("--near="):
+		patch_near = float(a.substr(7))
+	elif a.begins_with("--gap="):
+		patch_gap = float(a.substr(6))
+	else:
+		return false
+	return true
+
+
+## A normal rich topsoil patch of `kind` in `layout_version`: [dots, radius, amount per dot].
+static func normal_patch(kind: int, layout_version: int = LAYOUT) -> Array:
+	if layout_version <= 1:
+		return NORMAL_V1[kind]
+	var m: Array = mix[kind]
+	return [(float(m[1]) + float(m[2])) * 0.5, (float(m[3]) + float(m[4])) * 0.5, float(m[5])]
+
 
 ## A wish deposit's size: WISH_SIZE times a normal rich patch of `kind`, drawn from `rng`.
-static func wish_size(kind: int, rng: RandomNumberGenerator) -> Dictionary:
+static func wish_size(kind: int, rng: RandomNumberGenerator, layout_version: int = LAYOUT) -> Dictionary:
+	var n := normal_patch(kind, layout_version)
 	return {
-		"radius": float(NORMAL_RADIUS[kind]) * WISH_RADIUS * rng.randf_range(0.92, 1.08),
-		"count": int(round(float(NORMAL_COUNT[kind]) * WISH_SIZE * rng.randf_range(0.92, 1.08))),
+		"radius": float(n[1]) * WISH_RADIUS * rng.randf_range(0.92, 1.08),
+		"count": int(round(float(n[0]) * WISH_SIZE * rng.randf_range(0.92, 1.08))),
 	}
 
 
@@ -139,7 +262,7 @@ func _place_wish_deposit(w: Dictionary) -> int:
 	_rng.seed = hash([seed, "wish_dots", int(w["day"])])
 	var kind := int(w["kind"])
 	var first := dot_count()
-	_add_patch(kind, w["center"], float(w["radius"]), int(w["count"]), float(NORMAL_AMOUNT[kind]))
+	_add_patch(kind, w["center"], float(w["radius"]), int(w["count"]), float(normal_patch(kind, layout)[2]))
 	patches[-1]["wish"] = true
 	patches[-1]["day"] = int(w["day"])
 	_rng.seed = saved_seed
@@ -299,7 +422,10 @@ var last_drawn: PackedFloat32Array = PackedFloat32Array()
 
 
 ## `water_share` multiplies the share drawn from water deposits (alder drains them faster).
-func collect(ids: PackedInt32Array, into: Resources, share: float = FIRST_SHARE, water_share: float = 1.0) -> PackedInt32Array:
+## `room` (4 floats by Resources.Kind, empty = no limit) caps what goes into the tree and is
+## drawn down as it fills (0.8: the night's finds fill the stock only up to the tree's room;
+## the rest stays in the deposit for the old roots).
+func collect(ids: PackedInt32Array, into: Resources, share: float = FIRST_SHARE, water_share: float = 1.0, room: Array = []) -> PackedInt32Array:
 	var out := PackedInt32Array()
 	last_drawn = PackedFloat32Array()
 	for i in ids:
@@ -307,6 +433,9 @@ func collect(ids: PackedInt32Array, into: Resources, share: float = FIRST_SHARE,
 			continue
 		var k := share * (water_share if dot_kinds[i] == Resources.Kind.WATER else 1.0)
 		var take := minf(dot_amounts[i], dot_capacity[i] * k)
+		if not room.is_empty():
+			take = minf(take, maxf(float(room[dot_kinds[i]]), 0.0))
+			room[dot_kinds[i]] = float(room[dot_kinds[i]]) - take
 		if take <= 0.0:
 			continue
 		dot_amounts[i] -= take
@@ -382,12 +511,20 @@ func surface_hints() -> Array:
 				out.append({"kind": "damp", "position": ground, "radius": r})
 				out.append({"kind": "rushes", "position": ground, "radius": r * 0.7})
 			Resources.Kind.NITROGEN:
-				# A wish deposit's wish names the clover, so clover grows above it.
-				if bool(patch.get("wish", false)):
+				# A wish deposit's wish names the clover, so clover grows above it. Layout 2:
+				# clover over nitrogen, nettles over phosphorus (nettles love phosphate).
+				if bool(patch.get("wish", false)) or layout >= 2:
 					out.append({"kind": "clover", "position": ground, "radius": r})
 					continue
 				out.append({"kind": "clover" if clover_turn else "nettles", "position": ground, "radius": r})
 				clover_turn = not clover_turn
+			Resources.Kind.PHOSPHORUS:
+				if layout >= 2 or bool(patch.get("wish", false)):
+					out.append({"kind": "nettles", "position": ground, "radius": r})
+			Resources.Kind.POTASSIUM:
+				# Potassium weathers out of stone: a wish for it shows loose stones above it.
+				if bool(patch.get("wish", false)):
+					out.append({"kind": "stones", "position": ground, "radius": r})
 	for i in range(rock_centers.size()):
 		var top := -rock_centers[i].y - rock_radii[i]
 		if top < 1.2:
@@ -416,13 +553,14 @@ func to_dict() -> Dictionary:
 	for w in wish_deposits:
 		var c: Vector3 = w["center"]
 		wishes.append([w["day"], w["kind"], c.x, c.y, c.z, w["radius"], w["count"]])
-	return {"seed": seed, "collected": Marshalls.raw_to_base64(dot_collected),
+	return {"seed": seed, "layout": layout, "collected": Marshalls.raw_to_base64(dot_collected),
 		"amounts": Marshalls.raw_to_base64(dot_amounts.to_byte_array()), "finds_found": found,
 		"wish_deposits": wishes}
 
 
 static func from_dict(d: Dictionary) -> Underground:
-	var u := Underground.new(int(d.get("seed", 1)))
+	# A save from before 0.8 has no layout: its soil is layout 1.
+	var u := Underground.new(int(d.get("seed", 1)), int(d.get("layout", 1)))
 	# The wish deposits placed so far, in the same order, so their dot ids come out the same.
 	for w in d.get("wish_deposits", []):
 		if w is Array and (w as Array).size() >= 7:

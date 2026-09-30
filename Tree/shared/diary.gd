@@ -11,14 +11,15 @@ var entries: Array = []
 var wish: String = ""
 ## The wish deposit (index into Underground.patches) today's wish points at, or -1.
 var wish_patch: int = -1
-## Yesterday's wish deposit, missed: it still glows faintly tonight, then fades. -1 if none.
+## Yesterday's wish deposit, missed: it still glows faintly tonight when no new wish glows, then
+## fades; a new wish's glow puts it out at once (0.8: one glow at a time). -1 if none.
 var last_patch: int = -1
 ## Today's wish deposit was reached (the diary line is written once).
 var wish_reached: bool = false
 
 ## Share of the days whose wish points at a wish deposit underground (the rest are day wishes).
 ## A static var so tools can compare with and without (strategies.gd --set=wish_share=0).
-static var underground_share: float = 0.75
+static var underground_share: float = 0.6
 ## A wish deposit counts as reachable when the straight line to it from some root node is free
 ## of rock and costs at most this share of a full calm tank (RootSystem.calm_life_force).
 const REACH_SHARE: float = 0.6
@@ -27,6 +28,11 @@ const REACH_SHARE: float = 0.6
 const AHEAD_MIN: float = 5.5
 const AHEAD_MAX: float = 8.5
 const PLACE_TRIES: int = 24
+## With this many wish deposits missed and untouched in the soil, one of them of the kind the
+## tree lacks, a new underground wish points at it again (when it lies ahead) or becomes a day
+## wish (0.8, B4 of the 0.7 check).
+const MISSED_MAX: int = 4
+const UNTOUCHED_SHARE: float = 0.5
 ## The root reached the patch when a main-root node lies within its radius plus this.
 const REACH_MARGIN: float = 0.35
 ## Glow strength of today's wish deposit and of yesterday's missed one.
@@ -69,7 +75,7 @@ static func make_wish(ground: Underground, day: int, seed: int, roots: RootSyste
 ## underground "center", "radius", "count", "from" (the newest root tip it continues from)}.
 ## The deposit goes AHEAD_MIN to AHEAD_MAX beyond the newest root tip, outward from the trunk
 ## where it can, never into rock, and only where a straight root from that tip costs at most
-## REACH_SHARE of a calm tank. Its kind is what the tree is shorter of, water or nitrogen.
+## REACH_SHARE of a calm tank. Its kind is what the tree lacks most (0.8: any of the four).
 static func plan_wish(ground: Underground, day: int, seed: int, roots: RootSystem = null, res: Resources = null) -> Dictionary:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = hash([seed, "wish", day])
@@ -79,8 +85,20 @@ static func plan_wish(ground: Underground, day: int, seed: int, roots: RootSyste
 	if underground:
 		var sys := roots if roots != null else RootSystem.new()
 		var kind := wish_kind(sys, res, coin)
-		var size := Underground.wish_size(kind, rng)
+		var size := Underground.wish_size(kind, rng, ground.layout)
 		var tip := newest_tip(sys)
+		# An earlier wish deposit of the same kind, missed and still untouched, lies ahead: the
+		# wish points at it again instead of adding another (0.8, B4: missed deposits piled up
+		# to 20 fresh patches in reach by the month's last week).
+		var again := missed_ahead(ground, sys, kind, sys.graph.positions[tip])
+		if again >= 0:
+			var p: Dictionary = ground.patches[again]
+			return {"text": wish_text_at(kind, p["center"]), "kind": kind, "patch": again,
+				"center": p["center"], "radius": p["radius"], "from": tip}
+		# Enough missed deposits lie waiting already, one of them of this kind: a day wish
+		# instead of one more (a kind the tree lacks and no missed deposit holds still gets one).
+		if untouched_wishes(ground, sys) >= MISSED_MAX and untouched_wishes(ground, sys, kind) > 0:
+			return {"text": DAY_WISHES[pick % DAY_WISHES.size()], "kind": -1}
 		var center := place_ahead(ground, sys, sys.graph.positions[tip], float(size["radius"]), rng)
 		if center != Vector3.INF:
 			return {"text": wish_text_at(kind, center), "kind": kind, "center": center,
@@ -88,13 +106,23 @@ static func plan_wish(ground: Underground, day: int, seed: int, roots: RootSyste
 	return {"text": DAY_WISHES[pick % DAY_WISHES.size()], "kind": -1}
 
 
-## Water or nitrogen, whichever the tree has less of for its needs (`coin` without resources).
+## The kind the tree lacks most: the lowest stock for its need, of the kinds the species needs
+## (0.7 chose only between water and nitrogen, so the glow never led to the phosphorus the trees
+## were really short of). Without resources, water or nitrogen by `coin`.
 static func wish_kind(sys: RootSystem, res: Resources, coin: int) -> int:
 	if res == null:
 		return Resources.Kind.WATER if coin == 0 else Resources.Kind.NITROGEN
-	var w := res.stock[Resources.Kind.WATER] / maxf(sys.species.needs[Resources.Kind.WATER], 0.01)
-	var n := res.stock[Resources.Kind.NITROGEN] / maxf(sys.species.needs[Resources.Kind.NITROGEN], 0.01)
-	return Resources.Kind.WATER if w <= n else Resources.Kind.NITROGEN
+	var best := Resources.Kind.WATER
+	var lowest := INF
+	for k in range(4):
+		var need: float = sys.species.needs[k]
+		if need <= 0.0:
+			continue
+		var ratio := res.stock[k] / need
+		if ratio < lowest:
+			lowest = ratio
+			best = k
+	return best
 
 
 ## The node where the newest main root ended (the trunk before the first root).
@@ -106,6 +134,51 @@ static func newest_tip(sys: RootSystem) -> int:
 		if sys.graph.get_flag(id, "main", -1) == main:
 			return id
 	return 0
+
+
+## Wish deposits no root has found yet (most of their dots fresh).
+static func untouched_wishes(ground: Underground, sys: RootSystem, kind: int = -1) -> int:
+	var n := 0
+	for pid in ground.wish_patch_ids():
+		if kind >= 0 and int(ground.patches[pid]["kind"]) != kind:
+			continue
+		if _untouched(ground, sys, pid):
+			n += 1
+	return n
+
+
+## Most of the patch (UNTOUCHED_SHARE of its dots) still waits fresh: a root that only grazed
+## its edge did not find it.
+static func _untouched(ground: Underground, sys: RootSystem, pid: int) -> bool:
+	var dots := ground.patch_dots(pid)
+	var fresh := 0
+	for i in dots:
+		if sys.is_fresh(i) and ground.dot_collected[i] == 0:
+			fresh += 1
+	return fresh >= UNTOUCHED_SHARE * dots.size()
+
+
+## The nearest earlier wish deposit of `kind` that no root has found yet, AHEAD_MIN - 2 to
+## AHEAD_MAX + 2 m from `from` and within REACH_SHARE of a calm tank in a straight line; -1 if none.
+static func missed_ahead(ground: Underground, sys: RootSystem, kind: int, from: Vector3) -> int:
+	var best := -1
+	var best_d := INF
+	var tank := sys.calm_life_force * REACH_SHARE
+	for pid in ground.wish_patch_ids():
+		var p: Dictionary = ground.patches[pid]
+		if int(p["kind"]) != kind:
+			continue
+		var c: Vector3 = p["center"]
+		var d := Vector2(c.x - from.x, c.z - from.z).length()
+		if d < AHEAD_MIN - 2.0 or d > AHEAD_MAX + 2.0 or d >= best_d:
+			continue
+		if not _untouched(ground, sys, pid):
+			continue
+		var goal := c - (c - from).normalized() * float(p["radius"]) * 0.6
+		if line_cost(ground, sys, from, goal) <= tank:
+			best = pid
+			best_d = d
+	return best
 
 
 ## A place AHEAD_MIN..AHEAD_MAX beyond `from`, outward from the trunk (turning further aside with
@@ -139,8 +212,13 @@ static func wish_text(ground: Underground, patch_id: int) -> String:
 
 static func wish_text_at(kind: int, center: Vector3) -> String:
 	var where := Underground.compass(center)
-	if kind == Resources.Kind.WATER:
-		return "Today, reach the damp patch with the rushes in the %s." % where
+	match kind:
+		Resources.Kind.WATER:
+			return "Today, reach the damp patch with the rushes in the %s." % where
+		Resources.Kind.PHOSPHORUS:
+			return "Today, find what feeds the nettles in the %s." % where
+		Resources.Kind.POTASSIUM:
+			return "Today, reach the soil under the loose stones in the %s." % where
 	return "Today, find what feeds the clover in the %s." % where
 
 
@@ -148,13 +226,22 @@ static func wish_text_at(kind: int, center: Vector3) -> String:
 static func reached_text(ground: Underground, patch_id: int, night: int) -> String:
 	var patch: Dictionary = ground.patches[patch_id]
 	var where := Underground.compass(patch["center"])
-	if int(patch["kind"]) == Resources.Kind.WATER:
-		return "Night %d: the root found the damp patch under the rushes in the %s, the one I wished for." % [night, where]
+	match int(patch["kind"]):
+		Resources.Kind.WATER:
+			return "Night %d: the root found the damp patch under the rushes in the %s, the one I wished for." % [night, where]
+		Resources.Kind.PHOSPHORUS:
+			return "Night %d: the root found what feeds the nettles in the %s, the one I wished for." % [night, where]
+		Resources.Kind.POTASSIUM:
+			return "Night %d: the root found the soil under the loose stones in the %s, the one I wished for." % [night, where]
 	return "Night %d: the root found what feeds the clover in the %s, the one I wished for." % [night, where]
 
 
+## The ink sketch beside a reached wish's line: what grows (or lies) above the deposit.
+const DRAWINGS: Array[String] = ["rushes", "clover", "nettles", "stones"]
+
+
 static func drawing_for(ground: Underground, patch_id: int) -> String:
-	return "rushes" if int(ground.patches[patch_id]["kind"]) == Resources.Kind.WATER else "clover"
+	return DRAWINGS[int(ground.patches[patch_id]["kind"])]
 
 
 ## A full calm tank reaches the patch from some root node (or the trunk): the straight line to
@@ -217,16 +304,21 @@ static func _positions(sys: RootSystem, ids: PackedInt32Array) -> Array[Vector3]
 	return out
 
 
-## Called at sunrise: a missed wish deposit glows faintly one more night; then the new wish,
-## whose deposit the generator places now.
+## Called at sunrise: the new wish, whose deposit the generator places now. A missed wish
+## deposit glows faintly one more night only when the new wish does not glow: one glow at a time
+## (0.7 broken item 3; 0.8 section 5). Either way the missed deposit stays as a plain deposit.
 func new_wish(ground: Underground, day: int, seed: int, roots: RootSystem, res: Resources = null) -> void:
 	last_patch = wish_patch if wish_patch >= 0 and not wish_reached else -1
 	wish_reached = false
 	wish_patch = -1
 	var w := plan_wish(ground, day, seed, roots, res)
-	if int(w["kind"]) >= 0:
+	if w.has("patch"):
+		wish_patch = int(w["patch"])
+	elif int(w["kind"]) >= 0:
 		wish_patch = ground.add_wish_deposit(day, int(w["kind"]), w["center"], float(w["radius"]), int(w["count"]))
 	wish = str(w["text"]) if wish_patch >= 0 else DAY_WISHES[day % DAY_WISHES.size()]
+	if wish_patch >= 0:
+		last_patch = -1
 
 
 ## The deposits that glow tonight: [{"patch", "center", "radius", "strength"}].
@@ -234,7 +326,8 @@ func glows(ground: Underground) -> Array:
 	var out: Array = []
 	if wish_patch >= 0 and wish_patch < ground.patches.size() and not wish_reached:
 		out.append(_glow(ground, wish_patch, GLOW_TODAY))
-	if last_patch >= 0 and last_patch < ground.patches.size():
+	elif last_patch >= 0 and last_patch < ground.patches.size() and wish_patch < 0:
+		# Yesterday's missed glow only on a night without a new one (an old save may hold both).
 		out.append(_glow(ground, last_patch, GLOW_YESTERDAY))
 	return out
 

@@ -23,6 +23,26 @@ Install each fully checked version on his phone (save backed up first); APKs in 
   - The seed sack keeps "seeds" printed on it; its label says "seed bag".
 - Note: Simon's phone has 0.6 with his save; backups in GameDev/tree-shots/savebackup.
 
+## v0.8 (in progress)
+- Balance fixes from the 0.7 check (specs/0.8.md section 5; numbers and reasons in
+  docs/notes/balance-0.8.md). A new game gets a new soil: fewer but larger rich patches set apart
+  from each other, phosphorus as plentiful as nitrogen, and nettles on the meadow over it (clover
+  over nitrogen). A save from before keeps its old soil.
+- The day's wish points at what the tree lacks most, phosphorus and potassium too (nettles, loose
+  stones), with its own ink sketch. One glow at a time: a new wish puts yesterday's missed glow
+  out; the missed deposit stays as a plain deposit and a later wish may point at it again.
+- The night's root fills the tree's stock only up to a day and a half of need (what it cannot
+  hold stays in the tapped deposit for the old roots), so no nutrient piles up while another runs
+  out. Old roots draw a little more each night, so a young tree is not short in its first week.
+- Growth: the soft floor is 0.55 (was 0.45); linden, beech, sycamore, alder and oak grow a little
+  slower when well fed, so the months stay about as long now that phosphorus no longer starves them.
+  The first nights after a boosted day run about 20 s.
+- Bonsai: the pellet tin remembers the last kind (in the save), so a spoon is two taps, tin and
+  soil; before any choice it gives what the soil lacks most. Dry soil is pale with a cracked top,
+  wet soil dark and glossy; a hungry juniper pales (N), dulls to bronze (P) or browns at some tips
+  (K); on repot day the soil is pushed up and roots circle at the rim and creep out under the pot.
+  The pinching page names the tweezers.
+
 ## v0.7 (in progress)
 - Branches the tree marks for pruning (natural signs only): a shaded twig that will die back in a
   day or two shows it first, with thin, limp, washed-out leaves and greying bark; at most three at

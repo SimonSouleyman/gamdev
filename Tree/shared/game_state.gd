@@ -284,6 +284,7 @@ func dive() -> bool:
 	night_done = false
 	_empty_timer = 0.0
 	roots.run_totals = PackedFloat32Array([0, 0, 0, 0])
+	roots.run_room = Array(sim.stock_room(sim.find_hold_days))
 	# Less than a metre of root is no run: a quiet night instead of a free fine-root harvest.
 	night_empty = sim.resources.life_force < roots.cost_per_metre(Vector3.DOWN)
 	var roots_full := not roots.can_start_run()

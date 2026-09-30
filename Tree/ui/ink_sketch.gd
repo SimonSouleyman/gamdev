@@ -1,7 +1,7 @@
 class_name InkSketch
 extends RefCounted
 ## Small ink drawings for the diary (0.7): a tuft of rushes for a reached damp patch, a clover
-## for a reached nitrogen patch. Drawn in code with soft pen strokes, once, then cached.
+## for a reached nitrogen patch; from 0.8 a nettle for phosphorus and loose stones for potassium. Drawn in code with soft pen strokes, once, then cached.
 
 const SIZE: int = 128
 static var _cache: Dictionary = {}
@@ -21,7 +21,56 @@ static func image(kind: String) -> Image:
 			_rushes(img)
 		"clover":
 			_clover(img)
+		"nettles":
+			_nettles(img)
+		"stones":
+			_stones(img)
 	return img
+
+
+static func _nettles(img: Image) -> void:
+	# An upright stem with pairs of pointed, toothed leaves, and a drooping flower tassel.
+	_curve(img, [Vector2(18, 116), Vector2(64, 112), Vector2(112, 116)], 2.2)
+	_curve(img, [Vector2(62, 113), Vector2(60, 70), Vector2(63, 16)], 2.6, 1.2)
+	for i in range(3):
+		var y := 92.0 - i * 26.0
+		var size := 26.0 - i * 5.0
+		for side in [-1.0, 1.0]:
+			var base := Vector2(61.5, y)
+			var tip := base + Vector2(side * size, -size * 0.55)
+			var mid := base.lerp(tip, 0.5)
+			var n := Vector2(tip.y - base.y, base.x - tip.x).normalized() * size * 0.28
+			_curve(img, [base, mid + n, tip], 1.8, 1.0)
+			_curve(img, [base, mid - n, tip], 1.8, 1.0)
+			# Teeth: short ticks along the outer edge.
+			for t in [0.35, 0.6, 0.82]:
+				var e: Vector2 = base.lerp(tip, t) + n * (1.0 - absf(t - 0.5)) * 0.9
+				_stroke(img, e, e + (tip - base).normalized() * 3.5 + n.normalized() * 2.0, 1.2)
+	_curve(img, [Vector2(63, 60), Vector2(80, 64), Vector2(90, 78)], 1.4, 0.8)
+	for k in range(5):
+		_blob(img, Vector2(70.0 + k * 4.5, 62.0 + k * k * 0.7), Vector2(1.6, 1.6))
+
+
+static func _stones(img: Image) -> void:
+	# A few loose stones half sunk in the ground, with a crack or two.
+	_curve(img, [Vector2(10, 104), Vector2(50, 101), Vector2(88, 105), Vector2(118, 102)], 2.2)
+	var stones := [[Vector2(36, 92), Vector2(20, 13)], [Vector2(78, 90), Vector2(24, 16)], [Vector2(104, 97), Vector2(11, 7)], [Vector2(56, 100), Vector2(9, 5)]]
+	for st in stones:
+		var c: Vector2 = st[0]
+		var r: Vector2 = st[1]
+		var pts: Array = []
+		for k in range(10):
+			var a := PI + k * PI / 9.0
+			var wob := 1.0 + 0.08 * sin(k * 2.3 + c.x)
+			pts.append(c + Vector2(cos(a) * r.x, sin(a) * r.y) * wob)
+		_curve(img, pts, 2.6)
+		# A little shading under each stone's belly.
+		for k in range(3):
+			var x := c.x - r.x * 0.5 + k * r.x * 0.5
+			_stroke(img, Vector2(x, c.y - 2.0), Vector2(x + r.x * 0.25, c.y - 5.0), 1.2)
+	_stroke(img, Vector2(74, 80), Vector2(80, 88), 1.2)
+	_stroke(img, Vector2(80, 88), Vector2(77, 95), 1.2)
+	_stroke(img, Vector2(30, 86), Vector2(38, 84), 1.2)
 
 
 static func _rushes(img: Image) -> void:

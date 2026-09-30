@@ -21,7 +21,7 @@ var life_force_per_tip: float = 0.02  # scaled with the 2-minute day (play test 
 ## Low enough that one night's nutrients last a good part of the day.
 var max_growth_per_second: float = 1.0
 ## Soft Liebig floor: growth with a needed nutrient (N, P or K) used up, as a share of full speed.
-var liebig_floor: float = 0.45
+var liebig_floor: float = 0.55
 ## The seed's own reserves: on the first SEEDLING_DAYS days (natural_form) a missing N, P or K
 ## slows growth only to this share, so every early day shows (sim-0.6.3: unsteered oak and beech
 ## grew 21 to 24 segments on days 2 and 3).
@@ -30,8 +30,13 @@ const SEEDLING_DAYS: int = 3
 ## The tree takes up at most this many days of a full calm day's need of each kind (day_capacity):
 ## above it the old roots draw less and the deposits keep the rest for later (sim-0.6.3: water
 ## stocks covered 5 to 10 days, so thirst never showed and the night's water hardly mattered).
-## The new root's own finds are never held back.
-var hold_days: float = 2.0
+## 0.8: 2.0 -> 1.2 days (balance-0.8.md): with phosphorus no longer scarce, a boosted tree banked
+## enough to finish 16 to 19 % sooner than a calm one; a calm day needs one day's worth.
+var hold_days: float = 1.2
+## The night's new root fills the stock up to this many days too (0.8: its finds were never held
+## back, so one kind piled up to 3 to 10 days while another ran out; balance-0.8.md). What the
+## tree has no room for stays in the tapped deposit for later nights.
+var find_hold_days: float = 1.2
 ## How far a missing nutrient takes away the boost's extra light (0 = not at all, 1 = fully).
 var boost_liebig: float = 1.0
 ## Dawn burst: this share of what the nutrients can buy is released in the first seconds after sunrise.
@@ -956,11 +961,13 @@ func shaded_tips() -> PackedInt32Array:
 
 ## Room left in the tree's stock tonight, per kind: hold_days of a full calm day's need (water
 ## also the leaves' upkeep) minus what it holds. What the old roots may still draw overnight.
-func stock_room() -> PackedFloat32Array:
+func stock_room(days: float = -1.0) -> PackedFloat32Array:
+	if days < 0.0:
+		days = hold_days
 	var out := PackedFloat32Array([0, 0, 0, 0])
 	var want := day_capacity() * node_cost()
 	for k in range(4):
-		var hold := want * species.needs[k] * hold_days
+		var hold := want * species.needs[k] * days
 		if k == Resources.Kind.WATER:
 			hold += effective_leaves() * WATER_UPKEEP_PER_LEAF * species.water_upkeep
 		out[k] = maxf(0.0, hold - resources.stock[k])

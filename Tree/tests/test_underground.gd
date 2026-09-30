@@ -73,7 +73,12 @@ func test_collect_marks_and_adds() -> void:
 
 
 func test_surface_hints_match_below() -> void:
-	var u := Underground.new(5)
+	_hints_match(Underground.new(5), false)
+	# A save from before 0.8 keeps its soil: clover or nettles over nitrogen.
+	_hints_match(Underground.new(5, 1), true)
+
+
+func _hints_match(u: Underground, old_soil: bool) -> void:
 	var hints := u.surface_hints()
 	var kinds := {}
 	for h in hints:
@@ -82,8 +87,12 @@ func test_surface_hints_match_below() -> void:
 		match str(h["kind"]):
 			"rushes", "damp":
 				t.check(_patch_below(u, p, Resources.Kind.WATER), "water below %s at %s" % [h["kind"], p])
-			"clover", "nettles":
-				t.check(_patch_below(u, p, Resources.Kind.NITROGEN), "nitrogen below %s at %s" % [h["kind"], p])
+			"clover":
+				t.check(_patch_below(u, p, Resources.Kind.NITROGEN), "nitrogen below clover at %s" % p)
+			"nettles":
+				# 0.8: nettles love phosphate; the old soil grew them over nitrogen.
+				var kind := Resources.Kind.NITROGEN if old_soil else Resources.Kind.PHOSPHORUS
+				t.check(_patch_below(u, p, kind), "%s below nettles at %s" % [Resources.KIND_NAMES[kind], p])
 			"stones":
 				var rock := false
 				for r in range(u.rock_centers.size()):
@@ -91,7 +100,7 @@ func test_surface_hints_match_below() -> void:
 					if Vector2(c.x - p.x, c.z - p.z).length() < 0.01 and -c.y - u.rock_radii[r] < 1.2:
 						rock = true
 				t.check(rock, "shallow rock below stones")
-	for k in ["rushes", "clover", "moss"]:
+	for k in ["rushes", "clover", "nettles", "moss"]:
 		t.check(kinds.has(k), "meadow shows %s" % k)
 
 

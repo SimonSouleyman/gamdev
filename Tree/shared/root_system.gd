@@ -67,8 +67,9 @@ var _run_time: float = 0.0
 ## Average cost of a metre along a typical run, relative to base_cost_per_metre (for planning).
 const TYPICAL_COST: float = 2.2
 const MAX_SPEED_SCALE: float = 1.8
-## A small tank grows slower, so even the first nights last about 20 s.
-const MIN_SPEED_SCALE: float = 0.65
+## A small tank grows slower, so even the first nights last about 20 s (0.8: 0.3; 0.65 left the
+## first nights after a boosted day at 10 to 15 s).
+const MIN_SPEED_SCALE: float = 0.3
 var run_cost_scale: float = 1.0
 var run_speed_scale: float = 1.0
 var _fine_budget: int = Budgets.FINE_ROOTS_PER_MAIN_ROOT
@@ -103,8 +104,14 @@ var run_totals: PackedFloat32Array = PackedFloat32Array([0, 0, 0, 0])
 ## Deposits the roots have reached (dot id -> true); they are drunk from every night.
 var tapped: Dictionary = {}
 var _run_touched: Dictionary = {}
-## Share of a deposit's capacity the old roots draw each night.
-var nightly_share: float = 0.05
+## What tonight's root may still bring into the tree, per Resources.Kind (GrowthSim.stock_room at
+## dusk, set by GameState.dive); empty = no limit. A deposit reached while the tree is full is
+## tapped all the same: the old roots draw it on later nights (0.8, balance-0.8.md).
+var run_room: Array = []
+## Share of a deposit's capacity the old roots draw each night (0.8: 0.05 left a young tree
+## short for its first week or two, while its few tapped deposits gave too little; the tree's
+## room, GrowthSim.hold_days, still caps what they bring).
+var nightly_share: float = 0.08
 ## Water seeps back toward the old roots: they draw this many times the nightly share from water
 ## deposits, so a small root network still keeps the tree watered (soft failure).
 var nightly_water_factor: float = 2.0
@@ -528,13 +535,19 @@ func _grow_fine_roots(ground: Underground, res: Resources) -> void:
 func _collect_ids(ids: PackedInt32Array, ground: Underground, res: Resources, share: float = -1.0) -> void:
 	if share < 0.0:
 		share = tip_share
-	var got := ground.collect(ids, res, share, species.water_draw)
+	var got := ground.collect(ids, res, share, species.water_draw, run_room)
 	for j in range(got.size()):
 		var i := got[j]
 		run_totals[ground.dot_kinds[i]] += ground.last_drawn[j]
 		_run_touched[i] = true
 		tapped[i] = true
 	last_collected.append_array(got)
+	if not run_room.is_empty():
+		# Reached but not drunk (the tree was full of that kind): tapped for the old roots.
+		for i in ids:
+			if ground.dot_collected[i] == 0 and ground.dot_amounts[i] > 0.0:
+				_run_touched[i] = true
+				tapped[i] = true
 
 
 ## Every night the whole root network keeps drinking from the deposits it has reached, and

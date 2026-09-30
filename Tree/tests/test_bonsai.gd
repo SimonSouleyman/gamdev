@@ -503,13 +503,14 @@ func test_sill_tools_do_what_the_paper_menu_did() -> void:
 	# Swapping: tapping the tin puts the can down.
 	v.tap_object("fertiliser")
 	t.check_eq(v.tool, "fertiliser", "the tin is in hand")
-	var said := [""]
-	v.said.connect(func(s: String) -> void: said[0] = s)
-	var k0 := b.soil[2]
+	# 0.8 (C1): no choice made yet, the tin gives what the soil holds least of; two taps.
+	var low := b.tin_kind()
+	var before := b.soil[low]
 	v.pellet_kind = -1
 	v.use_at(soil)
 	_finish(v)
-	t.check(said[0] != "" and is_equal_approx(b.soil[2], k0), "no choice on the slip yet: nothing happens, a note says why")
+	t.check(b.soil[low] > before, "no choice on the slip yet: a spoon of what the soil lacks most")
+	var k0 := b.soil[2]
 	v.pellet_kind = 2
 	v.use_at(soil)
 	_finish(v)
@@ -568,6 +569,86 @@ func test_trowel_repots_only_when_asked() -> void:
 	v.use_at(soil)
 	_finish(v)
 	t.check(not v.is_lifted() and b.pot == "oval" and not b.repot_due, "the trowel puts it back in fresh soil, in the new pot")
+	(made[0] as Node).free()
+
+
+## 0.8, C1 of the 0.7 check: the pellet tin remembers the last kind chosen, in the save, so a
+## spoon is two taps (tin, soil); changing the kind on the slip is optional.
+func test_pellets_are_two_taps_and_remembered() -> void:
+	var g := GameState.new_game(47)
+	g.ensure_bonsai(true)
+	var made := _sill_view(g)
+	var v: BonsaiView = made[1]
+	var soil := v.plant_screen_position(0) + Vector2(0, 10)
+	v.tap_object("fertiliser")
+	v.pellet_kind = 1
+	_finish(v)
+	v.tap_object("fertiliser")
+	_finish(v)
+	t.check_eq(v.tool, "", "the tin put down")
+	var h := GameState.from_dict(JSON.parse_string(JSON.stringify(g.to_dict())))
+	t.check_eq(h.bonsai.pellet_kind, 1, "the choice is kept in the save")
+	(made[0] as Node).free()
+	var again := _sill_view(h)
+	var w: BonsaiView = again[1]
+	var p0 := h.bonsai.soil[1]
+	var taps := 0
+	w.tap_object("fertiliser")
+	taps += 1
+	w.use_at(soil)
+	taps += 1
+	_finish(w)
+	t.check(h.bonsai.soil[1] > p0, "tin, then soil: a spoon of the remembered P pellets")
+	t.check(taps <= 2, "two taps")
+	(again[0] as Node).free()
+
+
+## 0.8, C4 of the 0.7 check: the needs read on the tree and the pot, natural signs only.
+func test_needs_show_on_the_tree_and_pot() -> void:
+	var g := GameState.new_game(49)
+	g.ensure_bonsai(true)
+	var b := g.bonsai
+	var made := _sill_view(g)
+	var v: BonsaiView = made[1]
+	# Hunger: none on fresh soil, full on an empty one, per kind.
+	b.soil = PackedFloat32Array([BonsaiSim.FRESH_SOIL, BonsaiSim.FRESH_SOIL, BonsaiSim.FRESH_SOIL])
+	for k in range(3):
+		t.check_near(b.hunger(k), 0.0, 1e-4, "fresh soil: no hunger for %s" % BonsaiHud.PELLETS[k])
+	b.soil = PackedFloat32Array([0.0, BonsaiSim.FRESH_SOIL, BonsaiSim.FRESH_SOIL])
+	t.check(b.hunger(0) > 0.9 and b.hunger(1) == 0.0, "no nitrogen left: hungry for N only")
+	# The sprays' colours (the headless renderer keeps no instance colours, so the rule itself).
+	var fed := Color(0.95, 1.0, 0.97, 0.3)
+	var pale := BonsaiView.hungry_color(fed, 1.0, 0.0, false)
+	t.check(pale.b < fed.b * 0.7 and pale.r > fed.r and pale.g >= fed.g, "short of nitrogen: the needles pale and yellow (%s)" % pale)
+	var bronze := BonsaiView.hungry_color(fed, 0.0, 1.0, false)
+	t.check(bronze.g < fed.g * 0.9 and bronze.r >= fed.r * 0.95, "short of phosphorus: a dull bronze (%s)" % bronze)
+	var tip := BonsaiView.hungry_color(fed, 0.0, 0.0, true)
+	t.check(tip.g < fed.g * 0.85 and tip.b < fed.b * 0.6, "short of potassium: a browned tip (%s)" % tip)
+	t.check(BonsaiView.hungry_color(fed, 0.0, 0.0, false) == fed, "fed: unchanged")
+	t.check(BonsaiView.K_TIP_SHARE > 0.2 and BonsaiView.K_TIP_SHARE < 0.7, "potassium browns some tips, not all")
+	b.soil = PackedFloat32Array([0.0, BonsaiSim.FRESH_SOIL, BonsaiSim.FRESH_SOIL])
+	var sig_before: Array = v._sig.duplicate()
+	v.refresh(false)
+	t.check(v._sig != sig_before, "a change in hunger rebuilds the foliage")
+	# Dry against wet soil: the soil shader gets the moisture; the dry soil is pale and cracked.
+	b.moisture = 0.05
+	v._process(0.0)
+	var dry: float = v._soil_mat.get_shader_parameter("wet")
+	b.moisture = 0.9
+	v._process(0.0)
+	var wet: float = v._soil_mat.get_shader_parameter("wet")
+	t.check(dry < 0.1 and wet > 0.8, "the soil shows dry and soaked (%.2f, %.2f)" % [dry, wet])
+	var code := (v._soil_mat.shader as Shader).code
+	t.check(code.contains("cracks(") and code.contains("soak"), "the dry top cracks, the wet one shines")
+	# Repot time on the pot: roots at the rim and under the foot, the soil pushed up.
+	t.check(not v.shows_rootbound(), "not yet asked: the pot looks as always")
+	b.repot_due = true
+	v.refresh(true)
+	t.check(v.shows_rootbound(), "asked to be repotted: roots show on the pot")
+	t.check(v._soil.position.y > 0.0, "and the soil is pushed up")
+	b.repot("nursery", 0.3)
+	v.refresh(true)
+	t.check(not v.shows_rootbound() and is_zero_approx(v._soil.position.y), "repotted: gone again")
 	(made[0] as Node).free()
 
 

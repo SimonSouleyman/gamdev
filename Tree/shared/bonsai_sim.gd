@@ -104,6 +104,10 @@ var soil := PackedFloat32Array([FRESH_SOIL, FRESH_SOIL, FRESH_SOIL])
 var root_fill: float = 0.0
 var last_repot_day: int = 0
 var repot_due: bool = false
+## The pellets the tin gives (0 N, 1 P, 2 K): the last kind chosen on its slip, kept in the save,
+## so feeding is two taps (tin, soil); -1 until the first choice, when the tin gives what the
+## soil holds least of (0.8, C1 of the 0.7 check).
+var pellet_kind: int = -1
 ## The album page: {"day": int, "text": String}, oldest first.
 var milestones: Array = []
 var _events: Array[String] = []
@@ -298,6 +302,34 @@ func is_too_wet() -> bool:
 ## The same soft Liebig rule as the tree: the scarcest nutrient against the species' need.
 func nutrient_factor() -> float:
 	return Resources.growth_factor(PackedFloat32Array([1.0, soil[0] * 2.0, soil[1] * 2.0, soil[2] * 2.0]), species.needs)
+
+
+## The pellets the tin gives now: the last kind chosen, or before any choice the one the soil
+## holds least of for this species' need (0 N, 1 P, 2 K).
+func tin_kind() -> int:
+	if pellet_kind >= 0:
+		return pellet_kind
+	var best := 0
+	var lowest := INF
+	for k in range(3):
+		var ratio := soil[k] / maxf(species.needs[k + 1], 0.01)
+		if ratio < lowest:
+			lowest = ratio
+			best = k
+	return best
+
+
+## How hungry the tree is for N, P and K (0 N, 1 P, 2 K), 0..1: 0 while the soil covers the
+## need (nutrient_factor's ratio at 1 or more), 1 when the soil holds none. Read by the view for
+## the natural signs (0.8, C4): pale, yellowing needles for nitrogen, a dull bronze for
+## phosphorus, browning tips for potassium.
+func hunger(k: int) -> float:
+	var need := species.needs[k + 1]
+	if need <= 0.0:
+		return 0.0
+	var ratio := soil[k] * 2.0 / need
+	# The sign starts a little before growth slows, so the player sees it coming.
+	return clampf((1.2 - ratio) / 1.2, 0.0, 1.0)
 
 
 func rootbound_factor() -> float:
@@ -842,6 +874,7 @@ func to_dict() -> Dictionary:
 		"root_fill": root_fill,
 		"last_repot_day": last_repot_day,
 		"repot_due": repot_due,
+		"pellet_kind": pellet_kind,
 		"milestones": milestones,
 		"accum": [_growth_accum, _marker_accum, _leader_accum],
 	}
@@ -864,6 +897,7 @@ static func from_dict(d: Dictionary) -> BonsaiSim:
 		b.pot = "nursery"
 	b.turn = posmod(int(d.get("turn", 0)), 4)
 	b.moisture = clampf(float(d.get("moisture", 0.6)), 0.0, 1.0)
+	b.pellet_kind = clampi(int(d.get("pellet_kind", -1)), -1, 2)
 	var s: Array = Array(d.get("soil", [FRESH_SOIL, FRESH_SOIL, FRESH_SOIL]))
 	if s.size() == 3:
 		b.soil = PackedFloat32Array([float(s[0]), float(s[1]), float(s[2])])
