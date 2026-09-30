@@ -21,6 +21,7 @@ Last checked against the code: 2026-09-30 06:40 UTC (main at b4fbd37). File and 
 | Daylight share (`daylight_fraction`) | 0.625 (120 s day, 72 s night clock) | 0.55 to 0.7 | Day is where the tree is watched; the night is held while the root runs, so its clock share matters little. |
 | Night hold while the root runs (`NIGHT_HOLD_MARGIN`) | clock stops 0.5 s before dawn until the run ends | fixed | The run is never cut off by sunrise, so night length is set by the run. |
 | Night fast-forward after the run (`NIGHT_FAST_FORWARD`) | 30x | 10 to 60 | The rest of the night passes in about 2 s. |
+| Hold to fast-forward (0.8.2, planned; specs/fast-forward.md) | holding still for 0.6 s by day runs the clock at 4x until release; stops at the sunset hold | 3x to 6x; hold 0.4 to 0.8 s | [PLACEHOLDER] Simon, 2026-09-30: tap still boosts, a hold fast-forwards with the set boosts at their times. Game-time based, so it changes no result. |
 | Empty night visit (`EMPTY_NIGHT_VISIT`) | 5 s | 3 to 10 | A night without life force is a short look, not a wait. |
 | Real run length (`RootSystem.run_seconds_for`) | 34 s x sqrt(life force / 150), between 20 and 44 s (was up to 112 s) | 20 to 60 s | [PLACEHOLDER] The night follows the tank, so a boosted day's night is clearly shorter; longest night in the sweeps 50 to 51 s. |
 | Dawn burst (`GrowthSim.dawn_burst_share`) | 0.25 of affordable growth, max 30 nodes, over 10 s | 0.15 to 0.35 | The night's purchase shows at once, with the twinkle. |
