@@ -53,5 +53,7 @@ static var BONSAI_SPRAYS_PER_TWIG: int = 2 if PHONE else 3
 const BONSAI_MARKERS: int = 220
 ## Max attraction markers alive in the tree canopy at once.
 const TREE_MARKERS: int = 2000
-## Max main roots (one per night) a tree may grow; roughly a month plus spare nights.
+## The root graph is sized for this many full main roots (one per night). Not a cap on nights: a
+## root starts while one more full root fits the graph (RootSystem.has_room_for_root), and real
+## roots use far less than their full budget, so a slow tree keeps its nights (sim-0.6.3).
 const MAX_MAIN_ROOTS: int = 45

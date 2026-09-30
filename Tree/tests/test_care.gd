@@ -94,6 +94,9 @@ func test_sunrise_judges_the_need() -> void:
 func test_signal_only_when_a_deposit_is_in_reach() -> void:
 	var g := _play(6)
 	_night(g)
+	# Plenty of the others, so potassium is the strongest need (only the strongest shows).
+	for k in [Resources.Kind.WATER, Resources.Kind.NITROGEN, Resources.Kind.PHOSPHORUS]:
+		g.sim.resources.stock[k] = 1000.0
 	g.sim.resources.stock[Resources.Kind.POTASSIUM] = 0.0
 	g.sim.assess_needs()
 	_day_to(g, 0.5)
@@ -336,3 +339,66 @@ func test_care_page_reads_the_tree() -> void:
 	for part in Care.page(g):
 		after += str(part["text"]) + "\n"
 	t.check("buds will wake" in after, "a fresh cut: what dawn will bring\n" + after)
+
+
+## Broken 13 on sycamore (sim-0.6.3): cutting shoot tips every day forks each into twin buds;
+## the forks are part of the day's growth, so the tree ends no nearer its finish than uncut.
+func test_twin_buds_never_speed_a_sycamore_up() -> void:
+	var calm := _play(8, 14, "sycamore")
+	var cut := GameState.new_game(14, "sycamore")
+	var forked := 0
+	for _d in range(8):
+		_night(cut)
+		_day_to(cut, 0.5)
+		var n := 0
+		for id in range(3, cut.sim.graph.size()):
+			if n >= 20:
+				break
+			if cut.sim.is_shoot_tip(id) and cut.sim._subtree_size(id) == 1:
+				var size_before := cut.sim.graph.size()
+				cut.sim.prune(id)
+				forked += cut.sim.graph.size() - size_before
+				n += 1
+		_day(cut)
+	t.check(forked > 0, "the cut tips forked into twin buds (%d new shoots)" % forked)
+	t.check(cut.sim.grown_nodes() < calm.sim.grown_nodes(), "20 tips a day: further from the finish (%d vs %d grown)" % [cut.sim.grown_nodes(), calm.sim.grown_nodes()])
+
+
+## A bush is not a finished tree (sim-0.6.3: a sycamore pruned hard every day "finished" at 1.8 m).
+func test_a_short_bush_is_not_finished() -> void:
+	var g := _play(4)
+	var sim := g.sim
+	sim.species.finish_nodes = sim.grown_nodes()
+	t.check(sim.height() < sim.finish_height(), "the young tree is short (%.1f of %.1f m)" % [sim.height(), sim.finish_height()])
+	t.check(not sim.is_finished(), "enough segments, too short: not finished")
+	sim.species.max_height = sim.height() / GrowthSim.FINISH_HEIGHT_SHARE - 0.01
+	t.check(sim.is_finished(), "tall enough for its species: finished")
+
+
+## sim-0.6.3: the tree holds at most two days of water (GrowthSim.hold_days), so roots that stop
+## finding water leave it thirsty within a few nights; before, the stock covered 5 to 10 days
+## and thirst never showed, even with the roots neglected.
+func test_neglected_roots_can_leave_the_tree_thirsty() -> void:
+	var g := _play(20)
+	var sim := g.sim
+	var want := sim.day_capacity() * sim.node_cost() * sim.species.needs[Resources.Kind.WATER]
+	t.check(sim.resources.stock[Resources.Kind.WATER] <= 2.0 * want + 1.0, "the stock holds about two days at most (%.0f of a day's %.0f)" % [sim.resources.stock[Resources.Kind.WATER], want])
+	# The roots keep finding N, P and K (the tree grows at full pace), but the water deposits
+	# they reached run dry: only groundwater seeps in.
+	for i in range(g.ground.dot_count()):
+		if g.ground.dot_kinds[i] == Resources.Kind.WATER:
+			g.ground.dot_amounts[i] = 0.0
+			g.ground.dot_collected[i] = 1
+	var thirsty_on := -1
+	for n in range(6):
+		for k in [Resources.Kind.NITROGEN, Resources.Kind.PHOSPHORUS, Resources.Kind.POTASSIUM]:
+			sim.resources.stock[k] = 1000.0
+		g.dive()
+		g.night_done = true
+		while g.phase != GameState.Phase.DAY:
+			g.tick(0.25)
+		if sim.care_need[Resources.Kind.WATER] > Care.SHOW_MIN:
+			thirsty_on = n + 1
+			break
+		_day(g)
+	t.check(thirsty_on > 0, "thirst shows within six nights without new water (night %d)" % thirsty_on)

@@ -225,7 +225,9 @@ func test_thirty_days_each_show_growth() -> void:
 
 func test_a_night_after_the_last_possible_root_still_ends() -> void:
 	var g := GameState.new_game(15)
-	g.roots.main_root_count = Budgets.MAX_MAIN_ROOTS
+	# The root graph's budget is spent: no full root fits any more.
+	while g.roots.has_room_for_root():
+		g.roots.graph.add_node(0, Vector3(0, -0.5, 0))
 	g.sim.resources.life_force = 50.0
 	g.dive()
 	t.check(g.night_empty, "no root possible: a quiet night")
@@ -365,3 +367,67 @@ func test_boosting_trades_life_force_for_speed() -> void:
 	c.boost_active = true
 	t.check(c.light_level() > calm_light * 1.3, "a boost grows faster")
 	t.check(c.life_force_light() <= calm_life * 0.6 + 1e-6, "but the leaves gather at most 60 % of the life force")
+
+
+## sim-0.6.3: a tree still growing after night 45 (a pruned one) keeps its nightly root, so life
+## force never piles up with no way to spend it.
+func test_roots_still_start_after_forty_five_nights() -> void:
+	var g := GameState.new_game(15)
+	g.roots.main_root_count = Budgets.MAX_MAIN_ROOTS + 5
+	g.sim.resources.life_force = 60.0
+	g.dive()
+	t.check(not g.night_empty, "a root is possible on night %d" % (g.roots.main_root_count + 1))
+	t.check(g.start_run(0), "and it starts")
+	var bot := RootBot.new()
+	var guard := 0
+	while g.steer(bot.stick_for(g.roots, g.ground, g.sim.resources), false, 1.0 / 30.0) and guard < 20000:
+		guard += 1
+	t.check(g.sim.resources.life_force < 1.0, "the life force was spent (%.1f left)" % g.sim.resources.life_force)
+	t.check(g.roots.run_length > 5.0, "on a real root (%.1f m)" % g.roots.run_length)
+
+
+## Broken list 2 (sim-0.6.3): after a fully boosted day the night's root is at least a third
+## shorter than after a calm day, in metres and in seconds.
+func test_a_boosted_day_leaves_a_clearly_shorter_night() -> void:
+	var g := GameState.new_game(14)
+	for _d in range(8):
+		_bot_night(g)
+		while g.phase == GameState.Phase.DAY:
+			g.tick(0.5)
+	# The same evening twice: after a calm day and after a day boosted from dawn to dusk.
+	_bot_night(g)
+	var saved := JSON.stringify(g.to_dict())
+	var out := {}
+	for boosted in [false, true]:
+		var h := GameState.from_dict(JSON.parse_string(saved))
+		while h.phase == GameState.Phase.DAY:
+			if boosted:
+				h.boost_hour()
+			h.tick(0.5)
+		var lf := h.sim.resources.life_force
+		out[boosted] = [lf] + _bot_night(h)
+	var calm: Array = out[false]
+	var boost: Array = out[true]
+	t.check(boost[0] < calm[0] * 0.5, "a boosted day leaves less life force (%.0f vs %.0f)" % [boost[0], calm[0]])
+	t.check(boost[1] <= calm[1] * 0.67, "a root at least a third shorter (%.1f vs %.1f m)" % [boost[1], calm[1]])
+	t.check(boost[2] <= calm[2] * 0.75, "and a clearly shorter night (%.1f vs %.1f s)" % [boost[2], calm[2]])
+	t.check(boost[2] >= 15.0, "still a real night (%.1f s)" % boost[2])
+
+
+## One night with the root bot from the meadow's start; returns [metres, seconds].
+func _bot_night(g: GameState) -> Array:
+	g.dive()
+	var secs := 0.0
+	if g.can_start_run():
+		g.start_run(RootBot.new().pick_start(g.roots, g.ground, g.sim.resources))
+		var bot := RootBot.new()
+		var guard := 0
+		while guard < 30000:
+			guard += 1
+			secs += 1.0 / 30.0
+			if not g.steer(bot.stick_for(g.roots, g.ground, g.sim.resources), false, 1.0 / 30.0):
+				break
+	var metres := g.roots.run_length
+	while g.phase == GameState.Phase.NIGHT:
+		g.tick(0.25)
+	return [metres, secs]

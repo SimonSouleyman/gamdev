@@ -16,7 +16,7 @@ extends SceneTree
 
 const FRAME: float = 1.0 / 30.0
 ## --set=name=value (repeatable): tuning overrides, applied to the RootSystem, or with a
-## "clock." prefix to the DayCycle, before the first night.
+## "clock." prefix to the DayCycle or "sim." to the GrowthSim, before the first night.
 static var overrides: Dictionary = {}
 const ALL: Array = ["dots", "end_early", "straight_down", "random", "boost_all", "boost_quit"]
 
@@ -54,6 +54,8 @@ static func play(strat: String, species_id: String, seed: int, days: int, nights
 	for k in overrides:
 		if str(k).begins_with("clock."):
 			g.sim.clock.set(str(k).substr(6), overrides[k])
+		elif str(k).begins_with("sim."):
+			g.sim.set(str(k).substr(4), overrides[k])
 		elif str(k) == "start_any":
 			pass
 		elif str(k) == "capacity":
@@ -133,7 +135,7 @@ static func play(strat: String, species_id: String, seed: int, days: int, nights
 
 static func summary(r: Dictionary) -> String:
 	var hs: Dictionary = r["heights"]
-	var h := func(d: int) -> String: return ("%.1f" % hs[d]) if hs.has(d) else "-"
-	return "%-14s %-8s seed %-3d h10 %s  h20 %s  h30 %s  finished %s  least/day %d  lf left %.0f | night s %s | root m %s" % [
-		r["strat"], r["species"], r["seed"], h.call(10), h.call(20), h.call(30),
+	var h := func(d: Variant) -> String: return ("%.1f" % hs[d]) if hs.has(d) else "-"
+	return "%-14s %-8s seed %-3d h10 %s  h20 %s  h30 %s  hfin %s  finished %s  least/day %d  lf left %.0f | night s %s | root m %s" % [
+		r["strat"], r["species"], r["seed"], h.call(10), h.call(20), h.call(30), h.call("fin"),
 		str(r["finish"]) if r["finish"] > 0 else "never", r["least"], r["lf_left"], str(r["secs"]), str(r["lens"])]
