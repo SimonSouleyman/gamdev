@@ -59,7 +59,7 @@ const MAX_RUN_SECONDS: float = 44.0
 ## During the run the tip's speed follows what is left (life force at the local price per metre
 ## over the time left), so a root near the trunk, where metres are cheap, cannot run long
 ## (sim-0.6.3: nights of 54 to 58 s). At most this fast.
-const MAX_REPACE_SCALE: float = 3.0
+const MAX_REPACE_SCALE: float = 4.0
 ## Seconds over which the speed eases to the new pace.
 const REPACE_EASE: float = 1.5
 var run_seconds_target: float = 34.0
@@ -69,7 +69,7 @@ const TYPICAL_COST: float = 2.2
 const MAX_SPEED_SCALE: float = 1.8
 ## A small tank grows slower, so even the first nights last about 20 s (0.8: 0.3; 0.65 left the
 ## first nights after a boosted day at 10 to 15 s).
-const MIN_SPEED_SCALE: float = 0.3
+const MIN_SPEED_SCALE: float = 0.18
 var run_cost_scale: float = 1.0
 var run_speed_scale: float = 1.0
 var _fine_budget: int = Budgets.FINE_ROOTS_PER_MAIN_ROOT
@@ -118,8 +118,10 @@ var nightly_water_factor: float = 2.0
 ## Groundwater seeps into the main roots (not the fine roots): water per metre each night, so a
 ## player who never finds a deposit still keeps the tree growing, only slower (soft failure).
 var seep_per_metre: float = 0.03
-## A metre of fine root draws this share of a main root's seep.
-var fine_seep_share: float = 0.3
+## A metre of fine root draws this share of a main root's seep. 0.8 check: 0.3 -> 0.5. A player
+## who ends every root at once grows almost only fine roots, and at 0.3 their seep was too little
+## water for a day's growth: boost_quit did not finish by day 45 on three runs (balance-0.8.md).
+var fine_seep_share: float = 0.5
 
 
 func _init(random_seed: int = 1) -> void:
