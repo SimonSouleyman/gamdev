@@ -2,8 +2,8 @@
 
 Written 2026-09-30 from Simon's 0.8 phone notes (17:43 UTC). It is a changed mechanic, so it is
 specced before it is built (design-practice.md). Simon (2026-09-30, 17:45 UTC) keeps it in 0.8.x
-rather than 0.9, and at 17:58 UTC put everything into **0.8.1**, together with the fixes from the
-same test (specs/0.8.md, "0.8.1"). Numbers are levers, not orders; the build thread records what it
+rather than 0.9; at 18:29 UTC he split fixes (0.8.1) from new features, so this lands in
+**0.8.2** (specs/0.8.md, "0.8.1 and 0.8.2"), after 0.8.1 widened the root field. Numbers are levers, not orders; the build thread records what it
 picks in tuning.md.
 
 Simon's words, dictated (summary): the roots that sprout on their own from the player's root
@@ -41,7 +41,8 @@ the way, and that root is a real anchor now". Neither feels like a mistake.
    colonization toward fresh dots within a short reach, about 1.0 m plus 0.05 m per point of
    leftover life force, at most 2.5 m. They get about 4 nodes per point of leftover. They drink
    at the fine share as well, and they draw in and grow over about 3 s at the end of the run so
-   the player sees them spread.
+   the player sees them spread. Where no dot is in reach (the root field is wider from 0.8.1),
+   a few short tips still sprout so the fan shows.
 2b. Third level, new (Simon, 2026-09-30, 18:15 UTC: "aus Seitenwurzeln nochmal kleinere
    Seitenwurzeln"): from the second-level roots, smaller roots branch once more. The leftover's
    nodes split about 70 % to the second level and 30 % to the third. Third-level roots grow from
