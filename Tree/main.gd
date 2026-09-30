@@ -59,11 +59,15 @@ func _ready() -> void:
 	journal.set_button_visible(false)
 	await get_tree().process_frame
 	await get_tree().process_frame
+	var had_save := FileAccess.file_exists(SaveData.GAME_PATH)
 	var loaded: GameState = SaveData.load_game()
 	start(loaded if loaded != null else GameState.new_game(int(Time.get_unix_time_from_system())))
 	enter_shed(false)
 	_corner.visible = true
 	shed_menu.show_loading(false)
+	# 0.8: the save could not be read: offer the newest good sunrise save instead of starting over.
+	if loaded == null and had_save:
+		_offer_morning()
 	# Back after a while: a torn diary page tells what happened meanwhile (once).
 	_show_away_page()
 
@@ -101,6 +105,11 @@ func _build() -> void:
 	shed_menu.journal_pressed.connect(func() -> void: journal.open_diary())
 	shed_menu.plant_pressed.connect(plant_next)
 	shed_menu.reset_pressed.connect(_reset)
+	# 0.8: the save backup on the pinboard.
+	shed_menu.backup_notes.fetch_state = func() -> GameState:
+		save()
+		return state
+	shed_menu.backup_notes.load_confirmed.connect(_load_copy)
 	shed_menu.setting_changed.connect(func(k: String, on: bool) -> void:
 		journal.set_setting(k, on)
 		_apply_setting(k, on))
@@ -391,7 +400,10 @@ func _rise() -> void:
 	tw.parallel().tween_property(tree_view, "dive_amount", 0.0, 3.0).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
 	tw.tween_callback(func() -> void:
 		_transitioning = false
-		save())
+		save()
+		# 0.8: the game keeps its last three sunrise saves, quietly (never a note or a reminder).
+		if not ephemeral:
+			Backup.keep_morning())
 
 
 func _new_tween() -> Tween:
@@ -837,6 +849,53 @@ func _reset(kind: String) -> void:
 	save()
 	in_shed = false
 	enter_shed(false)
+
+
+## 0.8 "load a copy", tapped twice: the copy (checked already) replaces the game and the album.
+## A copy that fails now (a full phone) leaves the game as it was, with a note.
+func _load_copy(path: String, _manifest: Dictionary) -> void:
+	if ephemeral or state == null or _transitioning:
+		return
+	var notes := shed_menu.backup_notes
+	var got := Backup.apply(path)
+	if not got["ok"]:
+		notes.set_note(str(Backup.NOTES.get(got["why"], Backup.NOTES["broken"])))
+		return
+	var loaded := SaveData.load_game(SaveData.GAME_PATH, float(got["saved_at_unix"]))
+	if loaded == null:
+		notes.set_note(Backup.NOTES["broken"])
+		return
+	if path.get_file() == "picked.zip":
+		DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
+	loaded.diary.add(loaded.day_number(), Backup.diary_line(got["manifest"]))
+	start(loaded)
+	save()
+	in_shed = false
+	enter_shed(false)
+	notes.set_note("My tree is back, as it was when the copy was made.")
+
+
+## The save could not be read at start (it was kept aside as .broken): the newest good sunrise
+## save is offered on a torn page. Without one the new game simply begins, as before.
+func _offer_morning() -> void:
+	var path := Backup.newest_good_morning()
+	var info := Backup.peek(path) if path != "" else {}
+	if info.is_empty():
+		return
+	var offer := MorningOffer.new()
+	shed_menu.add_child(offer)
+	offer.answered.connect(func(take: bool) -> void:
+		offer.queue_free()
+		if not take or Backup.restore_morning(path) != OK:
+			return
+		var back := SaveData.load_game()
+		if back == null:
+			return
+		start(back)
+		save()
+		in_shed = false
+		enter_shed(false))
+	offer.offer(Backup.morning_time(path), str(info["tree"]), int(info["day"]))
 
 
 func plant_next(species_id: String) -> void:

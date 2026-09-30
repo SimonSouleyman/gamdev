@@ -62,6 +62,14 @@ var _seeds_box: VBoxContainer
 var _tree_page: Control
 var _tree_box: VBoxContainer
 var _sketch_graph: PlantGraph
+## 0.8: "copy my tree" and "load a copy" on the pinboard (main wires them to the game).
+var backup_notes: BackupNotes
+## 0.8: the "send" words on the album's two cards and on the flip-book page, and the album's note.
+var _send_buttons: Array[Button] = []
+var _flip_send: Button
+var _album_note: Label
+## Tools switch this off: after sending on a PC the game's folder opens.
+static var open_folders := true
 
 
 func _ready() -> void:
@@ -138,6 +146,7 @@ func set_tree_name(tree_name: String) -> void:
 ## Esc on the options board, in the album, at the seed bag or on the tree's page closes it.
 func close_boards() -> void:
 	_flip.stop()
+	backup_notes.reset()
 	_options.visible = false
 	_album.visible = false
 	_seeds.visible = false
@@ -175,7 +184,7 @@ func _build_options() -> void:
 		note.add_theme_stylebox_override("panel", Paper.paper_box(200, 90, 80 + i, "all", 18.0))
 		# Two columns; the long test switch gets the last row to itself.
 		var last := i == names.size() - 1
-		note.position = Vector2(60 + (i % 2) * 300, 50 + (i / 2) * 210)
+		note.position = Vector2(60 + (i % 2) * 300, 50 + (i / 2) * 160)
 		note.custom_minimum_size = Vector2(560 if last else 260, 130)
 		note.rotation_degrees = [-3.0, 2.0, 1.5, -2.0, 2.5, -1.0, 1.0][i]
 		board.add_child(note)
@@ -213,7 +222,9 @@ func _build_options() -> void:
 	back.offset_right = 70
 	back.offset_top = -158
 	back.offset_bottom = -158 + Paper.INK_TAP
-	back.pressed.connect(func() -> void: _options.visible = false)
+	back.pressed.connect(func() -> void:
+		backup_notes.reset()
+		_options.visible = false)
 	_options.add_child(back)
 	# Two resets pinned below the notes; each asks once more before it acts. The same calm hand
 	# as the notes above them.
@@ -245,6 +256,17 @@ func _build_options() -> void:
 						b.remove_meta("armed")
 						b.text = label))
 		resets.add_child(b)
+	# 0.8: the save backup, pinned between the switches and the resets (its note slip above it;
+	# the switches' rows moved closer to make room).
+	backup_notes = BackupNotes.new()
+	backup_notes.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
+	backup_notes.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	backup_notes.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	backup_notes.offset_left = -320
+	backup_notes.offset_right = 320
+	backup_notes.offset_top = -314
+	backup_notes.offset_bottom = -314
+	_options.add_child(backup_notes)
 	_options.visible = false
 
 
@@ -272,6 +294,7 @@ func _cork_box() -> StyleBoxTexture:
 func open_options() -> void:
 	for k in _toggles:
 		(_toggles[k] as CheckBox).set_pressed_no_signal(bool(settings.get(k, false)))
+	backup_notes.reset()
 	_options.visible = true
 
 
@@ -367,6 +390,13 @@ func _build_album() -> void:
 			tape.rotation_degrees = -38.0 if k == 0 else 36.0
 			# On the photo (a TextureRect does not lay out its children).
 			tex.add_child(tape)
+		# 0.8: "send", written on the page beside the card's lower corner.
+		var send := Paper.ink_button("send", 24)
+		send.position = Vector2(344, 262)
+		send.rotation_degrees = -3.0
+		send.pressed.connect(func() -> void: send_photo(_shown_photo_at(side)))
+		slot.add_child(send)
+		_send_buttons.append(send)
 		if side == 0:
 			_album_left = tex
 			_album_cap_l = cap
@@ -396,6 +426,10 @@ func _build_album() -> void:
 		if shown >= 0 and Phone.set_wallpaper(_photos[shown]):
 			_album_cap_l.text = "My wallpaper now.")
 	nav.add_child(_wallpaper_button)
+	_album_note = Paper.ink_label("", 22, Paper.FAINT_INK)
+	_album_note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_album_note.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	box.add_child(_album_note)
 	_album.visible = false
 
 
@@ -404,6 +438,7 @@ func open_album() -> void:
 	_build_spreads()
 	# The newest spread (a finished tree's flip-book comes after its last photos).
 	_album_index = _spreads.size() - 1
+	_album_note.text = ""
 	_show_spread()
 	_album.visible = true
 
@@ -432,6 +467,7 @@ func _turn(step: int) -> void:
 	if next < 0 or next >= _spreads.size():
 		return
 	_album_index = next
+	_album_note.text = ""
 	_show_spread()
 
 
@@ -467,10 +503,12 @@ func _show_spread() -> void:
 			card.rotation_degrees = r.randf_range(-6.0, 6.0)
 			cap.text = Photos.caption(_photos[i])
 			tex.get_parent().get_parent().visible = true
+			_send_buttons[side].visible = can_send()
 		else:
 			tex.texture = null
 			cap.text = "(no photo yet: every morning takes one, and the camera scrap outside takes more)" if _photos.is_empty() and side == 0 else ""
 			tex.get_parent().get_parent().visible = side == 0 and _photos.is_empty()
+			_send_buttons[side].visible = false
 
 
 # --- the flip-book (month time-lapse) ------------------------------------------------
@@ -503,6 +541,12 @@ func _build_flip_page(box: VBoxContainer) -> void:
 		if _flip_tree >= 0:
 			save_video(_flip_tree))
 	row.add_child(_video_button)
+	# 0.8: the month's film through the share sheet.
+	_flip_send = Paper.ink_button("send", 24)
+	_flip_send.pressed.connect(func() -> void:
+		if _flip_tree >= 0:
+			send_video(_flip_tree))
+	row.add_child(_flip_send)
 	_flip_status = Paper.ink_label("", 22, Paper.FAINT_INK)
 	_flip_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_flip_status.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -523,6 +567,8 @@ func _show_flip(tree_index: int) -> void:
 	_flip_title.text = "The %s, %d morning%s" % [tree_name.to_lower(), pages.size(), "" if pages.size() == 1 else "s"]
 	_flip_status.text = ""
 	_video_button.disabled = false
+	_flip_send.disabled = false
+	_flip_send.visible = can_send()
 	_flip.play(pages)
 
 
@@ -538,8 +584,23 @@ func _flip_through() -> void:
 ## One frame is made per rendered frame, so the album stays alive while the film develops.
 ## Returns the video's path ("" if it failed).
 func save_video(tree_index: int) -> String:
-	var pages := TimeLapse.pages(_trees[tree_index])
 	_video_button.disabled = true
+	var path: String = await _develop(tree_index)
+	if path == "":
+		_video_button.disabled = false
+		return ""
+	if Phone.save_video_to_gallery(path, _on_video_saved.bind(path)):
+		# The phone turns it into an MP4 on its own; the button waits for the answer.
+		_flip_status.text = "saving to the phone's gallery..."
+		return path
+	_flip_status.text = "Saved as %s" % ProjectSettings.globalize_path(path)
+	_video_button.disabled = false
+	return path
+
+
+## Writes the tree's month as a Motion-JPEG film (TimeLapse.video_path); "" if it failed.
+func _develop(tree_index: int) -> String:
+	var pages := TimeLapse.pages(_trees[tree_index])
 	_flip_status.text = "developing the film..."
 	var jpegs: Array[PackedByteArray] = []
 	var size := Vector2i.ZERO
@@ -557,14 +618,7 @@ func save_video(tree_index: int) -> String:
 	DirAccess.make_dir_recursive_absolute(TimeLapse.DIR)
 	if jpegs.is_empty() or MjpegAvi.write(path, jpegs, size.x, size.y, TimeLapse.FPS) != OK:
 		_flip_status.text = "The film could not be saved."
-		_video_button.disabled = false
 		return ""
-	if Phone.save_video_to_gallery(path, _on_video_saved.bind(path)):
-		# The phone turns it into an MP4 on its own; the button waits for the answer.
-		_flip_status.text = "saving to the phone's gallery..."
-		return path
-	_flip_status.text = "Saved as %s" % ProjectSettings.globalize_path(path)
-	_video_button.disabled = false
 	return path
 
 
@@ -575,6 +629,83 @@ func _on_video_saved(ok: bool, path: String) -> void:
 	else:
 		_flip_status.text = "The gallery would not take it. Saved as %s" % ProjectSettings.globalize_path(path)
 	_video_button.disabled = false
+
+
+# --- sending (0.8): the share sheet on the phone, the game's folder on a PC ------------------
+
+## "send" shows on the phone when its share sheet is there (hidden on a very old one), and on a PC.
+static func can_send() -> bool:
+	return PhoneFiles.can_share() or not OS.has_feature("mobile")
+
+
+## The photo index on a side of the spread on show; -1 if none.
+func _shown_photo_at(side: int) -> int:
+	var first := _shown_photo()
+	return first + side if first >= 0 and first + side < _photos.size() else -1
+
+
+## The Polaroid of the photo (as in the album, with its caption) to the phone's share sheet; the
+## player picks the app. On a PC it is written to the game's folder, and the folder opens.
+func send_photo(index: int) -> String:
+	if index < 0 or index >= _photos.size():
+		return ""
+	for b in _send_buttons:
+		b.disabled = true
+	_album_note.text = ""
+	var path: String = await Polaroid.render(self, _photos[index])
+	for b in _send_buttons:
+		b.disabled = false
+	if path == "":
+		_album_note.text = "The picture could not be made."
+		return ""
+	if not PhoneFiles.share_image(path, _on_photo_shared):
+		_album_note.text = "The picture is in the game's folder."
+		print("sent picture: ", ProjectSettings.globalize_path(path))
+		_open_folder(path.get_base_dir())
+	return path
+
+
+func _on_photo_shared(result: String) -> void:
+	match result:
+		"ok":
+			_album_note.text = ""
+		"no_app":
+			_album_note.text = "No app on this phone takes a picture. It stays in the game's folder."
+		_:
+			_album_note.text = "The picture could not be sent. It stays in the game's folder."
+
+
+## The month's film to the share sheet (the phone makes an MP4 first). On a PC: the game's folder.
+func send_video(tree_index: int) -> String:
+	_flip_send.disabled = true
+	var path: String = await _develop(tree_index)
+	if path == "":
+		_flip_send.disabled = false
+		return ""
+	if PhoneFiles.share_video(path, _on_video_shared):
+		_flip_status.text = "getting the film ready to send..."
+		return path
+	_flip_send.disabled = false
+	_flip_status.text = "The film is in the game's folder."
+	print("sent film: ", ProjectSettings.globalize_path(path))
+	_open_folder(path.get_base_dir())
+	return path
+
+
+func _on_video_shared(result: String) -> void:
+	_flip_send.disabled = false
+	match result:
+		"ok":
+			_flip_status.text = ""
+		"no_app":
+			_flip_status.text = "No app on this phone takes a film. It stays in the game's folder."
+		_:
+			_flip_status.text = "The film could not be sent. It stays in the game's folder."
+
+
+func _open_folder(dir: String) -> void:
+	if open_folders and not OS.has_feature("mobile") and DisplayServer.get_name() != "headless":
+		OS.shell_open(ProjectSettings.globalize_path(dir))
 
 
 # --- the seed bag -------------------------------------------------------------------

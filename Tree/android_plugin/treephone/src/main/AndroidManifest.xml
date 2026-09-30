@@ -10,6 +10,19 @@
         android:name="android.permission.WRITE_EXTERNAL_STORAGE"
         android:maxSdkVersion="28" />
 
+    <!-- 0.8 sharing: lets the game see whether any app takes a picture or a video (Android 11+
+         package visibility) before it opens the share sheet. -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.SEND" />
+            <data android:mimeType="image/*" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.SEND" />
+            <data android:mimeType="video/*" />
+        </intent>
+    </queries>
+
     <application>
         <!-- Godot Android plugin v2 registration: singleton "TreePhone". -->
         <meta-data
@@ -32,5 +45,13 @@
                 <action android:name="android.intent.action.TIMEZONE_CHANGED" />
             </intent-filter>
         </receiver>
+
+        <!-- 0.8 sharing: serves the one shared Polaroid or video, read-only, to the app picked
+             in the share sheet (a small FileProvider without androidx). -->
+        <provider
+            android:name="de.simonsouleyman.treephone.ShareProvider"
+            android:authorities="${applicationId}.treeshare"
+            android:exported="false"
+            android:grantUriPermissions="true" />
     </application>
 </manifest>
