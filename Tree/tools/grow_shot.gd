@@ -3,6 +3,12 @@ extends SceneTree
 ## the tree view at noon from three sides. For judging the look of the growth.
 ## Run: godot --path . -s tools/grow_shot.gd -- --days=10 --shots=C:/some/folder [--seed=42] [--species=oak] [--boost] [--dive]
 ## --dive: instead, five frames of the fall into the ground (dive_amount 0 to 1) from the south.
+## The brush pile (0.8): --cut=<n> cuts a side branch at noon on each of the last n days (onto
+## the pile at the next sunrise); --hedgehog=<s> shows the hedgehog s seconds into its evening
+## walk, --wren=<s> the wren on the pile; --pile_close adds a photo from a tool camera 4 m in front
+## of the pile (a closer look than the game's camera gives).
+## --roots: instead, the underground after the last night (0.8, the dots' shapes): the overview,
+## a close view as in a run and a medium one, each also saved in greyscale (`*_grey.png`).
 ## --stats: also print draw calls and primitives of each view, with and without the forest ring
 ## and shrub belt. Add `--phone` (and `--rendering-method gl_compatibility` before `--`) to
 ## measure the phone path on a PC.
@@ -24,6 +30,12 @@ var hour := 0.5  # fraction of the daylight, 0.5 = noon
 var view: TreeView
 var frame := 0
 var dive := false
+var roots_mode := false
+var cut_days := 0
+var hog_at := -1.0
+var wren_at := -1.0
+var pile_close := false
+var rview: RootView
 var prune := false
 var stats := false
 var overdraw := false
@@ -60,6 +72,17 @@ func _initialize() -> void:
 			prune = true
 		elif a == "--dive":
 			dive = true
+		elif a == "--roots":
+			roots_mode = true
+		elif a.begins_with("--cut="):
+			cut_days = int(a.substr(6))
+		elif a.begins_with("--hedgehog="):
+			hog_at = float(a.substr(11))
+		elif a.begins_with("--wren="):
+			wren_at = float(a.substr(7))
+		elif a == "--pile_close":
+			pile_close = true
+			settle = maxi(settle, 15)
 		elif a == "--overdraw":
 			overdraw = true
 		elif a == "--stats":
@@ -94,6 +117,15 @@ func _initialize() -> void:
 		while g.phase == GameState.Phase.NIGHT:
 			g.tick(0.25)
 		if day < days - 1:
+			if day >= days - 1 - cut_days:
+				# Noon, then one side branch cut, as a player trims the tree.
+				while g.sim.clock.time_of_day < g.sim.clock.daylight_fraction * 0.5:
+					g.tick(0.5)
+				var id := _side_branch(g.sim)
+				if id >= 0:
+					var n := g.sim.prune(id)
+					g.cut_to_pile(n)
+					print("day %d: cut %d segments" % [g.day_number(), n])
 			while g.phase == GameState.Phase.DAY:
 				# Optional: boost through the mornings, so the crown should lean east.
 				g.sim.clock.boost_active = boost and g.sim.clock.time_of_day < 0.2
@@ -106,15 +138,23 @@ func _initialize() -> void:
 	if rain:
 		g.after_rain()
 	g.take_events()
+	if cut_days > 0:
+		print("brush pile: %d segments, %d sticks" % [g.brush.wood, g.brush.stick_count()])
 	print("clearing: found %s, plan %s" % [g.clearing.found, Clearing.counts(g.clearing.plan(Clearing.shade_map(g.sim), g.day_number(), Budgets.UNDERSTORY_PLANTS))])
 	print("day %d: %d nodes, %.1f m, %d tips, crown centre %s" % [g.day_number(), g.sim.graph.size(), g.sim.height(), g.sim.tip_count(), g.sim.centroid()])
+	set_meta("game", g)
+	if roots_mode:
+		rview = RootView.new()
+		root.add_child(rview)
+		return
 	view = TreeView.new()
 	root.add_child(view)
-	set_meta("game", g)
 
 
 func _process(_delta: float) -> bool:
 	frame += 1
+	if roots_mode:
+		return _roots_frames()
 	if frame == 1:
 		# After the view's own _ready, which runs once the tree starts.
 		view.setup(get_meta("game"))
@@ -123,6 +163,31 @@ func _process(_delta: float) -> bool:
 			root.get_viewport().debug_draw = Viewport.DEBUG_DRAW_OVERDRAW
 		view.night_override = night
 		view.look_up = look_up
+		var bp := view.brush_pile
+		if hog_at >= 0.0:
+			bp.state.brush.hedgehog_day = bp.state.day_number()
+			bp._hog_day = bp.state.day_number()
+			bp._start_hog()
+			bp._hog_t = hog_at
+		if wren_at >= 0.0:
+			bp.state.brush.wren_day = bp.state.day_number()
+			bp._wren_day = bp.state.day_number()
+			bp._wren_t = wren_at
+			bp._songs_left = 0
+	if pile_close and frame == 2:
+		# A tool camera 4 m in front of the pile, a little above the grass.
+		var bp := view.brush_pile
+		var cam := Camera3D.new()
+		cam.fov = 40.0
+		view.add_child(cam)
+		cam.environment = view.camera.environment
+		var front := bp.global_position + bp.global_basis.z * 4.0 + Vector3.UP * 1.1
+		cam.look_at_from_position(front, bp.global_position + Vector3.UP * 0.2 + bp.global_basis.z * 0.8)
+		cam.make_current()
+	if pile_close and frame == 12:
+		RenderingServer.force_draw(false)
+		root.get_viewport().get_texture().get_image().save_png(shots_dir.path_join("%spile_close.png" % tag))
+		view.camera.make_current()
 		if face_moon:
 			# Stand opposite the moon, so it hangs above the tree.
 			var d := view._night_sky.moon_direction()
@@ -191,6 +256,85 @@ func _render_info() -> Array[int]:
 	return [vp.get_render_info(vis, Viewport.RENDER_INFO_DRAW_CALLS_IN_FRAME), vp.get_render_info(vis, Viewport.RENDER_INFO_PRIMITIVES_IN_FRAME),
 		vp.get_render_info(sh, Viewport.RENDER_INFO_DRAW_CALLS_IN_FRAME), vp.get_render_info(sh, Viewport.RENDER_INFO_PRIMITIVES_IN_FRAME),
 		vp.get_render_info(vis, Viewport.RENDER_INFO_OBJECTS_IN_FRAME)]
+
+
+## A side branch around mid height with at least a few segments (like tools/grow_shot --prune).
+func _side_branch(sim: GrowthSim) -> int:
+	var g := sim.graph
+	var best := -1
+	var best_n := 0
+	for id in range(3, g.size()):
+		if g.get_flag(id, "dead", false) or g.children[id].is_empty():
+			continue
+		if Vector2(g.positions[id].x, g.positions[id].z).length() < 0.6 or g.positions[id].y < sim.height() * 0.3:
+			continue
+		var n := sim._subtree_size(id)
+		if n > best_n and n <= maxi(8, int(sim.living_nodes() * 0.12)):
+			best_n = n
+			best = id
+	return best
+
+
+## --roots: the overview while picking a start, then two views as in a run (the camera a few
+## metres from a spot where dots of several kinds lie close together), in colour and in grey.
+func _roots_frames() -> bool:
+	var g: GameState = get_meta("game")
+	if frame == 1:
+		rview.setup(g.ground, g.roots, g.sim.resources)
+		rview.hud.visible = false
+		rview.begin_pick()
+	if frame == 60:
+		_save_both("roots_overview")
+		# Hold the camera still from here on.
+		rview.mode = RootView.Mode.IDLE
+		var spot := _mixed_spot(g.ground)
+		rview.camera.position = spot + Vector3(-2.6, 0.9, -2.6)
+		rview.camera.look_at(spot, Vector3.UP)
+		(rview._dots.material_override as ShaderMaterial).set_shader_parameter("fog_far", 15.0)
+		set_meta("spot", spot)
+	if frame == 70:
+		_save_both("roots_close")
+		var spot: Vector3 = get_meta("spot")
+		rview.camera.position = spot + Vector3(-5.5, 1.6, -5.5)
+		rview.camera.look_at(spot, Vector3.UP)
+	if frame == 80:
+		_save_both("roots_medium")
+		quit()
+	return false
+
+
+## Where the most kinds lie within 3 m of a dot (the first such spot in the topsoil).
+func _mixed_spot(u: Underground) -> Vector3:
+	var best := Vector3(0, -2, 0)
+	var best_score := -1
+	for i in range(0, u.dot_count(), 3):
+		var p := u.dot_positions[i]
+		if u.dot_collected[i] != 0 or p.y < -6.0:
+			continue
+		var kinds := {}
+		var n := 0
+		for j in range(u.dot_count()):
+			if u.dot_collected[j] == 0 and u.dot_positions[j].distance_to(p) < 3.0:
+				kinds[u.dot_kinds[j]] = true
+				n += 1
+		var score := kinds.size() * 100 + mini(n, 40)
+		if score > best_score:
+			best_score = score
+			best = p
+	return best
+
+
+func _save_both(name: String) -> void:
+	RenderingServer.force_draw(false)
+	var img := root.get_viewport().get_texture().get_image()
+	img.save_png(shots_dir.path_join(name + ".png"))
+	img.convert(Image.FORMAT_RGBA8)
+	for y in range(img.get_height()):
+		for x in range(img.get_width()):
+			var c := img.get_pixel(x, y)
+			var l := c.r * 0.299 + c.g * 0.587 + c.b * 0.114
+			img.set_pixel(x, y, Color(l, l, l))
+	img.save_png(shots_dir.path_join(name + "_grey.png"))
 
 
 func _dive_frames() -> bool:

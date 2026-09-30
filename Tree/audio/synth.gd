@@ -125,3 +125,38 @@ static func pling() -> AudioStreamWAV:
 		var env := minf(1.0, t * 200.0) * exp(-t * 7.0)
 		out[i] = (sin(TAU * 880.0 * t) * 0.6 + sin(TAU * 1320.0 * t) * 0.25 + sin(TAU * 2200.0 * t) * 0.1 * exp(-t * 20.0)) * env * 0.4
 	return _to_wav(out, false)
+
+
+## A wren's song (0.8, the brush pile): about five seconds of loud, fast, high notes: a few
+## clear notes, then trills and a rattle, each phrase at its own pitch, ending on a flourish.
+static func wren_song(variant: int = 0) -> AudioStreamWAV:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 700 + variant
+	var out := PackedFloat32Array()
+	var phase := 0.0
+	# [notes, note seconds, gap seconds, start Hz, sweep Hz per note]
+	var phrases := [
+		[3, 0.07, 0.07, rng.randf_range(4200.0, 5200.0), -900.0],
+		[9, 0.035, 0.018, rng.randf_range(5600.0, 6800.0), 1200.0],
+		[14, 0.022, 0.012, rng.randf_range(3600.0, 4400.0), -700.0],
+		[6, 0.05, 0.03, rng.randf_range(6000.0, 7200.0), -1800.0],
+		[18, 0.016, 0.01, rng.randf_range(4400.0, 5000.0), 600.0],
+		[4, 0.06, 0.04, rng.randf_range(5200.0, 6200.0), 1500.0],
+	]
+	for ph: Array in phrases:
+		for k in range(int(ph[0])):
+			var dur := float(ph[1]) * rng.randf_range(0.85, 1.15)
+			var f0 := float(ph[3]) + rng.randf_range(-120.0, 120.0)
+			var f1 := f0 + float(ph[4])
+			var m := int(dur * RATE)
+			for i in range(m):
+				var x := float(i) / m
+				var f := lerpf(f0, f1, x)
+				phase += TAU * f / RATE
+				var env := sin(PI * x)
+				out.append((sin(phase) * 0.85 + sin(phase * 2.0) * 0.1) * env * 0.4)
+			for _i in range(int(float(ph[2]) * RATE)):
+				out.append(0.0)
+		for _i in range(int(rng.randf_range(0.05, 0.12) * RATE)):
+			out.append(0.0)
+	return _to_wav(out, false)

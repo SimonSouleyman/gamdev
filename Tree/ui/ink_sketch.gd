@@ -21,7 +21,34 @@ static func image(kind: String) -> Image:
 			_rushes(img)
 		"clover":
 			_clover(img)
+		"hedgehog":
+			_hedgehog(img)
 	return img
+
+
+## The hedgehog at the brush pile (0.8): side on, snout to the left, spines swept back over a
+## round back, a few sticks of the pile behind it.
+static func _hedgehog(img: Image) -> void:
+	# The ground and two sticks of the pile behind, to the right.
+	_curve(img, [Vector2(8, 112), Vector2(60, 110), Vector2(122, 113)], 2.0)
+	_stroke(img, Vector2(84, 108), Vector2(124, 78), 2.2, 1.4)
+	_stroke(img, Vector2(96, 110), Vector2(126, 96), 1.8, 1.2)
+	# The belly line and the face: a pointed snout with a dark nose.
+	_curve(img, [Vector2(96, 100), Vector2(66, 106), Vector2(38, 102), Vector2(22, 92), Vector2(12, 86)], 2.0)
+	_curve(img, [Vector2(12, 86), Vector2(20, 80), Vector2(34, 74)], 2.0)
+	_blob(img, Vector2(11, 86), Vector2(3.2, 2.8))
+	_blob(img, Vector2(27, 80), Vector2(1.8, 1.8))
+	# The back: an arc of spines, each a short stroke swept toward the rump.
+	var c := Vector2(66, 100)
+	for k in range(30):
+		var a := PI + 0.35 + (PI - 0.55) * k / 29.0
+		var root := c + Vector2(cos(a) * 34.0, sin(a) * 30.0)
+		var dir := Vector2(cos(a), sin(a)) * 0.7 + Vector2(0.75, 0.0)
+		_stroke(img, root, root + dir.normalized() * 10.0, 1.6, 0.8)
+	_curve(img, [Vector2(34, 76), Vector2(52, 68), Vector2(78, 68), Vector2(96, 80), Vector2(100, 98)], 1.6)
+	# Small feet.
+	for x in [44.0, 80.0]:
+		_stroke(img, Vector2(x, 104), Vector2(x - 3, 110), 1.8)
 
 
 static func _rushes(img: Image) -> void:

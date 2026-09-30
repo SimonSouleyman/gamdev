@@ -152,6 +152,7 @@ func setup(p_state: GameState) -> void:
 	# Nodes that already exist do not twinkle.
 	_rebuild()
 	update_visitors()
+	brush_pile.setup(state)
 	_frame_camera(true)
 
 
@@ -214,6 +215,8 @@ func _build_clearing(r: float) -> void:
 	apply_season()
 
 
+## The brush pile at the clearing edge, with its hedgehog and wren (0.8).
+var brush_pile: BrushPileView
 ## The nest in the crown, once it has come (Visitors). (No bench: Simon did not like it.)
 var _nest: MeshInstance3D
 
@@ -355,6 +358,9 @@ func _build_world() -> void:
 	add_child(_understory)
 	_scenery = Scenery.new()
 	add_child(_scenery)
+	# The brush pile of cut branches, its hedgehog and wren (0.8).
+	brush_pile = BrushPileView.new()
+	add_child(brush_pile)
 
 	_tree_mesh = MeshInstance3D.new()
 	_bark_mat = ShaderMaterial.new()
@@ -555,7 +561,7 @@ func _build_hud() -> void:
 	bar2.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	hud.add_child(bar2)
 	for k in range(4):
-		_res_labels.append(_pill(bar2, Resources.KIND_COLORS[k]))
+		_res_labels.append(_pill(bar2, Resources.KIND_COLORS[k], k))
 	_boost_label = _pill(bar, Color(1.0, 0.95, 0.6))
 	_boost_label.get_parent().get_parent().visible = false
 
@@ -590,8 +596,9 @@ func _build_hud() -> void:
 	hud.add_child(_hint)
 
 
-## A readout on a scrap of journal paper, handwritten, with an ink dot in the resource's colour.
-func _pill(parent: Control, dot: Color) -> Label:
+## A readout on a scrap of journal paper, handwritten, with an ink dot in the resource's colour
+## (0.8: a nutrient's pill shows its mark instead, NutrientMarks).
+func _pill(parent: Control, dot: Color, kind: int = -1) -> Label:
 	var panel := PanelContainer.new()
 	var sb := Paper.paper_box(96, 48, 20 + parent.get_child_count(), "all", 12.0)
 	sb.content_margin_top = 4
@@ -603,7 +610,9 @@ func _pill(parent: Control, dot: Color) -> Label:
 	row.add_theme_constant_override("separation", 6)
 	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	panel.add_child(row)
-	if dot.a > 0.0:
+	if kind >= 0:
+		row.add_child(NutrientMarks.icon_rect(kind, 26))
+	elif dot.a > 0.0:
 		var d := Label.new()
 		d.text = "●"
 		d.add_theme_color_override("font_color", dot.darkened(0.15))
@@ -643,7 +652,7 @@ const CARE_LOOKS: Array[String] = ["The leaves hang: thirsty.",
 ## Names and dot colours of the nutrients the tree lacks right now, for the hint.
 func _missing_nutrients() -> Array:
 	var names := ["water", "nitrogen (N)", "phosphorus (P)", "potassium (K)"]
-	var colours := ["blue", "green", "orange", "violet"]
+	var colours := NutrientMarks.WORDS
 	var n: Array[String] = []
 	var c: Array[String] = []
 	var sim := state.sim
@@ -992,6 +1001,7 @@ func _update_mood(_h: float) -> void:
 		_sun_light.light_energy *= lerpf(1.0, 0.55, n)
 		_env.tonemap_exposure *= lerpf(1.0, 0.85, n)
 	_scenery.set_mood(n, r)
+	brush_pile.update(get_process_delta_time(), r)
 	_understory.set_night(n)
 	var cam := get_viewport().get_camera_3d()
 	var eye := cam.global_position if cam != null else camera.global_position
@@ -1231,6 +1241,8 @@ func _end_press(is_release: bool, pos: Vector2 = Vector2.ZERO) -> void:
 			if cut > 0:
 				_rebuild()
 				update_visitors()
+				# The cut branch goes onto the brush pile at sunrise (0.8).
+				state.cut_to_pile(cut)
 				pruned.emit(cut)
 		else:
 			pruning.preview(-1)

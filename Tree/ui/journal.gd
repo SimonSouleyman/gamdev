@@ -50,6 +50,9 @@ var _clearing_list: VBoxContainer
 var _clearing_more: Label
 ## The care page (0.6.3): the crown and the roots read in words (Care.page).
 var _care_box: VBoxContainer
+## Pages that name the nutrients by their dots show the key of the four marks (0.8).
+const MARK_PAGES: Array[String] = ["first_night", "first_sunset", "sapling"]
+var _page_marks: Control
 
 
 func _ready() -> void:
@@ -86,6 +89,7 @@ func _next_page() -> void:
 	_page_id = p["id"]
 	_page_title.text = p["title"]
 	_page_body.text = p["body"]
+	_page_marks.visible = MARK_PAGES.has(_page_id)
 	# Each page is torn a little differently and lies a little askew.
 	_pages_torn += 1
 	# Torn from a squared notebook.
@@ -189,6 +193,10 @@ func _build_page() -> void:
 	_page_body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_page_body.custom_minimum_size = Vector2(540, 0)
 	box.add_child(_page_body)
+	# The key of the dots' marks (0.8), under the pages that name the nutrients by colour.
+	_page_marks = NutrientMarks.legend(24)
+	_page_marks.visible = false
+	box.add_child(_page_marks)
 	var footer := Paper.ink_label("tap to turn the page", 22, Paper.FAINT_INK)
 	footer.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	box.add_child(footer)
@@ -466,6 +474,13 @@ func _refresh_care() -> void:
 	_care_box.add_child(Paper.ink_label("Tree care", 32, Paper.INK, true))
 	for part in Care.page(state):
 		_care_box.add_child(Paper.ink_label(str(part["title"]), 27, Paper.RED_INK, true))
+		# The marks of the dots it names (0.8), as they glow underground.
+		if part.has("kinds"):
+			var marks := HBoxContainer.new()
+			marks.add_theme_constant_override("separation", 10)
+			for k in part["kinds"]:
+				marks.add_child(NutrientMarks.icon_rect(int(k), 34))
+			_care_box.add_child(marks)
 		var text := Paper.ink_label(str(part["text"]), 25)
 		text.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		text.size_flags_horizontal = Control.SIZE_EXPAND_FILL

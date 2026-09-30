@@ -17,7 +17,8 @@ const SHOW_MIN := 0.05
 ## A deposit with less than this share of its capacity left does not count.
 const DEPOSIT_MIN := 0.1
 
-const DOT_WORDS: Array[String] = ["blue", "green", "orange", "violet"]
+## Colour and shape of each kind's dots (0.8: the shapes, NutrientMarks.WORDS).
+const DOT_WORDS: Array[String] = ["blue drop", "green leaf", "orange spark", "violet ring"]
 const HINT_WORDS: Array[String] = [
 	"rushes and a damp patch on the meadow mark water",
 	"clover and nettles on the meadow mark nitrogen",
@@ -137,6 +138,8 @@ static func page(state: GameState) -> Array:
 	# What it lacks, and where to steer tonight.
 	var lacks := ""
 	var tonight := ""
+	# The kinds named, so the page can show their marks (0.8).
+	var kinds: Array = []
 	if state.finished:
 		lacks = "The tree is grown. It needs nothing more; the shears are only for its look now."
 	elif state.is_seed() or state.day_number() <= 1:
@@ -147,6 +150,7 @@ static func page(state: GameState) -> Array:
 			if shown[k] < SHOW_MIN:
 				continue
 			lacks += ("\n" if lacks != "" else "") + NEED_LINES[k]
+			kinds.append(k)
 			var r := state.reach_for(k)
 			if r.is_empty():
 				tonight += ("\n" if tonight != "" else "") + "No %s dot is in reach tonight; the old roots keep drinking what they reached." % DOT_WORDS[k]
@@ -157,7 +161,7 @@ static func page(state: GameState) -> Array:
 			tonight = "Any dots will do tonight; water and nitrogen are used most."
 	out.append({"title": "What it lacks", "text": lacks})
 	if tonight != "":
-		out.append({"title": "Tonight's root", "text": tonight})
+		out.append({"title": "Tonight's root", "text": tonight, "kinds": kinds if not kinds.is_empty() else [0, 1, 2, 3]})
 	# The crown's shape.
 	if not state.is_seed():
 		var shape := crown_shape(sim)

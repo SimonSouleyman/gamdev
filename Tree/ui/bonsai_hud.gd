@@ -175,6 +175,10 @@ func _build_pellet_slip() -> void:
 		var b := Paper.ink_button("%s\n%s" % [PELLETS[k], PELLET_WORDS[k]], 23)
 		b.custom_minimum_size = Vector2(96, 96)
 		b.add_theme_color_override("font_color", Resources.KIND_COLORS[k + 1].darkened(0.45))
+		# The nutrient's mark above its letter (0.8), as on the dots underground.
+		b.icon = NutrientMarks.icon(k + 1, 30)
+		b.icon_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		b.vertical_icon_alignment = VERTICAL_ALIGNMENT_TOP
 		b.pressed.connect(func() -> void: choose_pellets(kind))
 		row.add_child(b)
 		_pellet_buttons.append(b)

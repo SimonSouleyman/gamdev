@@ -58,6 +58,8 @@ func _run_all() -> void:
 		preload("res://tests/test_tree_growth_curve.gd"),
 		preload("res://tests/test_care.gd"),
 		preload("res://tests/test_wish.gd"),
+		preload("res://tests/test_nutrient_marks.gd"),
+		preload("res://tests/test_brush_pile.gd"),
 	]
 	for script in tests:
 		var suite: RefCounted = script.new()

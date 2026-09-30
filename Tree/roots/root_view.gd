@@ -139,12 +139,15 @@ func _build_world() -> void:
 	var mm := MultiMesh.new()
 	mm.transform_format = MultiMesh.TRANSFORM_3D
 	mm.use_colors = true
+	# 0.8: the nutrient's kind rides in the custom data, for its shape (NutrientMarks).
+	mm.use_custom_data = true
 	var quad := QuadMesh.new()
 	quad.size = Vector2.ONE
 	mm.mesh = quad
 	_dots.multimesh = mm
 	var mat := ShaderMaterial.new()
 	mat.shader = preload("res://roots/dot_glow.gdshader")
+	mat.set_shader_parameter("marks", NutrientMarks.atlas())
 	_dots.material_override = mat
 	_dots.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	# The dots span the whole volume; never cull the MultiMesh as a whole.
@@ -226,11 +229,20 @@ func _set_dot(i: int) -> void:
 	# Deposits the roots already reach are dimmed, so the player looks for fresh ones.
 	var reached := roots != null and roots.tapped.has(i)
 	mm.set_instance_transform(i, Transform3D(Basis.from_scale(Vector3.ONE * s * (0.7 if reached else 1.0)), ground.dot_positions[i]))
+	var look := dot_look(i)
+	mm.set_instance_color(i, look[0])
+	mm.set_instance_custom_data(i, look[1])
+
+
+## A dot's glow colour and its instance data (the kind, for its shape: 0.8), as _set_dot sets them.
+func dot_look(i: int) -> Array[Color]:
+	var reached := roots != null and roots.tapped.has(i)
 	var color: Color = Resources.KIND_COLORS[ground.dot_kinds[i]]
 	# The wish deposit's dots glow a little warmer (0.7).
 	if _warm_dots.has(i) and not reached:
 		color = color.lerp(WISH_WARM, WISH_DOT_WARMTH * minf(1.0, float(_warm_dots[i])))
-	mm.set_instance_color(i, color * (0.4 if reached else 1.0))
+	# Dimmed when reached; the shape stays.
+	return [color * (0.4 if reached else 1.0), Color(float(ground.dot_kinds[i]), 0.0, 0.0, 0.0)]
 
 
 ## Tonight's wish glows (GameState.wish_glows): a warm haze over each deposit and its dots a little
@@ -591,7 +603,7 @@ func _process_run(delta: float) -> void:
 		dots_collected.emit(roots.last_collected.size())
 	for i in roots.last_collected:
 		_set_dot(i)
-		_flash(ground.dot_positions[i], Resources.KIND_COLORS[ground.dot_kinds[i]])
+		_flash(ground.dot_positions[i], Resources.KIND_COLORS[ground.dot_kinds[i]], 0.5, ground.dot_kinds[i])
 	for f in roots.last_finds:
 		_on_find(f)
 	_check_wish_reached()
@@ -611,7 +623,7 @@ func _process_run(delta: float) -> void:
 		# end_run() already grew the fine roots and collected their dots.
 		for i in roots.last_collected:
 			_set_dot(i)
-			_flash(ground.dot_positions[i], Resources.KIND_COLORS[ground.dot_kinds[i]])
+			_flash(ground.dot_positions[i], Resources.KIND_COLORS[ground.dot_kinds[i]], 0.5, ground.dot_kinds[i])
 		_settle()
 
 
@@ -661,7 +673,7 @@ func end_early() -> void:
 	roots.finish_early(ground, res)
 	for i in roots.last_collected:
 		_set_dot(i)
-		_flash(ground.dot_positions[i], Resources.KIND_COLORS[ground.dot_kinds[i]])
+		_flash(ground.dot_positions[i], Resources.KIND_COLORS[ground.dot_kinds[i]], 0.5, ground.dot_kinds[i])
 	if not roots.last_collected.is_empty():
 		dots_collected.emit(roots.last_collected.size())
 	_settle()
@@ -762,8 +774,8 @@ func _on_find(f: Dictionary) -> void:
 	find_touched.emit(f)
 
 
-func _flash(p: Vector3, color: Color, size: float = 0.5) -> void:
-	# A soft glow puff (the same glow as the dots) that swells and fades.
+func _flash(p: Vector3, color: Color, size: float = 0.5, kind: int = 4) -> void:
+	# A soft glow puff (the same glow as the dots, in the dot's shape) that swells and fades.
 	var m := MeshInstance3D.new()
 	var quad := QuadMesh.new()
 	quad.size = Vector2.ONE
@@ -772,6 +784,8 @@ func _flash(p: Vector3, color: Color, size: float = 0.5) -> void:
 	mat.shader = preload("res://roots/dot_glow.gdshader")
 	mat.set_shader_parameter("tint", Color(color, 1.0))
 	mat.set_shader_parameter("pulse", 0.0)
+	mat.set_shader_parameter("marks", NutrientMarks.atlas())
+	mat.set_shader_parameter("kind_override", float(kind))
 	m.material_override = mat
 	m.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	m.position = p
