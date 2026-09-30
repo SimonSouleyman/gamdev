@@ -41,6 +41,8 @@ var _shears_button: TextureButton
 var _shears_glow: TextureRect
 var _glow_tween: Tween
 var _flash: ColorRect
+## The live picture's layers for the phone's wallpaper and screen saver (specs/0.8.md section 6).
+var live_export: LiveExport
 
 
 func _ready() -> void:
@@ -77,6 +79,8 @@ func _build() -> void:
 	add_child(root_view)
 	ambience = Ambience.new()
 	add_child(ambience)
+	live_export = LiveExport.new()
+	add_child(live_export)
 	journal = Journal.new()
 	add_child(journal)
 	tree_view.page_open = func() -> bool: return journal.current_page() != ""
@@ -171,6 +175,8 @@ func start(p_state: GameState) -> void:
 	for id in state.pending_pages:
 		if Pages.has(id) and not journal.pending_ids().has(id):
 			journal.show_page(id, Pages.title(id), Pages.body(id))
+	# The phone's live picture shows this tree (a new tree replaces a finished one there too).
+	_refresh_live.call_deferred(true)
 
 
 func _show_underground(on: bool) -> void:
@@ -255,6 +261,8 @@ func _handle_events() -> void:
 	for e in state.take_events():
 		match e:
 			"sunset":
+				# The day's growth is done: the live picture shows it.
+				_refresh_live()
 				if state.is_seed() and state.day_number() == 0:
 					_page_once("planted")
 					# Each species introduces itself once, the first time it is planted from the seed bag
@@ -405,6 +413,8 @@ func _new_tween() -> Tween:
 func _morning() -> void:
 	# A photo for the album every morning, after the dawn burst.
 	await _take_photo("morning")
+	# The night's growth, for the phone's live picture.
+	_refresh_live()
 	# Visitors come as the tree grows (diary lines; the nest and the bench stay in view).
 	if not Visitors.arrive(state).is_empty():
 		tree_view.update_visitors()
@@ -418,6 +428,14 @@ func _morning() -> void:
 
 
 # --- settings, saving, dev keys -----------------------------------------------
+
+## Renders the live picture's layers for the phone (only there; tools turn it on themselves). It
+## draws in a world of its own, so the game's view is not touched; skipped if the tree is unchanged.
+func _refresh_live(force: bool = false) -> void:
+	if not LiveExport.enabled or ephemeral or state == null:
+		return
+	live_export.refresh(tree_view, state, force)
+
 
 func _apply_setting(key: String, on: bool, from_player: bool = true) -> void:
 	match key:

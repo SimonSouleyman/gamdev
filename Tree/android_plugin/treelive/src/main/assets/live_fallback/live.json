@@ -1,0 +1,21 @@
+{
+	"crown_top": 0.5677,
+	"day": 3,
+	"ground_color": "5c8329",
+	"ground_y": 0.9,
+	"height": 2.03,
+	"horizon_y": 0.724,
+	"layers": {
+		"dawn": "tree_1790730248_dawn.webp",
+		"day": "tree_1790730248_day.webp",
+		"dusk": "tree_1790730248_dusk.webp",
+		"night": "tree_1790730248_night.webp"
+	},
+	"saved": 1790730248,
+	"size": [
+		540,
+		960
+	],
+	"species": "linden",
+	"version": 1
+}

@@ -23,6 +23,17 @@ Install each fully checked version on his phone (save backed up first); APKs in 
   - The seed sack keeps "seeds" printed on it; its label says "seed bag".
 - Note: Simon's phone has 0.6 with his save; backups in GameDev/tree-shots/savebackup.
 
+## v0.8 (in progress)
+- Live picture (wallpaper and screen saver, one animation): the tree of the last save with its
+  grass line under a sky that follows the real time (sunrise and sunset by date, golden light,
+  night with stars and the moon's real phase), the crown swaying softly, clouds drifting; 12 fps,
+  only while seen, a still frame in battery saver. The game renders the tree's layers each
+  morning and sunset; a small Android library (TreeLive, no Google services, no permission) draws
+  them. A young sapling before the first picture. Pinboard scrap "the tree on my phone" says how.
+- New app icon: a grown linden from the game on a pale-blue morning sky with a low grass line, as
+  an adaptive icon (and a themed monochrome one); the old icon kept in icons/v0.7.
+- Notes: docs/notes/live-icon-0.8.md.
+
 ## v0.6.3: tree care, softer nights, review fixes
 - The tree shows what it lacks, shape first: thirsty leaves hang, new shoots short of nitrogen
   stay sparse and small, short of phosphorus or potassium some leaf masses stay bare; colour only
