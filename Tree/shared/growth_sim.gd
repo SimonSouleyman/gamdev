@@ -22,6 +22,16 @@ var life_force_per_tip: float = 0.02  # scaled with the 2-minute day (play test 
 var max_growth_per_second: float = 1.0
 ## Soft Liebig floor: growth with a needed nutrient (N, P or K) used up, as a share of full speed.
 var liebig_floor: float = 0.45
+## The seed's own reserves: on the first SEEDLING_DAYS days (natural_form) a missing N, P or K
+## slows growth only to this share, so every early day shows (sim-0.6.3: unsteered oak and beech
+## grew 21 to 24 segments on days 2 and 3).
+const SEEDLING_FLOOR: float = 0.6
+const SEEDLING_DAYS: int = 3
+## The tree takes up at most this many days of a full calm day's need of each kind (day_capacity):
+## above it the old roots draw less and the deposits keep the rest for later (sim-0.6.3: water
+## stocks covered 5 to 10 days, so thirst never showed and the night's water hardly mattered).
+## The new root's own finds are never held back.
+var hold_days: float = 2.0
 ## How far a missing nutrient takes away the boost's extra light (0 = not at all, 1 = fully).
 var boost_liebig: float = 1.0
 ## Dawn burst: this share of what the nutrients can buy is released in the first seconds after sunrise.
@@ -97,6 +107,12 @@ const PRUNE_MARKERS_MAX := 30
 const PRUNE_BIG_CUT := 20
 ## Pruned wood leaves the graph at sunrise once the graph is this full.
 const COMPACT_AT := 0.85
+## A tree counts as finished only once it is at least this share of its species' full height
+## (natural_form): a pruned bush with the segments of a tree is not a finished tree (sim-0.6.3).
+const FINISH_HEIGHT_SHARE := 0.4
+## Segments owed to the day's growth: sycamore's twin buds grow at once when a shoot tip is cut,
+## and are then taken from the ordinary growth that follows, so pruning never adds growth.
+var _growth_debt: int = 0
 
 
 func _init(random_seed: int = 1) -> void:
@@ -159,7 +175,7 @@ func tick(delta: float) -> void:
 				1.0 if clock.boost_active else passive_steering)
 
 	# Growth budget: light x nutrient factor x species need.
-	var factor := Resources.growth_factor(resources.stock, species.needs, liebig_floor)
+	var factor := Resources.growth_factor(resources.stock, species.needs, growth_floor())
 	# Light is not capped at 1: the boosted sun (up to 3x) speeds growth at any hour.
 	var cap := max_pace()
 	var pace := cap if day_pace <= 0.0 else minf(day_pace, cap)
@@ -173,6 +189,11 @@ func tick(delta: float) -> void:
 	var budget := int(_growth_accum)
 	_growth_accum -= budget
 	budget += _dawn_burst_budget(delta, sun, top)
+	# Twin buds grown at a cut are part of the day's growth, not extra.
+	if _growth_debt > 0 and budget > 0:
+		var owed := mini(_growth_debt, budget)
+		budget -= owed
+		_growth_debt -= owed
 	# Gravitropism adds an upward pull (alder) or takes some away (beech's flat layers).
 	colonizer.bias_direction = (Vector3.UP * maxf(0.05, 1.0 - species.phototropism + species.gravitropism) + sun * species.phototropism).normalized()
 	# Oak's zigzag branches: an extra kink per segment.
@@ -242,6 +263,13 @@ func marker_center(sun: Vector3, top: float, steer: float = 1.0) -> Vector3:
 	var c := Vector3(0, maxf(top, 0.15) * 0.6 + 0.3 + 0.7 * r * maxf(sun.y, 0.0) * steer, 0) + flat * r
 	c.y = maxf(c.y, r * 0.5 + 0.1)
 	return c
+
+
+## The soft Liebig floor today: higher while the seedling lives off its seed (natural_form).
+func growth_floor() -> float:
+	if natural_form and clock.day_count <= SEEDLING_DAYS:
+		return maxf(liebig_floor, SEEDLING_FLOOR)
+	return liebig_floor
 
 
 ## Growth speed cap today: the species' pace (slow start, fast start) on the common maximum.
@@ -376,7 +404,7 @@ func start_dawn_burst() -> void:
 	young_from = dawn_size if dawn_size > 0 else graph.size()
 	dawn_size = graph.size()
 	assess_needs()
-	var factor := Resources.growth_factor(resources.stock, species.needs, liebig_floor)
+	var factor := Resources.growth_factor(resources.stock, species.needs, growth_floor())
 	var burst_max := int(dawn_burst_max_nodes * pace_factor())
 	_burst_nodes_left = mini(burst_max, int(_affordable_nodes() * dawn_burst_share * factor))
 	# The crown's share of a cut comes on top of the burst's cap (still paid like any growth).
@@ -413,7 +441,7 @@ func _dawn_burst_budget(delta: float, sun: Vector3, top: float) -> int:
 ## After the player moved the sun on: spread what is left over the rest of the day.
 func repace_rest_of_day() -> void:
 	var rest_seconds := maxf(10.0, (clock.daylight_fraction - clock.time_of_day) * clock.seconds_per_day)
-	var factor := maxf(Resources.growth_factor(resources.stock, species.needs, liebig_floor), 0.15)
+	var factor := maxf(Resources.growth_factor(resources.stock, species.needs, growth_floor()), 0.15)
 	day_pace = maxf(0.05, _affordable_nodes() / (rest_seconds * 0.9 * factor))
 
 
@@ -478,15 +506,22 @@ func prune(node_id: int) -> int:
 	var fork := species.twin_buds and is_shoot_tip(node_id)
 	var was_finished := is_finished()
 	var count := _kill_subtree(node_id)
+	var twins := 0
 	if fork and count > 0:
-		fork_at(graph.parents[node_id], graph.positions[node_id] - graph.positions[graph.parents[node_id]])
+		twins = fork_at(graph.parents[node_id], graph.positions[node_id] - graph.positions[graph.parents[node_id]])
+		# The twin buds are this cut's answer (no refund on top of them), paid with nutrients and
+		# taken from the day's growth that follows: cutting tips shapes a sycamore, never speeds it
+		# up (sim-0.6.3: 20 tips a day finished 3 days sooner, each fork 2 free segments).
+		if not was_finished:
+			_pay_for(twins)
+			_growth_debt += twins
 	if count > 0:
 		var p := graph.parents[node_id]
 		var at := graph.positions[p].lerp(graph.positions[node_id], 0.35)
-		if not was_finished:
+		if not was_finished and twins == 0:
 			cuts.append({"at": [at.x, at.y, at.z], "from": p, "nodes": count})
-		last_cut = {"day": clock.day_count, "nodes": count, "buds": 0, "regrown": 0, "woken": was_finished,
-			"at": [at.x, at.y, at.z]}
+		last_cut = {"day": clock.day_count, "nodes": count, "buds": twins, "regrown": twins,
+			"woken": was_finished or twins > 0, "at": [at.x, at.y, at.z]}
 	return count
 
 
@@ -781,6 +816,19 @@ func shaded_tips() -> PackedInt32Array:
 	return out
 
 
+## Room left in the tree's stock tonight, per kind: hold_days of a full calm day's need (water
+## also the leaves' upkeep) minus what it holds. What the old roots may still draw overnight.
+func stock_room() -> PackedFloat32Array:
+	var out := PackedFloat32Array([0, 0, 0, 0])
+	var want := day_capacity() * node_cost()
+	for k in range(4):
+		var hold := want * species.needs[k] * hold_days
+		if k == Resources.Kind.WATER:
+			hold += effective_leaves() * WATER_UPKEEP_PER_LEAF * species.water_upkeep
+		out[k] = maxf(0.0, hold - resources.stock[k])
+	return out
+
+
 ## The leaves drink water every day (design doc section 3: water upkeep). Taken at sunrise,
 ## before the day's growth; the species sets the thirst. Returns the water drunk.
 func drink_upkeep() -> float:
@@ -793,7 +841,14 @@ func drink_upkeep() -> float:
 ## Grown to the species' full size (or the node budget): the tree is finished.
 ## With natural_form the lower branches the crown shed on its way up count too: the tree grew them.
 func is_finished() -> bool:
-	return grown_nodes() >= species.finish_nodes or graph.is_full()
+	if graph.is_full():
+		return true
+	return grown_nodes() >= species.finish_nodes and (not natural_form or height() >= finish_height())
+
+
+## The least height a finished tree stands (natural_form): FINISH_HEIGHT_SHARE of the species'.
+func finish_height() -> float:
+	return species.max_height * FINISH_HEIGHT_SHARE
 
 
 ## Living segments, plus (natural_form) those shed as the crown lifted.
@@ -845,6 +900,7 @@ func to_dict() -> Dictionary:
 		"resources": resources.to_dict(),
 		"clock": clock.to_dict(),
 		"care": [Array(care_need), Array(care_prev), dawn_size, young_from, removed_nodes, _vigour_nodes],
+		"growth_debt": _growth_debt,
 		"cuts": cuts,
 		"last_cut": last_cut,
 	}
@@ -877,6 +933,7 @@ static func from_dict(d: Dictionary) -> GrowthSim:
 		s.young_from = int(care[3])
 		s.removed_nodes = int(care[4])
 		s._vigour_nodes = int(care[5])
+	s._growth_debt = int(d.get("growth_debt", 0))
 	for c in d.get("cuts", []):
 		if c is Dictionary:
 			s.cuts.append(c)

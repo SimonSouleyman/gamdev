@@ -73,7 +73,7 @@ Handwritten, read from the crown and the roots, refreshed when the book opens:
   (it was broken-list item 13 before this stream).
 
 ### Soft failure
-A short tree grows slower (the soft Liebig floor 0.35 and water's hard cap, unchanged). The signals
+A short tree grows slower (the soft Liebig floor 0.45 since "Softer", and water's hard cap, unchanged). The signals
 take nothing away: no wood, no height (broken list 14). Thirst still drops nothing by itself.
 
 ## Tuning (to merge into tuning.md, section "Care and pruning")
@@ -133,7 +133,9 @@ of the crown area at noon from the north rises by about 5 %; no neon (sheet
   counted apart) (`test_a_short_tree_never_loses_wood_or_height`).
 
 Also checked: `tools/month_report.gd --species=all` finish days are unchanged (a tree that is never
-pruned grows exactly as before: linden 29, birch 23, beech 28, sycamore 28, alder 34, oak 31);
+pruned grows exactly as before; after the "Softer" merge, seeds 3 / 14 / 27: linden 30/31/30,
+birch 23/23/25, beech 29/29/28, sycamore 27/29/29, alder 28/26/28, oak 35/32/35; the numbers after
+sim-0.6.3 are in notes/sim-0.6.3.md);
 the full test suite and `tools/autoplay.gd` pass.
 
 How often signs show with the chase bot (linden, seed 14): none in the first three weeks (the

@@ -420,13 +420,13 @@ func _sunrise() -> void:
 	_spent_announced = false
 	var was_seed := sim.graph.size() <= 2
 	ground.regrow(REGROW_SHARE, day_number())
-	# The old roots drank from the deposits they reach all night.
-	var drawn := roots.drink_tapped(ground, sim.resources)
+	# The old roots drank from the deposits they reach all night, as far as the tree has room.
+	var drawn := roots.drink_tapped(ground, sim.resources, sim.stock_room())
 	var total_drawn := drawn[0] + drawn[1] + drawn[2] + drawn[3]
 	if total_drawn > 0.5:
 		diary.add(day_number(), "The old roots drew water %.1f, nitrogen %.1f, phosphorus %.1f, potassium %.1f from the soil overnight." % [drawn[0], drawn[1], drawn[2], drawn[3]])
 	# Species quirks on the night: root nodules (alder), the leaves' water, shaded twigs.
-	var fixed := roots.nodule_nitrogen(sim.resources)
+	var fixed := roots.nodule_nitrogen(sim.resources, sim.stock_room()[Resources.Kind.NITROGEN])
 	if fixed > 0.5:
 		diary.add(day_number(), "The root nodules made nitrogen %.1f overnight." % fixed)
 	if not was_seed:

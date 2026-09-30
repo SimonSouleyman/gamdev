@@ -226,6 +226,8 @@ func test_oak_taproot_and_crooked_wide_crown() -> void:
 func test_a_finished_tree_offers_the_next_seed() -> void:
 	var g := GameState.new_game(5, "linden")
 	g.sim.species.finish_nodes = 4
+	# The finished tree must also stand tall enough (FINISH_HEIGHT_SHARE of its species' height).
+	g.sim.species.max_height = 1.0
 	t.check(not g.can_plant_next(), "an unfinished tree plants nothing")
 	t.check(g.can_plant_next(true), "unless the test switch is on")
 	g.sim.graph.add_node(1, Vector3(0, 0.4, 0))

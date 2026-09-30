@@ -48,7 +48,22 @@ var fine_share: float = 0.1
 ## root takes about calm_run_seconds at most. The turn speeds up with it (the same curves in metres).
 var calm_life_force: float = 50.0
 var cost_exponent: float = 0.5
-var calm_run_seconds: float = 30.0
+## Tonight's run time follows the tank (sim-0.6.3): calm_run_seconds on calm_ref_life_force,
+## by its square root, between MIN_RUN_SECONDS and MAX_RUN_SECONDS. A bigger tank still buys a
+## longer root in a calm time, but a boosted day's smaller tank now also gives a shorter night
+## (it was evened out to about 30 s either way, broken list 2).
+var calm_run_seconds: float = 34.0
+var calm_ref_life_force: float = 150.0
+const MIN_RUN_SECONDS: float = 20.0
+const MAX_RUN_SECONDS: float = 44.0
+## During the run the tip's speed follows what is left (life force at the local price per metre
+## over the time left), so a root near the trunk, where metres are cheap, cannot run long
+## (sim-0.6.3: nights of 54 to 58 s). At most this fast.
+const MAX_REPACE_SCALE: float = 3.0
+## Seconds over which the speed eases to the new pace.
+const REPACE_EASE: float = 1.5
+var run_seconds_target: float = 34.0
+var _run_time: float = 0.0
 ## Average cost of a metre along a typical run, relative to base_cost_per_metre (for planning).
 const TYPICAL_COST: float = 2.2
 const MAX_SPEED_SCALE: float = 1.8
@@ -120,8 +135,15 @@ func cost_per_metre(p: Vector3, dir: Vector3 = Vector3.ZERO) -> float:
 	return cost
 
 
+## A root may start while one more full root (path and most fine roots) fits the root graph's
+## budget. The 45 main roots the graph is sized for are not a cap on nights: a tree still growing
+## after night 45 (a pruned one) keeps its runs, so life force never piles up unused (sim-0.6.3).
 func can_start_run() -> bool:
-	return not run_active and main_root_count < Budgets.MAX_MAIN_ROOTS
+	return not run_active and has_room_for_root()
+
+
+func has_room_for_root() -> bool:
+	return graph.size() + Budgets.ROOT_MAX_NODES_PER_MAIN_ROOT + Budgets.FINE_ROOTS_MAX_PER_MAIN_ROOT <= graph.max_nodes
 
 
 ## Starts tonight's run from any existing root node (not only a tip).
@@ -141,6 +163,13 @@ func start_run(from_id: int) -> bool:
 	_paced = false
 	run_cost_scale = 1.0
 	run_speed_scale = 1.0
+	_aim_from_start()
+	return true
+
+
+## The heading at the start: away from the trunk along the old root, a little down.
+func _aim_from_start() -> void:
+	var from_id := run_start_id
 	if from_id == 0:
 		heading = Vector3(0.0, -0.5, -1.0).normalized()
 	else:
@@ -149,7 +178,19 @@ func start_run(from_id: int) -> bool:
 		if Vector3(d.x, 0.0, d.z).length_squared() < 1e-4:
 			heading = Vector3(0.0, -0.5, -1.0).normalized()
 	_update_right()
-	return true
+
+
+## The start was boxed in (a deep tip against rock and floor) before a single segment grew: the
+## root starts again at the trunk with the life force untouched, so the night is not lost
+## (sim-0.6.3: a 0 m night of 4 s with 173 to 361 life force kept).
+func _restart_at_trunk() -> void:
+	run_start_id = 0
+	tip_id = 0
+	tip_position = graph.positions[0]
+	_carry = 0.0
+	run_length = 0.0
+	_stuck_time = 0.0
+	_aim_from_start()
 
 
 var _paced: bool = false
@@ -158,10 +199,27 @@ var _paced: bool = false
 ## Tonight's pace from the life force the run starts with (see calm_life_force).
 func pace_run(life_force: float) -> void:
 	_paced = true
+	_run_time = 0.0
 	run_cost_scale = pow(maxf(1.0, life_force / calm_life_force), cost_exponent)
+	run_seconds_target = run_seconds_for(life_force)
 	# Birch's cheap topsoil roots reach further on the same life force.
 	var metres := life_force / (base_cost_per_metre * TYPICAL_COST * species.topsoil_root_cost * run_cost_scale)
-	run_speed_scale = clampf(metres / (speed * calm_run_seconds), MIN_SPEED_SCALE, MAX_SPEED_SCALE)
+	run_speed_scale = clampf(metres / (speed * run_seconds_target), MIN_SPEED_SCALE, MAX_SPEED_SCALE)
+
+
+## Real seconds a run on `life_force` is paced to take.
+func run_seconds_for(life_force: float) -> float:
+	return clampf(calm_run_seconds * sqrt(maxf(life_force, 0.0) / calm_ref_life_force), MIN_RUN_SECONDS, MAX_RUN_SECONDS)
+
+
+## Eases the tip's speed toward what the rest of the tank needs to last the time left.
+func _repace(life_force: float, delta: float) -> void:
+	_run_time += delta
+	var cost := cost_per_metre(tip_position, heading) * run_cost_scale
+	var metres := life_force / maxf(cost, 1e-3)
+	var left := maxf(run_seconds_target - _run_time, 3.0)
+	var want := clampf(metres / (speed * left), MIN_SPEED_SCALE, MAX_REPACE_SCALE)
+	run_speed_scale = lerpf(run_speed_scale, want, clampf(delta / REPACE_EASE, 0.0, 1.0))
 
 
 ## Nodes added in the current run (the permanent path).
@@ -177,6 +235,7 @@ func advance(stick: Vector2, dive: bool, delta: float, ground: Underground, res:
 		return false
 	if not _paced:
 		pace_run(res.life_force)
+	_repace(res.life_force, delta)
 	_steer(stick, dive, delta)
 	_magnet(stick, delta, ground)
 	# A hard turn slows the tip: the tighter curve reaches a deposit instead of circling it.
@@ -202,7 +261,9 @@ func advance(stick: Vector2, dive: bool, delta: float, ground: Underground, res:
 			break
 	last_finds = ground.touch_finds(tip_position)
 	_unstick(start_of_frame, want, delta)
-	if _stuck_time > STUCK_END_SECONDS:
+	if run_node_count() == 0 and run_start_id != 0 and _stuck_time > STUCK_RESTART_SECONDS:
+		_restart_at_trunk()
+	elif _stuck_time > STUCK_END_SECONDS:
 		ends = true  # truly wedged: the root ends here; the life force left feeds fine roots
 	if res.life_force <= 1e-4:
 		ends = true
@@ -219,6 +280,8 @@ func advance(stick: Vector2, dive: bool, delta: float, ground: Underground, res:
 ## if it still cannot move after a few seconds the run ends, so a night can never hang.
 const STUCK_TURN_SECONDS: float = 0.6
 const STUCK_END_SECONDS: float = 4.0
+## A start boxed in before the first segment starts again at the trunk after this long.
+const STUCK_RESTART_SECONDS: float = 1.2
 var _stuck_time: float = 0.0
 
 
@@ -474,23 +537,37 @@ func _collect_ids(ids: PackedInt32Array, ground: Underground, res: Resources, sh
 	last_collected.append_array(got)
 
 
-## Every night the whole root network keeps drinking from the deposits it has reached.
-## Returns what it drew, by Resources.Kind.
-func drink_tapped(ground: Underground, res: Resources) -> PackedFloat32Array:
+## Every night the whole root network keeps drinking from the deposits it has reached, and
+## groundwater seeps in. `room` (per Resources.Kind, empty = no limit) caps what it draws: a tree
+## whose stock is full draws less, and the deposits keep the rest. Returns what it drew, by kind.
+func drink_tapped(ground: Underground, res: Resources, room: PackedFloat32Array = PackedFloat32Array()) -> PackedFloat32Array:
 	var totals := PackedFloat32Array([0, 0, 0, 0])
-	var ids := PackedInt32Array()
+	var by_kind: Array = [PackedInt32Array(), PackedInt32Array(), PackedInt32Array(), PackedInt32Array()]
 	for i in tapped.keys():
 		if ground.dot_collected[i] == 0:
-			ids.append(i)
+			by_kind[ground.dot_kinds[i]].append(i)
 		else:
 			tapped.erase(i)
-	var got := ground.collect(ids, res, nightly_share, species.water_draw * nightly_water_factor)
-	for j in range(got.size()):
-		totals[ground.dot_kinds[got[j]]] += ground.last_drawn[j]
-	if seep_per_metre > 0.0:
-		var seep := seep_length() * seep_per_metre
-		res.add(Resources.Kind.WATER, seep)
-		totals[Resources.Kind.WATER] += seep
+	var water_share := species.water_draw * nightly_water_factor
+	for k in range(4):
+		var ids: PackedInt32Array = by_kind[k]
+		var share := nightly_share
+		var seep := seep_length() * seep_per_metre if k == Resources.Kind.WATER else 0.0
+		if not room.is_empty():
+			# What the night would bring, scaled down to the room the tree has left.
+			var want := seep
+			for i in ids:
+				want += minf(ground.dot_amounts[i], ground.dot_capacity[i] * share * (water_share if k == Resources.Kind.WATER else 1.0))
+			var scale := clampf(room[k] / want, 0.0, 1.0) if want > 1e-6 else 1.0
+			share *= scale
+			seep *= scale
+		if share > 0.0 and not ids.is_empty():
+			var got := ground.collect(ids, res, share, water_share)
+			for j in range(got.size()):
+				totals[k] += ground.last_drawn[j]
+		if seep > 0.0:
+			res.add(k, seep)
+			totals[k] += seep
 	return totals
 
 
@@ -505,10 +582,11 @@ func seep_length() -> float:
 
 ## Root nodules (alder): nitrogen made overnight, per metre of the whole root network.
 ## Returns the nitrogen added.
-func nodule_nitrogen(res: Resources) -> float:
+## `room` caps it (what the tree can still hold, GrowthSim.stock_room): nodules make what it uses.
+func nodule_nitrogen(res: Resources, room: float = INF) -> float:
 	if species.nodule_nitrogen <= 0.0:
 		return 0.0
-	var n := graph.total_length() * species.nodule_nitrogen
+	var n := minf(graph.total_length() * species.nodule_nitrogen, maxf(room, 0.0))
 	res.add(Resources.Kind.NITROGEN, n)
 	return n
 
@@ -552,6 +630,8 @@ func to_dict() -> Dictionary:
 		"run_cost_scale": run_cost_scale,
 		"run_speed_scale": run_speed_scale,
 		"paced": _paced,
+		"run_seconds_target": run_seconds_target,
+		"run_time": _run_time,
 	}
 
 
@@ -579,5 +659,7 @@ static func from_dict(d: Dictionary, random_seed: int = 1) -> RootSystem:
 	r.run_cost_scale = float(d.get("run_cost_scale", 1.0))
 	r.run_speed_scale = float(d.get("run_speed_scale", 1.0))
 	r._paced = bool(d.get("paced", false))
+	r.run_seconds_target = float(d.get("run_seconds_target", r.calm_run_seconds))
+	r._run_time = float(d.get("run_time", 0.0))
 	r._update_right()
 	return r
