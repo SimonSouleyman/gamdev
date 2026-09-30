@@ -68,6 +68,23 @@ const SHOOT_TIP_SEGMENTS: int = 3
 const SHADE_CELL: float = 1.0
 const SHADE_NODES: int = 12
 const SHADE_DIEBACK_SHARE: float = 0.05
+## Branches the tree marks (0.7, notes/marks-0.7.md): a shaded twig that the seeded dieback will
+## take within MARK_WARN_DAYS shows it first (thin, dull leaves, greying bark). At most MARK_MAX
+## at a time; MARK_TWIG segments from the tip towards its fork carry the sign.
+const MARK_MAX := 3
+const MARK_WARN_DAYS := 2
+const MARK_TWIG := 6
+## A new mark sits at least this far above the crown base: the crown lifts about 0.3 to 0.8 m a
+## day in the second week, and a twig it sheds first would lose its sign without dying back.
+const MARK_ABOVE_BASE := 0.5
+## The sign covers at least this many segments: a shaded tip right at a fork is one leaf clump,
+## too small to see from the normal camera, so the sign reaches back over the fork into the
+## little branch it grows on, as long as that branch holds at most MARK_BRANCH_MAX segments.
+const MARK_TWIG_MIN := 3
+const MARK_BRANCH_MAX := 12
+## The sign on the last day before the dieback, and on the first of two days' warning.
+const MARK_LAST_DAY := 1.0
+const MARK_FIRST_DAY := 0.7
 ## Water each leaf cluster drinks per day.
 const WATER_UPKEEP_PER_LEAF: float = 0.01
 var marker_radius: float = 0.8
@@ -93,6 +110,9 @@ var last_cut: Dictionary = {}
 var _vigour_nodes: int = 0
 ## Pruned wood dropped from the graph (compact_dead_wood); node costs still count it.
 var removed_nodes: int = 0
+## The twigs marked for pruning (0.7): [{"id": tip, "due": day it dies back, "since": first day
+## shown}], set at sunrise (update_marks). Only a forecast of shade_dieback: it changes nothing.
+var marks: Array = []
 ## Share of the cut segments that come back as vigour at the next sunrise (spec: 0.2 to 0.4).
 const PRUNE_REFUND := 0.3
 ## Share of a cut's refund that wakes buds right below the cut; the rest goes to the crown.
@@ -401,6 +421,7 @@ func start_dawn_burst() -> void:
 	# Yesterday's cuts answer: buds wake below them, the rest of the refund joins the burst.
 	wake_buds_after_cuts()
 	compact_dead_wood()
+	update_marks(clock.day_count)
 	young_from = dawn_size if dawn_size > 0 else graph.size()
 	dawn_size = graph.size()
 	assess_needs()
@@ -505,7 +526,17 @@ func _pay_for(nodes: int) -> void:
 func prune(node_id: int) -> int:
 	var fork := species.twin_buds and is_shoot_tip(node_id)
 	var was_finished := is_finished()
+	var marked_alive: Array[int] = []
+	for m in marks:
+		if not graph.get_flag(int(m["id"]), "dead", false):
+			marked_alive.append(int(m["id"]))
 	var count := _kill_subtree(node_id)
+	# A marked tip was dying anyway (0.7): it gives nothing back, so cutting marked twigs never
+	# grows a tree sooner than letting them die back (broken list 9).
+	var dying := 0
+	for id in marked_alive:
+		if graph.get_flag(id, "dead", false):
+			dying += 1
 	var twins := 0
 	if fork and count > 0:
 		twins = fork_at(graph.parents[node_id], graph.positions[node_id] - graph.positions[graph.parents[node_id]])
@@ -518,8 +549,8 @@ func prune(node_id: int) -> int:
 	if count > 0:
 		var p := graph.parents[node_id]
 		var at := graph.positions[p].lerp(graph.positions[node_id], 0.35)
-		if not was_finished and twins == 0:
-			cuts.append({"at": [at.x, at.y, at.z], "from": p, "nodes": count})
+		if not was_finished and twins == 0 and count - dying > 0:
+			cuts.append({"at": [at.x, at.y, at.z], "from": p, "nodes": count - dying})
 		last_cut = {"day": clock.day_count, "nodes": count, "buds": twins, "regrown": twins,
 			"woken": was_finished or twins > 0, "at": [at.x, at.y, at.z]}
 	return count
@@ -678,6 +709,12 @@ func compact_dead_wood(force: bool = false) -> int:
 			break
 	dawn_size = first
 	graph = g
+	var moved: Array = []
+	for m in marks:
+		var id := int(m["id"])
+		if id < remap.size() and remap[id] >= 0:
+			moved.append({"id": remap[id], "due": m["due"], "since": m["since"]})
+	marks = moved
 	removed_nodes += dropped
 	return dropped
 
@@ -785,10 +822,111 @@ func shade_dieback(day: int) -> int:
 		return 0
 	var died := 0
 	for id in shaded_tips():
-		if float(posmod(hash([seed, "shade", id, day]), 1000)) < rate * 1000.0:
+		if _dies_back(id, day):
 			graph.set_flag(id, "dead", true)
+			# The twig it ended stays bare (HeroCrown.leafy_nodes): in the sim it is no leaf
+			# cluster any more either (it has a child, so it is not a tip).
+			graph.set_flag(graph.parents[id], "withered", true)
 			died += 1
 	return died
+
+
+## The seeded roll of shade dieback: a shaded tip `id` dies back at the sunrise of `day`.
+func _dies_back(id: int, day: int) -> bool:
+	var rate := SHADE_DIEBACK_SHARE * species.shade_dieback
+	return rate > 0.0 and float(posmod(hash([seed, "shade", id, day]), 1000)) < rate * 1000.0
+
+
+## Branches the tree marks (0.7), once a day at sunrise after the dieback and the crown's lift:
+## the shaded tips whose seeded roll takes them within MARK_WARN_DAYS, at most MARK_MAX, the
+## ones already shown first, then the soonest, then the ones furthest out of the crown (seen
+## from the normal camera). A forecast only: the dieback itself is unchanged, so a mark ends by
+## the dieback, a cut, or light let in above it (the tip no longer shaded).
+func update_marks(day: int) -> void:
+	if SHADE_DIEBACK_SHARE * species.shade_dieback <= 0.0:
+		marks.clear()
+		return
+	var shaded := {}
+	for id in shaded_tips():
+		shaded[id] = true
+	var kept: Array = []
+	var taken := {}
+	for m in marks:
+		var id := int(m["id"])
+		if int(m["due"]) > day and shaded.has(id) and not graph.get_flag(id, "dead", false):
+			kept.append(m)
+			taken[id] = true
+	var base := crown_base() + MARK_ABOVE_BASE if crown_base() > 0.0 else 0.0
+	var r := maxf(crown_radius(height()), 0.3)
+	var fresh: Array = []
+	for id: int in shaded:
+		if taken.has(id) or graph.positions[id].y < base:
+			continue
+		for ahead in range(1, MARK_WARN_DAYS + 1):
+			if _dies_back(id, day + ahead):
+				var p := graph.positions[id]
+				fresh.append({"id": id, "due": day + ahead, "since": day, "out": Vector2(p.x, p.z).length() / r})
+				break
+	fresh.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		if int(a["due"]) != int(b["due"]):
+			return int(a["due"]) < int(b["due"])
+		if not is_equal_approx(float(a["out"]), float(b["out"])):
+			return float(a["out"]) > float(b["out"])
+		return int(a["id"]) < int(b["id"]))
+	for m in fresh:
+		if kept.size() >= MARK_MAX:
+			break
+		kept.append({"id": m["id"], "due": m["due"], "since": m["since"]})
+	marks = kept
+
+
+## The twig a mark sits on: the tip and its segments back towards the fork (at most MARK_TWIG,
+## never the trunk base); a shorter one reaches over the fork into the little branch it grows on
+## (MARK_TWIG_MIN, MARK_BRANCH_MAX). The last node is where a gardener would cut it.
+func marked_twig(tip: int) -> PackedInt32Array:
+	var out := PackedInt32Array()
+	var cur := tip
+	while cur >= 3 and out.size() < MARK_TWIG and not graph.get_flag(cur, "dead", false):
+		out.append(cur)
+		var p := graph.parents[cur]
+		var living := 0
+		for c in graph.children[p]:
+			if not graph.get_flag(c, "dead", false):
+				living += 1
+		if living > 1 and (out.size() >= MARK_TWIG_MIN or p < 3 or _subtree_size(p) > MARK_BRANCH_MAX):
+			break
+		cur = p
+	return out
+
+
+## How strongly a mark shows now, 0..1: MARK_FIRST_DAY on the first of two days' warning,
+## MARK_LAST_DAY on the day before the dieback, eased in over the morning like the care signals.
+func mark_strength(m: Dictionary) -> float:
+	var day := clock.day_count
+	var due := int(m["due"])
+	var since := int(m["since"])
+	if graph.get_flag(int(m["id"]), "dead", false) or day >= due or day < since:
+		return 0.0
+	var now := MARK_LAST_DAY if due - day <= 1 else MARK_FIRST_DAY
+	var before := 0.0
+	if day > since:
+		before = MARK_LAST_DAY if due - day + 1 <= 1 else MARK_FIRST_DAY
+	var e := 1.0
+	if clock.is_day():
+		e = smoothstep(0.0, Care.EASE_SHARE * clock.daylight_fraction, clock.time_of_day)
+	return lerpf(before, now, e)
+
+
+## The nodes that show a mark now, {node id: strength 0..1} (the rendering reads this).
+func tired_nodes() -> Dictionary:
+	var out := {}
+	for m in marks:
+		var s := mark_strength(m)
+		if s <= 0.0:
+			continue
+		for id in marked_twig(int(m["id"])):
+			out[id] = maxf(float(out.get(id, 0.0)), s)
+	return out
 
 
 ## Living tips with at least SHADE_NODES living nodes above them in their column of the crown.
@@ -903,6 +1041,7 @@ func to_dict() -> Dictionary:
 		"growth_debt": _growth_debt,
 		"cuts": cuts,
 		"last_cut": last_cut,
+		"marks": marks,
 	}
 
 
@@ -939,4 +1078,7 @@ static func from_dict(d: Dictionary) -> GrowthSim:
 			s.cuts.append(c)
 	if d.get("last_cut") is Dictionary:
 		s.last_cut = d["last_cut"]
+	for m in d.get("marks", []):
+		if m is Dictionary:
+			s.marks.append({"id": int(m["id"]), "due": int(m["due"]), "since": int(m["since"])})
 	return s

@@ -61,6 +61,13 @@ void fragment() {
 	ALBEDO *= COLOR.rgb * tint_mul;
 	// Thin twigs (high in the UV repeat count, i.e. small radius) are greyer, not orange.
 	ALBEDO = mix(ALBEDO, vec3(dot(ALBEDO, vec3(0.33))) * 0.8, 0.35);
+	// Greying bark (0.7, a twig the tree marks for pruning or one that died back in the shade):
+	// the vertex alpha below 1 turns the wood a weathered silver grey (1 where a mesh has none).
+	float grey = 1.0 - COLOR.a;
+	if (grey > 0.001) {
+		float l = dot(ALBEDO, vec3(0.33));
+		ALBEDO = mix(ALBEDO, vec3(l * 1.25 + 0.1) * vec3(0.97, 0.98, 1.0), grey);
+	}
 	RIM = rim_strength;
 	RIM_TINT = 0.5;
 	SPECULAR = 0.3;

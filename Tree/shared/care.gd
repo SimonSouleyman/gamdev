@@ -121,6 +121,8 @@ static func crown_shape(sim: GrowthSim) -> Dictionary:
 		"crowded": float(shaded) / tips, "shaded": shaded}
 
 
+const TIRED_LINE := "A branch looks tired: thin, dull leaves and greying bark. Left in the shade it dies back within a day or two; cut, it gives some of its strength back."
+
 const NEED_LINES: Array[String] = [
 	"Thirsty: the leaves hang. The water the roots brought will not last the day.",
 	"Short of nitrogen (N): the new shoots stay sparse and small; while the leaves are green, they pale.",
@@ -170,6 +172,9 @@ static func page(state: GameState) -> Array:
 			words.append("Crowded inside: %d twigs sit in the shade of the crown above them. Thinning a branch above them lets the light in." % int(shape["shaded"]))
 		else:
 			words.append("Open inside: the light reaches most twigs.")
+		# A twig the tree marks for pruning (0.7): one calm line, never a count.
+		if not state.finished and not sim.tired_nodes().is_empty():
+			words.append(TIRED_LINE)
 		if state.last_dieback > 0:
 			words.append("%d shaded twig%s died back at dawn." % [state.last_dieback, "" if state.last_dieback == 1 else "s"])
 		out.append({"title": "The crown", "text": " ".join(words)})

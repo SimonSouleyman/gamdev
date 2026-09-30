@@ -81,6 +81,7 @@ var _rebuild_timer: float = 0.0
 var _built_size: int = -1
 ## Care (0.6.3): the signals the crown was last built with, and the ones set on the shader.
 var _built_care := PackedFloat32Array([0, 0, 0, 0])
+var _built_marks := ""
 var _shown_care := PackedFloat32Array([-1, -1, -1, -1])
 ## Tools may force a care look (a shot of a thirsty tree); empty: the game's own signals.
 var care_override := PackedFloat32Array()
@@ -717,7 +718,7 @@ func _process(delta: float) -> void:
 	_time += delta
 	_rebuild_timer += delta
 	_update_care()
-	if _rebuild_timer >= REBUILD_INTERVAL and (state.sim.graph.size() != _built_size or _care_changed()):
+	if _rebuild_timer >= REBUILD_INTERVAL and (state.sim.graph.size() != _built_size or _care_changed() or marks_key() != _built_marks):
 		_rebuild_timer = 0.0
 		var t0 := Time.get_ticks_usec()
 		_rebuild()
@@ -757,11 +758,15 @@ func _rebuild() -> void:
 	_built_size = g.size()
 	# Wood as thick as the tree is big: a sapling's whip is a finger thick, not a pole.
 	_builder.radius_scale = wood_scale(state.sim.height())
+	# Greying bark on a twig the tree marks for pruning, and on twigs that died back (0.7).
+	_builder.node_colors = HeroCrown.bark_colors(state.sim)
 	_tree_mesh.mesh = _builder.build(g)
 	_seed.visible = state.is_seed()
 	# Leaf masses at the twig ends, shaded dark inside and light at the sunny rim.
 	_built_care = care_now()
-	var crown := HeroCrown.populate(_leaves.multimesh, state.sim, state.seed, _built_care)
+	_built_marks = marks_key()
+	var autumn := maxf(float(season.get("autumn", 0.0)), float(season.get("late", 0.0)))
+	var crown := HeroCrown.populate(_leaves.multimesh, state.sim, state.seed, _built_care, autumn)
 	weather_fx.set_crown(crown)
 
 
@@ -783,6 +788,15 @@ func _update_care() -> void:
 		if absf(c[k] - _shown_care[k]) > 0.01:
 			_shown_care[k] = c[k]
 			_spray_mat.set_shader_parameter(names[k], c[k])
+
+
+## The marked twigs and how strongly each shows, in steps of an eighth (0.7): the crown and the
+## bark are rebuilt when it changes (a mark eases in over the morning, or a cut took it).
+func marks_key() -> String:
+	var key := ""
+	for m in state.sim.marks:
+		key += "%d:%d," % [int(m["id"]), int(round(state.sim.mark_strength(m) * 8.0))]
+	return key
 
 
 ## The baked cues (nitrogen: new shoots; phosphorus, potassium: bare masses) changed enough to
