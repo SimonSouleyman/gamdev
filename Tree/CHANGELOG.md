@@ -27,7 +27,8 @@ Install each fully checked version on his phone (save backed up first); APKs in 
 - Save backup: "copy my tree" on the pinboard writes the save and the album as one zip, through
   Android's own "save as" picker (a PC: the game's folder). "load a copy" opens the phone's file
   picker, checks the file, asks "sure? tap again", then loads it with a diary line. A broken,
-  foreign or newer file is refused with a note and never touches the game.
+  foreign or newer file is refused with a note and never touches the game. The game before a load
+  is kept, and for a day the pinboard offers "take back the game before".
 - The game keeps its last three sunrise saves by itself, quietly; if the save cannot be read at
   start, a torn page offers the newest good morning instead of starting over.
 - Share a photo: "send" beside each Polaroid in the album and on a finished tree's flip-book page

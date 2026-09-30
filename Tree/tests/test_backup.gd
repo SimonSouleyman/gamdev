@@ -266,3 +266,40 @@ func test_old_saves_still_load_and_copy() -> void:
 	_zip(ROOT + "/loose.zip", {Backup.MANIFEST: JSON.stringify(loose), Backup.GAME_ENTRY: JSON.stringify({"game": d})})
 	t.check(Backup.read(ROOT + "/loose.zip")["ok"], "a copy without version numbers still reads")
 	_clean()
+
+
+func test_loading_a_copy_keeps_the_game_before_for_undo() -> void:
+	_clean()
+	DirAccess.make_dir_recursive_absolute(ROOT)
+	var copies := ROOT + "/copies"
+	var now := 1_900_000_000.0
+	# The copy (a linden with one photo) and the game on the phone now (a birch with its own photo).
+	var copied := _grown_game(17)
+	_album(OTHER_PHOTOS, ["linden_day001_morning_100.png"])
+	Backup.make(copied, COPY, OTHER_PHOTOS, now)
+	var current := GameState.new_game(18, "birch")
+	SaveData.save_game(current, GAME)
+	var mine := _album(PHOTOS, ["birch_day001_morning_500.png"])
+	var got := Backup.load_with_safety(COPY, current, GAME, PHOTOS, copies, now)
+	t.check(got["ok"], "the copy loads")
+	var safety := Backup.before_load_path(copies)
+	t.check(FileAccess.file_exists(safety) and not FileAccess.file_exists(safety + ".new"), "the game before is kept")
+	t.check(Backup.can_undo_load(copies, float(FileAccess.get_modified_time(safety)) + 60.0), "and offered right after")
+	t.check(not Backup.can_undo_load(copies, float(FileAccess.get_modified_time(safety)) + Backup.UNDO_SECONDS + 1.0), "but not after a day")
+	t.check_eq(SaveData.load_game(GAME, now).sim.species.id, "linden", "the copy is the game now")
+	# Undo: the kept game comes back, album and all (and the copy becomes the new safety).
+	var loaded := SaveData.load_game(GAME, now)
+	var back := Backup.load_with_safety(safety, loaded, GAME, PHOTOS, copies, now)
+	t.check(back["ok"], "the game before loads")
+	var again := SaveData.load_game(GAME, now)
+	t.check(again != null and again.sim.species.id == "birch", "the birch is back")
+	t.check_eq(Backup.album_files(PHOTOS), ["birch_day001_morning_500.png"], "with its album")
+	t.check_eq(FileAccess.get_file_as_bytes(PHOTOS.path_join("birch_day001_morning_500.png")), mine["birch_day001_morning_500.png"], "byte for byte")
+	t.check_eq(str(Backup.read(safety)["manifest"]["tree"]), "linden", "and the linden is now the one kept")
+	# A refused copy keeps everything, the safety copy included.
+	var before := FileAccess.get_file_as_bytes(safety)
+	_write(ROOT + "/junk.zip", "junk".to_utf8_buffer())
+	t.check(not Backup.load_with_safety(ROOT + "/junk.zip", again, GAME, PHOTOS, copies, now)["ok"], "junk refused")
+	t.check_eq(FileAccess.get_file_as_bytes(safety), before, "the kept game is untouched")
+	t.check(not FileAccess.file_exists(safety + ".new"), "nothing left over")
+	_clean()

@@ -184,7 +184,7 @@ func _build_options() -> void:
 		note.add_theme_stylebox_override("panel", Paper.paper_box(200, 90, 80 + i, "all", 18.0))
 		# Two columns; the long test switch gets the last row to itself.
 		var last := i == names.size() - 1
-		note.position = Vector2(60 + (i % 2) * 300, 50 + (i / 2) * 160)
+		note.position = Vector2(60 + (i % 2) * 300, 50 + (i / 2) * 145)
 		note.custom_minimum_size = Vector2(560 if last else 260, 130)
 		note.rotation_degrees = [-3.0, 2.0, 1.5, -2.0, 2.5, -1.0, 1.0][i]
 		board.add_child(note)

@@ -857,7 +857,9 @@ func _load_copy(path: String, _manifest: Dictionary) -> void:
 	if ephemeral or state == null or _transitioning:
 		return
 	var notes := shed_menu.backup_notes
-	var got := Backup.apply(path)
+	# The game as it is now is kept first (save and album), so a wrong copy can be taken back.
+	save()
+	var got := Backup.load_with_safety(path, state)
 	if not got["ok"]:
 		notes.set_note(str(Backup.NOTES.get(got["why"], Backup.NOTES["broken"])))
 		return
@@ -873,6 +875,7 @@ func _load_copy(path: String, _manifest: Dictionary) -> void:
 	in_shed = false
 	enter_shed(false)
 	notes.set_note("My tree is back, as it was when the copy was made.")
+	notes.offer_undo()
 
 
 ## The save could not be read at start (it was kept aside as .broken): the newest good sunrise

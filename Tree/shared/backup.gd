@@ -226,6 +226,46 @@ static func apply(path: String, game_path: String = SaveData.GAME_PATH, photos_d
 	return got
 
 
+## The game as it was before the last "load a copy" (save and album), kept so a wrong copy can
+## be undone: the pinboard offers it for a day after a load ("take back the game before").
+const BEFORE_LOAD := "before-load.zip"
+## How long the pinboard keeps offering it (seconds).
+const UNDO_SECONDS := 86400.0
+
+
+static func before_load_path(dir: String = COPIES_DIR) -> String:
+	return dir.path_join(BEFORE_LOAD)
+
+
+## True while the game before the last load can still be taken back from the pinboard.
+static func can_undo_load(dir: String = COPIES_DIR, now_unix: float = -1.0) -> bool:
+	var p := before_load_path(dir)
+	if not FileAccess.file_exists(p):
+		return false
+	if now_unix < 0.0:
+		now_unix = Time.get_unix_time_from_system()
+	return now_unix - float(FileAccess.get_modified_time(p)) < UNDO_SECONDS
+
+
+## "load a copy" with a safety copy: the current game and album are first written as a copy
+## (before_load_path), then the copy at `path` is loaded (apply). If the safety copy cannot be
+## written, nothing is loaded ("why": "no_room"). Loading the safety copy itself works too (it
+## is read before it is replaced by the game it undoes).
+static func load_with_safety(path: String, current: GameState, game_path: String = SaveData.GAME_PATH, photos_dir: String = Photos.DIR, dir: String = COPIES_DIR, now_unix: float = -1.0) -> Dictionary:
+	var safety := before_load_path(dir)
+	var fresh := safety + ".new"
+	if make(current, fresh, photos_dir, now_unix) != OK:
+		DirAccess.remove_absolute(ProjectSettings.globalize_path(fresh))
+		return {"ok": false, "why": "no_room"}
+	var got := apply(path, game_path, photos_dir, now_unix)
+	if not got["ok"]:
+		DirAccess.remove_absolute(ProjectSettings.globalize_path(fresh))
+		return got
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(safety))
+	DirAccess.rename_absolute(ProjectSettings.globalize_path(fresh), ProjectSettings.globalize_path(safety))
+	return got
+
+
 ## The diary line after a copy was loaded.
 static func diary_line(manifest: Dictionary) -> String:
 	var made := float(manifest.get("made_at_unix", 0.0))

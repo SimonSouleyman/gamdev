@@ -20,6 +20,8 @@ var copy_button: Button
 var load_button: Button
 var _note_strip: PanelContainer
 var _note: Label
+## "take back the game before": the game kept before the last loaded copy (Backup.BEFORE_LOAD).
+var undo_button: Button
 var _busy := false
 var _armed_path := ""
 var _armed_manifest: Dictionary = {}
@@ -42,7 +44,16 @@ func _init() -> void:
 	_note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_note.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_note.custom_minimum_size = Vector2(540, 0)
-	_note_strip.add_child(_note)
+	var slip := VBoxContainer.new()
+	slip.add_theme_constant_override("separation", 0)
+	slip.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_note_strip.add_child(slip)
+	slip.add_child(_note)
+	undo_button = Paper.ink_button("take back the game before", 22, 46.0)
+	undo_button.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	undo_button.pressed.connect(_on_undo)
+	undo_button.visible = false
+	slip.add_child(undo_button)
 	_note_strip.visible = false
 	var row := HBoxContainer.new()
 	row.alignment = BoxContainer.ALIGNMENT_CENTER
@@ -62,7 +73,23 @@ func _init() -> void:
 ## A handwritten line under the notes ("" hides the slip).
 func set_note(text: String) -> void:
 	_note.text = text
+	_note.visible = text != ""
+	undo_button.visible = false
 	_note_strip.visible = text != ""
+
+
+## After a load (and on the board for a day after it): the game before can be taken back.
+func offer_undo() -> void:
+	if not Backup.can_undo_load():
+		return
+	undo_button.visible = true
+	_note_strip.visible = true
+
+
+func _on_undo() -> void:
+	if _busy:
+		return
+	check(Backup.before_load_path(), "Before the load: ")
 
 
 func note_text() -> String:
@@ -74,6 +101,7 @@ func reset() -> void:
 	_disarm()
 	if not _busy:
 		set_note("")
+		offer_undo()
 
 
 # --- copy my tree -------------------------------------------------------------------------
@@ -184,7 +212,7 @@ func _on_picked(result: String, picked: String) -> void:
 
 
 ## Reads the copy (nothing is changed yet). A good one arms the note: "sure? tap again".
-func check(path: String) -> void:
+func check(path: String, lead: String = "") -> void:
 	var got := Backup.read(path)
 	if not got["ok"]:
 		set_note(str(Backup.NOTES.get(got["why"], Backup.NOTES["broken"])))
@@ -192,13 +220,17 @@ func check(path: String) -> void:
 	_armed_path = path
 	_armed_manifest = got["manifest"]
 	load_button.text = "sure? tap again"
-	set_note(Backup.describe(_armed_manifest) + " It replaces this game.")
+	var what := Backup.describe(_armed_manifest)
+	if lead != "":
+		what = lead + what.left(1).to_lower() + what.substr(1)
+	set_note(what + " It replaces this game.")
 	_arm_serial += 1
 	var serial := _arm_serial
 	get_tree().create_timer(ARM_SECONDS).timeout.connect(func() -> void:
 		if is_instance_valid(self) and serial == _arm_serial and _armed_path != "":
 			_disarm()
-			set_note(""))
+			set_note("")
+			offer_undo())
 
 
 func is_armed() -> bool:

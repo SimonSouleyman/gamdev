@@ -8,7 +8,8 @@ branch s08-backup. Checked against items 4 to 10 and 15 to 16 of the spec's brok
 **Save backup (shared/backup.gd, ui/backup_notes.gd, ui/morning_offer.gd)**
 - Two notes on the options pinboard, between the switches and the resets: "copy my tree" and
   "load a copy". A small paper slip above them says what happened; it only shows after a tap.
-  The switches' rows sit a little closer (170 -> 160 px apart) to make room.
+  The switches' rows sit a little closer (170 -> 145 px apart) to make room, so the slip clears
+  the long bottom note in "clearer print" too.
 - "copy my tree" writes one zip, `tree-<tree>-<date>.zip` (local date): `tree_backup.json`
   (kind, format 1, save version, tree, day, time), `tree_game.json` (the same save the game
   writes: tree, roots, clock, species, bonsai, diary, pages read, grove, clearing) and
@@ -29,6 +30,10 @@ branch s08-backup. Checked against items 4 to 10 and 15 to 16 of the spec's brok
   or save version ("This copy is from a newer Tree."), no room ("There is not enough room on the
   phone."). All photos and the save are written beside the current ones first and only swapped
   in when everything is written, so a full phone mid-load also leaves the game as it was.
+- Undo: before a copy is loaded, the game as it is (save and album) is written as
+  `user://copies/before-load.zip`; if that cannot be written, nothing is loaded. For a day after a
+  load the slip offers "take back the game before", which arms "sure? tap again" for it like any
+  copy (and keeps the wrong copy as the new "before", so it can be flipped back).
 - Only plain photo names are taken out of a zip (no folders, no ".."), so a copy cannot write
   outside the album.
 - The last three sunrise saves are kept in `user://mornings` after each sunrise's save (only a
@@ -84,7 +89,5 @@ old save without version, bonsai, clearing or grove loading and copying.
 ## Open
 - Not tried on the phone yet (the pickers and the share sheet under /e/OS, and the size of a
   month's copy: about 2 to 3 MB per album photo, so 60 to 120 MB for a month).
-- The replaced game is not kept when a copy is loaded (the player agreed twice; the sunrise saves
-  still hold the last three mornings of the replaced tree until the next sunrises).
 - The shared picture has a thin dark line at its bottom edge on some runs (the page paper's
   edge); cosmetic.
