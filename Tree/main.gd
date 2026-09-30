@@ -755,8 +755,12 @@ func enter_bonsai() -> void:
 func leave_bonsai() -> void:
 	if not in_bonsai or _transitioning:
 		return
-	if bonsai_view.busy or bonsai_view.is_lifted():
-		return  # the tree is out of its pot: finish repotting first
+	if bonsai_view.busy:
+		return
+	if bonsai_view.is_lifted():
+		# The tree is out of its pot: back puts it back as it was (0.7 review), a second back leaves.
+		bonsai_view.repot_cancel()
+		return
 	_transitioning = true
 	bonsai_hud.show_hud(false)
 	bonsai_view.leave(shed.camera, func() -> void:

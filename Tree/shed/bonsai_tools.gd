@@ -14,23 +14,24 @@ const HELD: Array[String] = ["water", "fertiliser", "shears", "pinch", "wire", "
 const TAPPED: Array[String] = ["turn_left", "turn_right", "styles", "album", "cuttings"]
 ## Their paper labels (first time, and with "clearer print").
 const LABELS := {
-	"water": "watering can", "fertiliser": "pellets N P K", "shears": "secateurs",
+	"water": "watering can", "fertiliser": "pellets N P K", "shears": "shears",
 	"pinch": "tweezers", "wire": "copper wire", "trowel": "trowel", "turn_left": "turn",
 	"turn_right": "turn", "styles": "styles", "album": "album page", "cuttings": "cuttings",
 }
 ## Where the tools rest (position, yaw): the can and the tin beside the pot (clear of the widest
 ## pot) and a front row along the board's edge, spaced so each tap area is finger size in a
-## phone's close-up (tests/test_bonsai.gd checks it).
+## phone's close-up (tests/test_bonsai.gd checks it; 0.7 review: 5 cm apart, about 9.5 mm on a
+## 720-wide phone, where 4.6 cm came out just under 9 mm).
 const FRONT_Z := -0.24
 const RESTS := {
 	"water": [Vector3(0.155, 0.0, 0.045), -1.8],
 	"fertiliser": [Vector3(-0.15, 0.0, 0.03), 0.3],
-	"trowel": [Vector3(0.115, 0.0, FRONT_Z + 0.01), 0.3],
-	"shears": [Vector3(0.069, 0.0, FRONT_Z), -0.45],
-	"pinch": [Vector3(0.023, 0.0, FRONT_Z), 0.2],
-	"wire": [Vector3(-0.023, 0.0, FRONT_Z), 0.0],
-	"styles": [Vector3(-0.069, 0.0, FRONT_Z + 0.004), 1.45],
-	"cuttings": [Vector3(-0.118, 0.0, FRONT_Z + 0.01), 1.5],
+	"trowel": [Vector3(0.125, 0.0, FRONT_Z + 0.01), 0.3],
+	"shears": [Vector3(0.075, 0.0, FRONT_Z), -0.45],
+	"pinch": [Vector3(0.025, 0.0, FRONT_Z), 0.2],
+	"wire": [Vector3(-0.025, 0.0, FRONT_Z), 0.0],
+	"styles": [Vector3(-0.075, 0.0, FRONT_Z + 0.004), 1.45],
+	"cuttings": [Vector3(-0.127, 0.0, FRONT_Z + 0.01), 1.5],
 	"album": [Vector3(0.15, 0.19, 0.03), 0.0],
 }
 ## The carved arrows: arcs round the pot's front, at this radius.
@@ -400,11 +401,11 @@ func _build_cuttings() -> void:
 	var n := Node3D.new()
 	box.scale = Vector3.ONE * 0.36
 	n.add_child(box)
-	# The lid leans off to the side.
+	# The lid is off (0.7 review: leaning at the side, edge-on at the screen's rim, it read as a
+	# stray unlabelled stick).
 	var lid := box.find_child("CheeseBox_01_lid", true, false) as Node3D
 	if lid != null:
-		lid.position += Vector3(0.0, -0.035, -0.09)
-		lid.rotation.x = -1.2
+		lid.visible = false
 	var bark := _mat(Color(0.36, 0.26, 0.18), 0.9)
 	var leaf := _mat(Color(0.3, 0.46, 0.2), 0.8)
 	var rng := RandomNumberGenerator.new()

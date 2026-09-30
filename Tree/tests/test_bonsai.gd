@@ -562,12 +562,34 @@ func test_trowel_repots_only_when_asked() -> void:
 	t.check(v.is_lifted(), "on a repot day the trowel lifts the tree out")
 	v.tap_object("shears")
 	v.use_at(soil)
-	t.check(v.trim_share() > 0.0, "the secateurs trim the root ball")
+	t.check(v.trim_share() > 0.0, "the shears trim the root ball")
 	v.repot_pick("oval")
 	v.tap_object("trowel")
 	v.use_at(soil)
 	_finish(v)
 	t.check(not v.is_lifted() and b.pot == "oval" and not b.repot_due, "the trowel puts it back in fresh soil, in the new pot")
+	(made[0] as Node).free()
+
+
+## Back while the tree is out of its pot (0.7 review): it goes back into its own pot unchanged.
+func test_back_puts_a_lifted_tree_back() -> void:
+	var g := GameState.new_game(46)
+	g.ensure_bonsai(true)
+	var b := g.bonsai
+	var made := _sill_view(g)
+	var v: BonsaiView = made[1]
+	var soil := v.plant_screen_position(0) + Vector2(0, 10)
+	var pot := b.pot
+	b.repot_due = true
+	v.tap_object("trowel")
+	v.use_at(soil)
+	_finish(v)
+	t.check(v.is_lifted(), "lifted out")
+	v.repot_pick("oval")
+	v.repot_cancel()
+	_finish(v)
+	t.check(not v.is_lifted(), "back in the pot")
+	t.check(b.pot == pot and b.repot_due, "the same pot, and it still asks to be repotted")
 	(made[0] as Node).free()
 
 

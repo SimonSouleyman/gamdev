@@ -35,9 +35,17 @@ uniform float sun_lift = 0.3;
 // A soft daylight fill (0.6.3): sprays in the crown's own shadow read dark green, not black
 // (the blotches at noon). Set by the tree view from the daylight, so the night stays dark.
 uniform float day_fill = 0.0;
+// The phone's colour (0.7 review): the compatibility renderer shows the painted greens lime and
+// the autumn orange loud. A calmer grade there (the tree view sets it on the phone renderer only):
+// a multiply on the summer green, then a saturation cut.
+uniform vec3 green_grade = vec3(1.0);
+uniform float saturation = 1.0;
 
 varying vec2 leaf_hash;
 varying float occ;
+// A twig the tree marks for pruning (0.7, HeroCrown): its strength rides in the fractional part
+// of the spray's cell index (INSTANCE_CUSTOM.x = cell + 0.9 * strength).
+varying float tired;
 
 
 vec3 oct_decode(vec2 e) {
@@ -52,14 +60,17 @@ vec3 oct_decode(vec2 e) {
 
 
 void vertex() {
-	float cell = INSTANCE_CUSTOM.x;
+	float cell = floor(INSTANCE_CUSTOM.x + 0.02);
+	tired = clamp((INSTANCE_CUSTOM.x - cell) / 0.9, 0.0, 1.0);
 	float phase = INSTANCE_CUSTOM.y;
 	float tip = 1.0 - UV.y;
 	UV = UV * 0.5 + vec2(mod(cell, 2.0), floor(cell / 2.0)) * 0.5;
 	vec3 world = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
 	vec3 origin = (MODEL_MATRIX * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
 	leaf_hash = vec2(fract(phase * 7.13 + 1.85), 0.5);
-	occ = COLOR.a;
+	// A marked twig's few dry leaves let the light through: less of the crown's inner shade, so
+	// the sign does not sink into it (0.7 review).
+	occ = COLOR.a * (1.0 - 0.55 * tired);
 	// Wind: limbs sway slowly with height, the spray tip bends, the leaves flutter.
 	float t = TIME;
 	float gust = sin(t * 0.7 + origin.x * 0.21 + origin.z * 0.17) * 0.5 + 0.5;
@@ -96,7 +107,16 @@ void fragment() {
 	ALPHA_SCISSOR_THRESHOLD = 0.5;
 	ALPHA_ANTIALIASING_EDGE = 0.25;
 	ALPHA_TEXTURE_COORDINATE = texel;
-	vec3 col = tex.rgb * COLOR.rgb * tint_mul;
+	vec3 col = tex.rgb * COLOR.rgb * tint_mul * green_grade;
+	// A marked twig (0.7): the few leaves it keeps turn early, dull and dry: a washed-out
+	// yellow-grey going brownish, never the bright yellow of a nitrogen-pale shoot. In autumn the
+	// twig is the first to go bare: most of its sprays are gone, the rest are dry brown.
+	float autumn_now = max(autumn, late);
+	if (tired > 0.01) {
+		if (leaf_hash.x < tired * smoothstep(0.1, 0.6, autumn_now) * 0.75) { discard; }
+		float l0 = dot(col, vec3(0.3, 0.59, 0.11));
+		col = mix(col, l0 * vec3(1.4, 1.2, 0.78), tired * 0.9);
+	}
 	if (fresh + autumn > 0.001) {
 		float lum = dot(col, vec3(0.3, 0.59, 0.11));
 		col = mix(col, lum * vec3(0.95, 1.5, 0.45), fresh * 0.5);
@@ -108,7 +128,8 @@ void fragment() {
 		vec3 turned = hue < 0.5 ? mix(yellow, orange, hue * 2.0) : mix(orange, red, hue * 2.0 - 1.0);
 		turned = mix(turned, vec3(0.95, 0.62, 0.3), late * 0.55);
 		float turn = smoothstep(leaf_hash.x * 0.55, leaf_hash.x * 0.55 + 0.45, autumn);
-		col = mix(col, lum * turned, turn);
+		col = mix(col, lum * turned, turn * (1.0 - tired));
+		col = mix(col, lum * vec3(0.95, 0.72, 0.5), turn * tired);
 		if (leaf_hash.x > 1.0 - late * 0.3) { discard; }
 	}
 	// Care cues, second to the shape: thirst greys and dulls, nitrogen pales towards
@@ -128,6 +149,7 @@ void fragment() {
 	// The inside of the crown: darker leaves that see little sky and little sun; the outside a
 	// little lifted, so the sunlit side reads at noon (0.6.3).
 	col *= (1.0 - interior_dark * 0.32 * occ) * (1.0 + sun_lift * (1.0 - occ));
+	col = mix(vec3(dot(col, vec3(0.3, 0.59, 0.11))), col, saturation);
 	ALBEDO = col * (1.0 - 0.2 * wet);
 	AO = 1.0 - occ * 0.45;
 	AO_LIGHT_AFFECT = 0.25;

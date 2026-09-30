@@ -592,7 +592,7 @@ func _refresh_diary() -> void:
 	if state == null:
 		return
 	_book_title.text = "My " + state.tree_name()
-	_wish_label.text = ("A wish: " + state.diary.wish) if state.diary.wish != "" else ""
+	_wish_label.text = ("A wish: " + wish_line(state.diary.wish)) if state.diary.wish != "" else ""
 	_wish_label.visible = state.diary.wish != ""
 	_diary_text.clear()
 	var last_day := -1
@@ -601,11 +601,12 @@ func _refresh_diary() -> void:
 		if day != last_day:
 			_diary_text.append_text("\n[b]Day %d[/b]\n" % day)
 			last_day = day
-		# A reached wish (0.7): a small ink drawing beside its line.
+		_diary_text.append_text(("[i][color=#8a2c1e]%s[/color][/i]\n" if e["by"] == "player" else "%s\n") % str(e["text"]).replace("[", "[lb]"))
+		# A reached wish (0.7): a small ink drawing under its line (0.7 review: set mid-line, the
+		# text wrapped round and under it).
 		if e.has("drawing"):
 			_diary_text.add_image(InkSketch.texture(str(e["drawing"])), DRAWING_SIZE, DRAWING_SIZE, Color.WHITE, INLINE_ALIGNMENT_CENTER)
-			_diary_text.append_text(" ")
-		_diary_text.append_text(("[i][color=#8a2c1e]%s[/color][/i]\n" if e["by"] == "player" else "%s\n") % str(e["text"]).replace("[", "[lb]"))
+			_diary_text.append_text("\n")
 	for c in _pages_list.get_children():
 		c.queue_free()
 	var any := false
@@ -619,6 +620,12 @@ func _refresh_diary() -> void:
 	_pages_empty.visible = not any
 	_refresh_clearing()
 	_refresh_care()
+
+
+## The day's wish after "A wish: ", mid-sentence (0.7 review: "A wish: Today, ..." had a stray
+## capital).
+static func wish_line(wish: String) -> String:
+	return wish.substr(0, 1).to_lower() + wish.substr(1) if wish != "" else ""
 
 
 func set_setting(key: String, on: bool) -> void:

@@ -30,6 +30,8 @@ const TOOL_HINTS := {
 }
 const PELLETS: Array[String] = ["N", "P", "K"]
 const PELLET_WORDS: Array[String] = ["leaves", "roots", "wood"]
+## The repotting slip's lower edge sits this far above the front row's tap points (canvas px).
+const REPOT_SLIP_ABOVE_TOOLS := 20.0
 
 var view: BonsaiView:
 	set = _set_view
@@ -78,6 +80,7 @@ func _set_view(v: BonsaiView) -> void:
 		return
 	v.object_tapped.connect(_on_object)
 	v.tool_picked.connect(func(id: String) -> void:
+		_forget_said()
 		if id in ["shears", "pinch", "wire"]:
 			first_page.call(id)
 		elif id == "trowel":
@@ -199,7 +202,7 @@ func choose_pellets(kind: int) -> void:
 
 
 ## While the tree is out of its pot: the pots to choose from, low on the screen under the tools
-## (the secateurs trim the root ball, the trowel puts it back; the status scrap says so).
+## (the shears trim the root ball, the trowel puts it back; the status scrap says so).
 func _build_repot_slip() -> void:
 	_repot_slip = PanelContainer.new()
 	_repot_slip.add_theme_stylebox_override("panel", Paper.paper_box(680, 170, 185, "all", 12.0))
@@ -218,15 +221,14 @@ func _build_repot_slip() -> void:
 	_repot_slip.add_child(pots)
 	for pid in BonsaiSim.POT_ORDER:
 		var id: String = pid
-		var b := Paper.ink_button(str(BonsaiSim.POTS[id]["name"]), 21)
-		b.custom_minimum_size.y = 56
+		# Full tap size (0.7 review: 56 px tall was under a finger's 9 mm).
+		var b := Paper.ink_button(str(BonsaiSim.POTS[id]["name"]), 23)
 		b.pressed.connect(func() -> void:
 			if view != null:
 				view.repot_pick(id))
 		pots.add_child(b)
 		_pot_buttons[id] = b
-	var done := Paper.ink_button("fresh soil, and in", 22)
-	done.custom_minimum_size.y = 56
+	var done := Paper.ink_button("fresh soil, and in", 23)
 	done.add_theme_color_override("font_color", Paper.RED_INK)
 	done.pressed.connect(func() -> void:
 		if view != null:
@@ -245,6 +247,7 @@ func is_busy() -> bool:
 
 
 func _on_object(id: String) -> void:
+	_forget_said()
 	match id:
 		"styles":
 			_open_styles()
@@ -255,7 +258,14 @@ func _on_object(id: String) -> void:
 	_mark_used(id)
 
 
+## A said line ("Not yet: ...") ends with the next thing done (0.7 review: it stayed on).
+func _forget_said() -> void:
+	_said = ""
+	_said_time = 0.0
+
+
 func _on_used(kind: String) -> void:
+	_forget_said()
 	match kind:
 		"burn", "fertiliser":
 			_mark_used("fertiliser")
@@ -301,9 +311,14 @@ func _process(delta: float) -> void:
 	_said_time = maxf(0.0, _said_time - delta)
 	var lifted := view.is_lifted()
 	_hint.text = _said if _said_time > 0.0 else str(TOOL_HINTS.get(view.tool, ""))
-	if lifted and _said_time <= 0.0:
-		_hint.text = "Out of the pot: snip the circling roots with the secateurs (%d%% so far), pick a pot below, then the trowel puts it back in fresh soil." % int(view.trim_share() * 100.0)
+	if _sheet.visible:
+		# A page lies over the scrap: its tool line would peek out above the page.
+		_hint.text = ""
+	elif lifted and _said_time <= 0.0:
+		_hint.text = "Out of the pot: snip the circling roots with the shears (%d%% so far), pick a pot below, then the trowel puts it back in fresh soil." % int(view.trim_share() * 100.0)
 	_repot_slip.visible = lifted and not _sheet.visible
+	if _repot_slip.visible:
+		_place_repot_slip()
 	if lifted:
 		for id in _pot_buttons:
 			(_pot_buttons[id] as Button).modulate = Color(1.0, 0.55, 0.35) if view.new_pot() == id else Color.WHITE
@@ -327,6 +342,19 @@ func _place_labels() -> void:
 		tag.pivot_offset = tag.size * 0.5
 		var pos := (pts[id] as Vector2) + Vector2(-tag.size.x * 0.5, 30.0 + float(BonsaiTools.LABEL_DROP.get(id, 0.0)))
 		tag.position = pos.clamp(Vector2(6, 6), Vector2(maxf(room.x - tag.size.x - 6.0, 6.0), maxf(room.y - tag.size.y - 6.0, 6.0)))
+
+
+## The repotting slip lies on the bench between the pot and the front row of tools, so the
+## shears and the trowel stay free to tap (0.7 review: with full-size pot buttons it grew taller).
+func _place_repot_slip() -> void:
+	var room := _root.size
+	var h := _repot_slip.get_combined_minimum_size().y
+	var tools_top := room.y
+	for id in ["trowel", "shears", "pinch", "wire"]:
+		tools_top = minf(tools_top, view.tools.rest_point(view.camera, id).y)
+	var bottom := clampf(tools_top - REPOT_SLIP_ABOVE_TOOLS, h + 280.0, room.y - 10.0)
+	_repot_slip.offset_top = bottom - h - room.y
+	_repot_slip.offset_bottom = bottom - room.y
 
 
 ## The pellet slip floats above the tin while it is in hand.

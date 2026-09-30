@@ -75,6 +75,8 @@ const WISH_WARM := Color(1.0, 0.62, 0.28)
 const WISH_DOT_WARMTH: float = 0.35
 ## The haze spans this many patch radii.
 const WISH_HAZE_SIZE: float = 3.2
+## The haze's swell when the wish is reached (x its strength), then it fades.
+const WISH_SWELL: float = 1.3
 var _wish_glows: Array = []
 var _glow_nodes: Array = []
 var _warm_dots: Dictionary = {}
@@ -281,15 +283,29 @@ func _check_wish_reached() -> void:
 		var m: MeshInstance3D = _glow_nodes[k]
 		var mat := m.material_override as ShaderMaterial
 		var s0 := float(glow["strength"])
+		# A soft warm swell that fades (0.7 review: it flared, and the dots snapped back to their
+		# own colours at once): the haze lifts a little, then settles out over a few seconds, and
+		# the dots lose their warmth with it.
 		var tw := create_tween()
 		tw.set_parallel(true)
-		tw.tween_method(func(v: float) -> void: mat.set_shader_parameter("strength", v), s0, s0 * 1.7, 0.6).set_trans(Tween.TRANS_SINE)
-		tw.tween_property(m, "scale", m.scale * 1.15, 0.6).set_trans(Tween.TRANS_SINE)
-		tw.chain().tween_method(func(v: float) -> void: mat.set_shader_parameter("strength", v), s0 * 1.7, 0.0, 2.6).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
-		for i in ground.patch_dots(int(glow["patch"])):
-			_warm_dots.erase(i)
-			_set_dot(i)
+		tw.tween_method(func(v: float) -> void: mat.set_shader_parameter("strength", v), s0, s0 * WISH_SWELL, 1.2).set_trans(Tween.TRANS_SINE)
+		tw.tween_property(m, "scale", m.scale * 1.1, 1.2).set_trans(Tween.TRANS_SINE)
+		tw.chain().tween_method(func(v: float) -> void: mat.set_shader_parameter("strength", v), s0 * WISH_SWELL, 0.0, 3.5).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
+		var dots := ground.patch_dots(int(glow["patch"]))
+		create_tween().tween_method(_cool_dots.bind(dots), s0, 0.0, 4.0).set_trans(Tween.TRANS_SINE)
 		wish_reached.emit(int(glow["patch"]))
+
+
+## The reached wish's dots lose their warmth (`warmth` from the glow's strength down to 0).
+func _cool_dots(warmth: float, dots: PackedInt32Array) -> void:
+	for i in dots:
+		if i >= ground.dot_count():
+			continue
+		if warmth <= 0.001:
+			_warm_dots.erase(i)
+		else:
+			_warm_dots[i] = warmth
+		_set_dot(i)
 
 
 func _build_rocks() -> void:

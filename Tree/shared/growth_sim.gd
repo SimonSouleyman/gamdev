@@ -77,6 +77,9 @@ const MARK_TWIG := 6
 ## A new mark sits at least this far above the crown base: the crown lifts about 0.3 to 0.8 m a
 ## day in the second week, and a twig it sheds first would lose its sign without dying back.
 const MARK_ABOVE_BASE := 0.5
+## Readability (0.7 review): a marked twig close to the trunk hides in front of it from the
+## camera; tips at least this far out (share of the crown radius, horizontally) are marked first.
+const MARK_OUT_MIN := 0.4
 ## The sign covers at least this many segments: a shaded tip right at a fork is one leaf clump,
 ## too small to see from the normal camera, so the sign reaches back over the fork into the
 ## little branch it grows on, as long as that branch holds at most MARK_BRANCH_MAX segments.
@@ -839,8 +842,8 @@ func _dies_back(id: int, day: int) -> bool:
 
 ## Branches the tree marks (0.7), once a day at sunrise after the dieback and the crown's lift:
 ## the shaded tips whose seeded roll takes them within MARK_WARN_DAYS, at most MARK_MAX, the
-## ones already shown first, then the soonest, then the ones furthest out of the crown (seen
-## from the normal camera). A forecast only: the dieback itself is unchanged, so a mark ends by
+## ones already shown first, then those not hidden by the trunk (MARK_OUT_MIN), the soonest, and
+## the ones furthest out of the crown (seen from the normal camera). A forecast only: the dieback itself is unchanged, so a mark ends by
 ## the dieback, a cut, or light let in above it (the tip no longer shaded).
 func update_marks(day: int) -> void:
 	if SHADE_DIEBACK_SHARE * species.shade_dieback <= 0.0:
@@ -868,6 +871,9 @@ func update_marks(day: int) -> void:
 				fresh.append({"id": id, "due": day + ahead, "since": day, "out": Vector2(p.x, p.z).length() / r})
 				break
 	fresh.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		var a_in := float(a["out"]) < MARK_OUT_MIN
+		if a_in != (float(b["out"]) < MARK_OUT_MIN):
+			return not a_in
 		if int(a["due"]) != int(b["due"]):
 			return int(a["due"]) < int(b["due"])
 		if not is_equal_approx(float(a["out"]), float(b["out"])):

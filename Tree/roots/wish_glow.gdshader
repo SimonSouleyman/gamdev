@@ -2,7 +2,10 @@ shader_type spatial;
 // The day's wish underground (0.7): a soft warm haze over its deposit that breathes slowly.
 // Plain up close, and still a faint warm smudge beyond the fog where the ordinary dots have
 // faded out, so it reads as "over there". Warmth, size and a slow pulse, not only hue.
-render_mode unshaded, blend_add, depth_draw_never, cull_disabled, fog_disabled, shadows_disabled;
+// 0.7 review: from the overview it was nearly lost, so far off the haze grows (a warm patch of
+// sky-glow, not a point) and it ignores the depth buffer: old roots and stones never hide it
+// (it is additive and soft, so drawn over them it reads as light behind them).
+render_mode unshaded, blend_add, depth_draw_never, depth_test_disabled, cull_disabled, fog_disabled, shadows_disabled;
 
 uniform vec4 warm : source_color = vec4(1.0, 0.66, 0.3, 1.0);
 // 1 for today's wish, less for yesterday's missed one; swells for a moment when reached.
@@ -11,9 +14,11 @@ uniform float strength = 1.0;
 // gone by gone_at.
 uniform float near_full = 7.0;
 uniform float fog_edge = 15.0;
-uniform float far_floor = 0.22;
-uniform float floor_until = 30.0;
-uniform float gone_at = 38.0;
+uniform float far_floor = 0.9;
+uniform float floor_until = 45.0;
+uniform float gone_at = 60.0;
+// Far off the haze grows by up to this factor (by floor_until), so it stays a patch on screen.
+uniform float far_grow = 3.0;
 uniform float pulse_period = 5.2;
 uniform float pulse_depth = 0.35;
 // Brightness of the haze close up (additive, so it never hides the dots inside it).
@@ -26,9 +31,10 @@ void vertex() {
 	float s = length(MODEL_MATRIX[0].xyz);
 	vec3 right = INV_VIEW_MATRIX[0].xyz;
 	vec3 up = INV_VIEW_MATRIX[1].xyz;
-	vec3 p = world_pos + (right * VERTEX.x + up * VERTEX.y) * s;
-	POSITION = PROJECTION_MATRIX * VIEW_MATRIX * vec4(p, 1.0);
 	float d = length((VIEW_MATRIX * vec4(world_pos, 1.0)).xyz);
+	float grow = mix(1.0, far_grow, smoothstep(near_full, floor_until, d));
+	vec3 p = world_pos + (right * VERTEX.x + up * VERTEX.y) * s * grow;
+	POSITION = PROJECTION_MATRIX * VIEW_MATRIX * vec4(p, 1.0);
 	float fade = mix(1.0, far_floor, smoothstep(near_full, fog_edge, d));
 	fade *= 1.0 - smoothstep(floor_until, gone_at, d);
 	// Inside the haze (the camera behind the tip, right at the patch) it thins out.

@@ -49,20 +49,20 @@ const N_SPRAYS := 0.65
 const N_SIZE := 0.42
 const N_OLD := 0.4
 const PK_BARE := 0.45
-## A twig the tree marks for pruning (0.7, notes/marks-0.7.md): its sprays thin by this share at
-## full sign (more in autumn, where the colour cannot carry it), and its leaves go dull: paler,
-## greyer, washed out (a multiply on the spray colour).
-const MARK_THIN := 0.45
-const MARK_THIN_AUTUMN := 0.7
-const MARK_DULL := 1.0
-const MARK_DULL_TINT := Color(1.45, 1.2, 1.8)
+## A twig the tree marks for pruning (0.7, notes/marks-0.7.md, review fixes notes/fix-0.7.md):
+## its sprays thin by this share at full sign (more in autumn, where it is the first twig to go
+## bare) and are smaller; they do not hang (hanging is thirst's sign). Their colour turns dull and
+## dry in the shader (hero_crown.gdshader, the strength rides in the cell index).
+const MARK_THIN := 0.5
+const MARK_THIN_AUTUMN := 0.85
 ## The marked twig's share of its leaf mass is at least this (a lone tip is still a clump).
-const MARK_MIN_SHARE := 0.75
-## Its sprays hang towards the ground by this share and are this much smaller.
-const MARK_HANG := 0.6
-const MARK_SMALL := 0.2
+const MARK_MIN_SHARE := 1.0
+## Its sprays hang towards the ground by this share (0.7 review: 0, the droop was thirst's cue)
+## and are this much smaller.
+const MARK_HANG := 0.0
+const MARK_SMALL := 0.3
 ## Bark greying (shader: 1 - vertex alpha): a marked twig at full sign, a twig that died back.
-const MARK_BARK := 0.7
+const MARK_BARK := 0.9
 const WITHERED_BARK := 0.85
 
 
@@ -182,7 +182,7 @@ static func populate(mm: MultiMesh, sim: GrowthSim, seed: int, care: PackedFloat
 				d = (d + mass_up * 1.2).normalized()
 			var at := at_mass + d * r * rng.randf_range(0.35, 0.9)
 			if tired_k > 0.0:
-				at = (masses[k][6] as Vector3) + (at - at_mass) * 0.6
+				at = (masses[k][6] as Vector3) + (at - at_mass) * 0.9
 			# Leaves face out of the mass and up to the light.
 			var face := (d * 0.6 + out * 0.3 + Vector3.UP * 0.35 + Vector3(rng.randf_range(-0.3, 0.3), 0, rng.randf_range(-0.3, 0.3))).normalized()
 			var along := (d + Vector3.UP * 0.25 + Vector3(rng.randf_range(-0.6, 0.6), rng.randf_range(-0.3, 0.3), rng.randf_range(-0.6, 0.6)))
@@ -190,8 +190,8 @@ static func populate(mm: MultiMesh, sim: GrowthSim, seed: int, care: PackedFloat
 			if along.length_squared() < 1e-3:
 				along = face.cross(Vector3.RIGHT)
 			along = along.normalized()
-			# A marked twig's sprays hang limp and a little smaller (shape, so it reads in autumn).
-			if tired_k > 0.0:
+			# A marked twig's sprays are smaller (and would hang by MARK_HANG).
+			if tired_k > 0.0 and MARK_HANG > 0.0:
 				along = along.lerp(Vector3.DOWN, MARK_HANG * tired_k).normalized()
 				face = (face - along * face.dot(along)).normalized()
 			var side := along.cross(face).normalized()
@@ -208,11 +208,10 @@ static func populate(mm: MultiMesh, sim: GrowthSim, seed: int, care: PackedFloat
 			var low := clampf(-spray_rel.y, 0.0, 1.0)
 			var occlusion := clampf(depth * 1.1 + under * 0.55 + low * 0.3, 0.0, 0.92)
 			var c := mass_tint * rng.randf_range(0.92, 1.06)
-			if tired_k > 0.0:
-				c = c.lerp(c * MARK_DULL_TINT, MARK_DULL * tired_k)
 			mm.set_instance_color(i, Color(c.r, c.g, c.b * rng.randf_range(0.9, 1.05), occlusion))
 			var e := oct_encode(n)
-			mm.set_instance_custom_data(i, Color(float(rng.randi() % 4), rng.randf(), e.x, e.y))
+			# The cell index of the spray picture; a marked twig's strength in its fraction.
+			mm.set_instance_custom_data(i, Color(float(rng.randi() % 4) + 0.9 * tired_k, rng.randf(), e.x, e.y))
 			i += 1
 	return AABB(centre - radii, radii * 2.0)
 

@@ -67,7 +67,10 @@ func _draw() -> void:
 	# The calm reading hand with a soft dark edge, so the words read over a bright sky or crown
 	# (0.6.3 review: the thin light hand was hard to read).
 	var font := Paper.hand_font(false)
-	for w in [["sunrise", _arc_point(0.0) + Vector2(-34, 36)], ["sunset", _arc_point(1.0) + Vector2(-42, 36)]]:
+	# Each word sits inside the arc beside its end, not under it: under the right end it hid
+	# behind the book picture on a 720-wide phone (0.7 review).
+	var set_w := font.get_string_size("sunset", HORIZONTAL_ALIGNMENT_LEFT, -1, 28).x
+	for w in [["sunrise", _arc_point(0.0) + Vector2(14, 8)], ["sunset", _arc_point(1.0) + Vector2(-14.0 - set_w, 8)]]:
 		draw_string_outline(font, w[1], w[0], HORIZONTAL_ALIGNMENT_LEFT, -1, 28, 6, Color(0.1, 0.08, 0.05, 0.55))
 		draw_string(font, w[1], w[0], HORIZONTAL_ALIGNMENT_LEFT, -1, 28, Paper.PAPER)
 

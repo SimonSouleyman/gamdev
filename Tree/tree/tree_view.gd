@@ -87,6 +87,13 @@ var _shown_care := PackedFloat32Array([-1, -1, -1, -1])
 var care_override := PackedFloat32Array()
 ## Daylight fill on the crown (hero_crown.gdshader day_fill): shadowed sprays dark green, not black.
 const DAY_FILL := 0.09
+## The crown's colour on the phone renderer (0.7 review, notes/fix-0.7.md): less red in the
+## summer green (lime to mid green), a little less saturation, a softer sunlit lift.
+const CROWN_GRADE_PHONE := Vector3(0.93, 0.97, 1.0)
+const CROWN_SATURATION_PHONE := 0.76
+const CROWN_SUN_LIFT_PHONE := 0.2
+## And a little more daylight fill there, so the calmer green does not sink into black blotches.
+const DAY_FILL_PHONE := 0.13
 var _fill_set: float = -1.0
 var _births: Dictionary = {}  # node id -> time it appeared
 var _time: float = 0.0
@@ -387,6 +394,12 @@ func _build_world() -> void:
 	# against a darker, cooler forest and a calmer meadow.
 	_spray_mat.set_shader_parameter("tint_mul", Color(1.02, 1.03, 0.95))
 	_spray_mat.set_shader_parameter("rim_strength", 0.12)
+	if _compat:
+		# The phone renderer shows the crown lime at noon and the autumn orange loud (0.7 review):
+		# a calmer, mid green there, closer to the PC look (reasons in notes/fix-0.7.md).
+		_spray_mat.set_shader_parameter("green_grade", CROWN_GRADE_PHONE)
+		_spray_mat.set_shader_parameter("saturation", CROWN_SATURATION_PHONE)
+		_spray_mat.set_shader_parameter("sun_lift", CROWN_SUN_LIFT_PHONE)
 	_leaves.material_override = _spray_mat
 	# The player's tree catches the light at its edges, so it reads against the forest wall.
 	_leaf_mat.set_shader_parameter("rim_strength", 0.1)
@@ -778,7 +791,7 @@ func care_now() -> PackedFloat32Array:
 ## Shape first: thirst hangs the sprays (a shader uniform, every frame); the colour cues too.
 func _update_care() -> void:
 	# The crown's daylight fill (0.6.3 noon lift): full by day, gone at night.
-	var fill := DAY_FILL * (1.0 - night_amount) * (1.0 - 0.6 * rain_now)
+	var fill := (DAY_FILL_PHONE if _compat else DAY_FILL) * (1.0 - night_amount) * (1.0 - 0.6 * rain_now)
 	if absf(fill - _fill_set) > 0.002:
 		_fill_set = fill
 		_spray_mat.set_shader_parameter("day_fill", fill)

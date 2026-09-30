@@ -313,8 +313,11 @@ static func ink_button(text: String, size: int = 26, tap: float = INK_TAP) -> Bu
 		var pad := StyleBoxEmpty.new()
 		pad.content_margin_left = 16
 		pad.content_margin_right = 16
-		pad.content_margin_top = 2
-		pad.content_margin_bottom = 4
+		# Two lines get a little more room, so the ring round both fits inside the button.
+		var extra := 4 * text.count("
+")
+		pad.content_margin_top = 2 + extra
+		pad.content_margin_bottom = 4 + extra
 		b.add_theme_stylebox_override(k, pad)
 	b.draw.connect(func() -> void: _draw_ring(b, rings))
 	return b
@@ -330,7 +333,12 @@ static func _draw_ring(b: Button, rings: Dictionary) -> void:
 		k = "hover"
 	var font := b.get_theme_font("font")
 	var fs := b.get_theme_font_size("font_size")
-	var ring := Vector2(font.get_string_size(b.text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x + 32.0, font.get_height(fs) + 6.0)
+	# A word on two lines ("back to / the bench", "N / leaves") gets a ring round both lines
+	# (0.7 review: the one-line oval struck through them).
+	var text := font.get_multiline_string_size(b.text, HORIZONTAL_ALIGNMENT_CENTER, -1, fs)
+	var lines := b.text.count("
+") + 1
+	var ring := Vector2(text.x + 32.0, font.get_height(fs) * lines + 6.0 + 8.0 * (lines - 1))
 	ring = ring.min(b.size)
 	b.draw_style_box(rings[k], Rect2((b.size - ring) * 0.5 + Vector2(0, -1), ring))
 

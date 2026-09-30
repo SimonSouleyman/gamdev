@@ -1501,6 +1501,24 @@ func repot_finish() -> void:
 		tool_used.emit("repot"))
 
 
+## Back while the tree is out (0.7 review: back did nothing then): it goes down into its own pot
+## again as it was, no repotting done; the pot still asks.
+func repot_cancel() -> void:
+	if not _lifted or busy:
+		return
+	busy = true
+	_new_pot = sim().pot
+	_show_pot(sim().pot)
+	var tw := create_tween()
+	tw.tween_property(_lift, "position:y", 0.0, 0.6).set_trans(Tween.TRANS_SINE)
+	tw.tween_callback(func() -> void:
+		_lifted = false
+		_trim = 0.0
+		_root_ball_visible(false)
+		busy = false
+		refresh(true))
+
+
 func is_lifted() -> bool:
 	return _lifted
 

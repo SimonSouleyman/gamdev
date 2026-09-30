@@ -29,6 +29,15 @@ Install each fully checked version on his phone (save backed up first); APKs in 
   a time, never on beech or the bonsai; the care page says in one line that a branch looks tired.
   Cut it or leave it: left alone it dies back as before (and now stays a bare grey twig). A dying
   tip gives nothing back when cut. Notes and numbers: docs/notes/marks-0.7.md.
+- 0.7 review, look and UI (docs/notes/fix-0.7.md): a marked branch now reads as a small branch
+  going dry (sparse, small, dull yellow-grey to brownish leaves, clearly grey bark, no droop, bare
+  first in autumn; twigs clear of the trunk marked first); the wish glow reads as a warm "over
+  there" from the overview and is never hidden behind old roots, and reaching it is a soft warm
+  swell that fades (no big green blobs at the camera); the crown is a calmer mid green on the
+  phone (autumn less loud); ink ovals ring two-line words; full-size repot pot buttons; "shears"
+  everywhere; back puts a lifted bonsai back in its pot; stale bonsai hints cleared; the "sunset"
+  word no longer hides behind the book; the diary's wish sketch sits under its line; sill tools
+  a little further apart and the stray lid gone.
 
 ## v0.6.3: tree care, softer nights, review fixes
 - The tree shows what it lacks, shape first: thirsty leaves hang, new shoots short of nitrogen
