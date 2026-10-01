@@ -86,7 +86,7 @@ func test_the_wish_places_a_bigger_deposit_ahead_of_the_newest_tip() -> void:
 			var goal := c - (c - tip).normalized() * r * 0.6
 			var nights := Diary.FAR_REACH_NIGHTS if far else 1.0
 			if not waiting:
-				t.check(Diary.line_cost(u, roots, tip, goal) <= roots.calm_life_force * Diary.REACH_SHARE * nights, "a calm tank reaches it from the newest tip")
+				t.check(Diary.line_cost(u, roots, tip, goal) <= Diary.calm_reach(roots) * nights, "a calm tank reaches it from the newest tip")
 			t.check(diary.wish.contains(Underground.compass(c)), "the wish names its direction: " + diary.wish)
 			var hinted := false
 			for h in u.surface_hints():

@@ -154,3 +154,10 @@ Each criterion has a test in `tests/` unless marked (visual), which Simon judges
 - The crown stays below the lock screen's clock on phone screens and the view never pans (test).
 - The meta file round trip; a newer, broken or foreign picture is refused and the last good one stays; no picture shows the bundled sapling (tests; LiveData.java).
 - The app icon: a linden from the game's growth on a pale-blue sky and a grass line, crown inside the adaptive icon's safe circle, readable at 48 px (visual: `tools/render_app_icon.gd -- --qa=`).
+## 0.8.2 roots: the dearer metre, far wishes per seed, side roots and thicker roots (specs/side-roots.md, specs/0.8.md item 29; notes/roots-0.8.2.md)
+- The wider field's metre is dearer (layout 3; old soils keep 1.0) and a calm night's root (meadow start, chasing deposits) is 12 to 18 m long (median), still 20 to 44 s (tests/test_side_roots.gd).
+- About half of the underground-wish mornings point far on every seed (running share, saved with the diary) (test).
+- Cutting marked twigs never finishes a tree sooner than leaving them (tests/test_marks.gd; measured with `tools/strategies.gd --strats=cut_marks,cut_marks_tip,dots`).
+- The leftover life force grows a second and a third level of side roots, flagged by level, at most 250 nodes a night on top of the first level's 150; no second-level node lies more than its reach (3 m) from its start, no third-level one more than 0.8 m; where no dot is in reach short tips still sprout; with less than a tenth of the tank left no side roots grow (tests).
+- The share of the tank spent on the root sets its thickness once, 1.0x to 1.5x, kept through a save, 1.0x for old saves; a thicker root seeps up to 1.25x per metre (tests).
+- The root view draws main roots by their thickness, the second level finer, the third half as thick and dimmer, all in one merged mesh (test; visual: `tools/grow_shot.gd --roots --run --side|--full --phone`).

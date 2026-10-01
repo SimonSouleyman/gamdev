@@ -13,7 +13,9 @@ func _init() -> void:
 		if a.begins_with("--species="): sp = a.substr(10)
 		elif a.begins_with("--seed="): seed = int(a.substr(7))
 	var g := GameState.new_game(seed, sp)
-	var calm := g.roots.calm_life_force
+	# A full calm tank in the old soil's metres (0.8.2: Diary.calm_reach follows the dearer
+	# metre); a far wish (0.8.1) may take FAR_REACH_NIGHTS of them.
+	var calm := Diary.calm_reach(g.roots) / Diary.REACH_SHARE
 	var nights := 0
 	var glow_nights := 0
 	var two := 0
@@ -36,7 +38,8 @@ func _init() -> void:
 			var d := INF
 			for id in range(g.roots.graph.size()):
 				d = minf(d, g.roots.graph.positions[id].distance_to(c) - float(gl["radius"]))
-			var ok := maxf(d, 0.0) * g.roots.cost_per_metre(c) <= calm
+			var nights_ok := Diary.FAR_REACH_NIGHTS if Diary.is_far(g.ground, int(gl["patch"])) else 1.0
+			var ok := maxf(d, 0.0) * g.roots.cost_per_metre(c) <= calm * nights_ok
 			if not ok: unreach += 1
 			if float(gl["strength"]) >= 0.99:
 				today_n += 1
