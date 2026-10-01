@@ -2,18 +2,24 @@
 
 ## Progress (for resuming work)
 
-State 2026-09-30 (PC switched off by Simon): 0.8 is tagged (tree-v0.8), on main and installed on
-Simon's phone with his save (backups in GameDev/tree-shots/savebackup/pre-0.8). APKs in
-GameDev/tree-releases. Away mode is over: open questions go to Simon again (via the coordinator).
-- Next: 0.8.1 on branch s08-sim (worktree GameDev/wt-sim08), unfinished WIP commit: players who
-  boost all day and end every root at once (boost_quit) must finish by ~day 40 (linden s3, beech
-  s3, alder s14 don't by day 45); oak boost_morning s3 is 15.2 % faster than dots (limit 15 %).
-  Welcome but optional: oak straight_down day 43 (limit ~42), alder end_early s3 11 days after
-  dots (limit 10). Review: GameDev/tree-qa/check-0.8/playthrough.md. Numbers with reasons go to
-  docs/notes/balance-0.8.md; tuning.md belongs to the design thread. Then the full check and
-  install as 0.8.1.
-- Known minor: hedgehog only ~9-15 px at the tree's foot; marked branches are subtle; care
-  signals rarely show now that nothing starves (design question).
+State 2026-10-01: 0.8 tagged (tree-v0.8), on main and on Simon's phone (save backups in
+GameDev/tree-shots/savebackup/pre-*). APKs in GameDev/tree-releases. Open questions go to Simon
+via the coordinator. Plan (docs/specs/0.8.md "0.8.1 and 0.8.2", broken items 17-34):
+- 0.8.1 fixes, integration branch iterate-0.8.1, four streams:
+  - s08-sim (wt-sim08): no-roots finish, wider root field ~30 m (29), far wishes (34).
+  - s081-look (wt081-look): brighter nights/visible roots (17), plain dots in play (20),
+    camera framing (25), noon crown (31).
+  - s081-shed (wt081-shed): bonsai tool handling (18), sill/pinboard on the phone (26), pot page
+    into the journal (28), juniper pads/trunk (32).
+  - s081-sound (wt081-sound): warm root-run hum with a slow 4-note melody (27), live wallpaper
+    really animated (33).
+  - Then: merge, frame-rate measurement on the phone (30), full two-reviewer check, install.
+- 0.8.2 features: seed pictures in the pouch (19), side roots + thicker roots
+  (specs/side-roots.md; Simon's playtest idea), hold to fast-forward (specs/fast-forward.md),
+  shorter journal with doodles and the Kalam font (21-24), far view / rock bands / soft veins /
+  first-time check (specs/root-field-extras.md).
+- 0.8.3: fungal network and the ink root drawing in the album (specs/root-field-extras.md).
+- Known minor: hedgehog small at the tree's foot; care signals rarely show (design question).
 - Choices taken as "recommended" while Simon was away:
   - Scope after 0.7: new features too (Simon tapped it), 0.8 per the design thread's spec.
   - Live picture: wallpaper and screen saver, one animation (default until he answers).
