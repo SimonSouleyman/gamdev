@@ -17,8 +17,8 @@ const SHOW_MIN := 0.05
 ## A deposit with less than this share of its capacity left does not count.
 const DEPOSIT_MIN := 0.1
 
-## Colour and shape of each kind's dots (0.8: the shapes, NutrientMarks.WORDS).
-const DOT_WORDS: Array[String] = ["blue drop", "green leaf", "orange spark", "violet ring"]
+## Colour of each kind's dots (0.8.1: plain coloured dots in play, so the words name the colour).
+const DOT_WORDS: Array[String] = ["blue", "green", "orange", "violet"]
 const HINT_WORDS: Array[String] = [
 	"rushes and a damp patch on the meadow mark water",
 	"clover on the meadow marks nitrogen",

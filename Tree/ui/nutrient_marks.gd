@@ -1,25 +1,17 @@
 class_name NutrientMarks
 extends RefCounted
-## Shapes on the nutrient dots (0.8, specs/0.8.md section 1): each nutrient keeps its colour and
-## gets its own mark, so the dots read without colour too (red-green colour blindness, a
-## greyscale screenshot). Water a drop, nitrogen a leaf, phosphorus a four-point spark,
-## potassium a ring. The same marks are used underground (an atlas on the existing dot quads),
-## on the HUD pills, the journal's care and meadow-hint pages and the bonsai's pellet slip.
-## Drawn in code once and cached; numbers and reasons in docs/notes/shapes-brush-0.8.md.
+## Shapes for the nutrients (0.8, specs/0.8.md section 1): water a drop, nitrogen a leaf,
+## phosphorus a four-point spark, potassium a ring. 0.8.1 (Simon): in play the nutrients are
+## plain coloured dots again (tree mode, the HUD, the root run, the wish glow); the shapes stay
+## only where a nutrient is explained, not played: the journal's key on the care and meadow-hint
+## pages, and the bonsai's pellet tins. Drawn in code once and cached.
 
 const SHAPE_NAMES: Array[String] = ["drop", "leaf", "spark", "ring"]
-## Colour and shape together, for text ("steer for the blue drops").
-const WORDS: Array[String] = ["blue drop", "green leaf", "orange spark", "violet ring"]
-## One atlas cell, in pixels (four cells side by side).
-const CELL: int = 64
 ## Supersampling per pixel side when a mark is drawn.
 const SAMPLES: int = 4
-## Blur radius of the atlas's soft glow channel, in pixels of a cell.
-const GLOW_BLUR: int = 4
 ## The leaf lies tilted like a real leaf, not upright like the drop.
 const LEAF_TILT: float = -0.6
 
-static var _atlas: ImageTexture = null
 static var _icons: Dictionary = {}
 
 
@@ -89,47 +81,6 @@ static func coverage(kind: int, size: int) -> PackedFloat32Array:
 						hits += 1
 			out[y * size + x] = float(hits) / n
 	return out
-
-
-## The atlas for the underground dots: four cells (water, nitrogen, phosphorus, potassium).
-## Red is the crisp mark, green a soft glow around it; mipmapped, so tiny far dots stay smooth.
-static func atlas() -> ImageTexture:
-	if _atlas == null:
-		var img := Image.create(CELL * 4, CELL, false, Image.FORMAT_RGBA8)
-		for k in range(4):
-			var cov := coverage(k, CELL)
-			var glow := _blur(cov, CELL, GLOW_BLUR)
-			for y in range(CELL):
-				for x in range(CELL):
-					var i := y * CELL + x
-					img.set_pixel(k * CELL + x, y, Color(cov[i], clampf(glow[i] * 1.6, 0.0, 1.0), 0.0, 1.0))
-		img.generate_mipmaps()
-		_atlas = ImageTexture.create_from_image(img)
-	return _atlas
-
-
-## Two box blurs of `radius` pixels (close to a gaussian).
-static func _blur(src: PackedFloat32Array, size: int, radius: int) -> PackedFloat32Array:
-	var a := src
-	for _pass in range(2):
-		var h := PackedFloat32Array()
-		h.resize(size * size)
-		for y in range(size):
-			for x in range(size):
-				var s := 0.0
-				for d in range(-radius, radius + 1):
-					s += a[y * size + clampi(x + d, 0, size - 1)]
-				h[y * size + x] = s / (2 * radius + 1)
-		var v := PackedFloat32Array()
-		v.resize(size * size)
-		for y in range(size):
-			for x in range(size):
-				var s := 0.0
-				for d in range(-radius, radius + 1):
-					s += h[clampi(y + d, 0, size - 1) * size + x]
-				v[y * size + x] = s / (2 * radius + 1)
-		a = v
-	return a
 
 
 ## The mark in its nutrient's colour as ink on paper, `size` pixels square, for the HUD and

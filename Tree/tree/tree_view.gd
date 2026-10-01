@@ -85,13 +85,17 @@ var _built_marks := ""
 var _shown_care := PackedFloat32Array([-1, -1, -1, -1])
 ## Tools may force a care look (a shot of a thirsty tree); empty: the game's own signals.
 var care_override := PackedFloat32Array()
+## Night adaptation (0.8.1, notes/look-0.8.1.md): exposure and the moonlit fill lifted by these
+## shares at full night, so the tree reads on the phone without the night looking like day.
+const NIGHT_EXPOSURE_LIFT := 0.45
+const NIGHT_AMBIENT_LIFT := 0.6
 ## Daylight fill on the crown (hero_crown.gdshader day_fill): shadowed sprays dark green, not black.
 const DAY_FILL := 0.09
 ## The crown's colour on the phone renderer (0.7 review, notes/fix-0.7.md): less red in the
 ## summer green (lime to mid green), a little less saturation, a softer sunlit lift.
 ## (0.8 review: the sunlit south side still went pale cream-lime at noon on the phone, where
 ## the tone mapper whitens bright greens: a deeper grade, no lift and less sheen there; notes/fix-0.8.md.)
-const CROWN_GRADE_PHONE := Vector3(0.84, 0.92, 0.94)
+const CROWN_GRADE_PHONE := Vector3(0.8, 0.92, 0.94)
 const CROWN_SATURATION_PHONE := 0.8
 const CROWN_SUN_LIFT_PHONE := 0.06
 const CROWN_SHEEN_PHONE := 0.08
@@ -614,8 +618,20 @@ func _build_hud() -> void:
 	hud.add_child(_hint)
 
 
-## A readout on a scrap of journal paper, handwritten, with an ink dot in the resource's colour
-## (0.8: a nutrient's pill shows its mark instead, NutrientMarks).
+## A small ink dot in a resource's colour, for a readout (0.8.1: plain coloured dots in play,
+## the shapes only in the journal's key and on the pellet tins).
+static func ink_dot(color: Color, font_size: int = 22) -> Label:
+	var d := Label.new()
+	d.text = "●"
+	d.name = "dot"
+	d.add_theme_color_override("font_color", color.darkened(0.15))
+	d.add_theme_font_size_override("font_size", font_size)
+	d.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	d.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	return d
+
+
+## A readout on a scrap of journal paper, handwritten, with an ink dot in the resource's colour.
 func _pill(parent: Control, dot: Color, kind: int = -1) -> Label:
 	var panel := PanelContainer.new()
 	var sb := Paper.paper_box(96, 48, 20 + parent.get_child_count(), "all", 12.0)
@@ -629,13 +645,9 @@ func _pill(parent: Control, dot: Color, kind: int = -1) -> Label:
 	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	panel.add_child(row)
 	if kind >= 0:
-		row.add_child(NutrientMarks.icon_rect(kind, 26))
+		row.add_child(ink_dot(Resources.KIND_COLORS[kind]))
 	elif dot.a > 0.0:
-		var d := Label.new()
-		d.text = "●"
-		d.add_theme_color_override("font_color", dot.darkened(0.15))
-		d.add_theme_font_size_override("font_size", 22)
-		row.add_child(d)
+		row.add_child(ink_dot(dot))
 	var l := Paper.ink_label("", 25, Paper.INK, true)
 	row.add_child(l)
 	parent.add_child(panel)
@@ -670,7 +682,7 @@ const CARE_LOOKS: Array[String] = ["The leaves hang: thirsty.",
 ## Names and dot colours of the nutrients the tree lacks right now, for the hint.
 func _missing_nutrients() -> Array:
 	var names := ["water", "nitrogen (N)", "phosphorus (P)", "potassium (K)"]
-	var colours := NutrientMarks.WORDS
+	var colours := Care.DOT_WORDS
 	var n: Array[String] = []
 	var c: Array[String] = []
 	var sim := state.sim
@@ -776,6 +788,8 @@ func _perf_log(delta: float) -> void:
 
 
 func _rebuild() -> void:
+	# A cut or dieback changes the crown's reach (crown_reach).
+	_reach_key = -1
 	var g := state.sim.graph
 	var first_build := _built_size < 0
 	if not first_build:
@@ -1005,6 +1019,13 @@ func _update_mood(_h: float) -> void:
 	else:
 		_env.ambient_light_color = Color(0.58, 0.64, 0.72)
 		_env.ambient_light_sky_contribution = 0.45
+	# 0.8.1 (broken item 17, Simon: "es ist noch sehr dunkel"): the eye adapts to the night, so
+	# the moonlit tree and meadow read at normal phone brightness; the sky stays a deep blue and
+	# the moonlight cool, so it still reads as night (notes/look-0.8.1.md).
+	# (Not inside the shed, whose night the lantern lights.)
+	var adapt := 0.0 if _in_shed else n
+	_env.tonemap_exposure *= 1.0 + NIGHT_EXPOSURE_LIFT * adapt
+	_env.ambient_light_energy *= 1.0 + NIGHT_AMBIENT_LIFT * adapt
 	# The eye sees fewer colours by night (and the meadow's green would glow).
 	_env.adjustment_saturation = 1.0 - 0.4 * n
 	if r > 0.0:
@@ -1058,6 +1079,7 @@ const FRAME_FOV := 50.0
 ## The album's morning photos all look from here (the default view: from the north, sun behind).
 const ALBUM_YAW := PI
 var _framed_width: float = 1.0
+var _framed_reach: float = 0.5
 var _album: bool = false
 
 
@@ -1065,6 +1087,108 @@ var _album: bool = false
 ## in the clearing with the forest beside it, and the tree's height once it is grown.
 static func frame_height(tree_height: float) -> float:
 	return maxf(tree_height, 0.2) + 3.0 * (1.0 - smoothstep(0.0, 12.0, tree_height))
+
+
+## Tree-mode framing (0.8.1, broken item 25, notes/look-0.8.1.md): the frame follows the tree's
+## real height and crown width on the portrait screen. The tree's foot sits at FRAME_BASE and its
+## top at FRAME_TOP (shares of the screen height from the top, clear of the HUD's pills), and the
+## crown keeps FRAME_SIDE of the screen width free on each side.
+const FRAME_TOP := 0.17
+const FRAME_BASE := 0.86
+const FRAME_SIDE := 0.05
+## The young tree's frame: its height plus a little meadow (m), fading out by FRAME_PAD_UNTIL m,
+## so a seedling stands clearly in view rather than small and low in a field of grass.
+const FRAME_PAD := 0.8
+const FRAME_PAD_UNTIL := 6.0
+## The closest the camera comes for a small tree (m): far enough to look over the meadow grass
+## (at 1.4 m the dawn view stood in the grass blades); a longer lens, down to FRAME_MIN_FOV
+## degrees, then holds the seedling large.
+const FRAME_MIN_DISTANCE := 2.4
+const FRAME_MIN_FOV := 34.0
+## For a crown too broad to frame from inside the clearing's usual orbit (a grown linden is wider
+## than tall): the camera may step back to FRAME_EDGE metres inside the clearing's edge (it is high
+## up then, above the shed and the brush pile) and widen the lens up to FRAME_MAX_FOV degrees
+## (vertical; on a 9:16 screen about 64 degrees across).
+const FRAME_EDGE := 1.0
+const FRAME_MAX_FOV := 96.0
+## The frame follows a tree that grew this much (height or crown reach) since it was set.
+const REFRAME_GROWTH := 1.12
+## How far the frame's middle may move off the trunk toward a one-sided crown (m).
+const FRAME_SHIFT_MAX := 2.5
+
+
+## The height to frame in play for a tree this tall (0.8.1): its own height and a little meadow.
+static func play_frame_height(tree_height: float) -> float:
+	return maxf(tree_height, 0.2) + FRAME_PAD * (1.0 - smoothstep(0.0, FRAME_PAD_UNTIL, tree_height))
+
+
+## Half the vertical extent to show and the look-at height for a tree `height` tall with a crown
+## `width` across, on a screen of this `aspect` (width / height): [half, focus height].
+static func play_frame(height: float, width: float, aspect: float) -> Vector2:
+	var hf := play_frame_height(height)
+	# The tree spans FRAME_BASE - FRAME_TOP of the screen height ...
+	var half := hf / (FRAME_BASE - FRAME_TOP) * 0.5
+	# ... unless the crown is too broad for the screen's width: then the frame grows to hold it.
+	half = maxf(half, width * 0.5 / (aspect * (1.0 - 2.0 * FRAME_SIDE)))
+	# The tree's middle sits in the middle of the band between FRAME_TOP and FRAME_BASE (its foot
+	# at FRAME_BASE when the height sets the frame; a broad crown sits a little higher).
+	var mid := (FRAME_TOP + FRAME_BASE) * 0.5
+	return Vector2(half, hf * 0.5 + (mid - 0.5) * 2.0 * half)
+
+
+## How far the crown reaches out from the trunk (living wood plus the leaf masses at its tips):
+## the widest reach in any direction, for noticing a broader crown.
+func crown_reach() -> float:
+	_update_sectors()
+	var r := 0.0
+	for v in _sectors:
+		r = maxf(r, v)
+	return r + HeroCrown.mass_size(state.sim.height()) * 0.5
+
+
+## The crown's reach to the camera's right and left of the trunk, seen from `yaw` at `distance`
+## metres (leaf masses included): [right, left] in metres at the trunk's depth. A branch reaching
+## toward the camera looks wider in perspective, and counts so; one reaching away counts less.
+func crown_across(yaw: float, distance: float) -> Vector2:
+	_update_sectors()
+	var right := Vector2(cos(yaw), -sin(yaw))
+	var toward := Vector2(sin(yaw), cos(yaw))
+	var margin := HeroCrown.mass_size(state.sim.height()) * 0.5
+	var out := Vector2.ZERO
+	var n := _sectors.size()
+	for i in range(n):
+		var r := _sectors[i]
+		if r <= 0.0:
+			continue
+		for a in [TAU * i / n, TAU * (i + 1) / n]:
+			var p := Vector2(cos(a), sin(a)) * (r + margin)
+			var near := distance / maxf(distance - p.dot(toward), distance * 0.3)
+			var x := p.dot(right) * near
+			out.x = maxf(out.x, x)
+			out.y = maxf(out.y, -x)
+	return out
+
+
+## The crown's reach per direction (CROWN_SECTORS around the trunk, on the ground plane),
+## measured again only when the tree changed (framing asks every frame).
+func _update_sectors() -> void:
+	var g := state.sim.graph
+	if g.size() == _reach_key:
+		return
+	_reach_key = g.size()
+	_sectors.resize(CROWN_SECTORS)
+	_sectors.fill(0.0)
+	for id in range(g.size()):
+		if g.get_flag(id, "dead", false):
+			continue
+		var p := Vector2(g.positions[id].x, g.positions[id].z)
+		var i := clampi(int(fposmod(p.angle(), TAU) / TAU * CROWN_SECTORS), 0, CROWN_SECTORS - 1)
+		_sectors[i] = maxf(_sectors[i], p.length())
+
+
+const CROWN_SECTORS := 24
+var _reach_key: int = -1
+var _sectors := PackedFloat32Array()
 
 
 ## About the height this species reaches when finished (the album frames it from day one).
@@ -1094,9 +1218,12 @@ func _frame_camera(snap: bool, delta: float = 0.0) -> void:
 	# Re-framed at snap, when the tree outgrows the frame, and once the day is over (sunset),
 	# so the night's growth shows at dawn as a bigger tree in the same frame.
 	var day_over := state.phase != GameState.Phase.DAY and state.day_number() != _framed_day
-	if snap or day_over or real_height > _framed_height * 1.35:
+	# (0.8.1: re-framed sooner, by REFRAME_GROWTH, and for a broader crown too, so the growing
+	# crown never pushes past the frame's top or sides.)
+	if snap or day_over or real_height > _framed_height * REFRAME_GROWTH or crown_reach() > _framed_reach * REFRAME_GROWTH:
 		_framed_height = real_height
 		_framed_width = crown_width()
+		_framed_reach = crown_reach()
 		_framed_day = state.day_number()
 	# The frame is sized by the tree's real height (0.6.2): a young tree stands small in its
 	# clearing, the forest ring beside it for scale; a grown one fills the frame from further
@@ -1119,8 +1246,25 @@ func _frame_camera(snap: bool, delta: float = 0.0) -> void:
 	var vp := get_viewport().get_visible_rect().size if is_inside_tree() else Vector2(720, 1280)
 	var aspect := clampf(vp.x / maxf(vp.y, 1.0), 0.3, 2.0)
 	var half := maxf(height * 0.56, width * 0.55 / aspect)
-	var want_distance := clampf(half / tan(deg_to_rad(FRAME_FOV * 0.5)), 3.0, room) * _zoom
-	want_distance = clampf(want_distance, 1.5, room + 0.5)
+	var fov_cap := 86.0 if _album else 78.0
+	var fov_min := FRAME_FOV
+	var min_distance := 3.0
+	if not _album and not prune_mode:
+		# The crown's middle (seen from here) in the middle of the screen: a one-sided crown is
+		# framed whole without leaving the other side empty.
+		var across := crown_across(_yaw, maxf(_distance, 2.0))
+		var pf := play_frame(_framed_height, across.x + across.y, aspect)
+		half = pf.x
+		# (At most FRAME_SHIFT_MAX off the trunk, so the camera stays inside the clearing.)
+		want_focus = Vector3(cos(_yaw), 0.0, -sin(_yaw)) * clampf((across.x - across.y) * 0.5, -FRAME_SHIFT_MAX, FRAME_SHIFT_MAX)
+		want_focus.y = pf.y
+		min_distance = FRAME_MIN_DISTANCE
+		fov_cap = FRAME_MAX_FOV
+		fov_min = FRAME_MIN_FOV
+		room = maxf(_clearing, Scenery.CLEARING_RADIUS) - FRAME_EDGE - 0.5
+	var base_distance := clampf(half / tan(deg_to_rad(FRAME_FOV * 0.5)), min_distance, room)
+	var want_distance := base_distance * _zoom
+	want_distance = clampf(want_distance, minf(1.5, min_distance), room + 0.5)
 	if _album:
 		# Always from the same spot at the clearing's edge; the lens holds the grown tree.
 		want_distance = room + 0.5
@@ -1129,7 +1273,10 @@ func _frame_camera(snap: bool, delta: float = 0.0) -> void:
 		want_distance = clampf((_framed_height * 0.45 + 2.0) * _zoom, 1.5, room + 0.5)
 	# Wide enough to hold the frame at this distance (a lens, not a step back, once the clearing
 	# is too small to step back in).
-	camera.fov = clampf(rad_to_deg(2.0 * atan(half / maxf(want_distance, 0.1))), FRAME_FOV, 86.0 if _album else 78.0)
+	camera.fov = clampf(rad_to_deg(2.0 * atan(half / maxf(want_distance, 0.1))), fov_min, fov_cap)
+	if not _album and not prune_mode:
+		# In play the lens is set by the frame, the pinch only moves the camera (a real zoom).
+		camera.fov = clampf(rad_to_deg(2.0 * atan(half / maxf(base_distance, 0.1))), fov_min, fov_cap)
 	if prune_mode:
 		camera.fov = FRAME_FOV
 	# The meadow grass fades out beyond the tree, however far back the camera stands.

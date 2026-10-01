@@ -22,6 +22,10 @@ var _star_mat: ShaderMaterial
 var _moon: MeshInstance3D
 var _moon_mat: ShaderMaterial
 var moonlight: DirectionalLight3D
+## Moonlight: a starry-sky floor plus the lit disc's share (0.8.1, broken item 17: the night was
+## too dark on the phone; was 0.14 + 0.3, notes/look-0.8.1.md).
+const MOON_BASE := 0.3
+const MOON_LIT := 0.4
 var _phase: float = 0.0
 var _compat: bool = RenderingServer.get_current_rendering_method() == "gl_compatibility"
 var _moon_dir: Vector3 = Vector3.UP
@@ -91,7 +95,7 @@ func update(eye: Vector3, night: float, veil: float = 0.0) -> void:
 	var lit := Almanac.moon_lit_fraction(_phase) if moon_up() else 0.0
 	var from := _moon_dir if moon_up() else Vector3(0.2, 1.0, 0.3).normalized()
 	moonlight.look_at_from_position(from * 20.0, Vector3.ZERO, Vector3.UP if absf(from.y) < 0.99 else Vector3.FORWARD)
-	moonlight.light_energy = night * (0.14 + 0.3 * lit) * (1.0 - veil * 0.5)
+	moonlight.light_energy = night * (MOON_BASE + MOON_LIT * lit) * (1.0 - veil * 0.5)
 	# Soft moon shadows on a PC under a bright moon; a phone saves the second shadow map.
 	moonlight.shadow_enabled = not Budgets.PHONE and lit > 0.3 and night > 0.5
 	moonlight.shadow_opacity = 0.6
