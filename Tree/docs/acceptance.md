@@ -144,7 +144,7 @@ Each criterion has a test in `tests/` unless marked (visual), which Simon judges
 - A hard turn grows slower, so the tightest circle is under a metre across (test).
 - The night's pace survives a save (test).
 - The RootBot skips tapped deposits and ones behind the tip (test).
-- After 12 days steering to deposits leads ending early (linden, seed 14), ending early still grows, and no night's root takes more than a minute (tests/test_game_state.gd).
+- Steering to deposits finishes at least 4 days before ending early (linden, seed 14; 0.8.1: was "leads after 12 days", which the wider field's unchanged first weeks no longer show), ending early still finishes by day 40, and no night's root takes more than a minute (tests/test_game_state.gd).
 - A boost grows faster but gathers at most 60 % of the life force (test).
 - Measured with tools/strategies.gd over seeds 3, 14, 27 and linden, birch, oak: chasing deposits finishes first (or level with always boosting), ending early 8-15 days later; month_report keeps every species within a week of its target.
 ## 0.8 live picture and app icon (specs/0.8.md sections 6 and 7)

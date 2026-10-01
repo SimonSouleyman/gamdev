@@ -83,11 +83,15 @@ static func play(strat: String, species_id: String, seed: int, days: int, nights
 	var least := 1_000_000
 	var lf_left := 0.0
 	var finish_day := -1
+	# The night's sim cost (0.8.1): wall milliseconds of each night's run and its slowest frame.
+	var run_ms: Array = []
+	var frame_us := 0
 	var quits := strat == "end_early" or strat == "boost_quit"
 	var boosts := strat.begins_with("boost")
 	for day in range(days):
 		g.dive()
 		var t := 0.0
+		var t0 := Time.get_ticks_usec()
 		if g.can_start_run():
 			# From the tip of the last root, or from the trunk after a night the root could not grow.
 			var from := 0 if g.roots.graph.size() <= 1 or (lens.size() > 0 and lens[-1] == 0) else g.roots.graph.size() - 1
@@ -122,8 +126,12 @@ static func play(strat: String, species_id: String, seed: int, days: int, nights
 						stick = Vector2(wander.randf_range(-0.6, 0.6), wander.randf_range(-0.6, 0.3))
 				else:
 					stick = bot.stick_for(g.roots, g.ground, g.sim.resources)
-				if not g.steer(stick, false, FRAME):
+				var f0 := Time.get_ticks_usec()
+				var alive := g.steer(stick, false, FRAME)
+				frame_us = maxi(frame_us, Time.get_ticks_usec() - f0)
+				if not alive:
 					break
+		run_ms.append((Time.get_ticks_usec() - t0) / 1000)
 		secs.append(int(round(t)))
 		lens.append(int(g.roots.run_length))
 		lf_left = maxf(lf_left, g.sim.resources.life_force)
@@ -158,7 +166,8 @@ static func play(strat: String, species_id: String, seed: int, days: int, nights
 	for w in g.ground.wish_deposits:
 		wished += 1
 	return {"strat": strat, "species": species_id, "seed": seed, "finish": finish_day, "heights": heights, "nodes": g.sim.living_nodes(),
-		"secs": secs, "lens": lens, "least": least, "lf_left": lf_left, "wished": wished, "reached": reached}
+		"secs": secs, "lens": lens, "least": least, "lf_left": lf_left, "wished": wished, "reached": reached,
+		"run_ms": run_ms, "frame_us": frame_us}
 
 
 ## Cuts every twig the tree marks right now: at its fork, or (`tip_only`) only the tip.
@@ -177,6 +186,13 @@ static func cut_marks(sim: GrowthSim, tip_only: bool = false) -> int:
 static func summary(r: Dictionary) -> String:
 	var hs: Dictionary = r["heights"]
 	var h := func(d: Variant) -> String: return ("%.1f" % hs[d]) if hs.has(d) else "-"
-	return "%-14s %-8s seed %-3d h10 %s  h20 %s  h30 %s  hfin %s  finished %s  least/day %d  lf left %.0f  wishes reached %d/%d | night s %s | root m %s" % [
+	var ms: Array = r.get("run_ms", [0])
+	var most := 0
+	var sum := 0
+	for m in ms:
+		most = maxi(most, int(m))
+		sum += int(m)
+	return "%-14s %-8s seed %-3d h10 %s  h20 %s  h30 %s  hfin %s  finished %s  least/day %d  lf left %.0f  wishes reached %d/%d | run ms avg %d max %d, slowest frame %.1f ms | night s %s | root m %s" % [
 		r["strat"], r["species"], r["seed"], h.call(10), h.call(20), h.call(30), h.call("fin"),
-		str(r["finish"]) if r["finish"] > 0 else "never", r["least"], r["lf_left"], r.get("reached", 0), r.get("wished", 0), str(r["secs"]), str(r["lens"])]
+		str(r["finish"]) if r["finish"] > 0 else "never", r["least"], r["lf_left"], r.get("reached", 0), r.get("wished", 0),
+		sum / maxi(ms.size(), 1), most, r.get("frame_us", 0) / 1000.0, str(r["secs"]), str(r["lens"])]

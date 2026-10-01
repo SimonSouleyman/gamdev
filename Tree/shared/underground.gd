@@ -4,8 +4,11 @@ extends RefCounted
 ## reveal them on the meadow. One generator, one seed (design doc sections 5, 6, 3).
 ## Coordinates: +X east, +Z south, -Z north, y < 0 below the meadow. Pure data.
 
-## Horizontal radius of the generated volume, metres around the trunk.
+## Horizontal radius of the generated volume, metres around the trunk, in the soils before 0.8.1
+## (layouts 1 and 2). An instance's own radius is `extent`.
 const EXTENT: float = 14.0
+## Layout 3 (0.8.1, item 29): the wider root field. A static var so tools can try another radius.
+static var field_extent: float = 30.0
 ## Deepest point of the volume.
 const DEPTH: float = 10.0
 ## Topsoil holds most N and P in rich patches.
@@ -51,7 +54,8 @@ var patches: Array = []
 ## topsoil patch about WISH_SIZE times a normal one, a few metres beyond the newest root tip, so
 ## continuing tonight's root from there reaches it (Diary.plan_wish). Seeded from the save seed
 ## and the day; its dots come after all older ids, so saves keep their deposit state.
-## Each placed: {"day": int, "kind": int, "center": Vector3, "radius": float, "count": int}.
+## Each placed: {"day": int, "kind": int, "center": Vector3, "radius": float, "count": int, "far": bool
+## (0.8.1: a far wish, Diary.place_far), "reached": bool (0.8.1: a root reached its glow)}.
 var wish_deposits: Array = []
 const WISH_SIZE: float = 1.5
 const WISH_RADIUS: float = 1.15
@@ -62,8 +66,14 @@ const WISH_MAX_DEPTH: float = 1.8
 ## docs/notes/balance-0.8.md): fewer but larger topsoil patches set apart from each other, more
 ## phosphorus, and nettles on the meadow over phosphorus. A save keeps the layout it was made
 ## with, so its dot ids stay the same.
-const LAYOUT: int = 2
+## 3 (0.8.1, docs/notes/sim-0.8.1.md): the wider root field, 30 m around the trunk, its rich
+## patches in a near, a middle and a far ring, far apart, so a patch takes a long drive.
+const LAYOUT: int = 3
+## The layout a new game gets (GameState.new_game): LAYOUT; tools may compare an older one.
+static var game_layout: int = LAYOUT
 var layout: int = LAYOUT
+## This soil's horizontal radius: EXTENT for layouts 1 and 2, field_extent for layout 3.
+var extent: float = EXTENT
 
 ## Layout 2, the rich topsoil patches per kind: [patches, min dots, max dots, min radius,
 ## max radius, amount per dot]. A static var so tools can try other mixes; the game never
@@ -89,6 +99,26 @@ static var patch_near: float = 2.2
 ## Layout 2 topsoil patches lie shallower than HINT_MAX_DEPTH, so each one shows on the meadow.
 const PATCH_MAX_DEPTH: float = 2.0
 
+## Layout 3 (0.8.1, item 29): the rich topsoil patches lie in rings around the trunk, each ring
+## [inner radius, outer radius, the kinds of its patches in placing order]. The near ring gives
+## every kind a young tree needs within one night; the middle and far rings need a long drive or
+## a root continued over nights. The same sizes per kind as layout 2 (`mix`).
+static var rings: Array = [
+	[5.0, 12.0, [Resources.Kind.PHOSPHORUS, Resources.Kind.NITROGEN, Resources.Kind.WATER, Resources.Kind.PHOSPHORUS, Resources.Kind.NITROGEN]],
+	[12.0, 20.0, [Resources.Kind.WATER, Resources.Kind.PHOSPHORUS, Resources.Kind.NITROGEN, Resources.Kind.WATER, Resources.Kind.PHOSPHORUS]],
+	[20.0, 30.0, [Resources.Kind.NITROGEN, Resources.Kind.WATER, Resources.Kind.PHOSPHORUS, Resources.Kind.NITROGEN]],
+]
+## Layout 3: the least distance between two rich patches' centres (layout 2: patch_gap), the
+## scattered single dots in the whole field, deep water veins, and rocks [shallow, deep] (layout 2:
+## 5 and 26 in a field a fifth the size).
+static var gap3: float = 7.0
+static var scatter3: int = 1200
+static var deep_water3: Array = [2, 55, 75]
+static var rocks3: Array = [9, 60]
+## Where the middle ring starts: a patch this far from the trunk or further counts as far for the
+## wish (item 34).
+const FAR_RING: float = 12.0
+
 ## A normal rich topsoil patch in layout 1 (the wish deposit is WISH_SIZE times one): [dots,
 ## radius, amount per dot]. Water 20 to 32 dots in 0.9 to 1.5 m, nitrogen 22 to 36 in 0.8 to 1.4 m,
 ## phosphorus 16 to 26 in 0.7 to 1.2 m; potassium sits by the rocks, 8 dots a rock.
@@ -105,10 +135,13 @@ func _init(random_seed: int = 1, layout_version: int = LAYOUT) -> void:
 	seed = random_seed
 	layout = layout_version
 	_rng.seed = hash([random_seed, "underground"])
+	extent = field_extent if layout >= 3 else EXTENT
 	if layout <= 1:
 		_generate()
-	else:
+	elif layout == 2:
 		_generate_v2()
+	else:
+		_generate_v3()
 	_build_grid()
 
 
@@ -187,20 +220,48 @@ func _generate_v2() -> void:
 	_generate_finds()
 
 
-## A topsoil point at least patch_gap (horizontally) from every point in `taken`; after 30 tries
-## the one farthest from the others.
-func _spaced_point(taken: Array[Vector3], min_depth: float, max_depth: float, min_dist: float) -> Vector3:
+## Layout 3 (0.8.1, item 29): the wider field. The starter patch as in layout 2, the rich topsoil
+## patches ring by ring, far apart; scattered dots thinner over the bigger volume.
+func _generate_v3() -> void:
+	_generate_rocks(int(rocks3[0]), int(rocks3[1]))
+	var start := Vector3(0.0, -0.8, -1.2)
+	for k in range(4):
+		_add_patch(k, start, 0.9, int(starter[k]), 1.0)
+	var centres: Array[Vector3] = []
+	for ring in rings:
+		for k in ring[2]:
+			var m: Array = mix[int(k)]
+			var c := _spaced_point(centres, 0.5, PATCH_MAX_DEPTH, float(ring[0]), gap3, float(ring[1]))
+			centres.append(c)
+			_add_patch(int(k), c, _rng.randf_range(float(m[3]), float(m[4])), _rng.randi_range(int(m[1]), int(m[2])), float(m[5]))
+	for _i in range(int(deep_water3[0])):
+		_add_patch(Resources.Kind.WATER, _random_point(4.0, DEPTH - 1.0, 2.0), _rng.randf_range(1.6, 2.4), _rng.randi_range(int(deep_water3[1]), int(deep_water3[2])), 1.4)
+	for r in range(rock_centers.size()):
+		if -rock_centers[r].y > 3.0:
+			_add_potassium_around_rock(r)
+	for _i in range(scatter3):
+		var p := _random_point(0.2, DEPTH, 0.8)
+		_add_dot(p, _pick_kind(-p.y > TOPSOIL), 0.5)
+	_generate_finds()
+
+
+## A topsoil point at least `gap` (horizontally; patch_gap when negative) from every point in
+## `taken`, `min_dist` to `max_dist` from the trunk (extent when negative); after 30 tries the one
+## farthest from the others.
+func _spaced_point(taken: Array[Vector3], min_depth: float, max_depth: float, min_dist: float, gap: float = -1.0, max_dist: float = -1.0) -> Vector3:
+	if gap < 0.0:
+		gap = patch_gap
 	var best := Vector3.ZERO
 	var best_gap := -1.0
 	for _t in range(30):
-		var p := _random_point(min_depth, max_depth, min_dist)
-		var gap := INF
+		var p := _random_point(min_depth, max_depth, min_dist, max_dist)
+		var g := INF
 		for q in taken:
-			gap = minf(gap, Vector2(p.x - q.x, p.z - q.z).length())
-		if gap >= patch_gap:
+			g = minf(g, Vector2(p.x - q.x, p.z - q.z).length())
+		if g >= gap:
 			return p
-		if gap > best_gap:
-			best_gap = gap
+		if g > best_gap:
+			best_gap = g
 			best = p
 	return best
 
@@ -225,6 +286,27 @@ static func tool_arg(a: String) -> bool:
 		patch_near = float(a.substr(7))
 	elif a.begins_with("--gap="):
 		patch_gap = float(a.substr(6))
+	elif a.begins_with("--layout="):
+		game_layout = int(a.substr(9))
+	elif a.begins_with("--gap3="):
+		gap3 = float(a.substr(7))
+	elif a.begins_with("--scatter3="):
+		scatter3 = int(a.substr(11))
+	elif a.begins_with("--extent="):
+		field_extent = float(a.substr(9))
+	elif a.begins_with("--rocks3="):
+		var rv := a.substr(9).split(",")
+		rocks3 = [int(rv[0]), int(rv[1])]
+	elif a.begins_with("--deep3="):
+		var d3 := a.substr(8).split(",")
+		deep_water3 = [int(d3[0]), int(d3[1]), int(d3[2])]
+	elif a.begins_with("--ring="):
+		# --ring=index:kinds, the kinds as digits by Resources.Kind (--ring=0:21021).
+		var rk := a.substr(7).split(":")
+		var kinds: Array = []
+		for ch in rk[1]:
+			kinds.append(int(ch))
+		rings[int(rk[0])][2] = kinds
 	else:
 		return false
 	return true
@@ -249,10 +331,10 @@ static func wish_size(kind: int, rng: RandomNumberGenerator, layout_version: int
 
 ## Places a wish deposit (from Diary.plan_wish). Returns its index in `patches`, or -1 when the
 ## dot budget is full.
-func add_wish_deposit(day: int, kind: int, center: Vector3, radius: float, count: int) -> int:
+func add_wish_deposit(day: int, kind: int, center: Vector3, radius: float, count: int, far: bool = false) -> int:
 	if dot_count() + count > Budgets.NUTRIENT_DOTS_LOADED:
 		return -1
-	wish_deposits.append({"day": day, "kind": kind, "center": center, "radius": radius, "count": count})
+	wish_deposits.append({"day": day, "kind": kind, "center": center, "radius": radius, "count": count, "far": far})
 	return _place_wish_deposit(wish_deposits[-1])
 
 
@@ -265,6 +347,10 @@ func _place_wish_deposit(w: Dictionary) -> int:
 	_add_patch(kind, w["center"], float(w["radius"]), int(w["count"]), float(normal_patch(kind, layout)[2]))
 	patches[-1]["wish"] = true
 	patches[-1]["day"] = int(w["day"])
+	patches[-1]["far"] = bool(w.get("far", false))
+	patches[-1]["reached"] = bool(w.get("reached", false))
+	# Always the newest entry of wish_deposits (add_wish_deposit, from_dict).
+	patches[-1]["wish_index"] = wish_deposits.size() - 1
 	_rng.seed = saved_seed
 	_rng.state = saved
 	for i in range(first, dot_count()):
@@ -275,6 +361,18 @@ func _place_wish_deposit(w: Dictionary) -> int:
 		arr.append(i)
 		_grid[c] = arr
 	return patches.size() - 1
+
+
+## A root reached this wish deposit's glow (Diary.check_reached): it is never a missed deposit
+## again, even when the root only grazed its edge (0.8.1: a wish pointed a second time at a far
+## deposit reached five nights before). Saved with the deposit.
+func mark_wish_reached(patch_id: int) -> void:
+	if patch_id < 0 or patch_id >= patches.size() or not bool(patches[patch_id].get("wish", false)):
+		return
+	patches[patch_id]["reached"] = true
+	var wi := int(patches[patch_id].get("wish_index", -1))
+	if wi >= 0 and wi < wish_deposits.size():
+		wish_deposits[wi]["reached"] = true
 
 
 ## Indices into `patches` of the wish deposits.
@@ -304,11 +402,11 @@ func patch_amount(patch_id: int, capacity: bool = false) -> float:
 	return total
 
 
-func _generate_rocks() -> void:
+func _generate_rocks(shallow: int = 5, deeper: int = 26) -> void:
 	# A few shallow rocks (they show as stones on the meadow), more and bigger ones deeper.
-	for _i in range(5):
+	for _i in range(shallow):
 		_add_rock(_random_point(0.7, 1.6, 2.5), _rng.randf_range(0.45, 0.8))
-	for _i in range(26):
+	for _i in range(deeper):
 		var depth := 1.5 + (DEPTH - 1.5) * sqrt(_rng.randf())
 		var p := _random_point(depth, depth, 2.5)
 		_add_rock(p, _rng.randf_range(0.5, 1.2 + depth * 0.08))
@@ -366,10 +464,12 @@ func _generate_finds() -> void:
 
 
 ## Random point with depth in [min_depth, max_depth] and horizontal distance
-## in [min_dist, EXTENT] from the trunk.
-func _random_point(min_depth: float, max_depth: float, min_dist: float) -> Vector3:
+## in [min_dist, max_dist] from the trunk (the soil's extent when negative). Layout 3 spreads it
+## evenly over the ring's area; layouts 1 and 2 keep their old draw, dot for dot.
+func _random_point(min_depth: float, max_depth: float, min_dist: float, max_dist: float = -1.0) -> Vector3:
 	var a := _rng.randf() * TAU
-	var d := lerpf(min_dist, EXTENT, sqrt(_rng.randf()))
+	var hi := extent if max_dist < 0.0 else max_dist
+	var d := sqrt(lerpf(min_dist * min_dist, hi * hi, _rng.randf())) if layout >= 3 else lerpf(min_dist, hi, sqrt(_rng.randf()))
 	return Vector3(cos(a) * d, -_rng.randf_range(min_depth, max_depth), sin(a) * d)
 
 
@@ -496,9 +596,17 @@ func touch_finds(p: Vector3) -> Array:
 
 ## Surface hints for the meadow: what grows above what lies below (design doc "Read the meadow").
 ## Each: {"kind": "rushes"|"damp"|"clover"|"nettles"|"comfrey"|"stones"|"moss", "position": Vector3 (y = 0), "radius": float}
-func surface_hints() -> Array:
+## `edge` is the clearing's radius (0.8.1, item 29): a patch beyond it shows its sign at the
+## clearing's edge in its direction (EDGE_INSET inside, a little smaller), so a far patch can still
+## be read from the day. INF: every sign over its patch.
+const EDGE_INSET: float = 2.5
+const EDGE_SIGN_SCALE: float = 0.8
+
+
+func surface_hints(edge: float = INF) -> Array:
 	var out: Array = []
 	var clover_turn := true
+	var rim := edge - EDGE_INSET
 	for patch in patches:
 		var c: Vector3 = patch["center"]
 		# Not the starter patch right under the seed: the meadow at the trunk stays plain.
@@ -506,6 +614,11 @@ func surface_hints() -> Array:
 			continue
 		var ground := Vector3(c.x, 0.0, c.z)
 		var r: float = patch["radius"]
+		var flat := Vector2(c.x, c.z)
+		if flat.length() > rim:
+			var at := flat.normalized() * maxf(rim, 2.0)
+			ground = Vector3(at.x, 0.0, at.y)
+			r *= EDGE_SIGN_SCALE
 		match int(patch["kind"]):
 			Resources.Kind.WATER:
 				out.append({"kind": "damp", "position": ground, "radius": r})
@@ -553,7 +666,12 @@ func to_dict() -> Dictionary:
 	var wishes: Array = []
 	for w in wish_deposits:
 		var c: Vector3 = w["center"]
-		wishes.append([w["day"], w["kind"], c.x, c.y, c.z, w["radius"], w["count"]])
+		var row: Array = [w["day"], w["kind"], c.x, c.y, c.z, w["radius"], w["count"]]
+		if bool(w.get("far", false)) or bool(w.get("reached", false)):
+			row.append(1 if bool(w.get("far", false)) else 0)
+		if bool(w.get("reached", false)):
+			row.append(1)
+		wishes.append(row)
 	return {"seed": seed, "layout": layout, "collected": Marshalls.raw_to_base64(dot_collected),
 		"amounts": Marshalls.raw_to_base64(dot_amounts.to_byte_array()), "finds_found": found,
 		"wish_deposits": wishes}
@@ -565,7 +683,8 @@ static func from_dict(d: Dictionary) -> Underground:
 	# The wish deposits placed so far, in the same order, so their dot ids come out the same.
 	for w in d.get("wish_deposits", []):
 		if w is Array and (w as Array).size() >= 7:
-			u.wish_deposits.append({"day": int(w[0]), "kind": int(w[1]), "center": Vector3(w[2], w[3], w[4]), "radius": float(w[5]), "count": int(w[6])})
+			u.wish_deposits.append({"day": int(w[0]), "kind": int(w[1]), "center": Vector3(w[2], w[3], w[4]), "radius": float(w[5]), "count": int(w[6]),
+				"far": (w as Array).size() >= 8 and int(w[7]) != 0, "reached": (w as Array).size() >= 9 and int(w[8]) != 0})
 			u._place_wish_deposit(u.wish_deposits[-1])
 	var raw := Marshalls.base64_to_raw(str(d.get("collected", "")))
 	if raw.size() <= u.dot_collected.size():

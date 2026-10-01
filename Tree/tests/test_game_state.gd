@@ -349,11 +349,18 @@ func test_visitors_come_once_as_the_tree_grows() -> void:
 func test_steering_to_deposits_grows_the_biggest_tree() -> void:
 	# QA r1: ending each root after 2 m grew the biggest tree, chasing dots the smallest. Now the
 	# player who steers to the deposits leads; ending early still grows a tree, only a smaller one.
+	# 0.8.1 (docs/notes/sim-0.8.1.md): in the wider field the first two weeks run on the unchanged
+	# starter patch and the growth curve (specs/0.8.md: "the first days are not harder"), so both
+	# trees stand about level on day 12 (507 vs 468 segments on this seed, 1.13x and 1.34x on
+	# seeds 27 and 3); the lead shows in the month, as broken items 4 and 10a measure it: the
+	# steered tree finishes clearly sooner, and the one never steered still finishes.
 	var strategies := preload("res://tools/strategies.gd")
-	var dots: Dictionary = strategies.play("dots", "linden", 14, 12)
-	var early: Dictionary = strategies.play("end_early", "linden", 14, 12)
-	t.check(int(dots["nodes"]) > int(early["nodes"]) * 1.1, "steering to deposits leads after 12 days (%d vs %d segments)" % [dots["nodes"], early["nodes"]])
-	t.check(int(early["nodes"]) > 200, "ending early still grows the tree (%d segments)" % early["nodes"])
+	var dots: Dictionary = strategies.play("dots", "linden", 14, 45)
+	var early: Dictionary = strategies.play("end_early", "linden", 14, 45)
+	var dots_day := int(dots["finish"])
+	var early_day := int(early["finish"])
+	t.check(dots_day > 0 and early_day >= dots_day + 4, "steering to deposits finishes clearly sooner (day %d vs %d)" % [dots_day, early_day])
+	t.check(early_day > 0 and early_day <= 40, "ending early still grows the tree to the end (day %d)" % early_day)
 	var longest := 0
 	for s in dots["secs"]:
 		longest = maxi(longest, int(s))

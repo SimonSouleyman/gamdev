@@ -74,10 +74,19 @@ func test_the_wish_places_a_bigger_deposit_ahead_of_the_newest_tip() -> void:
 			var ahead := Vector2(c.x - tip.x, c.z - tip.z).length()
 			# 0.8: a missed deposit ahead may be wished for again, a little nearer or further.
 			var slack := 0.01 if int(patch.get("day", day)) == day else 2.01
-			t.check(ahead > Diary.AHEAD_MIN - slack and ahead < Diary.AHEAD_MAX + slack, "a few metres beyond the newest tip (%.1f m)" % ahead)
+			# 0.8.1: a far wish goes a long drive further (tests/test_field.gd) and may wait for
+			# two or three mornings.
+			var far := Diary.is_far(u, p)
+			var lo := Diary.FAR_AHEAD_MIN if far else Diary.AHEAD_MIN
+			var hi := Diary.FAR_AHEAD_MAX if far else Diary.AHEAD_MAX
+			var waiting := far and int(patch.get("day", day)) != day
+			if not waiting:
+				t.check(ahead > lo - slack and ahead < hi + slack, "a few metres beyond the newest tip (%.1f m)" % ahead)
 			t.check(-c.y < Underground.HINT_MAX_DEPTH, "in the topsoil, under a meadow hint")
 			var goal := c - (c - tip).normalized() * r * 0.6
-			t.check(Diary.line_cost(u, roots, tip, goal) <= roots.calm_life_force * Diary.REACH_SHARE, "a calm tank reaches it from the newest tip")
+			var nights := Diary.FAR_REACH_NIGHTS if far else 1.0
+			if not waiting:
+				t.check(Diary.line_cost(u, roots, tip, goal) <= roots.calm_life_force * Diary.REACH_SHARE * nights, "a calm tank reaches it from the newest tip")
 			t.check(diary.wish.contains(Underground.compass(c)), "the wish names its direction: " + diary.wish)
 			var hinted := false
 			for h in u.surface_hints():

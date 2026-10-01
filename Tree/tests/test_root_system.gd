@@ -161,7 +161,9 @@ func test_pushing_against_a_wall_costs_nothing() -> void:
 	var r: RootSystem = s[1]
 	var res: Resources = s[2]
 	r.start_run(0)
-	r.tip_position = Vector3(10.3, -9.95, 9.5)
+	# The corner of the floor and the field's edge (14 m before 0.8.1, 30 m since).
+	var corner := Vector2(10.3, 9.5).normalized() * (u.extent - 0.3)
+	r.tip_position = Vector3(corner.x, -9.95, corner.y)
 	r.heading = Vector3(0.6, -0.9, 0.5).normalized()
 	var before := res.life_force
 	var start := r.tip_position
@@ -171,7 +173,7 @@ func test_pushing_against_a_wall_costs_nothing() -> void:
 	var spent := before - res.life_force
 	var moved := r.run_length
 	t.check(moved > 1.0, "the root got out of the corner (%f m)" % moved)
-	t.check(spent <= moved * r.cost_per_metre(Vector3(14, -10, 0)) + 0.01, "paid only for metres grown (%f for %f m)" % [spent, moved])
+	t.check(spent <= moved * r.cost_per_metre(Vector3(u.extent, -10, 0)) + 0.01, "paid only for metres grown (%f for %f m)" % [spent, moved])
 
 
 func test_overlapping_rocks_are_still_walls() -> void:

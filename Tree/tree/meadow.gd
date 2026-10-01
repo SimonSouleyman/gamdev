@@ -24,8 +24,9 @@ func build(ground: Underground) -> void:
 		"stone": _mat(Color(0.55, 0.54, 0.5)),
 		"moss": _mat(Color(0.28, 0.5, 0.15)),
 	}
-	for h in ground.surface_hints():
-		var p: Vector3 = Terrain.at(h["position"])
+	# 0.8.1 (item 29): a patch beyond the clearing shows its sign at the clearing's edge.
+	for h in ground.surface_hints(Terrain.edge):
+		var p: Vector3 = Terrain.at(_clear_of_shed(h["position"]))
 		var r: float = h["radius"]
 		match str(h["kind"]):
 			"damp":
@@ -43,6 +44,20 @@ func build(ground: Underground) -> void:
 			"moss":
 				# A small bare patch of earth around the trunk; nothing else grows there (Simon).
 				_wet_patch(Terrain.at(Vector3.ZERO), BARE_RADIUS, Color(0.2, 0.15, 0.1), 0.95)
+
+
+## A sign moved to the clearing's edge keeps clear of the shed there: turned along the edge.
+const SHED_CLEAR: float = 4.0
+
+
+func _clear_of_shed(q: Vector3) -> Vector3:
+	var shed := Vector3(Shed.origin.x, 0.0, Shed.origin.z)
+	var flat := Vector2(q.x, q.z)
+	if q.distance_to(shed) >= SHED_CLEAR or flat.length() < 1.0:
+		return q
+	var side := 1.0 if flat.angle_to(Vector2(shed.x, shed.z)) < 0.0 else -1.0
+	var turned := flat.rotated(side * SHED_CLEAR * 1.3 / flat.length())
+	return Vector3(turned.x, 0.0, turned.y)
 
 
 const WET_SHADER := """

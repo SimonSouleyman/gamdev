@@ -21,7 +21,9 @@ var boost_active: bool = false
 var boost_multiplier: float = 2.0
 ## Boosting is a trade: growth speeds up, but leaves turn light into less life force.
 ## 0.35 (was 0.5, sim-0.6.3): a fully boosted day's root is at least a third shorter (broken list 2).
-var boost_life_force_factor: float = 0.35
+## 0.3 in 0.8.1 (sim-0.8.1.md): in the wider field a calm root drives further out and deeper, where
+## a metre costs more, so at 0.35 the boosted root was only 0.60 to 0.78 of the calm one in metres.
+var boost_life_force_factor: float = 0.3
 ## Height of the sun at noon. Germany in summer is about 60 degrees; seasons will tilt this later.
 var noon_elevation: float = deg_to_rad(55.0)
 

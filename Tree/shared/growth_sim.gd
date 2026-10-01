@@ -39,6 +39,16 @@ var hold_days: float = 1.2
 var find_hold_days: float = 1.2
 ## How far a missing nutrient takes away the boost's extra light (0 = not at all, 1 = fully).
 var boost_liebig: float = 1.0
+## 0.8.1 (docs/notes/sim-0.8.1.md): a tree that starts the day hungry (its stock at sunrise covers
+## little of a calm day, care_need) and has a nutrient missing gains no growth from the boost
+## (boost_liebig), so the boost costs it less life force: by this share of the price, times the
+## morning's hunger. A player who boosted all day and ended every root at once paid the boost's
+## price for nothing and did not finish by day 45 (0.8 check, item 1). A tree whose night fed it
+## pays the full price, even once its boost has used the stock up (broken list item 2).
+var boost_cost_liebig: float = 1.0
+## The morning's hunger counts this many times (capped at 1): a tree whose stock covers less than
+## about half a calm day at sunrise counts as fully hungry.
+var boost_hunger_gain: float = 1.0
 ## Dawn burst: this share of what the nutrients can buy is released in the first seconds after sunrise.
 var dawn_burst_share: float = 0.25
 var dawn_burst_seconds: float = 10.0
@@ -190,7 +200,17 @@ func tick(delta: float) -> void:
 
 	# Life force from leaves: every tip counts as a leaf cluster. Inner leaves shade each other,
 	# so a big crown yields less per leaf (a stand-in until the shadow grid exists).
-	resources.life_force += effective_leaves() * life_force_per_tip * clock.life_force_light() * delta 			* species.life_force_factor(clock.day_count, clock.boost_active) * young_leaf_bonus()
+	var lf_light := clock.life_force_light()
+	var lf_species := species.life_force_factor(clock.day_count, clock.boost_active)
+	if clock.boost_active and boost_cost_liebig > 0.0:
+		var hungry := 0.0
+		for k in range(4):
+			if species.needs[k] > 0.0:
+				hungry = maxf(hungry, minf(1.0, care_need[k] * boost_hunger_gain))
+		var buys := lerpf(1.0, Resources.growth_factor(resources.stock, species.needs, 0.0), boost_cost_liebig * hungry)
+		lf_light = lerpf(clock.sun_height(), lf_light, buys)
+		lf_species = lerpf(species.life_force_factor(clock.day_count, false), lf_species, buys)
+	resources.life_force += effective_leaves() * life_force_per_tip * lf_light * delta * lf_species * young_leaf_bonus()
 
 	# Seed markers on the sun's side, above the current crown, capped by the species size.
 	var sun := clock.sun_direction()
