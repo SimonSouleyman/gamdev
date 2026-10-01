@@ -102,3 +102,71 @@ func test_pinboard_has_the_new_switches() -> void:
 	t.check(ShedMenu.OPTION_NAMES.has("vibration") and ShedMenu.OPTION_NAMES.has("clearer_print"), "both on the pinboard")
 	for item in Shed.ITEMS:
 		t.check(ShedMenu.TAG_TEXTS.has(item), "every thing on the bench has a label: " + item)
+
+
+## 0.8.1, item 28: the flower pot left the bench; the tree's page (how it is, the wish, an ink
+## sketch) is the journal's first page, and the book opens there; "while you were away" still
+## comes as its own page.
+func test_tree_page_is_the_journals_first_page() -> void:
+	t.check(not Shed.ITEMS.has("pot") and not ShedMenu.TAG_TEXTS.has("pot"), "no flower pot on the bench")
+	var g := _grown(12)
+	g.diary.wish = "Today, the tree would like some water."
+	var j := Journal.new()
+	t.root.add_child(j)
+	j.state = g
+	j.open_diary()
+	t.check_eq(j.current_tab(), "tree", "the book opens at the tree's page")
+	t.check_eq(j._tab_buttons.keys()[0], "tree", "its ribbon is the first")
+	var lines := Journal.tree_page_lines(g)
+	t.check(lines[0].contains("%.1f m" % g.sim.height()), "how tall it is: " + lines[0])
+	t.check(lines[1].begins_with("A wish: today"), "the day's wish: " + lines[1])
+	var words: Array[String] = []
+	for c in j._tree_box.get_children():
+		if not c.is_queued_for_deletion():
+			words.append((c as Label).text)
+	t.check_eq(words, lines, "the page shows them")
+	t.check(j._tree_sketch.custom_minimum_size.y >= 300.0, "with room for the ink sketch")
+	# Another ribbon, closed and opened again: where it was left.
+	j._show_tab("diary", false)
+	j.close_diary()
+	j.open_diary()
+	t.check_eq(j.current_tab(), "diary", "then it opens where it was left")
+	j.free()
+	# The page is never lost: a new tree's page is that tree's.
+	var h := GameState.new_tree(5, "linden", g)
+	t.check(Journal.tree_page_lines(h)[0].contains("linden"), "a new tree has its own page: " + Journal.tree_page_lines(h)[0])
+	# "While you were away" still opens as its own page.
+	var menu := ShedMenu.new()
+	t.root.add_child(menu)
+	g.apply_offline(2.0 * 86400.0)
+	var report := g.take_away_report()
+	menu.show_tree_page(g, report)
+	t.check(menu.is_tree_page_open(), "the away page opens on return")
+	menu.free()
+
+
+## 0.8.1, item 26: on the phone's tall screen (and the reference one) the shed's view holds the
+## sill with the bonsai and the pinboard whole, and every thing answers a tap where it is.
+func test_shed_view_fits_the_phone() -> void:
+	for canvas in [Vector2i(720, 1600), Vector2i(720, 1280), Vector2i(1280, 720)]:
+		var vp := SubViewport.new()
+		vp.size = canvas
+		vp.disable_3d = false
+		t.root.add_child(vp)
+		var shed := Shed.new()
+		vp.add_child(shed)
+		shed.bonsai_ready = true
+		shed.camera.current = true
+		shed.fit_view()
+		var where := "%dx%d" % [canvas.x, canvas.y]
+		for p in Shed.must_see():
+			var s := shed.camera.unproject_position(shed.to_global(p))
+			t.check(not shed.camera.is_position_behind(shed.to_global(p)) and s.x >= 0.0 and s.x <= canvas.x and s.y >= 0.0 and s.y <= canvas.y, "%s: %s on screen (%s)" % [where, p, s])
+		for item in Shed.ITEMS:
+			var c: Node3D = shed._picks[item][0]
+			var s := shed.camera.unproject_position(c.global_position)
+			t.check(s.x > 20.0 and s.x < canvas.x - 20.0 and s.y > 20.0 and s.y < canvas.y - 20.0, "%s: %s inside the screen (%s)" % [where, item, s])
+			t.check_eq(shed.item_at(s), item, "%s: a tap on the %s finds it" % [where, item])
+			# Finger size on a phone (portrait): its tap circle at least 9 mm (100 canvas px).
+			t.check(canvas.x > canvas.y or shed._screen_radius(c.global_position, float(shed._picks[item][1])) * 2.0 >= 100.0, "%s: %s at least finger size" % [where, item])
+		vp.free()

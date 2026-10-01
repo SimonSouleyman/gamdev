@@ -727,8 +727,8 @@ var _shed_hover: String = ""
 var _shed_tapped: String = ""
 
 
-## What a thing in the shed opens: the journal the diary, the album the photos, the seed bag
-## its page (and the next seed), the flower pot the tree's own page, the pinboard the options;
+## What a thing in the shed opens: the journal the diary (its first page the tree's own), the
+## album the photos, the seed bag its page (and the next seed), the pinboard the options;
 ## the garden gloves and the open door lead outside.
 func open_shed_item(item: String) -> void:
 	match item:
@@ -740,8 +740,6 @@ func open_shed_item(item: String) -> void:
 			shed_menu.open_options()
 		"seeds":
 			shed_menu.open_seeds(state, bool(journal.settings.get("any_species", false)))
-		"pot":
-			shed_menu.show_tree_page(state)
 		"gloves", "door":
 			leave_shed()
 		"bonsai":

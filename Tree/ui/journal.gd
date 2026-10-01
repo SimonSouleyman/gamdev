@@ -34,7 +34,8 @@ var _book: Control
 var _book_page: PanelContainer
 var _tabs: Dictionary = {}  # name -> Control (content)
 var _tab_buttons: Dictionary = {}
-var _current_tab: String = "diary"
+## The book opens at its first page, the tree's own (0.8.1, item 28), then where it was left.
+var _current_tab: String = "tree"
 ## Size of a diary line's ink drawing (a reached wish), in pixels.
 const DRAWING_SIZE: int = 88
 var _diary_text: RichTextLabel
@@ -50,6 +51,10 @@ var _clearing_list: VBoxContainer
 var _clearing_more: Label
 ## The care page (0.6.3): the crown and the roots read in words (Care.page).
 var _care_box: VBoxContainer
+## The tree's own page (0.8.1, item 28; before, the flower pot's on the bench): how it is, the
+## day's wish, who has come, and an ink sketch of it as it stands.
+var _tree_box: VBoxContainer
+var _tree_sketch: Control
 ## Pages that name the nutrients by their dots show the key of the four marks (0.8).
 const MARK_PAGES: Array[String] = ["first_night", "first_sunset", "sapling"]
 var _page_marks: Control
@@ -324,6 +329,7 @@ func _build_book() -> void:
 	var content := Control.new()
 	content.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	stack.add_child(content)
+	_tabs["tree"] = _build_tree_tab()
 	_tabs["diary"] = _build_diary_tab()
 	_tabs["pages"] = _build_pages_tab()
 	_tabs["settings"] = _build_settings_tab()
@@ -335,8 +341,8 @@ func _build_book() -> void:
 		content.add_child(c)
 
 	# Cloth ribbon bookmarks sticking out of the right edge of the book, with forked ends.
-	var ribbons := {"diary": Color(0.62, 0.2, 0.16), "care": Color(0.2, 0.36, 0.5), "pages": Color(0.25, 0.38, 0.22), "clearing": Color(0.52, 0.42, 0.16)}
-	var y := 120
+	var ribbons := {"tree": Color(0.42, 0.3, 0.18), "diary": Color(0.62, 0.2, 0.16), "care": Color(0.2, 0.36, 0.5), "pages": Color(0.25, 0.38, 0.22), "clearing": Color(0.52, 0.42, 0.16)}
+	var y := 110
 	for k in ribbons:
 		var b := Button.new()
 		b.text = k
@@ -376,8 +382,8 @@ func _build_book() -> void:
 		b.pressed.connect(func() -> void: _show_tab(k))
 		_book.add_child(b)
 		_tab_buttons[k] = b
-		y += 124
-	_show_tab("diary", false)
+		y += 118
+	_show_tab("tree", false)
 	_book.visible = false
 
 
@@ -422,6 +428,53 @@ func _build_diary_tab() -> Control:
 	note_row.add_child(add)
 	_note.text_submitted.connect(func(_t: String) -> void: _add_note())
 	return box
+
+
+func _build_tree_tab() -> Control:
+	var scroll := ScrollContainer.new()
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 10)
+	box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	box.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	scroll.add_child(box)
+	_tree_box = VBoxContainer.new()
+	_tree_box.add_theme_constant_override("separation", 10)
+	box.add_child(_tree_box)
+	_tree_sketch = Control.new()
+	_tree_sketch.custom_minimum_size = Vector2(0, 420)
+	_tree_sketch.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	_tree_sketch.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_tree_sketch.draw.connect(func() -> void:
+		if state != null:
+			ShedMenu.draw_graph_sketch(_tree_sketch, state.sim.graph))
+	box.add_child(_tree_sketch)
+	return scroll
+
+
+## The tree's page: one label per paragraph (ShedMenu.status_text), the day's wish in red ink.
+func _refresh_tree() -> void:
+	for c in _tree_box.get_children():
+		c.queue_free()
+	for line in tree_page_lines(state):
+		var l := Paper.ink_label(line, 26, Paper.RED_INK if line.begins_with("A wish: ") else Paper.INK)
+		l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		_tree_box.add_child(l)
+	_tree_sketch.queue_redraw()
+
+
+## The paragraphs of the tree's page: how it is, the day's wish, who has come.
+static func tree_page_lines(s: GameState) -> Array[String]:
+	var lines := ShedMenu.status_text(s)
+	if s.diary.wish != "":
+		lines.insert(1, "A wish: " + wish_line(s.diary.wish))
+	return lines
+
+
+## Which ribbon's page is open ("tree" first).
+func current_tab() -> String:
+	return _current_tab
 
 
 func _build_pages_tab() -> Control:
@@ -654,6 +707,7 @@ func _refresh_diary() -> void:
 			_pages_list.add_child(b)
 			any = true
 	_pages_empty.visible = not any
+	_refresh_tree()
 	_refresh_clearing()
 	_refresh_care()
 

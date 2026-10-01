@@ -15,9 +15,10 @@ signal plant_pressed(species_id: String)
 ## kind (album, grove, bonsai stay), "all" starts over like a fresh install.
 signal reset_pressed(kind: String)
 
-## The words on the labels of the things in the shed (Shed.ITEMS); the pot names the tree.
+## The words on the labels of the things in the shed (Shed.ITEMS). (0.8.1, item 28: the flower
+## pot left the bench; the tree's page is the journal's first page.)
 const TAG_TEXTS := {"journal": "journal", "album": "photo album", "seeds": "seed bag",
-	"pot": "my linden", "gloves": "go outside", "options": "options", "bonsai": "my bonsai"}
+	"gloves": "go outside", "options": "options", "bonsai": "my bonsai"}
 ## The switches on the options pinboard, in their order.
 const OPTION_NAMES := {"sound": "sound", "no_ui": "no UI (pure scenery)", "battery_saver": "battery saver",
 	"notifications": "a note each day", "vibration": "vibration", "clearer_print": "clearer print",
@@ -56,6 +57,8 @@ var _flip_tree: int = -1
 ## The current tree is finished (main sets it): its flip-book page follows its last photo.
 var tree_finished: bool = false
 var _toggles: Dictionary = {}
+## The switches' notes on the pinboard, in order (laid out over the board's height, _layout_notes).
+var _notes: Array[Control] = []
 var _loading: Control
 var _seeds: Control
 var _seeds_box: VBoxContainer
@@ -136,11 +139,9 @@ func show_menu(on: bool) -> void:
 		_seeds.visible = false
 
 
-## The pot's label names the tree ("my silver birch").
+## The tree's name ("silver birch"), for its pages.
 func set_tree_name(tree_name: String) -> void:
 	_tree_name = tree_name
-	var l := _tags["pot"].get_child(0) as Label
-	l.text = "my " + tree_name
 
 
 ## Esc on the options board, in the album, at the seed bag or on the tree's page closes it.
@@ -188,6 +189,7 @@ func _build_options() -> void:
 		note.custom_minimum_size = Vector2(560 if last else 260, 120)
 		note.rotation_degrees = [-3.0, 2.0, 1.5, -2.0, 2.5, -1.0, 1.0][i]
 		board.add_child(note)
+		_notes.append(note)
 		var c := CheckBox.new()
 		c.text = names[key]
 		c.focus_mode = Control.FOCUS_NONE
@@ -356,7 +358,30 @@ func open_options() -> void:
 		(_toggles[k] as CheckBox).set_pressed_no_signal(bool(settings.get(k, false)))
 	backup_notes.reset()
 	_place_live_note(false)
+	_layout_notes()
 	_options.visible = true
+
+
+## The switches' rows spread over the cork down to the backup notes, keeping room above those
+## for their note slip or the live picture's open note (0.8.1: on the phone's tall screen the
+## rows sat at the top over a large empty board). The rows are never closer than they were.
+func _layout_notes() -> void:
+	var room := get_viewport().get_visible_rect().size if get_viewport() != null else Vector2(720, 1280)
+	var backup_bottom := LIVE_BOTTOM - Paper.INK_TAP - ROW_GAP if show_live_note else RESETS_BOTTOM - Paper.INK_TAP - ROW_GAP
+	# Board-local: the backup notes' row top, less two rows for the slip or the open live note.
+	var free_bottom := room.y + backup_bottom - Paper.INK_TAP - 2.0 * (Paper.INK_TAP + ROW_GAP) - BOARD_TOP
+	var rows := (_notes.size() + 1) / 2
+	var last_h := 0.0
+	for n in _notes:
+		last_h = maxf(last_h, n.get_combined_minimum_size().y)
+	var pitch := clampf((free_bottom - NOTES_TOP - last_h) / maxf(rows - 1, 1), ROW_PITCH, ROW_PITCH * 1.8)
+	for i in range(_notes.size()):
+		_notes[i].position.y = NOTES_TOP + (i / 2) * pitch
+
+
+## The switches' first row (board-local) and their least row pitch.
+const NOTES_TOP := 36.0
+const ROW_PITCH := 128.0
 
 
 # --- the photo album -------------------------------------------------------------
@@ -838,7 +863,7 @@ When this %s has grown to its full size (%d of %d segments now), one goes into t
 	_seeds.visible = true
 
 
-# --- the tree's own page: "while you were away", and the flower pot ------------------------
+# --- the tree's own page: "while you were away" (its status page is the journal's first) -----
 
 func _build_tree_page() -> void:
 	_tree_page = Control.new()
@@ -867,7 +892,8 @@ func _build_tree_page() -> void:
 
 ## The torn diary page about the tree. With a report (GameState.take_away_report): what
 ## happened while the game was closed, the growth in metres, the visitors that came and an ink
-## sketch of the tree as it stands now. Without one it is the flower pot's page: how the tree is.
+## sketch of the tree as it stands now. Without one: how the tree is (the journal's first page
+## shows the same, Journal's "tree" ribbon).
 func show_tree_page(state: GameState, report: Dictionary = {}) -> void:
 	for c in _tree_box.get_children():
 		c.queue_free()
@@ -892,7 +918,7 @@ func show_tree_page(state: GameState, report: Dictionary = {}) -> void:
 	sketch.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	sketch.custom_minimum_size = Vector2(0, 300)
 	sketch.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	sketch.draw.connect(func() -> void: _draw_graph_sketch(sketch))
+	sketch.draw.connect(func() -> void: draw_graph_sketch(sketch, _sketch_graph))
 	_tree_box.add_child(sketch)
 	_tree_page.visible = true
 
@@ -933,7 +959,7 @@ static func away_text(tree_name: String, report: Dictionary) -> Array[String]:
 	return lines
 
 
-## The paragraphs of the flower pot's page: how the tree is doing and who has come so far.
+## The paragraphs of the tree's status page: how the tree is doing and who has come so far.
 static func status_text(state: GameState) -> Array[String]:
 	var sim := state.sim
 	var lines: Array[String] = []
@@ -954,8 +980,7 @@ static func status_text(state: GameState) -> Array[String]:
 
 ## The tree as it stands, drawn in ink from the plant graph: every living segment a stroke as
 ## thick as its wood, a little shaky like a quick drawing, leaves as pale green dabs at the tips.
-func _draw_graph_sketch(c: Control) -> void:
-	var g := _sketch_graph
+static func draw_graph_sketch(c: Control, g: PlantGraph) -> void:
 	if g == null or g.size() == 0:
 		return
 	# Seen from the south with a slight turn, so the crown has some depth.

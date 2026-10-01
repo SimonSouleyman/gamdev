@@ -19,15 +19,19 @@ const STYLE_TEXTS := {
 	"cascade": ["Cascade", "In a tall pot the trunk turns down over the rim and falls below it, like a tree on a cliff."],
 	"broom": ["Broom", "A straight short trunk opens into many fine branches all at once: a dome, like a lone linden in a field."],
 }
+## The hint for the tool in hand (0.8.1, item 18): it names the tool first, so it is always clear
+## which one is in hand, then what to touch and how to put it back.
 const TOOL_HINTS := {
 	"": "Pick up a tool from the sill. Drag to look round, pinch to come closer.",
-	"water": "Tap the soil to water. Tap the can again to put it down.",
-	"fertiliser": "Tap the soil for the marked pellets; the slip changes the kind.",
-	"shears": "Touch a branch: the mark shows the cut, the outline what falls. Lift to cut (a third at most).",
-	"pinch": "Tap a fresh tip (grown today or yesterday) with the tweezers: the buds behind it fill in.",
-	"wire": "Touch a branch and drag it into its new line; the copper holds it. Tap a wired branch to take the wire off.",
-	"trowel": "On a repot day, tap the pot: the tree comes out with its root ball.",
+	"water": "In hand: the watering can. Touch the soil (it lights up), lift to water.",
+	"fertiliser": "In hand: the pellet tin. Touch the soil, lift for a spoon; the slip picks N, P or K.",
+	"shears": "In hand: the shears. Touch a branch: the mark shows the cut. Lift to cut (a third at most).",
+	"pinch": "In hand: the tweezers. Touch a fresh tip (ringed), lift to pinch it.",
+	"wire": "In hand: the copper wire. Touch a branch and drag it into its new line; tap a wired one to free it.",
+	"trowel": "In hand: the trowel. On a repot day touch the pot, lift: the tree comes out.",
 }
+## The word on the held tool's place on the sill: tap it to put the tool back.
+const PUT_BACK := "put back"
 const PELLETS: Array[String] = ["N", "P", "K"]
 const PELLET_WORDS: Array[String] = ["leaves", "roots", "wood"]
 ## The repotting slip's lower edge sits this far above the front row's tap points (canvas px).
@@ -367,15 +371,29 @@ func _place_labels() -> void:
 	var room := _labels_layer.size
 	for id in _labels:
 		var tag: PanelContainer = _labels[id]
-		var on: bool = pts.has(id) and not _sheet.visible and id != view.tool and (Paper.clear_print or is_new(id) or view.hover == id)
+		var held: bool = id == view.tool
+		# The tool in hand: its place says "put back" (0.8.1, item 18), always.
+		var word: String = PUT_BACK if held else (_label_word(id))
+		var l := tag.get_child(0) as Label
+		if l.text != word:
+			l.text = word
+		var on: bool = (held or pts.has(id)) and not _sheet.visible and (held or Paper.clear_print or is_new(id) or view.hover == id)
 		tag.modulate.a = move_toward(tag.modulate.a, 1.0 if on else 0.0, 0.12)
 		tag.visible = tag.modulate.a > 0.01
-		if not pts.has(id):
+		if not pts.has(id) and not held:
 			continue
 		tag.size = tag.get_combined_minimum_size()
 		tag.pivot_offset = tag.size * 0.5
-		var pos := (pts[id] as Vector2) + Vector2(-tag.size.x * 0.5, 30.0 + float(BonsaiTools.LABEL_DROP.get(id, 0.0)))
+		var at: Vector2 = view.tools.rest_point(view.camera, id) if held else pts[id]
+		var pos := at + Vector2(-tag.size.x * 0.5, 30.0 + float(BonsaiTools.LABEL_DROP.get(id, 0.0)))
 		tag.position = pos.clamp(Vector2(6, 6), Vector2(maxf(room.x - tag.size.x - 6.0, 6.0), maxf(room.y - tag.size.y - 6.0, 6.0)))
+
+
+## A thing's label word (the tin's names the pellets it gives).
+func _label_word(id: String) -> String:
+	if id == "fertiliser" and _shown_kind >= 0:
+		return "pellets %s" % PELLETS[_shown_kind]
+	return str(BonsaiTools.LABELS[id])
 
 
 ## The repotting slip lies on the bench between the pot and the front row of tools, so the

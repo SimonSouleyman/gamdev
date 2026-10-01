@@ -275,6 +275,8 @@ func _process(delta: float) -> bool:
 					_shot("17_morning_page")
 					main.journal.close_page()
 				main.journal.open_diary()
+				# The book opens at the tree's page (0.8.1); the diary is the next ribbon.
+				main.journal._show_tab("diary", false)
 				_next("second morning")
 		16:
 			if stage_time > 0.5:

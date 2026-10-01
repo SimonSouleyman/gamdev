@@ -1,8 +1,8 @@
 extends SceneTree
 ## Screenshots of the garden shed (start menu): the workbench with its things and their labels,
 ## each thing hovered and mid-tap, the options pinboard (also in "clearer print"), the album,
-## the journal, the seed bag, the flower pot's page, the "while you were away" page and the
-## loading page.
+## the journal (its first page the tree's own), the seed bag, the "while you were away" page and
+## the loading page.
 ## Run: godot --path . -s tools/shed_shot.gd -- --shots=C:/some/folder [--days=6] [--species=linden]
 ## --flip=25: instead, grow a tree for 25 days with a morning photo each day (into a tool folder),
 ## then open the album on the finished tree's flip-book page, photograph it mid-turn and at the
@@ -16,7 +16,8 @@ extends SceneTree
 ## the juniper and the sill at night.
 ## Run: godot --path . -s tools/shed_shot.gd -- --shots=C:/some/folder [--days=6] [--species=linden] [--bonsai-only [--tools-only]]
 ## For the phone's look add `--rendering-method gl_compatibility` before `--` and `--phone` after it.
-## --quick: only the bench by day and at night (the lantern's light), then quit.
+## --quick: only the bench by day and at night (the lantern's light), then quit. With --sill the
+## bonsai stands on the sill (a finished first tree), and clearer print is photographed too.
 
 var main: Node
 var shots := ""
@@ -29,8 +30,11 @@ var _flip_day := 0
 var _flip_frame := 0
 var bonsai_only := false
 var quick := false
+var sill := false
 ## Only the sill's tools and repotting (with --bonsai-only), for a quick look.
 var tools_only := false
+## Only the juniper's close-ups (young, after 14 days, from the side and from below), then quit.
+var juniper_only := false
 
 
 func _initialize() -> void:
@@ -47,9 +51,16 @@ func _initialize() -> void:
 			bonsai_only = true
 		elif a == "--quick":
 			quick = true
+		elif a == "--sill":
+			sill = true
 		elif a == "--tools-only":
 			tools_only = true
+		elif a == "--juniper-only":
+			juniper_only = true
 	DirAccess.make_dir_recursive_absolute(shots)
+	if sill:
+		# The phone's live picture scrap shows on the pinboard (a PC has no live wallpaper).
+		ShedMenu.show_live_note = true
 	main = load("res://main.tscn").instantiate()
 	main.ephemeral = true
 	root.add_child(main)
@@ -177,8 +188,15 @@ func _grown_game() -> GameState:
 
 
 func _run() -> void:
-	main.start(_grown_game())
+	var g := _grown_game()
+	if sill:
+		g.grove.append({"species": g.sim.species.id, "days": days, "seed": 42})
+	main.start(g)
 	main.enter_shed(false)
+	if juniper_only:
+		await _juniper_shots()
+		quit()
+		return
 	if bonsai_only:
 		await _bonsai_sequence()
 		if tools_only:
@@ -190,6 +208,42 @@ func _run() -> void:
 	# First visit: every thing on the bench carries its label.
 	await _wait(38)
 	_shot("shed_menu")
+	if quick and sill:
+		main._apply_setting("clearer_print", true)
+		main.journal.set_setting("clearer_print", true)
+		await _wait(20)
+		_shot("shed_menu_clearer_print")
+		main._apply_setting("clearer_print", false)
+		main.journal.set_setting("clearer_print", false)
+		main.open_shed_item("options")
+		await _wait(12)
+		_shot("shed_options")
+		main._apply_setting("clearer_print", true)
+		main.journal.set_setting("clearer_print", true)
+		main.shed_menu.open_options()
+		await _wait(8)
+		_shot("shed_options_clearer_print")
+		# The live picture's scrap (on the phone) and the backup's note slip, where they lie.
+		main.shed_menu.backup_notes.set_note("Copied: tree-backup.json in Downloads.")
+		await _wait(6)
+		_shot("shed_options_backup_slip")
+		main.shed_menu.live_note.emit_signal("pressed")
+		await _wait(6)
+		_shot("shed_options_live_open")
+		main.shed_menu.close_boards()
+		main._apply_setting("clearer_print", false)
+		main.journal.set_setting("clearer_print", false)
+		# The journal opens at the tree's own page (0.8.1, item 28).
+		main.open_shed_item("journal")
+		await _wait(15)
+		_shot("shed_journal_tree_page")
+		main.journal.close_diary()
+		main.state.apply_offline(2.0 * 86400.0 + 5.0 * 3600.0)
+		main._show_away_page()
+		await _wait(8)
+		_shot("shed_away")
+		main.shed_menu.close_boards()
+		await _wait(4)
 	if quick:
 		# On to the night: the window goes dark and the lantern lights the room.
 		while main.state.phase == GameState.Phase.DAY:
@@ -238,13 +292,12 @@ func _run() -> void:
 	await _wait(6)
 	_shot("shed_options_clear")
 	main.shed_menu.close_boards()
-	main.open_shed_item("pot")
-	await _wait(8)
-	_shot("shed_pot_page_clear")
-	main.shed_menu.close_boards()
 	main.open_shed_item("journal")
 	await _wait(15)
 	_shot("shed_journal_clear")
+	main.journal._show_tab("tree", false)
+	await _wait(8)
+	_shot("shed_tree_page_clear")
 	main.journal.close_diary()
 	main._apply_setting("clearer_print", false)
 	main.journal.set_setting("clearer_print", false)
@@ -255,11 +308,10 @@ func _run() -> void:
 	main.open_shed_item("journal")
 	await _wait(15)
 	_shot("shed_journal")
-	main.journal.close_diary()
-	main.open_shed_item("pot")
+	main.journal._show_tab("tree", false)
 	await _wait(8)
-	_shot("shed_pot_page")
-	main.shed_menu.close_boards()
+	_shot("shed_tree_page")
+	main.journal.close_diary()
 	# Closed for two days and five hours: the torn "while you were away" page.
 	main.state.apply_offline(2.0 * 86400.0 + 5.0 * 3600.0)
 	main._show_away_page()
@@ -423,6 +475,10 @@ func _tools_sequence(view: BonsaiView, b: BonsaiSim) -> void:
 	await _point(soil + Vector2(-120, -160))
 	await _seconds(0.5)
 	_shot("tool_water_held")
+	# 0.8.1: over the soil the aim shows (a ring round the soil) before anything happens.
+	await _point(soil)
+	await _seconds(0.4)
+	_shot("tool_water_aim")
 	var cn: Node3D = view.tools.items["water"]
 	await _tap(soil)
 	await _seconds(1.35)
@@ -438,6 +494,9 @@ func _tools_sequence(view: BonsaiView, b: BonsaiSim) -> void:
 	await _point(soil + Vector2(110, -120))
 	await _seconds(0.5)
 	_shot("tool_fertiliser_slip")
+	await _point(soil)
+	await _seconds(0.4)
+	_shot("tool_fertiliser_aim")
 	await _tap(soil)
 	await _seconds(0.3)
 	_shot("tool_fertiliser_choose_first")
@@ -703,7 +762,47 @@ func _bonsai_sequence() -> void:
 func _bonsai_rest() -> void:
 	var st: GameState = main.state
 	var view: BonsaiView = main.bonsai_view
+	var b: BonsaiSim = await _juniper_shots()
+	# (the juniper after 14 days is on the sill now)
+	if b == null:
+		return
+	await _bonsai_rest_more(st, view)
+
+
+## The juniper close-ups (0.8.1, item 32: pads as soft clouds from every side, a slim trunk): the
+## young one from the nursery, then after 14 care days from the front, the side and below.
+func _juniper_shots() -> BonsaiSim:
+	var st: GameState = main.state
+	var view: BonsaiView = main.bonsai_view
+	main.shed_menu.close_boards()
+	main.journal.clear_pages()
+	if st.grove.is_empty():
+		st.grove.append({"species": st.sim.species.id, "days": days, "seed": 42})
+	st.ensure_bonsai()
+	for k in ["bonsai", "bonsai_water", "bonsai_fertiliser", "bonsai_wire", "bonsai_repot", "bonsai_pinch", "bonsai_shears", "bonsai_burn"]:
+		st.seen_pages[k] = true
+	if not main.in_bonsai:
+		main.in_shed = false
+		main.enter_shed(false)
+		await _wait(5)
+		main.open_shed_item("bonsai")
+		await _seconds(1.3)
+		main.journal.clear_pages()
 	var b: BonsaiSim
+	if juniper_only:
+		b = BonsaiSim.starter(hash([42, "bonsai"]))
+		b.clock.time_of_day = st.sim.clock.time_of_day
+		st.bonsai = b
+		view.setup(st)
+		_care(b, 3, false)
+		b.moisture = 0.55
+		view.refresh(true)
+		view.look_from(0.0, 0.22, BonsaiView.DIST)
+		await _wait(4)
+		_shot("bonsai_juniper_young")
+		view.look_from(0.5, 0.04, BonsaiView.DIST * 0.8)
+		await _wait(4)
+		_shot("bonsai_juniper_young_low")
 	# A juniper after 14 care days of watering, pellets, pinching and a few cuts (a fresh one
 	# from the nursery, so the days count from its first).
 	b = BonsaiSim.starter(hash([42, "bonsai"]))
@@ -719,7 +818,19 @@ func _bonsai_rest() -> void:
 	view.look_from(-0.6, 0.3, BonsaiView.DIST)
 	await _wait(4)
 	_shot("bonsai_juniper_14days_side")
-	print("juniper day %d: %d green, %d nodes, %.2f units tall, pot %s" % [b.day(), b.leafy_count(), b.graph.size(), b.height(), b.pot])
+	view.look_from(0.45, 0.04, BonsaiView.DIST * 0.8)
+	await _wait(4)
+	_shot("bonsai_juniper_14days_low")
+	view.look_from(1.1, 0.05, BonsaiView.DIST * 0.75)
+	await _wait(4)
+	_shot("bonsai_juniper_14days_edge")
+	view.look_from(0.0, BonsaiView.PITCH, BonsaiView.DIST)
+	print("juniper day %d: %d green, %d nodes, %.2f units tall, trunk radius %.3f, pot %s" % [b.day(), b.leafy_count(), b.graph.size(), b.height(), b.graph.radii[0], b.pot])
+	return b
+
+
+func _bonsai_rest_more(st: GameState, view: BonsaiView) -> void:
+	var b: BonsaiSim
 	main.bonsai_hud._open_album()
 	await _wait(4)
 	_shot("bonsai_album")
