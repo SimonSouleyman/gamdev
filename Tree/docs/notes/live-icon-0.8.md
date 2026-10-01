@@ -12,7 +12,7 @@ Three ways were weighed:
 |---|---|---|---|
 | Godot itself inside WallpaperService (the TheOathMan plugin or our own) | fully | a second engine with a 3D GL context, the tree's 1800 sprays, the meadow cards and shaders at 12 fps: about the game's own draw cost, far over 2 %/h; Godot runs one engine per process and the game would fight the wallpaper for it | no |
 | Export the tree's mesh data, redraw it natively with GLES | close, but the bark, crown and grass shaders would have to be rewritten in Java | medium; a second implementation of every look change | no |
-| **The game renders the current tree into image layers; a Canvas renderer draws sky, clouds, moon and the layers, bending them in the wind** | the tree, crown, season tint and grass are the game's own renderer's pixels; sky and light use the game's own colours and calendar | a gradient, three small cloud bitmaps, 1 to 2 bitmap meshes of 325 vertices a frame | **taken** |
+| **The game renders the current tree into image layers; a Canvas renderer draws sky, clouds, moon and the layers, bending them in the wind** | the tree, crown, season tint and grass are the game's own renderer's pixels; sky and light use the game's own colours and calendar | a gradient, three small cloud bitmaps, 1 to 2 bitmap meshes of 1225 vertices a frame (325 in 0.8) | **taken** |
 
 **Game side** (`tree/live_export.gd`, `LiveExport`): in the morning (after the album photo), at
 sunset (the day's growth) and when a tree is loaded or planted, if the tree changed
@@ -60,17 +60,21 @@ layers by the game (the leaf and grass tints of the day it exported); the day le
 calendar live. If the game is not opened for weeks, the tree keeps its last look, as the spec asks
 ("the tree shown updates when the game saves, never on its own").
 
-**Wind.** A 12x24 bitmap mesh: the foot stands still, the crown bends more the higher it is
-(k^1.6), a slow gust plus a quicker flutter, the crown top moving about 1.2 % of the tree's height
-(`LivePicture.WIND` = 0.012 [PLACEHOLDER]); the grass below the foot ripples by 0.2 % of the
-width; the picture's side edges stay put.
+**Wind.** A 24x48 bitmap mesh (12x24 in 0.8): the foot stands still, the crown bends more the
+higher it is (k^1.6) with a slow gust, a wave runs through the branches, the leaves shimmer
+(`LEAF`, 0.35 % of the width, differing from cell to cell), the crown top moving about 3 % of the
+tree's height, a small tree as if it were 0.4 of the layer tall (`WIND` = 0.03, `WIND_MIN_TALL`
+[PLACEHOLDER]); the grass below the foot ripples in waves by 0.5 % of the width; the picture's
+side edges stay put. 0.8.1 (broken list 33): the 0.8 numbers moved Simon's young tree by about
+3 px on the Fairphone and read as a still picture; see `docs/notes/sound-live-0.8.1.md`.
 
 **Clouds** (follow-up review: the first puff shapes read as cartoon stamps). Three soft, wide,
 thin veils, each its own shape: the game draws them once from layered noise stretched sideways,
 fading out long before the image edge (`LivePicture.cloud_image`, 512x128) and writes them beside
 the layers (`cloud_0..2.webp`, named in the meta; none named means a clear sky). The phone only
 draws them, tinted and at low contrast (alpha 0.55 by day, warm at a low sun, 0.25 at night),
-0.6 to 1.0 of the screen wide, a quarter as high, a screen width in 20 to 35 minutes.
+0.6 to 1.0 of the screen wide, a quarter as high, a screen width in 4 to 7 minutes (20 to 35 in
+0.8, which looked still).
 
 **Meadow** (same review: the ground at the bottom was a flat dark band). The game's grass clumps
 around the tree are repeated in tiles from behind the tree to 4 m before the camera, with their
@@ -93,7 +97,7 @@ Not yet measured on the Fairphone; the reasoning:
 - It draws only while seen: `onVisibilityChanged(false)` (screen off, an app in front, the
   launcher's app drawer) stops the frame loop at once; the screen saver only runs while charging.
 - 12 frames a second (`LiveScene.FPS`, spec 10 to 15), timed by a Handler, no busy loop.
-- Per frame: about 325 vertex offsets (a few sin and pow each, well under 0.1 ms), a gradient
+- Per frame: about 1225 vertex offsets (a few sin and pow each, well under 0.1 ms), a gradient
   rect, up to 46 dots, a moon path, three cloud bitmaps and one or two bitmap meshes on a hardware
   canvas (`lockHardwareCanvas`): a couple of full-screen fills on the GPU. No 3D, no shaders, no
   allocation per frame (the sky gradient is rebuilt every 5 s, the cloud tint when it changes).

@@ -20,7 +20,7 @@ All third-party assets in this project, with their licences. CC0 needs no attrib
 | `ui/fonts/Caveat-Regular.ttf` | Google Fonts, Caveat by Impallari Type | SIL Open Font License 1.1 (`ui/fonts/OFL-Caveat.txt`) |
 | `ui/fonts/PatrickHand-Regular.ttf` | Google Fonts, Patrick Hand by Patrick Wagesreiter | SIL Open Font License 1.1 (`ui/fonts/OFL-PatrickHand.txt`) |
 
-The HUD's shed and shears pictures (`ui/icons/shed.png`, `shears.png`, `shears_cursor.png`) are small models built in `tools/render_icons.gd` from the Poly Haven wood textures above. Everything else (tree, roots, meadow plants, leaf fallback, paper, the wind, the underground hum and the collect note) is generated in code.
+The HUD's shed and shears pictures (`ui/icons/shed.png`, `shears.png`, `shears_cursor.png`) are small models built in `tools/render_icons.gd` from the Poly Haven wood textures above. Everything else (tree, roots, meadow plants, leaf fallback, paper, the wind, the root run's hum and four-note melody (`AmbienceSynth.night_song`, 0.8.1) and the collect note) is generated in code.
 | `assets/shed/WoodenTable_03/*` (1k glTF) | Poly Haven, "Wooden Table 03" (https://polyhaven.com/a/WoodenTable_03): the workbench | CC0 |
 | `assets/shed/garden_gloves_01/*` (1k glTF) | Poly Haven, "Garden Gloves 01" (https://polyhaven.com/a/garden_gloves_01) | CC0 |
 | `assets/shed/planter_pot_clay/*` (1k glTF) | Poly Haven, "Planter Pot Clay" (https://polyhaven.com/a/planter_pot_clay): the flower pot | CC0 |
@@ -34,8 +34,8 @@ The HUD's shed and shears pictures (`ui/icons/shed.png`, `shears.png`, `shears_c
 | `assets/bonsai/Moss002_Color.jpg`, `Moss002_NormalGL.jpg` (downscaled to 512) | ambientCG, "Moss 002" (https://ambientcg.com/view?id=Moss002): moss growing in patches on the bonsai's soil | CC0 |
 
 The bonsai reuses the Poly Haven clay planter (nursery pot), watering can and trowel above and the sounds above (clay pot, metal click, paper bag, water). Its juniper foliage atlas and the half-size copy of the crown's leaf sprays (`lookdev/bonsai/make_juniper.py`) and the style pages (`lookdev/bonsai/make_styles.py`) are painted by Pillow scripts; the glazed pots, the grit on the soil, the fertiliser tin, the wire coils, the root ball and (0.7) the secateurs, tweezers, copper wire coil, sketchbook, album card and the arrows carved into the sill are built in code.
-Everything else (the shed room, the journal, album and seed bag on the workbench, tree, roots, meadow plants, leaf fallback, paper, the wind, the underground hum and the collect note) is generated in code.
-Everything else (tree, roots, meadow plants, the shade plants and mushrooms of `lookdev/grass/understory_atlas.png`, leaf fallback, paper, the wind, the underground hum and the collect note) is generated in code.
+Everything else (the shed room, the journal, album and seed bag on the workbench, tree, roots, meadow plants, leaf fallback, paper, the wind, the root run's hum and four-note melody (`AmbienceSynth.night_song`, 0.8.1) and the collect note) is generated in code.
+Everything else (tree, roots, meadow plants, the shade plants and mushrooms of `lookdev/grass/understory_atlas.png`, leaf fallback, paper, the wind, the root run's hum and four-note melody (`AmbienceSynth.night_song`, 0.8.1) and the collect note) is generated in code.
 | `assets/sounds/rain.ogg` (track 1 of the pack) | OpenGameArt, "Rain (loopable)" by Ylmir (https://opengameart.org/content/rain-loopable) | CC0 |
 | `assets/sounds/thunder.ogg` (`sfx100v2_thunder_01.ogg`) | OpenGameArt, "100 CC0 SFX #2" by rubberduck (https://opengameart.org/content/100-cc0-sfx-2) | CC0 |
 Everything else (tree, roots, meadow plants, leaf fallback, paper, the wind, the underground hum, the collect note, the stars, the moon and the falling leaves) is generated in code.

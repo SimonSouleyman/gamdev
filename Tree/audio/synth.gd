@@ -7,7 +7,7 @@ extends RefCounted
 const RATE: int = 22050
 
 
-static func _to_wav(samples: PackedFloat32Array, loop: bool) -> AudioStreamWAV:
+static func _to_wav(samples: PackedFloat32Array, loop: bool, rate: int = RATE) -> AudioStreamWAV:
 	# A few extra frames past the end (a copy of the loop start for loops, silence otherwise),
 	# so the resampler never reads beyond the buffer.
 	var pad := 16
@@ -18,7 +18,7 @@ static func _to_wav(samples: PackedFloat32Array, loop: bool) -> AudioStreamWAV:
 		bytes.encode_s16(i * 2, int(clampf(v, -1.0, 1.0) * 32000.0))
 	var w := AudioStreamWAV.new()
 	w.format = AudioStreamWAV.FORMAT_16_BITS
-	w.mix_rate = RATE
+	w.mix_rate = rate
 	w.stereo = false
 	w.data = bytes
 	if loop:
@@ -59,22 +59,88 @@ static func wind(seconds: float = 8.0, seed: int = 1) -> AudioStreamWAV:
 	return _to_wav(_seamless(raw, n), true)
 
 
-## A deep calm hum for underground: low tones in whole cycles, slowly beating, with soft rumble.
-static func hum(seconds: float = 8.0, seed: int = 2) -> AudioStreamWAV:
-	var rng := RandomNumberGenerator.new()
-	rng.seed = seed
-	var n := int(seconds * RATE)
-	var fade := RATE / 2
-	var raw := PackedFloat32Array()
-	raw.resize(n + fade)
-	var lp := 0.0
-	for i in range(n + fade):
-		var t := float(i) / RATE
-		var swell := 0.75 + 0.25 * sin(TAU * t / seconds)
-		var tone := 0.5 * sin(TAU * 55.0 * t) + 0.3 * sin(TAU * 82.5 * t + 0.4) + 0.18 * sin(TAU * 110.25 * t + 1.1)
-		lp += (rng.randf_range(-1.0, 1.0) - lp) * 0.01
-		raw[i] = (tone * swell * 0.35 + lp * 2.5) * 0.9
-	return _to_wav(_seamless(raw, n), true)
+## The root run's sound (0.8.1, broken list 27; Simon: "it can be just four low notes playing in
+## turn"): a full, warm hum (a soft D major chord in low voices, each voice two slightly detuned
+## copies that breathe slowly) and a slow melody of four low notes, one every NOTE_SECONDS, each
+## a soft swell that dies away into the next. Mono at SONG_RATE (nothing in it above about 1.2 kHz,
+## so it is never bright), a seamless loop of four notes: the tones are whole cycles per loop and
+## each note's tail wraps into the loop's start.
+const SONG_RATE: int = 11025
+const NOTE_SECONDS := 5.0
+## The four notes in turn (Hz): D3, F#3, E3, A2.
+const SONG_NOTES: Array[float] = [146.85, 185.0, 164.8, 110.0]
+## The hum's chord: [Hz, gain] (D2, A2, D3, F#3, A3), each played twice, 0.1 Hz apart.
+const SONG_CHORD: Array = [[73.4, 0.6], [110.0, 0.55], [146.85, 0.42], [185.0, 0.26], [220.0, 0.16]]
+const SONG_MELODY_GAIN := 0.95
+## The loudest sample of the loop (the layer's level in Ambience sets how loud it is heard).
+const SONG_PEAK := 0.8
+
+
+static func _table(harmonics: Array) -> PackedFloat32Array:
+	var tab := PackedFloat32Array()
+	tab.resize(2048)
+	for i in range(2048):
+		var x := TAU * float(i) / 2048.0
+		var v := 0.0
+		for h in range(harmonics.size()):
+			v += float(harmonics[h]) * sin(x * (h + 1))
+		tab[i] = v
+	return tab
+
+
+## Rounds a frequency to whole cycles in `seconds`, so a held tone loops without a click.
+static func _whole(hz: float, seconds: float) -> float:
+	return roundf(hz * seconds) / seconds
+
+
+static func night_song() -> AudioStreamWAV:
+	var seconds := NOTE_SECONDS * SONG_NOTES.size()
+	var n := int(seconds * SONG_RATE)
+	var out := PackedFloat32Array()
+	out.resize(n)
+	# The hum: a warm tone (soft harmonics, falling fast) per voice, each its own slow breath.
+	var warm := _table([1.0, 0.4, 0.18, 0.08, 0.03])
+	var sine := _table([1.0])
+	var v := 0
+	for c: Array in SONG_CHORD:
+		for d in [-0.05, 0.05]:
+			var f := _whole(float(c[0]) + d, seconds)
+			var step := f / SONG_RATE * 2048.0
+			var gain := float(c[1]) * 0.5
+			# Its breath: 1 to 3 whole swells a loop, each voice at its own point of it.
+			var bstep := (1.0 + float(v % 3)) * 2048.0 / n
+			var bph := float(v * 617 % 2048)
+			var ph := float(v * 211 % 2048)
+			for i in range(n):
+				out[i] += warm[int(ph) & 2047] * gain * (0.8 + 0.2 * sine[int(bph) & 2047])
+				ph += step
+				if ph >= 2048.0:
+					ph -= 2048.0
+				bph += bstep
+			v += 1
+	# The melody: a soft rounded tone, a slow swell (0.4 s) and a long fall, wrapping at the end.
+	var soft := _table([1.0, 0.45, 0.16, 0.06])
+	var note_len := int(NOTE_SECONDS * 1.6 * SONG_RATE)
+	for k in range(SONG_NOTES.size()):
+		var start := int(k * NOTE_SECONDS * SONG_RATE)
+		var step := SONG_NOTES[k] / SONG_RATE * 2048.0
+		var ph := 0.0
+		for i in range(note_len):
+			var t := float(i) / SONG_RATE
+			var env := (0.5 - 0.5 * cos(PI * minf(t / 0.4, 1.0))) * exp(-t / 2.4)
+			# The last half second fades to nothing, so the wrap never clicks.
+			env *= clampf((float(note_len - i) / SONG_RATE) / 0.5, 0.0, 1.0)
+			out[(start + i) % n] += soft[int(ph) & 2047] * env * SONG_MELODY_GAIN
+			ph += step
+			if ph >= 2048.0:
+				ph -= 2048.0
+	var peak := 0.0
+	for i in range(n):
+		peak = maxf(peak, absf(out[i]))
+	var scale := SONG_PEAK / maxf(peak, 0.001)
+	for i in range(n):
+		out[i] *= scale
+	return _to_wav(out, true, SONG_RATE)
 
 
 ## Faint insects: a high buzz with a fast flutter, fading in and out.

@@ -11,6 +11,7 @@ public class Parity {
     }
     float[] o = new float[2];
     for (int i = 0; i < 20; i++) { double u = i / 19.0, v = (i * 7 % 20) / 19.0; LiveScene.windOffset(u, v, i * 1.37, 0.9, 0.3, o); sb.append(String.format(java.util.Locale.ROOT, "w %.6f %.6f%n", o[0], o[1])); }
+    for (int i = 0; i < 6; i++) { double[] c = LiveScene.cloudPosition(i, i * 97.3); sb.append(String.format(java.util.Locale.ROOT, "c %.6f %.6f%n", c[0], c[1])); }
     for (int i = 0; i < 5; i++) { double[] s = LiveScene.star(i); sb.append(String.format(java.util.Locale.ROOT, "s %.6f %.6f %.6f%n", s[0], s[1], s[2])); }
     float[] r = LiveScene.layout(1080, 2400, 540, 960, 0.1, 0.9); sb.append(String.format(java.util.Locale.ROOT, "l %.3f %.3f %.3f %.3f%n", r[0], r[1], r[2], r[3]));
     System.out.print(sb);

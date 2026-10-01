@@ -75,14 +75,48 @@ func test_wind_moves_the_crown_not_the_foot() -> void:
 	for i in range(200):
 		var time := i * 0.37
 		var foot := LivePicture.wind_offset(0.5, gy, time, gy, ct)
-		t.check(absf(foot.x) <= 0.0021 and absf(foot.y) < 1e-9, "the trunk's foot stays (only the grass ripples)")
+		t.check(absf(foot.x) <= LivePicture.GRASS + 1e-6 and absf(foot.y) < 1e-9, "the trunk's foot stays (only the grass ripples)")
 		var top := LivePicture.wind_offset(0.5, ct, time, gy, ct)
 		most = maxf(most, top.length())
 		t.check(LivePicture.wind_offset(0.0, ct, time, gy, ct).x == 0.0, "the picture's left edge stays")
 		t.check(LivePicture.wind_offset(1.0, 0.95, time, gy, ct).x == 0.0, "the right edge stays")
 	t.check(most > 0.001, "the crown moves")
-	t.check(most < LivePicture.WIND * (gy - ct) * 1.4, "softly: at most about 1.2 %% of the tree's height")
+	t.check(most < LivePicture.WIND * (gy - ct) * 1.6 + LivePicture.LEAF * 1.3, "softly: about 3 %% of the tree's height")
 	t.check(LivePicture.FPS >= 5 and LivePicture.FPS <= 15, "a low frame rate (14c)")
+
+
+## 0.8.1, broken list 33: on the Fairphone (1116 px wide) the 0.8 wind moved a young tree's crown
+## by about 3 px and the clouds by under 1 px a second, which read as a still picture. The motion
+## must be seen within a few seconds, for a young tree too, and stay light.
+func test_wind_is_visible_on_the_phone() -> void:
+	var screen_w := 1116.0
+	for tree in [[0.62, 0.9], [0.3, 0.9], [0.13, 0.9]]:  # a young tree, a grown one, a tall one
+		var ct: float = tree[0]
+		var gy: float = tree[1]
+		var lo := 1e9
+		var hi := -1e9
+		var leaf_step := 0.0
+		for i in range(120):  # ten seconds at 12 fps
+			var time := i / 12.0
+			var x := LivePicture.wind_offset(0.5, ct + 0.02, time, gy, ct).x * screen_w
+			lo = minf(lo, x)
+			hi = maxf(hi, x)
+			# Neighbouring cells of the crown (24 by 48 mesh) move apart: the leaves shimmer.
+			var v := lerpf(ct, gy, 0.3)
+			var a := LivePicture.wind_offset(0.5, v, time, gy, ct)
+			var b := LivePicture.wind_offset(0.5 + 1.0 / 24.0, v, time, gy, ct)
+			leaf_step = maxf(leaf_step, absf(a.x - b.x) * screen_w)
+		t.check(hi - lo >= 12.0, "the crown top sways at least 12 px in 10 s (crown %.2f: %.1f px)" % [ct, hi - lo])
+		t.check(hi - lo <= 90.0, "light wind, not a storm (crown %.2f: %.1f px)" % [ct, hi - lo])
+		t.check(leaf_step >= 2.0, "neighbouring leaves move apart (%.1f px)" % leaf_step)
+	var grass := 0.0
+	for i in range(120):
+		grass = maxf(grass, absf(LivePicture.wind_offset(0.37, 0.95, i / 12.0, 0.9, 0.3).x) * screen_w)
+	t.check(grass >= 3.0, "the near grass ripples (%.1f px)" % grass)
+	# Clouds: several pixels a second, a screen width in minutes, not half an hour.
+	for i in range(3):
+		var px_per_s := (LivePicture.cloud_position(i, 10.0).x - LivePicture.cloud_position(i, 0.0).x) * screen_w / 10.0
+		t.check(px_per_s >= 2.0 and px_per_s <= 8.0, "cloud %d drifts %.1f px a second" % [i, px_per_s])
 
 
 func test_layout_keeps_the_crown_below_the_clock_and_never_pans() -> void:

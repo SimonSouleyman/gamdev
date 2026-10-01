@@ -18,6 +18,10 @@ func _initialize() -> void:
 		var v := (i * 7 % 20) / 19.0
 		var o := LivePicture.wind_offset(u, v, i * 1.37, 0.9, 0.3)
 		out += "w %.6f %.6f\n" % [o.x, o.y]
+	for i in range(6):
+		var c := LivePicture.cloud_position(i, i * 97.3)
+		out += "c %.6f %.6f
+" % [c.x, c.y]
 	for i in range(5):
 		var s := LivePicture.star(i)
 		out += "s %.6f %.6f %.6f\n" % [s.x, s.y, s.z]
