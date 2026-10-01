@@ -61,7 +61,10 @@ var _life_label: Label
 var _hint: PaperNote
 var _life_bar: ColorRect
 var _life_bar_bg: ColorRect
-var _counts: Label
+## Tonight's catch: "tonight:" and each kind's dot mark with its amount (0.8 review: the marks
+## are shown wherever a nutrient is).
+var _counts: HBoxContainer
+var _count_labels: Array[Label] = []
 var _life_at_start: float = 1.0
 ## Tonight no root grows (no life force, or the roots fill the soil): the overview says so.
 var quiet_night: bool = false
@@ -399,8 +402,20 @@ func _build_hud() -> void:
 	_life_bar_bg.add_child(_life_bar)
 	_life_label = _label(24, Vector2(40, 64))
 	root.add_child(_life_label)
-	_counts = _label(24, Vector2(40, 98))
+	_counts = HBoxContainer.new()
+	_counts.position = Vector2(40, 98)
+	_counts.add_theme_constant_override("separation", 6)
+	_counts.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	root.add_child(_counts)
+	_counts.add_child(_label(24, Vector2.ZERO))
+	(_counts.get_child(0) as Label).text = "tonight: "
+	for k in range(4):
+		var mark := NutrientMarks.icon_rect(k, 28)
+		mark.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		_counts.add_child(mark)
+		var l := _label(24, Vector2.ZERO)
+		_counts.add_child(l)
+		_count_labels.append(l)
 	_hint = PaperNote.new(27, 62)
 	_hint.set_anchors_preset(Control.PRESET_TOP_WIDE)
 	_hint.offset_left = 50
@@ -495,7 +510,9 @@ func _update_hud() -> void:
 	_life_label.text = "life force %.1f" % res.life_force
 	var t := roots.run_totals
 	_counts.visible = mode == Mode.RUN or mode == Mode.DONE and not quiet_night
-	_counts.text = "tonight:  water %.1f   N %.1f   P %.1f   K %.1f" % [t[0], t[1], t[2], t[3]]
+	var words := ["water", "N", "P", "K"]
+	for k in range(4):
+		_count_labels[k].text = "%s %.1f%s" % [words[k], t[k], "  " if k < 3 else ""]
 	match mode:
 		Mode.PICK:
 			_hint.text = "Tap a point on a root to start tonight's root." if roots.graph.size() > 1 else ""

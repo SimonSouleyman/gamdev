@@ -68,7 +68,7 @@ func test_the_wish_points_at_what_the_tree_lacks_most() -> void:
 		Resources.Kind.PHOSPHORUS: PackedFloat32Array([30, 30, 0.5, 30]),
 		Resources.Kind.POTASSIUM: PackedFloat32Array([30, 30, 30, 0.5]),
 	}
-	var words := ["rushes", "clover", "nettles", "loose stones"]
+	var words := ["rushes", "clover", "nettles", "comfrey"]
 	for kind in cases:
 		var u := Underground.new(8)
 		var roots := RootSystem.new(8)

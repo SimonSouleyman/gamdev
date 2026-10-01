@@ -591,13 +591,13 @@ func _build_edge_herbs() -> void:
 	_split_near_shed(fmi, 3.0)
 
 
-## The brush pile's spot on the edge (0.8, BrushPile) stays free of herbs, flowers and shrubs, so
-## the pile is not buried in them (the plants there are scaled to nothing; no extra cost).
+## The brush pile's spot on the edge (0.8, BrushPile) and the hedgehog's run in from it stay free
+## of herbs, flowers and shrubs, so the pile is not buried in them and the hedgehog is seen (the
+## plants there are scaled to nothing; no extra cost).
 func _clear_pile_spot(mm: MultiMesh) -> void:
-	var c := BrushPile.position(clearing_radius)
 	for i in range(mm.instance_count):
 		var tr := mm.get_instance_transform(i)
-		if Vector2(tr.origin.x - c.x, tr.origin.z - c.z).length() < BrushPile.CLEAR_RADIUS:
+		if BrushPile.on_run(Vector2(tr.origin.x, tr.origin.z), clearing_radius) > 0.3:
 			mm.set_instance_transform(i, Transform3D(Basis.from_scale(Vector3.ONE * 0.0001), tr.origin))
 
 

@@ -166,13 +166,24 @@ func test_a_new_tree_starts_a_fresh_pile_and_the_bonsai_feeds_none() -> void:
 	t.check(back.brush.to_dict() == g.brush.to_dict(), "the pile is saved and loaded")
 
 
-## Broken 13: the pile lies at the edge away from the shed, outside the camera's orbit, and costs
-## one draw call (the hedgehog one more): one mesh each, no shadow.
+## Broken 13: the pile lies at the edge the game's camera looks at (0.8 review: it was behind
+## the camera), clear of the shed, outside the camera's orbit, and costs one draw call (the
+## hedgehog one more): one mesh each, no shadow.
 func test_the_pile_stays_out_of_the_way_and_costs_one_draw_call() -> void:
 	for r in [18.0, 24.0, 30.0, 36.0, 42.0]:
 		var p := BrushPile.position(r)
 		var shed := Vector3(0.0, 0.0, r - 2.5)
-		t.check(p.z < 0.0 and p.distance_to(shed) > r * 1.6, "r %.0f: on the far side from the shed (%.1f m)" % [r, p.distance_to(shed)])
+		# The camera starts north of the tree (TreeView._yaw = PI), looking south across it: the
+		# pile stays inside the phone's narrow default framing (FRAME_FOV 50 at 9:16 is about
+		# 29 degrees wide) with the camera 0.45 of the clearing's radius out (8 m in the first
+		# clearing, for a tree tall enough to prune; a taller tree has the camera further back).
+		var cam := Vector3(0.0, 0.0, -0.45 * r)
+		var mid := rad_to_deg(absf(atan2(p.x - cam.x, p.z - cam.z)))
+		var far_end := rad_to_deg(absf(atan2(absf(p.x) + BrushPile.HALF_LENGTH, p.z - cam.z)))
+		t.check(p.z > 0.0 and mid < 12.0 and far_end < 14.7, "r %.0f: in the default view (middle %.1f, far end %.1f degrees off)" % [r, mid, far_end])
+		var gap := absf(p.x) - BrushPile.HALF_LENGTH - Shed.WIDTH * 0.5
+		t.check(gap > 1.0, "r %.0f: clear of the shed (%.1f m between them)" % [r, gap])
+		t.check(Vector2(p.x - shed.x, p.z - shed.z).length() > Shed.DEPTH, "r %.0f: not in front of the shed door" % r)
 		# TreeView keeps the camera within `room + 0.5` of the tree: max(r, 18) - 2.5.
 		var orbit := maxf(r, Scenery.CLEARING_RADIUS) - 2.5
 		t.check(Vector2(p.x, p.z).length() - BrushPile.HALF_DEPTH > orbit, "r %.0f: the pile lies outside the camera's orbit" % r)

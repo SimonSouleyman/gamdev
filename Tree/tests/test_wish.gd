@@ -292,7 +292,7 @@ func test_a_night_without_life_force_still_shows_the_glow() -> void:
 
 
 func test_the_ink_drawings_are_drawn() -> void:
-	for kind in ["rushes", "clover", "nettles", "stones"]:
+	for kind in ["rushes", "clover", "nettles", "comfrey"]:
 		var img := InkSketch.image(kind)
 		var inked := 0
 		for y in range(0, img.get_height(), 2):

@@ -218,7 +218,7 @@ static func wish_text_at(kind: int, center: Vector3) -> String:
 		Resources.Kind.PHOSPHORUS:
 			return "Today, find what feeds the nettles in the %s." % where
 		Resources.Kind.POTASSIUM:
-			return "Today, reach the soil under the loose stones in the %s." % where
+			return "Today, reach the deep soil under the comfrey in the %s." % where
 	return "Today, find what feeds the clover in the %s." % where
 
 
@@ -232,12 +232,12 @@ static func reached_text(ground: Underground, patch_id: int, night: int) -> Stri
 		Resources.Kind.PHOSPHORUS:
 			return "Night %d: the root found what feeds the nettles in the %s, the one I wished for." % [night, where]
 		Resources.Kind.POTASSIUM:
-			return "Night %d: the root found the soil under the loose stones in the %s, the one I wished for." % [night, where]
+			return "Night %d: the root found the deep soil under the comfrey in the %s, the one I wished for." % [night, where]
 	return "Night %d: the root found what feeds the clover in the %s, the one I wished for." % [night, where]
 
 
 ## The ink sketch beside a reached wish's line: what grows (or lies) above the deposit.
-const DRAWINGS: Array[String] = ["rushes", "clover", "nettles", "stones"]
+const DRAWINGS: Array[String] = ["rushes", "clover", "nettles", "comfrey"]
 
 
 static func drawing_for(ground: Underground, patch_id: int) -> String:

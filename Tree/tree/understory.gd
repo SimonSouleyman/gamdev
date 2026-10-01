@@ -21,6 +21,8 @@ var planned: Array = []
 var _cards: MultiMeshInstance3D
 var _moss: MultiMeshInstance3D
 var _key: String = ""
+## The clearing's radius at the last rebuild (for the hedgehog's run, BrushPile.on_run).
+var _radius: float = Scenery.CLEARING_RADIUS
 ## The meadow layers as planted (MultiMesh -> buffer), so each rebuild thins from the full meadow.
 var _grass_base: Dictionary = {}
 
@@ -92,6 +94,7 @@ func refresh(state: GameState, layers: Array, ground: ShaderMaterial = null) -> 
 	if key == _key:
 		return
 	_key = key
+	_radius = Scenery.radius_for(state.sim.height())
 	map = Clearing.shade_map(state.sim)
 	planned = state.clearing.plan(map, day, Budgets.UNDERSTORY_PLANTS, Budgets.UNDERSTORY_MUSHROOMS)
 	_place(planned)
@@ -121,6 +124,9 @@ func _place(p: Array) -> void:
 			continue
 		# Nothing grows inside the garden shed.
 		if Vector2(pos.x - Shed.origin.x, pos.y - Shed.origin.z).length() < 2.6:
+			continue
+		# Nor tall on the hedgehog's run from the brush pile (0.8 review), so it is seen there.
+		if e["kind"] != "moss" and BrushPile.on_run(pos, _radius) > 0.3:
 			continue
 		(moss if e["kind"] == "moss" else cards).append(e)
 	var mm := _cards.multimesh

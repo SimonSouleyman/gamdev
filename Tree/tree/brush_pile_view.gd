@@ -5,14 +5,19 @@ extends Node3D
 ## back at dusk; the wren singing from its top by day. Each one mesh, one material and no
 ## shadow, so the pile and the hedgehog cost the phone one draw call each. Only reads the state.
 
-## Real seconds the hedgehog is out (it comes out a little before the sunset hold).
-const HOG_SECONDS: float = 48.0
-## Its walking pace (a snuffling hedgehog, metres per second) and how far it wanders out.
-const HOG_SPEED: float = 0.16
-const HOG_REACH: float = 2.2
+## Real seconds the hedgehog is out at most (it comes out a little before the sunset hold and
+## goes home when its walk is done, or at nightfall).
+const HOG_SECONDS: float = 120.0
+## Its walking pace (a hedgehog's brisk trundle, metres per second). It walks its run
+## (BrushPile) across the open meadow to the tree's foot and back (0.8 review: at the edge it was
+## lost in the grass): a snuffling stop half way, a longer one at the tree, home again.
+const HOG_SPEED: float = 0.5
+## A big adult (about 30 cm nose to rump), so it reads at phone size from the camera.
+const HOG_SCALE: float = 1.1
 ## Real seconds the wren sits on the pile and sings, and how many songs it gives.
 const WREN_SECONDS: float = 36.0
 const WREN_SONGS: int = 3
+const WREN_SCALE: float = 1.25
 ## Wet sticks after rain are this much darker (weather mood).
 const WET_DARKEN: float = 0.45
 
@@ -33,6 +38,8 @@ var _hog_day: int = -1
 var _hog_t: float = -1.0
 var _hog_path: Array[Vector3] = []
 var _hog_pauses: Array[float] = []
+## When its walk is done (seconds), home in the pile.
+var _hog_end: float = HOG_SECONDS
 var _wren_day: int = -1
 var _wren_t: float = -1.0
 var _songs_left: int = 0
@@ -53,6 +60,11 @@ func _ready() -> void:
 	hedgehog.name = "hedgehog"
 	hedgehog.mesh = hedgehog_mesh()
 	hedgehog.material_override = _critter_mat(0.8)
+	# The pale spine tips catch the low evening light at the edge of the coat.
+	(hedgehog.material_override as StandardMaterial3D).rim_enabled = true
+	(hedgehog.material_override as StandardMaterial3D).rim = 0.5
+	(hedgehog.material_override as StandardMaterial3D).rim_tint = 0.6
+	hedgehog.scale = Vector3.ONE * HOG_SCALE
 	hedgehog.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	hedgehog.visible = false
 	add_child(hedgehog)
@@ -60,6 +72,12 @@ func _ready() -> void:
 	wren.name = "wren"
 	wren.mesh = wren_mesh()
 	wren.material_override = _critter_mat(0.75)
+	# A big wren (0.8 review: at 10 cm it was lost on the pile from the camera): 12.5 cm, still a
+	# wren's size, its edge catching the light.
+	wren.scale = Vector3.ONE * WREN_SCALE
+	(wren.material_override as StandardMaterial3D).rim_enabled = true
+	(wren.material_override as StandardMaterial3D).rim = 0.4
+	(wren.material_override as StandardMaterial3D).rim_tint = 0.5
 	wren.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	wren.visible = false
 	add_child(wren)
@@ -124,7 +142,9 @@ func _build_pile(count: int) -> void:
 	_built_species = state.sim.species.id
 	# The sticks are the tree's own wood, greyed a little by lying out.
 	var b := state.sim.species.bark_tint
-	_base_color = Color(b.r, b.g, b.b).lerp(Color(0.46, 0.43, 0.39), 0.4) * 1.45
+	# (0.8 review: a little paler, as wood lying out goes silver, so the pile reads from the
+	# camera across the clearing.)
+	_base_color = Color(b.r, b.g, b.b).lerp(Color(0.5, 0.47, 0.43), 0.5) * 1.6
 	_base_color.a = 1.0
 	# The sticks follow the ground (it rises toward the trees).
 	var ground := func(p: Vector3) -> float: return to_local(Terrain.at(to_global(Vector3(p.x, 0.0, p.z)))).y
@@ -155,7 +175,7 @@ static func pile_mesh(seed: int, count: int, ground: Callable = Callable()) -> A
 		var cx := cos(a) * d * BrushPile.HALF_LENGTH * spread
 		var cz := sin(a) * d * BrushPile.HALF_DEPTH * spread
 		var dome := 1.0 - d * d
-		var y := 0.03 + dome * (0.2 + 0.5 * grow) * rng.randf_range(0.55, 1.0)
+		var y := 0.03 + dome * (0.25 + 0.65 * grow) * rng.randf_range(0.55, 1.0)
 		var yaw := rng.randf_range(-0.5, 0.5) + (PI * 0.5 if rng.randf() < 0.3 else 0.0)
 		var pitch := rng.randf_range(-0.42, 0.42)
 		var dir := Vector3(cos(yaw) * cos(pitch), sin(pitch), sin(yaw) * cos(pitch))
@@ -245,7 +265,7 @@ func _update_hedgehog(delta: float) -> void:
 	if _hog_t < 0.0:
 		return
 	_hog_t += delta
-	if _hog_t >= HOG_SECONDS or not dusk:
+	if _hog_t >= minf(HOG_SECONDS, _hog_end) or not dusk:
 		_hog_t = -1.0
 		hedgehog.visible = false
 		return
@@ -253,25 +273,30 @@ func _update_hedgehog(delta: float) -> void:
 	_pose_hog(_hog_t)
 
 
-## Its evening's walk: out of the pile's clearing side, a few snuffling stops, back in.
+## Its evening's walk: out of the pile's clearing side, along its run into the open meadow
+## toward the tree with a few snuffling stops, then back in.
 func _start_hog() -> void:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = hash([state.seed, "hedgehog", _hog_day])
-	var door := Vector3(rng.randf_range(-0.5, 0.5), 0.0, BrushPile.HALF_DEPTH * 0.55)
+	var door := Vector3(rng.randf_range(-0.3, 0.3), 0.0, BrushPile.HALF_DEPTH * 0.55)
 	_hog_path = [door - Vector3(0, 0, 0.35), door]
 	_hog_pauses = [0.0, 1.5]
-	var at := door
-	for _i in range(3):
-		var next := at + Vector3(rng.randf_range(-0.9, 0.9), 0.0, rng.randf_range(0.2, 0.9))
-		next.z = clampf(next.z, door.z + 0.3, door.z + HOG_REACH)
-		next.x = clampf(next.x, -1.6, 1.6)
-		_hog_path.append(next)
-		_hog_pauses.append(rng.randf_range(2.0, 4.5))
-		at = next
-	_hog_path.append(door)
-	_hog_pauses.append(0.8)
+	# The run in the pile's frame (x along the edge, z in toward the clearing).
+	var d2 := BrushPile.run_dir(_radius)
+	var dir := Vector3(d2.dot(Vector2(basis.x.x, basis.x.z)), 0.0, d2.dot(Vector2(basis.z.x, basis.z.z))).normalized()
+	var side := Vector3(dir.z, 0.0, -dir.x)
+	var reach := BrushPile.run_length(_radius) - door.z - 0.3
+	var half := door + dir * reach * rng.randf_range(0.45, 0.55) + side * rng.randf_range(-0.4, 0.4)
+	var end := door + dir * reach + side * rng.randf_range(-0.3, 0.3)
+	var nose := end + side * rng.randf_range(-0.5, 0.5) - dir * rng.randf_range(-0.1, 0.4)
+	for stop: Array in [[half, rng.randf_range(2.0, 3.0)], [end, rng.randf_range(4.0, 6.0)], [nose, rng.randf_range(2.5, 4.0)], [door, 0.8]]:
+		_hog_path.append(stop[0])
+		_hog_pauses.append(stop[1])
 	_hog_path.append(door - Vector3(0, 0, 0.4))
 	_hog_pauses.append(0.0)
+	_hog_end = 0.0
+	for i in range(1, _hog_path.size()):
+		_hog_end += _hog_path[i].distance_to(_hog_path[i - 1]) / HOG_SPEED + _hog_pauses[i]
 	_hog_t = 0.0
 
 
@@ -316,8 +341,10 @@ static func hedgehog_mesh() -> ArrayMesh:
 	rng.seed = 7
 	var c := Vector3(0.0, 0.066, -0.01)
 	var rad := Vector3(0.078, 0.056, 0.118)
-	var fur := Color(0.38, 0.28, 0.2)
-	var skin := Color(0.2, 0.15, 0.1)
+	# (0.8 review: a real hedgehog's coat reads grizzled light brown from a distance, from the
+	# cream spine tips; the old dark coat was lost on the dusk meadow.)
+	var fur := Color(0.42, 0.32, 0.23)
+	var skin := Color(0.3, 0.23, 0.16)
 	var rings := 10
 	var segs := 14
 	# The body: an ellipsoid flattened underneath; the spine coat's skin dark, the face and belly
@@ -357,8 +384,8 @@ static func hedgehog_mesh() -> ArrayMesh:
 		var b0 := base + side * w
 		var b1 := base + (-side * 0.5 + up * 0.87) * w
 		var b2 := base + (-side * 0.5 - up * 0.87) * w
-		var root := Color(0.1, 0.075, 0.06)
-		var pale := Color(0.78, 0.72, 0.6).lerp(Color(0.55, 0.47, 0.37), rng.randf())
+		var root := Color(0.16, 0.12, 0.09)
+		var pale := Color(0.9, 0.85, 0.72).lerp(Color(0.66, 0.57, 0.45), rng.randf())
 		for tri: Array in [[b0, b1], [b1, b2], [b2, b0]]:
 			st.set_color(root)
 			st.add_vertex(tri[0])

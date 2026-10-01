@@ -49,6 +49,9 @@ static func build(seed: int, clearing: float) -> MeadowMap:
 	m.image = Image.create_from_data(SIZE, SIZE, false, Image.FORMAT_RGBA8, data)
 	for path in _paths(rng, clearing):
 		m._stamp(path, 0.55)
+	# The hedgehog's run from the brush pile in toward the tree (0.8 review): trodden short, so
+	# the hedgehog shows on its evening walk. Always there, like the game trails.
+	m._stamp(_hedgehog_run(clearing), 0.75)
 	m.texture = ImageTexture.create_from_image(m.image)
 	return m
 
@@ -73,6 +76,21 @@ static func _paths(rng: RandomNumberGenerator, clearing: float) -> Array:
 			to += side * (7.0 - mid.length())
 		out.append(_wander(rng, from, to, 1.6))
 	return out
+
+
+## The hedgehog's run: from behind the brush pile's middle to beside the trunk, a slight wiggle.
+static func _hedgehog_run(clearing: float) -> PackedVector2Array:
+	var c3 := BrushPile.position(clearing)
+	var c := Vector2(c3.x, c3.z)
+	var inward := BrushPile.run_dir(clearing)
+	var side := Vector2(-inward.y, inward.x)
+	var pts := PackedVector2Array()
+	var length := BrushPile.run_length(clearing)
+	var n := int(length / 0.25)
+	for i in range(n + 1):
+		var t := float(i) / n
+		pts.append(c + inward * (t * length - 0.3) + side * sin(t * 9.0) * 0.2)
+	return pts
 
 
 ## Points every 0.25 m from `from` to `to`, wandering sideways by up to `sway` metres.

@@ -57,6 +57,8 @@ var tool: String = ""
 var pruning: Pruning
 ## A tool animation is playing (watering, pellets, turning, repotting).
 var busy: bool = false
+## A tap on the soil came while the tin was still pouring (one more spoon follows).
+var _spoon_waiting: bool = false
 
 var _base: Node3D
 var _turn_node: Node3D
@@ -792,7 +794,7 @@ func _populate_foliage(b: BonsaiSim, pads: Array[Pad]) -> void:
 	var hunger_n := b.hunger(0)
 	var hunger_p := b.hunger(1)
 	var hunger_k := b.hunger(2)
-	dark = dark.lerp(Color(0.3, 0.32, 0.1), hunger_n * 0.6)
+	dark = dark.lerp(Color(0.32, 0.34, 0.1), hunger_n * 0.75)
 	var core_scale := (1.0 if conifer else 0.8) * (0.85 if Budgets.PHONE else 1.0)
 	var i := 0
 	for pi in range(pads.size()):
@@ -855,18 +857,19 @@ func _populate_foliage(b: BonsaiSim, pads: Array[Pad]) -> void:
 
 
 ## Share of the sprays whose tips brown when the soil holds no potassium at all.
-const K_TIP_SHARE: float = 0.45
+const K_TIP_SHARE: float = 0.55
 
 
 ## A spray's colour with the hunger signs (C4): nitrogen pales it toward yellow-green, phosphorus
-## dulls it toward bronze, and `k_tip` browns this spray's tip (potassium).
+## dulls it toward bronze, and `k_tip` browns this spray's tip (potassium). (0.8 review: the N and K
+## signs a little stronger, so they read on the phone.)
 static func hungry_color(col: Color, hunger_n: float, hunger_p: float, k_tip: bool) -> Color:
 	if hunger_n > 0.0:
-		col = col.lerp(Color(1.2, 1.12, 0.45, col.a), hunger_n * 0.65)
+		col = col.lerp(Color(1.28, 1.18, 0.42, col.a), hunger_n * 0.8)
 	if hunger_p > 0.0:
 		col = col.lerp(Color(0.95, 0.66, 0.62, col.a), hunger_p * 0.5)
 	if k_tip:
-		col = col.lerp(Color(1.05, 0.72, 0.38, col.a), 0.75)
+		col = col.lerp(Color(1.08, 0.66, 0.32, col.a), 0.9)
 	return col
 
 
@@ -1095,6 +1098,10 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventMouse or event is InputEventScreenDrag or event is InputEventScreenTouch:
 		_track_pointer(event.position)
 	if busy:
+		# A tap on the soil while the tin still pours: one more spoon follows (0.8 review).
+		var m0 := event as InputEventMouseButton
+		if tool == "fertiliser" and m0 != null and m0.button_index == MOUSE_BUTTON_LEFT and not m0.pressed and on_bonsai(m0.position):
+			use_at(m0.position)
 		return
 	if event is InputEventScreenTouch:
 		var t := event as InputEventScreenTouch
@@ -1250,8 +1257,10 @@ func use_at(pos: Vector2) -> void:
 				water()
 		"fertiliser":
 			if on_bonsai(pos):
-				if pellet_kind < 0:
-					said.emit("First choose N, P or K on the slip.")
+				if busy:
+					# A tap while the tin still pours is not lost (0.8 review: it was dropped
+					# silently): one more spoon follows when the tin is back up.
+					_spoon_waiting = true
 				else:
 					fertilise(pellet_kind)
 		"trowel":
@@ -1430,7 +1439,19 @@ func fertilise(kind: int) -> void:
 		tool_used.emit("burn" if burnt > 0 else "fertiliser"))
 	tw.tween_interval(0.4)
 	tw.tween_property(tin, "rotation:z", 0.0, 0.3)
-	tw.tween_callback(_tool_home.bind("fertiliser"))
+	tw.tween_callback(_after_spoon)
+
+
+## After a spoon: a tap that came while the tin poured gives the next spoon (of the kind marked
+## on the slip now), else the tin goes back to the hand or its place.
+func _after_spoon() -> void:
+	if _spoon_waiting and tools.held == "fertiliser":
+		_spoon_waiting = false
+		busy = false
+		fertilise(pellet_kind)
+		return
+	_spoon_waiting = false
+	_tool_home("fertiliser")
 
 
 ## After a tool's motion: in the hand it follows the pointer again, else it goes to its place.
@@ -1714,6 +1735,18 @@ func _build_root_ball() -> void:
 ## For tools: a point of the plant on screen.
 func plant_screen_position(id: int) -> Vector2:
 	return camera.unproject_position(_plant.to_global(state.bonsai.graph.positions[id]))
+
+
+## The crown on screen: the rectangle round the plant's nodes (the pellet slip keeps clear of it).
+func crown_screen_rect() -> Rect2:
+	if state == null or state.bonsai == null or state.bonsai.graph.size() == 0:
+		return Rect2()
+	var g := state.bonsai.graph
+	var r := Rect2(plant_screen_position(0), Vector2.ZERO)
+	for i in range(g.size()):
+		r = r.expand(camera.unproject_position(_plant.to_global(g.positions[i])))
+	# The leaves reach a little beyond the twig ends.
+	return r.grow(24.0)
 
 
 ## For tools: the orbit (yaw, pitch, distance) at once, without the glide.

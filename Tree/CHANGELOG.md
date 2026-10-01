@@ -2,15 +2,18 @@
 
 ## Progress (for resuming work)
 
-Simon (2026-09-29, away): finish 0.6.x, then 0.7 (his three picks), then 0.8 (specs/0.8.md: fixes
-from the 0.7 check first, then dot shapes, backup, sharing, brush pile, app icon, live picture).
-Install each fully checked version on his phone (save backed up first); APKs in GameDev/tree-releases.
-- 0.6.3 tagged (tree-v0.6.3), on main and on Simon's phone.
-- 0.7 tagged on iterate-0.7 (wish glow, bonsai tools on the sill, marked branches, look/UI fixes
-  from the 0.7 check). Balance findings of the 0.7 check go into 0.8 (Simon: "direkt in 0.8").
-- 0.8 streams: s08-shapes (dot shapes, brush pile with hedgehog), s08-backup (copy/load, share),
-  s08-live (live picture wallpaper + screen saver, new app icon) built; s08-balance (section 5
-  fixes) in progress. Then merge into iterate-0.8, full check, phone install.
+State 2026-09-30 (PC switched off by Simon): 0.8 is tagged (tree-v0.8), on main and installed on
+Simon's phone with his save (backups in GameDev/tree-shots/savebackup/pre-0.8). APKs in
+GameDev/tree-releases. Away mode is over: open questions go to Simon again (via the coordinator).
+- Next: 0.8.1 on branch s08-sim (worktree GameDev/wt-sim08), unfinished WIP commit: players who
+  boost all day and end every root at once (boost_quit) must finish by ~day 40 (linden s3, beech
+  s3, alder s14 don't by day 45); oak boost_morning s3 is 15.2 % faster than dots (limit 15 %).
+  Welcome but optional: oak straight_down day 43 (limit ~42), alder end_early s3 11 days after
+  dots (limit 10). Review: GameDev/tree-qa/check-0.8/playthrough.md. Numbers with reasons go to
+  docs/notes/balance-0.8.md; tuning.md belongs to the design thread. Then the full check and
+  install as 0.8.1.
+- Known minor: hedgehog only ~9-15 px at the tree's foot; marked branches are subtle; care
+  signals rarely show now that nothing starves (design question).
 - Choices taken as "recommended" while Simon was away:
   - Scope after 0.7: new features too (Simon tapped it), 0.8 per the design thread's spec.
   - Live picture: wallpaper and screen saver, one animation (default until he answers).
@@ -29,14 +32,48 @@ Install each fully checked version on his phone (save backed up first); APKs in 
   - Live picture keeps the album's side but frames the tree from low eye height.
 - Note: Simon's phone has the newest installed version with his save; backups in GameDev/tree-shots/savebackup.
 
-## v0.7: the wish underground, bonsai tools, marked branches
-## v0.8 (in progress)
+## v0.8: dot shapes, backup and sharing, brush pile, live picture, new icon
+- Shapes on the nutrient dots (specs/0.8.md section 1): water glows as a drop, nitrogen a leaf,
+  phosphorus a four-point spark, potassium a ring, so the dots read without colour (red-green
+  colour blindness, a grey screenshot). Same quads and draw call underground (an atlas in the
+  dot shader); far dots in the fog fade to one round glow. The marks also show on the HUD pills,
+  the care page, the pages that name the dots, and the bonsai's pellet slip; hints say
+  "the blue drop dots". Always on. Notes: docs/notes/shapes-brush-0.8.md.
+- Brush pile with a hedgehog (section 4): cut branches lie on a pile of sticks at the far clearing
+  edge the camera looks at, beside the shed, from the next sunrise, growing with each cut (one merged mesh, at most
+  40 sticks). After 40 cut segments a hedgehog moves in two sunrises later and snuffles out at
+  dusk on about half the evenings (less from 25 October, never from 20 November until spring),
+  with a diary line and an ink sketch the first time; after 80 a wren may sing from the pile by
+  day. Rain darkens the sticks. Mood only; fresh for each tree; the bonsai's cuttings stay out.
+- Tools: grow_shot.gd `--roots` (the underground, also in grey), `--cut=`, `--hedgehog=`,
+  `--wren=`, `--pile_close`.
+- Save backup: "copy my tree" on the pinboard writes the save and the album as one zip, through
+  Android's own "save as" picker (a PC: the game's folder). "load a copy" opens the phone's file
+  picker, checks the file, asks "sure? tap again", then loads it with a diary line. A broken,
+  foreign or newer file is refused with a note and never touches the game. The game before a load
+  is kept, and for a day the pinboard offers "take back the game before".
+- The game keeps its last three sunrise saves by itself, quietly; if the save cannot be read at
+  start, a torn page offers the newest good morning instead of starting over.
+- Share a photo: "send" beside each Polaroid in the album and on a finished tree's flip-book page
+  opens Android's share sheet with the Polaroid (photo, card and caption) or the month's film as
+  an MP4. Nothing is added, nothing is sent until the player picks an app (a PC: the game's folder).
+- TreePhone plugin: document pickers, share sheet and a small file provider (plain Android, no
+  permission). Notes: docs/notes/backup-share-0.8.md.
+- Live picture (wallpaper and screen saver, one animation): the tree of the last save with its
+  grass line under a sky that follows the real time (sunrise and sunset by date, golden light,
+  night with stars and the moon's real phase), the crown swaying softly, clouds drifting; 12 fps,
+  only while seen, a still frame in battery saver. The game renders the tree's layers each
+  morning and sunset; a small Android library (TreeLive, no Google services, no permission) draws
+  them. A young sapling before the first picture. Pinboard scrap "the tree on my phone" says how.
+- New app icon: a grown linden from the game on a pale-blue morning sky with a low grass line, as
+  an adaptive icon (and a themed monochrome one); the old icon kept in icons/v0.7.
+- Notes: docs/notes/live-icon-0.8.md.
 - Balance fixes from the 0.7 check (specs/0.8.md section 5; numbers and reasons in
   docs/notes/balance-0.8.md). A new game gets a new soil: fewer but larger rich patches set apart
   from each other, phosphorus as plentiful as nitrogen, and nettles on the meadow over it (clover
   over nitrogen). A save from before keeps its old soil.
-- The day's wish points at what the tree lacks most, phosphorus and potassium too (nettles, loose
-  stones), with its own ink sketch. One glow at a time: a new wish puts yesterday's missed glow
+- The day's wish points at what the tree lacks most, phosphorus and potassium too (nettles,
+  comfrey), with its own ink sketch. One glow at a time: a new wish puts yesterday's missed glow
   out; the missed deposit stays as a plain deposit and a later wish may point at it again.
 - The night's root fills the tree's stock only up to a day and a half of need (what it cannot
   hold stays in the tapped deposit for the old roots), so no nutrient piles up while another runs
@@ -49,8 +86,22 @@ Install each fully checked version on his phone (save backed up first); APKs in 
   wet soil dark and glossy; a hungry juniper pales (N), dulls to bronze (P) or browns at some tips
   (K); on repot day the soil is pushed up and roots circle at the rim and creep out under the pot.
   The pinching page names the tweezers.
+- 0.8 review, look and UI (docs/notes/fix-0.8.md): the brush pile lies on the far clearing edge
+  the game's camera looks at, beside the tree in the default view and clear of the shed, with no
+  tall plants on it or on the hedgehog's run; at dusk the hedgehog trundles along its run across
+  the meadow to the tree's foot, snuffles there and goes home (a paler, grizzled coat). Stones only
+  mean rock: a potassium wish grows comfrey (its own words, sketch and page line). Nettles and
+  comfrey are real plant shapes that read at phone size. The pellet slip rings the kind the tin
+  gives (remembered, also after a restart), lies at the screen's edge clear of the crown and the
+  tin, and a tap while the tin pours gives the next spoon instead of being lost; the tin's label
+  names the kind. The noon crown stays a natural lit green on the phone. Smaller things: the
+  "take back" slip always says what it does, the live picture's open note is larger and leaves
+  the backup notes in place, even journal ribbons, "close" to leave the pinboard, the shared
+  Polaroid cut to the card, dot marks on the night's "tonight" line, a slightly bigger wren,
+  stronger N and K signs on the bonsai, no seam on the live picture's horizon or flowers cut at
+  its bottom edge, and a fuller crown on the app icon.
 
-## v0.7 (in progress)
+## v0.7: the wish underground, bonsai tools, marked branches
 - Branches the tree marks for pruning (natural signs only): a shaded twig that will die back in a
   day or two shows it first, with thin, limp, washed-out leaves and greying bark; at most three at
   a time, never on beech or the bonsai; the care page says in one line that a branch looks tired.
@@ -65,47 +116,6 @@ Install each fully checked version on his phone (save backed up first); APKs in 
   everywhere; back puts a lifted bonsai back in its pot; stale bonsai hints cleared; the "sunset"
   word no longer hides behind the book; the diary's wish sketch sits under its line; sill tools
   a little further apart and the stray lid gone.
-
-## v0.8 (in progress)
-- Shapes on the nutrient dots (specs/0.8.md section 1): water glows as a drop, nitrogen a leaf,
-  phosphorus a four-point spark, potassium a ring, so the dots read without colour (red-green
-  colour blindness, a grey screenshot). Same quads and draw call underground (an atlas in the
-  dot shader); far dots in the fog fade to one round glow. The marks also show on the HUD pills,
-  the care page, the pages that name the dots, and the bonsai's pellet slip; hints say
-  "the blue drop dots". Always on. Notes: docs/notes/shapes-brush-0.8.md.
-- Brush pile with a hedgehog (section 4): cut branches lie on a pile of sticks at the clearing
-  edge away from the shed from the next sunrise, growing with each cut (one merged mesh, at most
-  40 sticks). After 40 cut segments a hedgehog moves in two sunrises later and snuffles out at
-  dusk on about half the evenings (less from 25 October, never from 20 November until spring),
-  with a diary line and an ink sketch the first time; after 80 a wren may sing from the pile by
-  day. Rain darkens the sticks. Mood only; fresh for each tree; the bonsai's cuttings stay out.
-- Tools: grow_shot.gd `--roots` (the underground, also in grey), `--cut=`, `--hedgehog=`,
-  `--wren=`, `--pile_close`.
-
-## v0.8 (in progress)
-- Save backup: "copy my tree" on the pinboard writes the save and the album as one zip, through
-  Android's own "save as" picker (a PC: the game's folder). "load a copy" opens the phone's file
-  picker, checks the file, asks "sure? tap again", then loads it with a diary line. A broken,
-  foreign or newer file is refused with a note and never touches the game. The game before a load
-  is kept, and for a day the pinboard offers "take back the game before".
-- The game keeps its last three sunrise saves by itself, quietly; if the save cannot be read at
-  start, a torn page offers the newest good morning instead of starting over.
-- Share a photo: "send" beside each Polaroid in the album and on a finished tree's flip-book page
-  opens Android's share sheet with the Polaroid (photo, card and caption) or the month's film as
-  an MP4. Nothing is added, nothing is sent until the player picks an app (a PC: the game's folder).
-- TreePhone plugin: document pickers, share sheet and a small file provider (plain Android, no
-  permission). Notes: docs/notes/backup-share-0.8.md.
-
-## v0.8 (in progress)
-- Live picture (wallpaper and screen saver, one animation): the tree of the last save with its
-  grass line under a sky that follows the real time (sunrise and sunset by date, golden light,
-  night with stars and the moon's real phase), the crown swaying softly, clouds drifting; 12 fps,
-  only while seen, a still frame in battery saver. The game renders the tree's layers each
-  morning and sunset; a small Android library (TreeLive, no Google services, no permission) draws
-  them. A young sapling before the first picture. Pinboard scrap "the tree on my phone" says how.
-- New app icon: a grown linden from the game on a pale-blue morning sky with a low grass line, as
-  an adaptive icon (and a themed monochrome one); the old icon kept in icons/v0.7.
-- Notes: docs/notes/live-icon-0.8.md.
 
 ## v0.6.3: tree care, softer nights, review fixes
 - The tree shows what it lacks, shape first: thirsty leaves hang, new shoots short of nitrogen

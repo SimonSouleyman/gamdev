@@ -343,13 +343,13 @@ func _build_book() -> void:
 		b.focus_mode = Control.FOCUS_NONE
 		# The calm reading hand, large enough to read on a phone (0.6.3 review: 8 px in Caveat).
 		b.add_theme_font_override("font", Paper.hand_font(false))
-		b.add_theme_font_size_override("font_size", 26)
+		b.add_theme_font_size_override("font_size", 24)
 		for fc in ["font_color", "font_hover_color", "font_pressed_color"]:
 			b.add_theme_color_override(fc, Color(0.98, 0.95, 0.88))
 		# The text sits clear of the V cut in the ribbon's end.
 		var pad := StyleBoxEmpty.new()
-		pad.content_margin_left = 16
-		pad.content_margin_right = 26
+		pad.content_margin_left = 14
+		pad.content_margin_right = 22
 		for s in ["normal", "hover", "pressed", "focus"]:
 			b.add_theme_stylebox_override(s, pad)
 		var cloth := Control.new()
@@ -367,9 +367,8 @@ func _build_book() -> void:
 				cloth.draw_line(Vector2(12, i + 2), Vector2(12, i + 6), col.lightened(0.35), 1.0))
 		b.add_child(cloth)
 		b.set_anchors_preset(Control.PRESET_TOP_RIGHT)
-		# Clear of the screen's edge; a longer word (clearer print) widens the ribbon over the page.
-		b.offset_left = -130
-		b.offset_right = -10
+		# All ribbons as wide as the longest word, their page ends in one line at the page's edge
+		# (0.8 review: "clearing" reached over the page and the ends were ragged); _layout_ribbons.
 		b.grow_horizontal = Control.GROW_DIRECTION_BEGIN
 		b.offset_top = y
 		b.offset_bottom = y + 110
@@ -562,11 +561,31 @@ func _show_tab(name: String, animate: bool = true) -> void:
 	_current_tab = name
 	for k in _tabs:
 		(_tabs[k] as Control).visible = k == name
-	for k in _tab_buttons:
-		# The chosen ribbon sticks out a little further.
-		(_tab_buttons[k] as Button).offset_left = -86 if k == name else -70
+	_layout_ribbons(name)
 	if animate:
 		_turn_page()
+
+
+## The ribbons: all as wide as the longest word needs, starting in one line at the page's right
+## edge (the page gives way for them), the chosen one sticking out a little further.
+const RIBBON_EDGE := 18.0
+const RIBBON_CHOSEN := 10.0
+
+
+func _layout_ribbons(chosen: String) -> void:
+	var w := 0.0
+	for k in _tab_buttons:
+		var b := _tab_buttons[k] as Button
+		b.custom_minimum_size = Vector2.ZERO
+		w = maxf(w, b.get_combined_minimum_size().x)
+	w = ceilf(w)
+	for k in _tab_buttons:
+		var b := _tab_buttons[k] as Button
+		var out := RIBBON_CHOSEN if k == chosen else 0.0
+		b.offset_right = -RIBBON_EDGE + out
+		b.offset_left = -RIBBON_EDGE - w
+		b.custom_minimum_size = Vector2(w + out, 0)
+	_book_page.offset_right = -RIBBON_EDGE - w
 
 
 ## A page turn: the page squeezes toward the spine and opens again.
@@ -579,6 +598,8 @@ func _turn_page() -> void:
 
 func open_diary() -> void:
 	_refresh_diary()
+	# The ribbons fit their words again (clearer print may have changed their size).
+	_layout_ribbons(_current_tab)
 	_book.visible = true
 	_book.modulate.a = 0.0
 	_book_page.scale = Vector2(0.9, 0.96)

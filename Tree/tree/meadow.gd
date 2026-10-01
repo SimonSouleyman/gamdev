@@ -2,8 +2,10 @@ class_name Meadow
 extends Node3D
 ## Read the meadow (design doc section 3): what grows on the surface hints at what lies below.
 ## Rushes and a damp patch over water, clover over nitrogen, nettles over phosphorus (0.8; clover
-## or nettles over nitrogen in an older soil), stones over shallow rock,
-## moss on the north side of the trunk. Grey-box plants, placed from Underground.surface_hints().
+## or nettles over nitrogen in an older soil), comfrey over a potassium wish, stones over shallow
+## rock, moss on the north side of the trunk. Placed from Underground.surface_hints(). The nettles
+## and the comfrey are real plant shapes (0.8 review: the grey-box cones were lost at phone size),
+## one merged mesh per patch.
 
 var _rng := RandomNumberGenerator.new()
 var _mats: Dictionary = {}
@@ -33,7 +35,9 @@ func build(ground: Underground) -> void:
 			"clover":
 				_scatter(p, r, 26, _clover)
 			"nettles":
-				_scatter(p, r, 14, func(q: Vector3) -> void: _cone(q, _rng.randf_range(0.3, 0.5), 0.07, _mats["nettle"]))
+				_patch_mesh(p, r, "nettles")
+			"comfrey":
+				_patch_mesh(p, r, "comfrey")
 			"stones":
 				_scatter(p, r, 7, _stone)
 			"moss":
@@ -131,6 +135,168 @@ func _cone(at: Vector3, height: float, radius: float, mat: Material) -> void:
 	c.radial_segments = 6
 	c.rings = 1
 	_add(c, mat, at + Vector3(0, height * 0.5, 0))
+
+
+## Nettle and comfrey stands (0.8 review): readable at phone size in a summer look-down, each
+## patch one mesh with one material. Nettles: a dense stand of upright stems 0.6 to 1.1 m tall
+## (nettles grow in thick colonies), pairs of pointed, drooping, dark blue-green leaves crossing
+## up the stem, hanging green-brown flower tassels; they read as a dark, spiky, taller block in the
+## meadow. Comfrey: a few broad clumps about 0.7 m high, big rough mid-green leaves arching out of
+## the base and leafy stems topped with curled sprays of hanging violet bells; they read as broad
+## mounds with violet dots. Real colours of the plants, a little deeper than the grass around.
+const NETTLE_STEMS: int = 40
+const COMFREY_CLUMPS: int = 8
+static var _plant_mat: StandardMaterial3D
+
+
+func _patch_mesh(center: Vector3, radius: float, kind: String) -> void:
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var n := NETTLE_STEMS if kind == "nettles" else COMFREY_CLUMPS
+	var spread := radius * (0.8 if kind == "nettles" else 0.7)
+	for _i in range(n):
+		var a := _rng.randf() * TAU
+		# Nettles crowd toward the middle of their colony.
+		var d := spread * pow(_rng.randf(), 0.7 if kind == "nettles" else 0.5)
+		var q := center + Vector3(cos(a) * d, 0.0, sin(a) * d)
+		if Vector2(q.x, q.z).length() < BARE_RADIUS + 0.2:
+			continue
+		var at := Terrain.at(q)
+		if kind == "nettles":
+			_nettle(st, at)
+		else:
+			_comfrey(st, at)
+	st.generate_normals()
+	var m := _add(st.commit(), _plant_material(), Vector3.ZERO)
+	m.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+
+
+static func _plant_material() -> StandardMaterial3D:
+	if _plant_mat == null:
+		_plant_mat = StandardMaterial3D.new()
+		_plant_mat.vertex_color_use_as_albedo = true
+		_plant_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+		_plant_mat.roughness = 0.85
+		# Leaves let a little light through (seen against the sun they do not go black).
+		_plant_mat.backlight_enabled = true
+		_plant_mat.backlight = Color(0.25, 0.3, 0.12)
+	return _plant_mat
+
+
+## One nettle stem: pairs of leaves crossing up the stem, smaller toward the top.
+func _nettle(st: SurfaceTool, at: Vector3) -> void:
+	var h := _rng.randf_range(0.6, 1.1)
+	var lean := Vector3(_rng.randf_range(-0.08, 0.08), 1.0, _rng.randf_range(-0.08, 0.08)).normalized()
+	var dark := Color(0.1, 0.2, 0.1) * _rng.randf_range(0.85, 1.1)
+	var leaf_col := Color(0.15, 0.28, 0.09) * _rng.randf_range(0.85, 1.15)
+	_strip(st, at, at + lean * h, 0.008, dark)
+	var turn := _rng.randf() * PI
+	var pairs := 6
+	for k in range(pairs):
+		var t := 0.22 + 0.74 * float(k) / (pairs - 1)
+		var node := at + lean * h * t
+		var yaw := turn + k * PI * 0.5
+		var size := lerpf(0.16, 0.06, t)
+		for side in [-1.0, 1.0]:
+			var out := Vector3(cos(yaw) * side, 0.0, sin(yaw) * side)
+			# Drooping: the leaf goes out and down; upper leaves stand up more.
+			var dir := (out + Vector3(0, lerpf(-0.55, 0.35, t), 0)).normalized()
+			_leaf(st, node, dir, size, size * 0.42, leaf_col.lightened(0.12 * t))
+		# Hanging flower tassels from the upper leaf joints.
+		if t > 0.45 and _rng.randf() < 0.6:
+			var hang := Vector3(cos(yaw + 0.8), -0.9, sin(yaw + 0.8)).normalized()
+			_strip(st, node, node + hang * 0.09, 0.006, Color(0.32, 0.33, 0.16))
+	# The top: a small tuft of young leaves, a little lighter.
+	_leaf(st, at + lean * h, (lean + Vector3(0.3, 0, 0)).normalized(), 0.04, 0.02, leaf_col.lightened(0.2))
+
+
+## One comfrey clump: broad leaves arching out of the base, two or three leafy flowering stems.
+func _comfrey(st: SurfaceTool, at: Vector3) -> void:
+	var leaf_col := Color(0.2, 0.34, 0.13) * _rng.randf_range(0.9, 1.1)
+	var base_leaves := _rng.randi_range(7, 10)
+	var turn := _rng.randf() * TAU
+	for k in range(base_leaves):
+		var yaw := turn + TAU * k / base_leaves + _rng.randf_range(-0.2, 0.2)
+		var out := Vector3(cos(yaw), 0.0, sin(yaw))
+		var length := _rng.randf_range(0.34, 0.48)
+		# Arching: up and out, then the tip bends over.
+		var mid := at + out * length * 0.45 + Vector3(0, length * 0.55, 0)
+		_leaf(st, at + Vector3(0, 0.02, 0), (mid - at).normalized(), length * 0.55, length * 0.2, leaf_col)
+		_leaf(st, mid, (out + Vector3(0, -0.35, 0)).normalized(), length * 0.55, length * 0.2, leaf_col.lightened(0.06))
+	for _s in range(_rng.randi_range(2, 3)):
+		var lean := Vector3(_rng.randf_range(-0.25, 0.25), 1.0, _rng.randf_range(-0.25, 0.25)).normalized()
+		var h := _rng.randf_range(0.55, 0.8)
+		var top := at + lean * h
+		_strip(st, at, top, 0.012, leaf_col.darkened(0.2))
+		for k in range(3):
+			var node := at + lean * h * (0.35 + 0.2 * k)
+			var yaw := _rng.randf() * TAU
+			_leaf(st, node, Vector3(cos(yaw), 0.15, sin(yaw)).normalized(), 0.13 - 0.03 * k, 0.05, leaf_col.lightened(0.05))
+		# The curled spray of hanging bells: violet (the common purple comfrey), a few paler.
+		var curl := Vector3(_rng.randf_range(-1, 1), 0.0, _rng.randf_range(-1, 1)).normalized()
+		for b in range(8):
+			var p := top + curl * 0.025 * b + Vector3(0, 0.01 - 0.003 * b * b, 0)
+			var bell := Color(0.46, 0.2, 0.5).lerp(Color(0.72, 0.55, 0.78), _rng.randf() * 0.4)
+			_bell(st, p, 0.03, bell)
+
+
+## A leaf as a flat pointed oval from `base` along `dir`, `length` long and `width` wide, with a
+## slight fold along its midrib.
+func _leaf(st: SurfaceTool, base: Vector3, dir: Vector3, length: float, width: float, col: Color) -> void:
+	var side := dir.cross(Vector3.UP)
+	if side.length() < 0.1:
+		side = dir.cross(Vector3.RIGHT)
+	side = side.normalized()
+	var up := side.cross(dir).normalized()
+	var spine: Array[Vector3] = [base]
+	var left: Array[Vector3] = []
+	var right: Array[Vector3] = []
+	for k in range(1, 5):
+		var t := float(k) / 5.0
+		var w := sin(t * PI) * width * (1.15 - t * 0.4)
+		var c := base + dir * length * t
+		spine.append(c)
+		left.append(c + side * w + up * w * 0.25)
+		right.append(c - side * w + up * w * 0.25)
+	var tip := base + dir * length
+	var edge_col := col.darkened(0.08)
+	for edge: Array[Vector3] in [left, right]:
+		for k in range(4):
+			var e0: Vector3 = spine[0] if k == 0 else edge[k - 1]
+			_tri(st, spine[k], e0, edge[k], col, edge_col, edge_col)
+			_tri(st, spine[k], edge[k], spine[k + 1], col, edge_col, col)
+		_tri(st, spine[4], edge[3], tip, col, edge_col, col)
+
+
+func _tri(st: SurfaceTool, a: Vector3, b: Vector3, c: Vector3, ca: Color, cb: Color, cc: Color) -> void:
+	st.set_color(ca)
+	st.add_vertex(a)
+	st.set_color(cb)
+	st.add_vertex(b)
+	st.set_color(cc)
+	st.add_vertex(c)
+
+
+## A thin stem as two crossed strips.
+func _strip(st: SurfaceTool, a: Vector3, b: Vector3, width: float, col: Color) -> void:
+	for side in [Vector3(width, 0, 0), Vector3(0, 0, width)]:
+		_tri(st, a - side, a + side, b + side * 0.5, col, col, col)
+		_tri(st, a - side, b + side * 0.5, b - side * 0.5, col, col, col)
+
+
+## A hanging bell flower: a small five-sided tube, open end down.
+func _bell(st: SurfaceTool, top: Vector3, size: float, col: Color) -> void:
+	var sides := 5
+	var bottom := top + Vector3(0, -size * 1.3, 0)
+	for k in range(sides):
+		var a0 := TAU * k / sides
+		var a1 := TAU * (k + 1) / sides
+		var t0 := top + Vector3(cos(a0), 0, sin(a0)) * size * 0.35
+		var t1 := top + Vector3(cos(a1), 0, sin(a1)) * size * 0.35
+		var b0 := bottom + Vector3(cos(a0), 0, sin(a0)) * size * 0.6
+		var b1 := bottom + Vector3(cos(a1), 0, sin(a1)) * size * 0.6
+		_tri(st, t0, b0, b1, col, col.lightened(0.1), col.lightened(0.1))
+		_tri(st, t0, b1, t1, col, col.lightened(0.1), col)
 
 
 func _clover(at: Vector3) -> void:

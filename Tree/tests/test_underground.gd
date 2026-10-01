@@ -93,6 +93,8 @@ func _hints_match(u: Underground, old_soil: bool) -> void:
 				# 0.8: nettles love phosphate; the old soil grew them over nitrogen.
 				var kind := Resources.Kind.NITROGEN if old_soil else Resources.Kind.PHOSPHORUS
 				t.check(_patch_below(u, p, kind), "%s below nettles at %s" % [Resources.KIND_NAMES[kind], p])
+			"comfrey":
+				t.check(_patch_below(u, p, Resources.Kind.POTASSIUM), "potassium below comfrey at %s" % p)
 			"stones":
 				var rock := false
 				for r in range(u.rock_centers.size()):
