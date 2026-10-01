@@ -2,16 +2,25 @@ class_name Ambience
 extends Node
 ## Ambience per world (design doc: ambience only, no music). Above: a recorded forest with birds
 ## by day, a second bird recording on top, crickets as the sun goes down, a soft wind from
-## AmbienceSynth. Below: a deep calm hum and water trickling somewhere in the soil. Crossfaded on
+## AmbienceSynth. Below: the night's song (a warm hum and four slow low notes in turn,
+## AmbienceSynth.night_song, 0.8.1) and water trickling somewhere in the soil. Crossfaded on
 ## the dive and with the time of day. Recordings are CC0 (assets/CREDITS.md; Simon, play test 4).
 
 const ABOVE_DB := -8.0
 const BELOW_DB := -6.0
 const SILENT_DB := -60.0
 ## How loud each layer is at full presence.
-const LEVELS := {"forest": -6.0, "birds": -14.0, "crickets": -12.0, "wind": -18.0, "hum": -6.0, "water": -20.0, "rain": -9.0}
+const LEVELS := {"forest": -6.0, "birds": -14.0, "crickets": -12.0, "wind": -18.0, "hum": HUM_DB, "water": -20.0, "rain": -9.0}
+## The night's song (broken list 27): quieter than the tree mode's ambience (tools/render_night_song.gd
+## measures both; docs/notes/sound-live-0.8.1.md has the numbers).
+const HUM_DB := -17.0
 ## How fast layers follow their targets (dB per second).
 const FADE_DB_PER_S := 30.0
+## The night's song fades in slowly on the dive (from silence to its level in about this many
+## seconds, however fast the dive asks) and out quickly when the night ends, so it is never heard
+## in tree mode.
+const SONG_FADE_IN_S := 4.0
+const SONG_FADE_OUT_S := 1.0
 
 var _layers: Dictionary = {}  # name -> AudioStreamPlayer
 var _above: bool = true
@@ -26,6 +35,8 @@ var _streak_timer: float = 0.0
 var _rng := RandomNumberGenerator.new()
 ## Seconds a set_world crossfade takes.
 var _fade_speed: float = FADE_DB_PER_S
+var _song_task: int = -1
+var _song: AudioStreamWAV
 
 
 func _ready() -> void:
@@ -34,7 +45,10 @@ func _ready() -> void:
 	_layer("birds", _loop(load("res://assets/sounds/birds.ogg")))
 	_layer("crickets", _loop(load("res://assets/sounds/crickets.mp3")))
 	_layer("wind", AmbienceSynth.wind())
-	_layer("hum", AmbienceSynth.hum())
+	# The song takes a moment to make (half a second on the phone): on a worker thread, it is
+	# not needed before the first dive.
+	_layer("hum", null)
+	_song_task = WorkerThreadPool.add_task(_make_song)
 	_layer("water", _loop(load("res://assets/sounds/water_flowing.ogg")))
 	_layer("rain", _loop(load("res://assets/sounds/rain.ogg")))
 	_thunder = AudioStreamPlayer.new()
@@ -61,9 +75,33 @@ func _layer(name: String, stream: AudioStream) -> void:
 	p.stream = stream
 	p.volume_db = SILENT_DB
 	add_child(p)
-	# Each layer starts at its own point, so the loops do not line up.
-	p.play(_rng.randf() * 5.0)
+	# Each layer starts at its own point, so the loops do not line up; a silent layer rests.
+	if stream != null:
+		p.play(_rng.randf() * 5.0)
+		p.stream_paused = true
 	_layers[name] = p
+
+
+func _make_song() -> void:
+	_song = AmbienceSynth.night_song()
+
+
+## The song is ready (its worker finished); waits for it if `wait`.
+func song_ready(wait: bool = false) -> bool:
+	if _song_task >= 0 and (wait or WorkerThreadPool.is_task_completed(_song_task)):
+		WorkerThreadPool.wait_for_task_completion(_song_task)
+		_song_task = -1
+		var p: AudioStreamPlayer = _layers["hum"]
+		p.stream = _song
+		p.play()
+		p.stream_paused = true
+	return _song_task < 0
+
+
+func _exit_tree() -> void:
+	if _song_task >= 0:
+		WorkerThreadPool.wait_for_task_completion(_song_task)
+		_song_task = -1
 
 
 ## Crossfade between the meadow and the underground.
@@ -123,6 +161,15 @@ func _process(delta: float) -> void:
 	_streak_timer -= delta
 	if _streak_timer <= 0.0:
 		_streak = 0
+	song_ready()
 	for name in _layers:
 		var p: AudioStreamPlayer = _layers[name]
-		p.volume_db = move_toward(p.volume_db, _target(name), _fade_speed * delta)
+		var target := _target(name)
+		var speed := _fade_speed
+		if name == "hum":
+			speed = minf(speed, 60.0 / SONG_FADE_IN_S) if target > p.volume_db else maxf(speed, 60.0 / SONG_FADE_OUT_S)
+		p.volume_db = move_toward(p.volume_db, target, speed * delta)
+		# A layer that is silent rests (no decoding, and certainly nothing heard).
+		var silent := p.volume_db <= SILENT_DB + 0.01 and target <= SILENT_DB
+		if p.stream != null and p.stream_paused != silent:
+			p.stream_paused = silent

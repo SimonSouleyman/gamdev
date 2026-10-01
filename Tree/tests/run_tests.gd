@@ -63,6 +63,7 @@ func _run_all() -> void:
 		preload("res://tests/test_brush_pile.gd"),
 		preload("res://tests/test_backup.gd"),
 		preload("res://tests/test_live_picture.gd"),
+		preload("res://tests/test_night_song.gd"),
 		preload("res://tests/test_balance.gd"),
 	]
 	for script in tests:

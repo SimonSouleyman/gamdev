@@ -13,8 +13,8 @@ var utc_offset: float = 2.0
 var unix: int = 0
 var t: float = 0.0
 ## Grid of the wind mesh (as LiveRenderer.MESH_W / MESH_H).
-const MESH_W := 12
-const MESH_H := 24
+const MESH_W := 24
+const MESH_H := 48
 var _clouds: Array[Texture2D] = []
 
 

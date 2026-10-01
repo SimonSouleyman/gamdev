@@ -25,8 +25,8 @@ import java.util.TimeZone;
  * out once every few seconds, the picture's files are looked at once a minute (a file date).
  */
 final class LiveRenderer {
-    static final int MESH_W = 12;
-    static final int MESH_H = 24;
+    static final int MESH_W = 24;
+    static final int MESH_H = 48;
     /** How often the light is worked out again (it changes over minutes). */
     static final long MOMENT_MS = 5000;
     /** How often the game's picture is looked for (a new one after the game saved). */

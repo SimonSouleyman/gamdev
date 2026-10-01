@@ -13,7 +13,10 @@ final class LiveScene {
     static final String[] LAYERS = {"dawn", "day", "dusk", "night"};
     static final int FPS = 12;
     static final double KEEP_CLEAR = 0.28;
-    static final double WIND = 0.012;
+    static final double WIND = 0.03;
+    static final double WIND_MIN_TALL = 0.4;
+    static final double LEAF = 0.0035;
+    static final double GRASS = 0.005;
     static final double LATITUDE = 51.0;
     static final double LONGITUDE = 10.0;
     static final double SYNODIC_MONTH = 29.530588853;
@@ -133,20 +136,24 @@ final class LiveScene {
         double tall = Math.max(groundY - crownTop, 0.02);
         double k = Math.max(0.0, Math.min(1.0, (groundY - v) / tall));
         double bend = Math.pow(k, 1.6);
+        double sway = WIND * Math.max(tall, WIND_MIN_TALL);
         double gust = 0.6 * Math.sin(t * 0.9 + u * 1.3) + 0.4 * Math.sin(t * 0.37 + 1.7);
-        double flutter = 0.25 * k * Math.sin(t * 2.3 + u * 7.0 + v * 5.0);
-        double dx = WIND * tall * bend * (gust + flutter);
-        double dy = WIND * tall * 0.2 * bend * Math.sin(t * 1.1 + u * 3.0);
+        double branches = 0.35 * k * Math.sin(t * 1.6 - u * 6.0 + v * 4.0);
+        double dx = sway * bend * (gust + branches);
+        double dy = sway * 0.2 * bend * Math.sin(t * 1.1 + u * 3.0);
+        double leaf = LEAF * smoothstep(0.3, 0.6, k);
+        dx += leaf * Math.sin(t * 5.1 + u * 31.0 + v * 23.0);
+        dy += leaf * 0.8 * Math.sin(t * 4.3 + u * 17.0 - v * 29.0);
         if (v > groundY - 0.01) {
             double g = 1.0 - smoothstep(0.0, 0.2, v - groundY);
-            dx += 0.002 * g * Math.sin(t * 1.7 + u * 11.0 + v * 23.0);
+            dx += GRASS * g * Math.sin(t * 2.2 - u * 9.0 + v * 23.0);
         }
         dx *= Math.max(0.0, Math.min(1.0, Math.min(u, 1.0 - u) / 0.04));
         out[0] = (float) dx;
         out[1] = (float) dy;
     }
 
-    static final double[] CLOUD_SPEED = {0.0008, 0.0006, 0.0005};
+    static final double[] CLOUD_SPEED = {0.004, 0.003, 0.0024};
     static final double[] CLOUD_START = {0.2, 0.75, 1.3};
     static final double[] CLOUD_Y = {0.08, 0.17, 0.03};
     static final double[] CLOUD_WIDTHS = {1.0, 0.8, 0.62};

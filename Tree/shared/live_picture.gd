@@ -23,8 +23,16 @@ const LAYER_SIZE := Vector2i(540, 960)
 const FPS := 12
 ## The top part of the screen the lock screen's clock covers: the crown stays below it (14e).
 const KEEP_CLEAR := 0.28
-## How far the crown top sways, as a share of the tree's height on screen (tuning lever).
-const WIND := 0.012
+## How far the crown top sways, as a share of the tree's height on screen (tuning lever). 0.8.1
+## (broken list 33): 0.012 swayed a young tree by 3 px on the Fairphone, which read as a still
+## picture; now about 3 %, with a small tree swaying as if it were WIND_MIN_TALL tall.
+const WIND := 0.03
+const WIND_MIN_TALL := 0.4
+## Leaves shimmering in the crown: a quick, small wobble that differs from cell to cell of the
+## mesh, in shares of the layer's width (0.0035 is about 4 px on the phone).
+const LEAF := 0.0035
+## The meadow's ripple below the foot, in shares of the layer's width.
+const GRASS := 0.005
 ## Where the sun is reckoned: the middle of Germany (the game's calendar is German too).
 const LATITUDE := 51.0
 const LONGITUDE := 10.0
@@ -112,20 +120,25 @@ static func moment(day_of_year: int, hour: float, utc_offset_hours: float, unix:
 ## How far a point of the layer moves in the wind at time t (seconds), in layer units (0..1 of
 ## the layer's width and height). u, v: the point (v downward). ground_y, crown_top: the trunk's
 ## foot and the crown's top in the same units. The trunk's foot stands still, the crown sways
-## more the higher up (a bending trunk), with a slow gust and a quicker flutter; the grass below
-## the foot shimmers a little.
+## more the higher up (a bending trunk) with a slow gust, a wave runs through the branches so
+## they move apart, the leaves shimmer, and the grass below the foot ripples in waves.
 static func wind_offset(u: float, v: float, t: float, ground_y: float, crown_top: float) -> Vector2:
 	var tall := maxf(ground_y - crown_top, 0.02)
 	var k := clampf((ground_y - v) / tall, 0.0, 1.0)
 	var bend := pow(k, 1.6)
+	var sway := WIND * maxf(tall, WIND_MIN_TALL)
 	var gust := 0.6 * sin(t * 0.9 + u * 1.3) + 0.4 * sin(t * 0.37 + 1.7)
-	var flutter := 0.25 * k * sin(t * 2.3 + u * 7.0 + v * 5.0)
-	var dx := WIND * tall * bend * (gust + flutter)
-	var dy := WIND * tall * 0.2 * bend * sin(t * 1.1 + u * 3.0)
-	# The meadow below the foot: a small, quick ripple, strongest near the foot's line.
+	var branches := 0.35 * k * sin(t * 1.6 - u * 6.0 + v * 4.0)
+	var dx := sway * bend * (gust + branches)
+	var dy := sway * 0.2 * bend * sin(t * 1.1 + u * 3.0)
+	# The leaves: only in the crown (above a third of the tree), never the trunk's foot.
+	var leaf := LEAF * smoothstep(0.3, 0.6, k)
+	dx += leaf * sin(t * 5.1 + u * 31.0 + v * 23.0)
+	dy += leaf * 0.8 * sin(t * 4.3 + u * 17.0 - v * 29.0)
+	# The meadow below the foot: waves running across, strongest near the foot's line.
 	if v > ground_y - 0.01:
 		var g := 1.0 - smoothstep(0.0, 0.2, v - ground_y)
-		dx += 0.002 * g * sin(t * 1.7 + u * 11.0 + v * 23.0)
+		dx += GRASS * g * sin(t * 2.2 - u * 9.0 + v * 23.0)
 	# The picture's side edges stay put (no sky showing through beside the meadow).
 	dx *= clampf(minf(u, 1.0 - u) / 0.04, 0.0, 1.0)
 	return Vector2(dx, dy)
@@ -133,9 +146,9 @@ static func wind_offset(u: float, v: float, t: float, ground_y: float, crown_top
 
 ## Where cloud i (0..2) floats at time t: its middle, x as a share of the screen width (it leaves
 ## on the right and comes back on the left), y as a share of the height, in the sky above the
-## crown. Slow: a screen width in about 20 to 35 minutes.
+## crown. A screen width in about 4 to 7 minutes (0.8.1: 20 to 35 minutes looked still).
 static func cloud_position(i: int, t: float) -> Vector2:
-	var speed: float = [0.0008, 0.0006, 0.0005][i % 3]
+	var speed: float = [0.004, 0.003, 0.0024][i % 3]
 	var start: float = [0.2, 0.75, 1.3][i % 3]
 	var y: float = [0.08, 0.17, 0.03][i % 3]
 	return Vector2(fposmod(start + t * speed, 2.2) - 0.6, y)
