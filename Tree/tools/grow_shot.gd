@@ -24,6 +24,8 @@ extends SceneTree
 ## Mood (section 17): --season=spring|summer|autumn|late_autumn, --weather=rain|mist|dew|clear,
 ## --moon=<phase 0..1>, --date=YYYY-MM-DD (Almanac.read_cmdline); --night=<0..1> photographs the
 ## sunset hold that far into the night instead of noon; --yaw=<radians> and --pitch= one view only;
+## --hud keeps the real HUD in the photos and prints where the tree sits on screen (0.8.1 framing);
+## --run (with --roots): also a photo during a run tonight, the live root among the old ones.
 ## --settle=<frames> waits before the first photo; --face_moon turns the view toward the moon; --look_up=<radians> tilts the camera toward the sky; --tag=<name> prefixes the file names.
 
 var shots_dir := ""
@@ -55,6 +57,8 @@ var face_moon := false
 var settle := 0
 var marks := false
 var hint_patches := false
+var keep_hud := false
+var run_shot := false
 
 
 func _initialize() -> void:
@@ -79,6 +83,10 @@ func _initialize() -> void:
 			prune = true
 		elif a == "--marks":
 			marks = true
+		elif a == "--hud":
+			keep_hud = true
+		elif a == "--run":
+			run_shot = true
 		elif a == "--hint_patches":
 			hint_patches = true
 		elif a == "--dive":
@@ -188,7 +196,7 @@ func _process(_delta: float) -> bool:
 	if frame == 1:
 		# After the view's own _ready, which runs once the tree starts.
 		view.setup(get_meta("game"))
-		view.set_hud_visible(false)
+		view.set_hud_visible(keep_hud)
 		if overdraw:
 			root.get_viewport().debug_draw = Viewport.DEBUG_DRAW_OVERDRAW
 		view.night_override = night
@@ -245,6 +253,7 @@ func _process(_delta: float) -> bool:
 		root.get_viewport().get_texture().get_image().save_png(shots_dir.path_join("%stree_day%d_h%d_%s.png" % [tag, days, int(hour * 100), names[i - 1]]))
 		if stats:
 			_print_stats(names[i - 1])
+		_print_frame(names[i - 1])
 		# Where the hedgehog is in the photo (0.8 review: it was a few pixels at the edge).
 		var bp := view.brush_pile
 		if bp.hedgehog.visible and view.camera.is_position_in_frustum(bp.hedgehog.global_position):
@@ -258,6 +267,24 @@ func _process(_delta: float) -> bool:
 	else:
 		quit()
 	return false
+
+
+## Where the tree (its living wood, plus a leaf's reach at the tips) sits on screen, as fractions
+## of the screen: top, bottom, left, right (0.8.1, broken item 25).
+func _print_frame(label: String) -> void:
+	var g := view.state.sim.graph
+	var cam := view.camera
+	var size := root.get_viewport().get_visible_rect().size
+	var lo := Vector2(INF, INF)
+	var hi := Vector2(-INF, -INF)
+	for id in range(g.size()):
+		if g.get_flag(id, "dead", false) or cam.is_position_behind(g.positions[id]):
+			continue
+		var p := cam.unproject_position(g.positions[id])
+		lo = lo.min(p)
+		hi = hi.max(p)
+	print("frame %s: tree top %.2f bottom %.2f left %.2f right %.2f (height %.1f m, crown %.1f m)" % [label, lo.y / size.y, hi.y / size.y, lo.x / size.x, hi.x / size.x, view.state.sim.height(), view.crown_width()])
+	print("  camera %.1f m back, fov %.0f, clearing %.0f m, crown across %s" % [view._distance, cam.fov, view._clearing, view.crown_across(view._yaw, view._distance)])
 
 
 ## What the frame just drawn cost, and what it costs without the forest (trees, impostors, shrubs).
@@ -337,6 +364,15 @@ func _roots_frames() -> bool:
 		rview.camera.look_at(spot, Vector3.UP)
 	if frame == 80:
 		_save_both("roots_medium")
+		if not run_shot:
+			quit()
+			return false
+		# --run: tonight's root from the newest tip, steered ahead and a little down.
+		g.sim.resources.life_force = maxf(g.sim.resources.life_force, 25.0)
+		rview.scripted_stick = Vector2(0.35, 0.2)
+		rview.start_at(g.roots.graph.size() - 1)
+	if run_shot and frame == 260:
+		_save_both("roots_run")
 		quit()
 	return false
 

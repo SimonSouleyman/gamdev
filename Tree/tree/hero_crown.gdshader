@@ -4,7 +4,7 @@ shader_type spatial;
 // outside of the crown) and an occlusion value: the crown shades as lumpy masses with a dark
 // interior and a bright, sunlit rim, and sky shows through the gaps between the masses.
 // A clean alpha cut (alpha to coverage where the renderer has MSAA), no dither speckle.
-render_mode cull_disabled, depth_draw_opaque, diffuse_lambert_wrap, specular_schlick_ggx;
+render_mode cull_disabled, depth_draw_opaque, diffuse_lambert_wrap, specular_schlick_ggx, shadows_disabled;
 
 uniform sampler2D spray_color : source_color, filter_linear_mipmap_anisotropic, repeat_disable;
 uniform sampler2D spray_normal : hint_normal, filter_linear_mipmap, repeat_disable;

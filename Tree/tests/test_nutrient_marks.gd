@@ -1,16 +1,12 @@
 extends RefCounted
-## 0.8: shapes on the nutrient dots (specs/0.8.md section 1; broken list items 1 to 3).
+## Nutrient shapes and dots. 0.8 put shapes on the dots (specs/0.8.md section 1); 0.8.1 (Simon,
+## broken item 20): in play the nutrients are plain coloured dots everywhere (tree mode, the HUD,
+## the root run's dots, the wish glow); the shapes stay only in the journal's key and on the
+## pellet tins, so dot-shape items 1 to 3 now count only those.
 var t
 
-## The smallest mark still drawn as a shape on the phone, in pixels: the smallest dot quad
-## (0.128 m) times the mark's share of it (shape_span), at the distance where shapes turn round
-## (shape_far, 9.5 m), with the root camera's 62 degree view on an 800 pixel tall screen
-## (the phone look; a real phone has more pixels). About 6 px.
-static func smallest_px() -> int:
-	var quad := 0.16 * 0.8
-	var span := 0.72
-	var px_per_m := 800.0 / (2.0 * 9.5 * tan(deg_to_rad(31.0)))
-	return int(floor(quad * span * px_per_m))
+## The smallest the shapes are drawn: the journal key's marks (legend at 24 pt) and the pellet tin.
+const KEY_SIZES: Array[int] = [24, 30, 34]
 
 
 func _difference(a: PackedFloat32Array, b: PackedFloat32Array) -> float:
@@ -22,12 +18,10 @@ func _difference(a: PackedFloat32Array, b: PackedFloat32Array) -> float:
 	return d / maxf(both, 1e-4)
 
 
-## Broken 1: no two shapes may be confused at the smallest size or in grey. The marks are drawn
-## in one tone (only the colour differs), so a grey screenshot keeps exactly these shapes.
-func test_the_four_marks_differ_at_the_smallest_phone_size() -> void:
-	var px := smallest_px()
-	t.check(px >= 5 and px <= 9, "smallest mark on the phone is a few pixels (%d)" % px)
-	for size in [px, 12, 32]:
+## Broken 1 (journal key and tins): no two shapes may be confused at the sizes they are drawn, or
+## in grey (they are drawn in one tone, only the colour differs).
+func test_the_four_marks_differ_where_they_are_shown() -> void:
+	for size in KEY_SIZES:
 		var masks: Array = []
 		for k in range(4):
 			masks.append(NutrientMarks.coverage(k, size))
@@ -35,10 +29,9 @@ func test_the_four_marks_differ_at_the_smallest_phone_size() -> void:
 			for b in range(a + 1, 4):
 				var diff := _difference(masks[a], masks[b])
 				t.check(diff > 0.3, "%s and %s differ at %d px (%.2f of their area)" % [NutrientMarks.SHAPE_NAMES[a], NutrientMarks.SHAPE_NAMES[b], size, diff])
-	# The ring keeps a hole and the spark its thin arms even that small.
+	var px := KEY_SIZES[0]
 	var ring := NutrientMarks.coverage(3, px)
-	var mid := px / 2
-	t.check(ring[mid * px + mid] < 0.5, "the ring's middle stays dark at %d px" % px)
+	t.check(ring[(px / 2) * px + px / 2] < 0.5, "the ring's middle stays open at %d px" % px)
 
 
 func test_marks_have_their_shapes() -> void:
@@ -46,30 +39,27 @@ func test_marks_have_their_shapes() -> void:
 	t.check(NutrientMarks.inside(1, Vector2.ZERO) and not NutrientMarks.inside(1, Vector2(0.6, 0.6).rotated(NutrientMarks.LEAF_TILT)), "nitrogen: a narrow leaf")
 	t.check(NutrientMarks.inside(2, Vector2(0.9, 0)) and NutrientMarks.inside(2, Vector2(0, -0.9)) and not NutrientMarks.inside(2, Vector2(0.45, 0.45)), "phosphorus: four points, hollow between them")
 	t.check(not NutrientMarks.inside(3, Vector2.ZERO) and NutrientMarks.inside(3, Vector2(0.65, 0)), "potassium: a ring")
-	var atlas := NutrientMarks.atlas()
-	t.check(atlas.get_width() == NutrientMarks.CELL * 4 and atlas.get_height() == NutrientMarks.CELL, "one atlas of four cells")
-	t.check(atlas.get_image().has_mipmaps(), "mipmapped for tiny far dots")
 
 
-## Broken 2 and 3: the dots underground carry their kind's shape on the same quads (no new node,
-## no new draw call), dimmed dots and the wish's warm dots included.
-func test_underground_dots_carry_their_shape_without_new_draw_calls() -> void:
+## Broken 20: underground every dot is a plain round glow in its kind's colour (no shape atlas, no
+## per-dot kind data), one node draws them all; reached dots dim, the wish's dots only warm up.
+func test_underground_dots_are_plain_coloured_dots() -> void:
 	var rv := RootView.new()
 	t.root.add_child(rv)
 	var g := GameState.new_game(14)
 	rv.setup(g.ground, g.roots, g.sim.resources)
 	var dots: MultiMeshInstance3D = rv._dots
 	var mm := dots.multimesh
-	t.check(mm.use_custom_data, "the kind rides in the instance data")
+	t.check(not mm.use_custom_data, "no shape data rides with the dots")
 	t.check_eq(mm.instance_count, g.ground.dot_count(), "one instance per dot, as before")
 	var mat := dots.material_override as ShaderMaterial
-	t.check(mat.get_shader_parameter("marks") == NutrientMarks.atlas(), "the dots' material samples the marks atlas")
+	var code := mat.shader.code
+	t.check(not ("sampler2D" in code) and not ("INSTANCE_CUSTOM" in code), "the dot shader draws no shapes")
 	var ok := true
 	for i in range(mm.instance_count):
-		if int(round(rv.dot_look(i)[1].r)) != g.ground.dot_kinds[i]:
+		if not rv.dot_look(i).is_equal_approx(Resources.KIND_COLORS[g.ground.dot_kinds[i]]):
 			ok = false
-	t.check(ok, "every dot's shape is its kind")
-	# Only one node draws all the dots (one draw call): count geometry that uses the dot shader.
+	t.check(ok, "every fresh dot glows in its kind's colour")
 	var users := 0
 	var stack: Array[Node] = [rv]
 	while not stack.is_empty():
@@ -79,41 +69,51 @@ func test_underground_dots_carry_their_shape_without_new_draw_calls() -> void:
 		if gi != null and gi.material_override is ShaderMaterial and (gi.material_override as ShaderMaterial).shader == mat.shader:
 			users += 1
 	t.check_eq(users, 1, "one node draws every dot")
-	# A dot the roots already reach is dimmed and keeps its shape.
 	var i0 := 0
 	g.roots.tapped[i0] = true
 	rv._set_dot(i0)
-	# (The headless test server keeps no instance data, so the look is read from dot_look.)
-	t.check_eq(int(round(rv.dot_look(i0)[1].r)), g.ground.dot_kinds[i0], "a dimmed dot keeps its shape")
-	t.check(rv.dot_look(i0)[0].get_luminance() < Resources.KIND_COLORS[g.ground.dot_kinds[i0]].get_luminance(), "and is dimmed")
-	# The wish's warm dots (0.7 glow) keep theirs too.
+	t.check(rv.dot_look(i0).get_luminance() < Resources.KIND_COLORS[g.ground.dot_kinds[i0]].get_luminance(), "a reached dot is dimmed")
 	var glows := g.wish_glows()
 	if not glows.is_empty():
 		rv.set_wish_glows(glows)
-		var warm: Array = rv._warm_dots.keys()
-		for i in warm:
-			t.check_eq(int(round(rv.dot_look(int(i))[1].r)), g.ground.dot_kinds[int(i)], "a warm wish dot keeps its shape")
+		for i in rv._warm_dots.keys():
+			var c: Color = rv.dot_look(int(i))
+			t.check(c.r >= Resources.KIND_COLORS[g.ground.dot_kinds[int(i)]].r - 0.001, "a wish dot is its colour, a little warmer")
+	# The run's catch on the HUD: plain coloured dots, no marks.
+	var shapes := 0
+	var plain := 0
+	for c in rv._counts.get_children():
+		if c is TextureRect:
+			shapes += 1
+		elif c is Label and (c as Label).text == "●":
+			plain += 1
+	t.check_eq(shapes, 0, "the run's catch shows no shapes")
+	t.check_eq(plain, 4, "but a coloured dot per kind")
 	rv.free()
 
 
-## Broken 2: the HUD pills, the journal's pages and care page, and the bonsai's pellet slip all
-## show the marks.
-func test_every_place_that_shows_a_nutrient_by_colour_shows_its_mark() -> void:
+## Broken 20 (tree mode): the HUD pills show plain coloured dots; the journal's care and hint
+## pages keep the shapes as a key, and the pellet tins keep theirs.
+func test_shapes_only_in_the_journal_key_and_on_the_tins() -> void:
 	# HUD pills.
 	var tv := TreeView.new()
 	var bar := HBoxContainer.new()
 	for k in range(4):
 		tv._pill(bar, Resources.KIND_COLORS[k], k)
-	var marks := 0
+	var dots := 0
+	var shapes := 0
 	for panel in bar.get_children():
 		for c in panel.get_child(0).get_children():
-			if c is TextureRect and str(c.name).begins_with("mark_"):
-				marks += 1
-	t.check_eq(marks, 4, "each nutrient pill has its mark")
+			if c is TextureRect:
+				shapes += 1
+			elif c is Label and (c as Label).text == "●":
+				dots += 1
+	t.check_eq(shapes, 0, "no nutrient pill shows a shape")
+	t.check_eq(dots, 4, "each nutrient pill has its coloured dot")
 	bar.free()
 	tv.free()
-	# Journal pages that name the dots by colour carry the key; the text names the shapes.
-	t.check("blue drops" in Pages.body("first_night") and "violet rings" in Pages.body("first_night"), "the first night's page names the shapes")
+	t.check("blue dots are water" in Pages.body("first_night") and not ("drops" in Pages.body("first_night")), "the first night's page names the dots by colour")
+	# The journal key (care and meadow-hint pages).
 	var j := Journal.new()
 	t.root.add_child(j)
 	for id in Journal.MARK_PAGES:
@@ -136,7 +136,7 @@ func test_every_place_that_shows_a_nutrient_by_colour_shows_its_mark() -> void:
 			if m is TextureRect and str(m.name) == "mark_drop":
 				drops += 1
 	t.check(drops >= 1, "the care page shows the drop beside tonight's root")
-	t.check("blue drop" in Care.DOT_WORDS[0], "and its words name the shape")
+	t.check(Care.DOT_WORDS[0] == "blue", "and its words name the colour")
 	j.free()
 	# The bonsai's pellet slip.
 	var hud := BonsaiHud.new()

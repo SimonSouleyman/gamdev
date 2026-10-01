@@ -17,6 +17,9 @@ uniform vec3 tint_mul : source_color = vec3(1.0);
 uniform float rim_strength = 0.0;
 // Roots underground glow faintly so they read in the dark.
 uniform vec3 glow : source_color = vec3(0.0);
+// 0.8.1 (Simon: "man sieht die Wurzeln nicht"): a soft light along the roots' outline, so even a
+// thin fine root reads against the dark soil from far off (emission only, no extra pass).
+uniform vec3 glow_rim : source_color = vec3(0.0);
 
 float fissure(vec2 uv) {
 	// Long ridges along the wood, broken up by a second noise.
@@ -72,4 +75,8 @@ void fragment() {
 	RIM_TINT = 0.5;
 	SPECULAR = 0.3;
 	EMISSION = glow * ALBEDO;
+	if (glow_rim.r + glow_rim.g + glow_rim.b > 0.0) {
+		float edge = 1.0 - abs(dot(normalize(NORMAL), normalize(VIEW)));
+		EMISSION += glow_rim * (0.35 + 0.65 * edge * edge);
+	}
 }

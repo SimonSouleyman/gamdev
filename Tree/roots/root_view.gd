@@ -17,6 +17,19 @@ signal wish_reached(patch: int)
 enum Mode { IDLE, PICK, RUN, DONE }
 
 const ROOT_COLOR := Color(0.93, 0.86, 0.72)
+## 0.8.1 brighter nights (broken item 17, notes/look-0.8.1.md): the old roots glow a pale, warm
+## light of their own with a soft rim, tonight's root warmer and brighter, and the soil is a
+## very dark warm grey rather than black, so roots read at normal phone brightness while the
+## dots (additive, far brighter) still stand out.
+const OLD_ROOT_GLOW := Color(0.75, 0.66, 0.5)
+const OLD_ROOT_RIM := Color(0.3, 0.27, 0.21)
+const LIVE_ROOT_GLOW := Color(1.15, 0.85, 0.45)
+const LIVE_ROOT_RIM := Color(0.55, 0.4, 0.2)
+const SOIL_COLOR := Color(0.045, 0.038, 0.036)
+const SOIL_AMBIENT := Color(0.34, 0.33, 0.4)
+const SOIL_AMBIENT_ENERGY := 0.95
+## Fine roots are drawn at least this thick (radius in m): readable from the overview.
+const ROOT_MIN_RADIUS := 0.026
 const REBUILD_INTERVAL := 0.15
 
 var ground: Underground
@@ -61,8 +74,8 @@ var _life_label: Label
 var _hint: PaperNote
 var _life_bar: ColorRect
 var _life_bar_bg: ColorRect
-## Tonight's catch: "tonight:" and each kind's dot mark with its amount (0.8 review: the marks
-## are shown wherever a nutrient is).
+## Tonight's catch: "tonight:" and each kind's coloured dot with its amount (0.8.1: plain dots in
+## play, no shapes).
 var _counts: HBoxContainer
 var _count_labels: Array[Label] = []
 var _life_at_start: float = 1.0
@@ -88,7 +101,7 @@ var _glow_root: Node3D
 
 func _ready() -> void:
 	_builder.radius_scale = 0.75
-	_builder.min_radius = 0.02
+	_builder.min_radius = ROOT_MIN_RADIUS
 	_builder.bark_tiling = 2.0
 	_build_world()
 	_build_hud()
@@ -127,12 +140,12 @@ func _build_world() -> void:
 	camera.far = 60.0
 	var env := Environment.new()
 	env.background_mode = Environment.BG_COLOR
-	env.background_color = Color(0.01, 0.01, 0.02)
+	env.background_color = SOIL_COLOR
 	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-	env.ambient_light_color = Color(0.25, 0.28, 0.4)
-	env.ambient_light_energy = 0.6
+	env.ambient_light_color = SOIL_AMBIENT
+	env.ambient_light_energy = SOIL_AMBIENT_ENERGY
 	env.fog_enabled = true
-	env.fog_light_color = Color(0.01, 0.01, 0.02)
+	env.fog_light_color = SOIL_COLOR
 	env.fog_density = 0.05
 	env.glow_enabled = true
 	env.glow_intensity = 0.9
@@ -144,15 +157,12 @@ func _build_world() -> void:
 	var mm := MultiMesh.new()
 	mm.transform_format = MultiMesh.TRANSFORM_3D
 	mm.use_colors = true
-	# 0.8: the nutrient's kind rides in the custom data, for its shape (NutrientMarks).
-	mm.use_custom_data = true
 	var quad := QuadMesh.new()
 	quad.size = Vector2.ONE
 	mm.mesh = quad
 	_dots.multimesh = mm
 	var mat := ShaderMaterial.new()
 	mat.shader = preload("res://roots/dot_glow.gdshader")
-	mat.set_shader_parameter("marks", NutrientMarks.atlas())
 	_dots.material_override = mat
 	_dots.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	# The dots span the whole volume; never cull the MultiMesh as a whole.
@@ -170,13 +180,15 @@ func _build_world() -> void:
 	root_mat.set_shader_parameter("dark_bark", ROOT_COLOR.darkened(0.35))
 	Assets.apply_bark(root_mat)
 	root_mat.set_shader_parameter("texture_tint", Color(1.25, 1.15, 0.95))
-	root_mat.set_shader_parameter("glow", Color(0.35, 0.3, 0.22))
+	root_mat.set_shader_parameter("glow", OLD_ROOT_GLOW)
+	root_mat.set_shader_parameter("glow_rim", OLD_ROOT_RIM)
 	_static_roots = MeshInstance3D.new()
 	_static_roots.material_override = root_mat
 	add_child(_static_roots)
 	# Tonight's root glows warmer than the old ones, so it stands out among them.
 	var live_mat := root_mat.duplicate() as ShaderMaterial
-	live_mat.set_shader_parameter("glow", Color(0.95, 0.72, 0.35))
+	live_mat.set_shader_parameter("glow", LIVE_ROOT_GLOW)
+	live_mat.set_shader_parameter("glow_rim", LIVE_ROOT_RIM)
 	_live_roots = MeshInstance3D.new()
 	_live_roots.material_override = live_mat
 	add_child(_live_roots)
@@ -234,20 +246,19 @@ func _set_dot(i: int) -> void:
 	# Deposits the roots already reach are dimmed, so the player looks for fresh ones.
 	var reached := roots != null and roots.tapped.has(i)
 	mm.set_instance_transform(i, Transform3D(Basis.from_scale(Vector3.ONE * s * (0.7 if reached else 1.0)), ground.dot_positions[i]))
-	var look := dot_look(i)
-	mm.set_instance_color(i, look[0])
-	mm.set_instance_custom_data(i, look[1])
+	mm.set_instance_color(i, dot_look(i))
 
 
-## A dot's glow colour and its instance data (the kind, for its shape: 0.8), as _set_dot sets them.
-func dot_look(i: int) -> Array[Color]:
+## A dot's glow colour, as _set_dot sets it: a plain dot in its kind's colour (0.8.1, no shapes
+## in play), warmer in the wish's deposit, dimmed once reached.
+func dot_look(i: int) -> Color:
 	var reached := roots != null and roots.tapped.has(i)
 	var color: Color = Resources.KIND_COLORS[ground.dot_kinds[i]]
 	# The wish deposit's dots glow a little warmer (0.7).
 	if _warm_dots.has(i) and not reached:
 		color = color.lerp(WISH_WARM, WISH_DOT_WARMTH * minf(1.0, float(_warm_dots[i])))
-	# Dimmed when reached; the shape stays.
-	return [color * (0.4 if reached else 1.0), Color(float(ground.dot_kinds[i]), 0.0, 0.0, 0.0)]
+	# Dimmed when reached.
+	return color * (0.4 if reached else 1.0)
 
 
 ## Tonight's wish glows (GameState.wish_glows): a warm haze over each deposit and its dots a little
@@ -410,9 +421,7 @@ func _build_hud() -> void:
 	_counts.add_child(_label(24, Vector2.ZERO))
 	(_counts.get_child(0) as Label).text = "tonight: "
 	for k in range(4):
-		var mark := NutrientMarks.icon_rect(k, 28)
-		mark.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-		_counts.add_child(mark)
+		_counts.add_child(TreeView.ink_dot(Resources.KIND_COLORS[k]))
 		var l := _label(24, Vector2.ZERO)
 		_counts.add_child(l)
 		_count_labels.append(l)
@@ -636,7 +645,7 @@ func _process_run(delta: float) -> void:
 		dots_collected.emit(roots.last_collected.size())
 	for i in roots.last_collected:
 		_set_dot(i)
-		_flash(ground.dot_positions[i], Resources.KIND_COLORS[ground.dot_kinds[i]], 0.5, ground.dot_kinds[i])
+		_flash(ground.dot_positions[i], Resources.KIND_COLORS[ground.dot_kinds[i]], 0.5)
 	for f in roots.last_finds:
 		_on_find(f)
 	_check_wish_reached()
@@ -656,7 +665,7 @@ func _process_run(delta: float) -> void:
 		# end_run() already grew the fine roots and collected their dots.
 		for i in roots.last_collected:
 			_set_dot(i)
-			_flash(ground.dot_positions[i], Resources.KIND_COLORS[ground.dot_kinds[i]], 0.5, ground.dot_kinds[i])
+			_flash(ground.dot_positions[i], Resources.KIND_COLORS[ground.dot_kinds[i]], 0.5)
 		_settle()
 
 
@@ -706,7 +715,7 @@ func end_early() -> void:
 	roots.finish_early(ground, res)
 	for i in roots.last_collected:
 		_set_dot(i)
-		_flash(ground.dot_positions[i], Resources.KIND_COLORS[ground.dot_kinds[i]], 0.5, ground.dot_kinds[i])
+		_flash(ground.dot_positions[i], Resources.KIND_COLORS[ground.dot_kinds[i]], 0.5)
 	if not roots.last_collected.is_empty():
 		dots_collected.emit(roots.last_collected.size())
 	_settle()
@@ -807,8 +816,8 @@ func _on_find(f: Dictionary) -> void:
 	find_touched.emit(f)
 
 
-func _flash(p: Vector3, color: Color, size: float = 0.5, kind: int = 4) -> void:
-	# A soft glow puff (the same glow as the dots, in the dot's shape) that swells and fades.
+func _flash(p: Vector3, color: Color, size: float = 0.5) -> void:
+	# A soft glow puff (the same glow as the dots) that swells and fades.
 	var m := MeshInstance3D.new()
 	var quad := QuadMesh.new()
 	quad.size = Vector2.ONE
@@ -817,8 +826,6 @@ func _flash(p: Vector3, color: Color, size: float = 0.5, kind: int = 4) -> void:
 	mat.shader = preload("res://roots/dot_glow.gdshader")
 	mat.set_shader_parameter("tint", Color(color, 1.0))
 	mat.set_shader_parameter("pulse", 0.0)
-	mat.set_shader_parameter("marks", NutrientMarks.atlas())
-	mat.set_shader_parameter("kind_override", float(kind))
 	m.material_override = mat
 	m.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	m.position = p
