@@ -18,34 +18,54 @@ const LABELS := {
 	"pinch": "tweezers", "wire": "copper wire", "trowel": "trowel", "turn_left": "turn",
 	"turn_right": "turn", "styles": "styles", "album": "album page", "cuttings": "cuttings",
 }
-## Where the tools rest (position, yaw): the can and the tin beside the pot (clear of the widest
-## pot) and a front row along the board's edge, spaced so each tap area is finger size in a
-## phone's close-up (tests/test_bonsai.gd checks it; 0.7 review: 5 cm apart, about 9.5 mm on a
-## 720-wide phone, where 4.6 cm came out just under 9 mm).
+## Where the tools rest (position, yaw[, pitch]): the can and the tin beside the pot (clear of the
+## widest pot), a front row of the four hand tools and the box of cuttings along the board's edge,
+## and the album card and the sketchbook tucked into the window frame either side (0.8.1, item 18:
+## the front row lost the sketchbook, so its five things lie 6 cm apart instead of 5, about 12 mm
+## on the phone; tests/test_bonsai.gd checks it at 720 x 1600 and 720 x 1280).
 const FRONT_Z := -0.24
+const ROW_GAP := 0.06
 const RESTS := {
-	"water": [Vector3(0.155, 0.0, 0.045), -1.8],
+	"water": [Vector3(0.165, 0.0, 0.055), -0.75],
 	"fertiliser": [Vector3(-0.15, 0.0, 0.03), 0.3],
-	"trowel": [Vector3(0.125, 0.0, FRONT_Z + 0.01), 0.3],
-	"shears": [Vector3(0.075, 0.0, FRONT_Z), -0.45],
-	"pinch": [Vector3(0.025, 0.0, FRONT_Z), 0.2],
-	"wire": [Vector3(-0.025, 0.0, FRONT_Z), 0.0],
-	"styles": [Vector3(-0.075, 0.0, FRONT_Z + 0.004), 1.45],
-	"cuttings": [Vector3(-0.127, 0.0, FRONT_Z + 0.01), 1.5],
+	"trowel": [Vector3(2.0 * ROW_GAP, 0.0, FRONT_Z + 0.01), 0.3],
+	"shears": [Vector3(ROW_GAP, 0.0, FRONT_Z), -0.45],
+	"pinch": [Vector3(0.0, 0.0, FRONT_Z), 0.2],
+	"wire": [Vector3(-ROW_GAP, 0.0, FRONT_Z), 0.0],
+	"cuttings": [Vector3(-2.0 * ROW_GAP - 0.005, 0.0, FRONT_Z + 0.01), 1.5],
 	"album": [Vector3(0.15, 0.19, 0.03), 0.0],
+	"styles": [Vector3(-0.148, 0.165, 0.035), 0.12, -1.2],
 }
 ## The carved arrows: arcs round the pot's front, at this radius.
 const ARROW_R := 0.135
 const ARROW_SPAN := Vector2(0.28, 0.82)
-## Labels hang under their thing; these hang lower, so neighbours in the front row do not overlap.
-const LABEL_DROP := {"shears": 44.0, "wire": 44.0, "cuttings": 44.0}
-## How far a held tool floats in front of the view's focus, toward the camera (m).
-const HOLD_NEARER := 0.12
+## Labels hang under their thing; these hang lower, so neighbours do not overlap.
+const LABEL_DROP := {"shears": 44.0, "wire": 44.0}
+## How a held tool is held (0.8.1, item 18): its working end ("tip": the can's rose, the tin's
+## mouth, the blades' points, the trowel's blade, the wire's loose end) sits on the aim point, and
+## its body ("grip") reaches up and to the side, away from the finger, so a finger on the phone
+## never hides the tool and the tool never hides what it aims at. "face" turns toward the eye.
+## In the thing's own frame; "scale" shrinks the big can in the hand.
+const HOLD := {
+	"water": {"tip": Vector3(0.0, 0.061, 0.103), "grip": Vector3(0.0, 0.03, -0.04), "face": Vector3(1, 0, 0), "scale": 0.85},
+	"fertiliser": {"tip": Vector3(0.0, 0.055, 0.0), "grip": Vector3(0.0, 0.0, 0.0), "face": Vector3(0, 0, -1), "scale": 1.0},
+	"shears": {"tip": Vector3(0.0, 0.005, 0.037), "grip": Vector3(0.0, 0.005, -0.04), "face": Vector3(0, 1, 0), "scale": 1.0},
+	"pinch": {"tip": Vector3(0.0, 0.003, 0.038), "grip": Vector3(0.0, 0.003, -0.04), "face": Vector3(0, 1, 0), "scale": 1.0},
+	"wire": {"tip": Vector3(0.043, 0.012, -0.02), "grip": Vector3(-0.01, 0.01, 0.01), "face": Vector3(0, 1, 0), "scale": 1.0},
+	"trowel": {"tip": Vector3(0.0, 0.017, 0.07), "grip": Vector3(0.0, 0.017, -0.045), "face": Vector3(0, 1, 0), "scale": 1.0},
+}
+## Screen direction from a held tool's tip to its body: up and a little to the right (a right
+## hand's finger and palm lie below and to the right of the touch, the body clears both).
+const HOLD_DIR := Vector2(0.45, -0.9)
 
 var items: Dictionary = {}  # id -> Node3D
 var rests: Dictionary = {}  # id -> Transform3D
 ## The point each thing answers a tap at (its visual middle), id -> Node3D.
 var marks: Dictionary = {}
+## Each thing's box in its own frame (for the tap hull on screen), id -> AABB.
+var boxes: Dictionary = {}
+## Where the tool in hand goes back: a dashed ring on the board at its place (0.8.1).
+var ghost: MeshInstance3D
 ## The tool in hand ("" = none).
 var held: String = ""
 var _returning: Dictionary = {}
@@ -66,11 +86,14 @@ func _ready() -> void:
 	_build_arrows()
 	for id in items:
 		var n: Node3D = items[id]
+		boxes[id] = _local_box(n)
 		if not RESTS.has(id):
 			continue
-		n.position = RESTS[id][0]
-		n.rotation.y = RESTS[id][1]
+		var r: Array = RESTS[id]
+		n.position = r[0]
+		n.rotation = Vector3(float(r[2]) if r.size() > 2 else 0.0, r[1], 0.0)
 		rests[id] = n.transform
+	_build_ghost()
 
 
 ## The screen points of the things that can be tapped now, id -> Vector2 (skips the hidden
@@ -100,29 +123,74 @@ func _rest_global(id: String, m: Node3D) -> Vector3:
 	return global_transform * (rests[id] as Transform3D) * in_item
 
 
-## The thing under a screen point within `radius`, or "". A held tool answers at its place, and
-## where it floats only when `held_too` (a tap on the tree uses it instead).
-func pick(camera: Camera3D, screen: Vector2, radius: float, held_too: bool = true) -> String:
+## The thing under a screen point, or "": a tap inside a thing's outline on screen (its box,
+## grown by HULL_GROW) or within `radius` of its mark finds it; of several, the nearest mark wins.
+## A held tool answers at its place (within `put_radius`, its put-down target), and where it
+## floats only when `held_too` (a tap on the tree uses it instead). Without `outlines` only the
+## marks answer (over the pot, whose own outline wins).
+func pick(camera: Camera3D, screen: Vector2, radius: float, held_too: bool = true, put_radius: float = -1.0, outlines: bool = true) -> String:
 	var best := ""
-	var best_d := radius
+	var best_d := INF
 	var pts := screen_points(camera)
 	if held != "" and marks.has(held):
-		var r := rest_point(camera, held)
-		if r.distance_to(screen) < best_d:
-			best_d = r.distance_to(screen)
+		var d := rest_point(camera, held).distance_to(screen)
+		if d < (put_radius if put_radius > 0.0 else radius):
+			best_d = d
 			best = held
 		if not held_too:
 			pts.erase(held)
 	for id in pts:
 		var d := (pts[id] as Vector2).distance_to(screen)
-		if d < best_d:
+		var inside := outlines and Geometry2D.is_point_in_polygon(screen, hull(camera, id))
+		if (d < radius or inside) and d < best_d:
 			best_d = d
 			best = id
 	return best
 
 
+## How far a thing's outline reaches beyond its box on screen (canvas pixels): a finger's edge.
+const HULL_GROW := 10.0
+
+
+## A thing's outline on screen: the convex hull of its box's corners, grown a little.
+func hull(camera: Camera3D, id: String) -> PackedVector2Array:
+	var n: Node3D = items[id]
+	var box: AABB = boxes[id]
+	var pts := PackedVector2Array()
+	for i in range(8):
+		var p := n.global_transform * box.get_endpoint(i)
+		if camera.is_position_behind(p):
+			return PackedVector2Array()
+		pts.append(camera.unproject_position(p))
+	var h := Geometry2D.convex_hull(pts)
+	if h.size() < 3:
+		return PackedVector2Array()
+	var grown := Geometry2D.offset_polygon(h, HULL_GROW)
+	return grown[0] if not grown.is_empty() else h
+
+
+## A thing's box in its own frame (all its meshes).
+func _local_box(n: Node3D) -> AABB:
+	var acc: Array = [null]
+	for c in n.get_children():
+		_gather(c, Transform3D(), acc)
+	return acc[0] if acc[0] != null else AABB(Vector3(-0.02, 0, -0.02), Vector3(0.04, 0.02, 0.04))
+
+
+func _gather(n: Node, xf: Transform3D, acc: Array) -> void:
+	var t := xf
+	if n is Node3D:
+		t = xf * (n as Node3D).transform
+	if n is MeshInstance3D and (n as MeshInstance3D).mesh != null:
+		var a := t * (n as MeshInstance3D).get_aabb()
+		acc[0] = a if acc[0] == null else (acc[0] as AABB).merge(a)
+	for c in n.get_children():
+		_gather(c, t, acc)
+
+
 func hold(id: String) -> void:
 	held = id
+	_place_ghost()
 
 
 func put_down() -> void:
@@ -130,6 +198,7 @@ func put_down() -> void:
 		return
 	var id := held
 	held = ""
+	_place_ghost()
 	# On its way back it answers no tap (it may pass over the tree).
 	_returning[id] = true
 	var tw := create_tween()
@@ -140,6 +209,7 @@ func put_down() -> void:
 ## Puts every tool back at once (a new bonsai, a test).
 func reset() -> void:
 	held = ""
+	_place_ghost()
 	_returning.clear()
 	for id in rests:
 		(items[id] as Node3D).transform = rests[id]
@@ -159,15 +229,88 @@ func lifted_pose(id: String) -> Transform3D:
 	return Transform3D(r.basis.rotated(r.basis.x.normalized(), -0.18), r.origin + Vector3(0, 0.035, 0))
 
 
-## The held tool's pose at a point (this node's frame): as it lies, raised a little toward the eye.
-func hold_pose(id: String, at: Vector3, toward_eye: Vector3) -> Transform3D:
-	var r: Transform3D = rests[id]
-	var basis := r.basis
-	# Tools lying flat stand up a little in the hand, so they read from the front.
-	if id in ["shears", "pinch", "trowel", "wire"]:
-		var side := toward_eye.cross(Vector3.UP).normalized()
-		basis = basis.rotated(side, -0.9)
-	return Transform3D(basis, at)
+## The held tool's pose (this node's frame) with its working end on `aim` (a point in this
+## node's frame), its body reaching toward the screen direction HOLD_DIR, its face to the eye.
+## `right` and `up` are the camera's axes and `eye` its position, in this node's frame.
+func hold_pose(id: String, aim: Vector3, right: Vector3, up: Vector3, eye: Vector3) -> Transform3D:
+	var h: Dictionary = HOLD.get(id, {"tip": Vector3.ZERO, "grip": Vector3(0, 0, -0.04), "face": Vector3.UP, "scale": 1.0})
+	var s: float = h["scale"]
+	var tip: Vector3 = h["tip"]
+	var lx: Vector3 = ((h["grip"] as Vector3) - tip).normalized()
+	var lf: Vector3 = h["face"]
+	var lz := (lf - lx * lf.dot(lx)).normalized()
+	var ly := lz.cross(lx)
+	var to_eye := (eye - aim).normalized()
+	# Up and to the side on screen, and a little toward the eye, so it reads in front of the tree.
+	var wx := (right * HOLD_DIR.x - up * HOLD_DIR.y + to_eye * 0.35).normalized()
+	var wz := (to_eye - wx * to_eye.dot(wx)).normalized()
+	var wy := wz.cross(wx)
+	var basis := Basis(wx, wy, wz) * Basis(lx, ly, lz).transposed()
+	basis = basis.scaled_local(Vector3.ONE * s)
+	return Transform3D(basis, aim - basis * tip)
+
+
+## The working end of the tool `id`, in this node's frame (where its action lands).
+func tip_point(id: String) -> Vector3:
+	var h: Dictionary = HOLD.get(id, {"tip": Vector3.ZERO})
+	return (items[id] as Node3D).transform * (h["tip"] as Vector3)
+
+
+## The dashed ring on the board where the tool in hand goes back (shown while one is held).
+func _build_ghost() -> void:
+	ghost = MeshInstance3D.new()
+	ghost.name = "put_back"
+	var q := QuadMesh.new()
+	q.size = Vector2(0.07, 0.07)
+	q.orientation = PlaneMesh.FACE_Y
+	ghost.mesh = q
+	var m := StandardMaterial3D.new()
+	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	m.albedo_texture = ring_texture(true)
+	m.albedo_color = Color(0.98, 0.9, 0.7, 0.85)
+	m.cull_mode = BaseMaterial3D.CULL_DISABLED
+	ghost.material_override = m
+	ghost.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	ghost.visible = false
+	add_child(ghost)
+
+
+func _place_ghost() -> void:
+	if ghost == null:
+		return
+	ghost.visible = held != "" and rests.has(held)
+	if not ghost.visible:
+		return
+	var r: Transform3D = rests[held]
+	var box: AABB = boxes[held]
+	# Round the thing's footprint, flat on the board.
+	var size := clampf(maxf(box.size.x, box.size.z) * 0.8, 0.065, 0.11)
+	var centre := r * box.get_center()
+	ghost.transform = Transform3D(Basis().scaled(Vector3(size / 0.07, 1.0, size / 0.07)), Vector3(centre.x, 0.0015, centre.z))
+
+
+static var _rings: Dictionary = {}
+
+
+## A soft ring (dashed for the put-back mark) to lay round a target: clear inside and out.
+static func ring_texture(dashed: bool) -> Texture2D:
+	if _rings.has(dashed):
+		return _rings[dashed]
+	var n := 128
+	var img := Image.create(n, n, false, Image.FORMAT_RGBA8)
+	for y in range(n):
+		for x in range(n):
+			var d := Vector2(x + 0.5 - n * 0.5, y + 0.5 - n * 0.5)
+			var r := d.length() / (n * 0.5)
+			var a := clampf(1.0 - absf(r - 0.86) / 0.07, 0.0, 1.0)
+			if dashed and fposmod(atan2(d.y, d.x) / TAU * 16.0, 1.0) > 0.6:
+				a = 0.0
+			img.set_pixel(x, y, Color(1, 1, 1, a))
+	img.generate_mipmaps()
+	var tex := ImageTexture.create_from_image(img)
+	_rings[dashed] = tex
+	return tex
 
 
 # --- building ------------------------------------------------------------------------------

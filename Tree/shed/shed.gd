@@ -4,8 +4,9 @@ extends Node3D
 ## start menu and the place to pause. It stands at the south edge of the clearing with its door
 ## open toward the tree, so the player's real tree, grown so far, is the big picture in the doorway.
 ## 0.6 (design doc section 17, item 3): the workbench stands in the middle of the view and the
-## things on it ARE the menu: the journal, the photo album, the seed bag, the flower pot with a
-## seedling and a pair of garden gloves; the pinboard on the wall holds the options. Each answers
+## things on it ARE the menu: the journal, the photo album, the seed bag and a pair of garden
+## gloves; the pinboard on the wall holds the options (0.8.1: the flower pot with the seedling left
+## the bench, its page is the journal's first). Each answers
 ## a tap with a real sound and a small motion before its page opens. Beside the bench a small
 ## window with a sill waits for the bonsai (section 16): `bonsai_spot`.
 ## Real CC0 models from Poly Haven where they fit (workbench, gloves, clay pot, watering can,
@@ -14,7 +15,8 @@ extends Node3D
 
 ## The things that are menu entries, in the order of their labels.
 ## The bonsai on the windowsill is one too, once it is there (bonsai_ready).
-const ITEMS: Array[String] = ["journal", "album", "seeds", "pot", "gloves", "options", "bonsai"]
+## (0.8.1, item 28: the flower pot left the bench; the tree's page is the journal's first page.)
+const ITEMS: Array[String] = ["journal", "album", "seeds", "gloves", "options", "bonsai"]
 ## Seconds from the tap until the page opens: the motion and the sound come first.
 const TAP_DELAY := 0.42
 
@@ -391,18 +393,21 @@ func _build_room() -> void:
 		_lamp_base = 2.0
 		_lamp.omni_range = 5.5
 	_lamp_range = _lamp.omni_range
-	_lamp.position = Vector3(-0.3, WALL_H - 0.35, -0.2)
+	# Over the bench (0.8.1: with the eye further back it hung large in the picture's top; here it
+	# shows small above the doorway and still lights the bench).
+	_lamp.position = Vector3(-0.3, WALL_H - 0.35, 0.15)
 	add_child(_lamp)
 	var glass := MeshInstance3D.new()
 	var s := SphereMesh.new()
-	s.radius = 0.05
-	s.height = 0.12
+	# Small and warm (0.8.1: in the wider view a large white egg hung at the picture's top).
+	s.radius = 0.032
+	s.height = 0.075
 	glass.mesh = s
 	var gm := StandardMaterial3D.new()
-	gm.albedo_color = Color(1.0, 0.85, 0.55)
+	gm.albedo_color = Color(1.0, 0.8, 0.5)
 	gm.emission_enabled = true
-	gm.emission = Color(1.0, 0.75, 0.4)
-	gm.emission_energy_multiplier = 3.0
+	gm.emission = Color(1.0, 0.62, 0.28)
+	gm.emission_energy_multiplier = 1.4
 	glass.material_override = gm
 	glass.position = _lamp.position + Vector3(0, 0.05, 0)
 	add_child(glass)
@@ -582,12 +587,6 @@ func _build_bench() -> void:
 	bench.add_child(seeds)
 	_register("seeds", seeds, Vector3(0, 0.09, 0), 0.1)
 	_tag("seeds", seeds, Vector3(0.0, 0.2, 0.0), false)
-	# The flower pot (Poly Haven clay pot) with a seedling: the player's tree, small.
-	var pot := _flower_pot()
-	pot.position = Vector3(0.3, top, 0.17)
-	bench.add_child(pot)
-	_register("pot", pot, Vector3(0, 0.1, 0), 0.1)
-	_tag("pot", pot, Vector3(0.0, 0.22, 0.0), false)
 	# Garden gloves lying at the front edge: put them on and go outside.
 	var gloves := Node3D.new()
 	gloves.position = Vector3(-0.03, top, -0.17)
@@ -606,7 +605,6 @@ func _build_bench() -> void:
 	_blob(Vector3(0.2, y, -0.08), Vector2(0.24, 0.3), 0.25, 0.8, bench)
 	_blob(Vector3(-0.04, y, 0.13), Vector2(0.38, 0.31), -0.12, 0.8, bench)
 	_blob(Vector3(-0.25, y, -0.04), Vector2(0.2, 0.15), -0.35, 0.9, bench)
-	_blob(Vector3(0.3, y, 0.17), Vector2(0.2, 0.2), 0.0, 0.9, bench)
 	_blob(Vector3(-0.03, y, -0.17), Vector2(0.28, 0.2), 1.45, 0.6, bench)
 	_blob(Vector3(-0.36, y, 0.2), Vector2(0.24, 0.1), -0.6, 0.6, bench)
 	var floor_y := 0.1015
@@ -752,53 +750,6 @@ func _seed_bag() -> Node3D:
 	return bag
 
 
-## The clay pot (Poly Haven "Planter Pot Clay") with dark soil and a seedling with a few leaves.
-func _flower_pot() -> Node3D:
-	var pot := Node3D.new()
-	_model("planter_pot_clay", Vector3.ZERO, 0.52, 0.0, pot)
-	var soil := MeshInstance3D.new()
-	var disc := CylinderMesh.new()
-	disc.top_radius = 0.058
-	disc.bottom_radius = 0.058
-	disc.height = 0.01
-	soil.mesh = disc
-	var sm := _mat(Color(0.17, 0.12, 0.09), 1.0)
-	sm.normal_enabled = true
-	sm.normal_texture = preload("res://lookdev/paper/textures/crumple_normal.png")
-	sm.uv1_scale = Vector3.ONE * 2.0
-	soil.material_override = sm
-	soil.position = Vector3(0, 0.1, 0)
-	pot.add_child(soil)
-	var stem := MeshInstance3D.new()
-	var sc := CylinderMesh.new()
-	sc.top_radius = 0.0018
-	sc.bottom_radius = 0.003
-	sc.height = 0.09
-	sc.radial_segments = 6
-	stem.mesh = sc
-	stem.material_override = _mat(Color(0.4, 0.3, 0.18), 0.8)
-	stem.position = Vector3(0, 0.145, 0)
-	stem.rotation.z = 0.06
-	pot.add_child(stem)
-	var leaf_mat := _mat(Color(0.3, 0.5, 0.2), 0.6)
-	leaf_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
-	for k in range(6):
-		var leaf := MeshInstance3D.new()
-		var sp := SphereMesh.new()
-		sp.radius = 0.024
-		sp.height = 0.01
-		sp.radial_segments = 8
-		sp.rings = 4
-		leaf.mesh = sp
-		leaf.material_override = leaf_mat
-		var a := k * 2.4
-		leaf.position = Vector3(cos(a) * 0.026, 0.13 + k * 0.012, sin(a) * 0.026)
-		leaf.scale = Vector3(1.0, 1.0, 0.65)
-		leaf.rotation = Vector3(0.35 * sin(a), -a, 0.35 * cos(a))
-		pot.add_child(leaf)
-	return pot
-
-
 ## The pinboard on the front wall, right of the door: cork in a wooden frame, the option notes
 ## pinned on it and "options" written on a strip below them.
 func _build_pinboard() -> void:
@@ -849,9 +800,55 @@ func _build_camera() -> void:
 
 ## The eye stands at the back of the shed: the workbench in the middle of the view, the tree
 ## in the doorway above it, the window with its sill on the left and the pinboard on the right.
+## 0.8.1 (item 26): it stands further back, by the back wall, a little higher, and the field of
+## view fits the screen's shape, so on the phone's tall 20:9 screen the sill with the bonsai and the pinboard
+## are whole and reachable too (they were cut at the sides), see fit_view().
+const EYE := Vector3(0.0, 1.75, -1.2)
+const LOOK_AT := Vector3(0.0, 1.25, DEPTH * 0.5)
+## The view never gets narrower than this (a wide screen keeps the old look).
+const MIN_FOV := 62.0
+## What must be whole on screen (shed frame): the sill's front corners and the bonsai on it with
+## its label, the pinboard's corners and its label, the things on the bench with theirs.
+const MUST_SEE: Array[Vector3] = [
+	Vector3(0.84, 1.2, 1.0), Vector3(0.42, 1.2, 1.0), Vector3(0.64, 1.66, 1.26), Vector3(0.82, 1.25, 1.12),
+	Vector3(-0.83, 1.22, 1.33), Vector3(-0.83, 1.68, 1.33), Vector3(-0.43, 1.22, 1.33), Vector3(-0.63, 1.8, 1.34),
+	Vector3(0.36, 0.88, 0.2), Vector3(-0.38, 0.88, 0.2), Vector3(0.0, 0.88, 0.16),
+]
+## A margin of this share of the half width (and height) on each side of the screen.
+const VIEW_MARGIN := 0.06
+var _fit_aspect: float = -1.0
+
+
 func _place_camera(_tree_height: float) -> void:
-	camera.position = Vector3(0.0, 1.55, -0.7)
-	camera.look_at(to_global(Vector3(0.0, 1.03, DEPTH * 0.5)), Vector3.UP)
+	camera.position = EYE
+	camera.look_at(to_global(LOOK_AT), Vector3.UP)
+	_fit_aspect = -1.0
+	fit_view()
+
+
+## The field of view for this screen's shape: MUST_SEE all inside the picture, at least MIN_FOV.
+func fit_view() -> void:
+	var vp := get_viewport()
+	if vp == null or camera == null:
+		return
+	var size := vp.get_visible_rect().size
+	var aspect := size.x / maxf(size.y, 1.0)
+	if is_equal_approx(aspect, _fit_aspect):
+		return
+	_fit_aspect = aspect
+	camera.fov = fov_for(aspect)
+
+
+## The vertical field of view (degrees) that shows MUST_SEE on a screen of this shape.
+func fov_for(aspect: float) -> float:
+	var eye := Transform3D(Basis(), EYE).looking_at(LOOK_AT, Vector3.UP)
+	var inv := eye.affine_inverse()
+	var need := tan(deg_to_rad(MIN_FOV * 0.5))
+	for p in MUST_SEE:
+		var c := inv * p
+		if c.z < -0.01:
+			need = maxf(need, maxf(absf(c.x) / -c.z / aspect, absf(c.y) / -c.z) / (1.0 - VIEW_MARGIN))
+	return clampf(rad_to_deg(atan(need)) * 2.0, MIN_FOV, 100.0)
 
 
 func frame_tree(tree_height: float, env: Environment) -> void:
@@ -861,6 +858,8 @@ func frame_tree(tree_height: float, env: Environment) -> void:
 
 func _process(delta: float) -> void:
 	_time += delta
+	# The screen may turn or change size (a PC window): the view fits it again.
+	fit_view()
 	# The lantern flickers a little.
 	# By night the lantern is the room's light; by day it is only a warm touch.
 	# (The phone's renderer lit the bench too brightly by day: a softer lamp there by day.)
@@ -924,7 +923,7 @@ func _build_sounds() -> void:
 	_player.volume_db = -4.0
 	add_child(_player)
 	var files := {"journal": "shed_book_open.ogg", "album": "shed_book_flip.ogg", "seeds": "shed_paper_bag.wav",
-		"pot": "shed_clay_pot.ogg", "gloves": "shed_gloves.ogg", "options": "shed_pin.ogg", "door": "shed_door.ogg",
+		"gloves": "shed_gloves.ogg", "options": "shed_pin.ogg", "door": "shed_door.ogg",
 		"bonsai": "shed_clay_pot.ogg"}
 	for k in files:
 		var path := "res://assets/sounds/" + str(files[k])
@@ -968,11 +967,6 @@ func tap(name: String) -> float:
 				tw.parallel().tween_property(fold, "rotation:x", s * 0.25, 0.06)
 			tw.tween_property(body, "rotation:z", 0.0, 0.08)
 			tw.parallel().tween_property(fold, "rotation:x", 0.0, 0.08)
-		"pot":
-			for k in range(6):
-				var s := 1.0 if k % 2 == 0 else -1.0
-				tw.tween_property(node, "rotation:z", s * 0.12 * pow(0.6, k), 0.07)
-			tw.tween_property(node, "rotation:z", 0.0, 0.06)
 		"gloves":
 			tw.tween_property(node, "position", rest.origin + Vector3(0.02, 0.04, 0.0), 0.15).set_trans(Tween.TRANS_SINE)
 			tw.parallel().tween_property(node, "rotation:y", turn + 0.15, 0.15)

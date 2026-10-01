@@ -22,11 +22,24 @@ const FOCUS := Vector3(0.0, 0.14, -0.06)
 const DIST := 0.8
 ## The default look down onto the sill: pot, crown and the row of tools before it.
 const PITCH := 0.45
-const PICK_RADIUS := 44.0
+## How near a tip or a branch a touch must land (canvas pixels; 0.8.1: 44 was a fingertip's own
+## radius, so a touch just beside a tip missed it).
+const PICK_RADIUS := 56.0
 ## The tap radius of the things on the sill: finger size on a phone (docs/notes/bonsai-tools-0.7.md).
 const TOOL_TAP := 52.0
-## A held tool floats this far beside and below the pointer, so it never hides what it points at.
-const HOLD_OFFSET := Vector2(70.0, 40.0)
+## A held tool's place on the sill is a larger target to put it back (still the nearest thing wins).
+const PUT_DOWN := TOOL_TAP * 1.4
+## With a tool in hand over something it can work on, another thing on the sill answers only this
+## close to its mark (or inside its outline), so a touch on the soil next to the can waters.
+const OBJECT_NEAR_TARGET := TOOL_TAP * 0.6
+## How far a finger may wander and still tap (canvas pixels; 0.8.1: 10 to 12 px, about 1 mm on the
+## phone, turned many taps into tiny turns of the view; 28 px is about 2.6 mm on a 1080 x 2400 phone).
+const TAP_SLOP := 28.0
+## The close-up's field of view (vertical) on a 720 x 1280 screen; a narrower screen widens it so
+## the whole sill fits (0.8.1, item 18), see base_fov().
+const FOV := 50.0
+## The tool in hand is drawn at this share of its distance from the eye (and as much smaller).
+const HOLD_NEARER := 0.55
 ## The copper wire: its thickness and one coil turn, in bonsai units.
 const WIRE_RADIUS := 0.009
 const WIRE_PITCH := 0.14
@@ -99,6 +112,16 @@ var pellet_kind: int:
 			sim().pellet_kind = kind
 ## The sill thing under the pointer (for its label on a PC), "" if none.
 var hover: String = ""
+## What the tool in hand aims at now (0.8.1): {} or {"kind": "soil" | "pot" | "root_ball" | "cut" |
+## "tip" | "branch", "id": graph id}. Shown before anything happens; the act comes on release.
+var aimed: Dictionary = {}
+## How many times the tool in hand was put to work since it was picked up (for tests).
+var uses: int = 0
+var _soil_ring: MeshInstance3D
+var _tip_ring: MeshInstance3D
+var _fov_aspect: float = -1.0
+var _fov: float = FOV
+var _depth: float = -1.0
 var _light: SpotLight3D
 var _preview: MeshInstance3D
 var _preview_mesh := ImmediateMesh.new()
@@ -208,6 +231,7 @@ func _ready() -> void:
 	pm.no_depth_test = true
 	_preview.material_override = pm
 	_plant.add_child(_preview)
+	_build_aim_marks()
 	pruning = Pruning.new()
 	pruning.host = self
 	pruning.max_share = BonsaiSim.PRUNE_SHARE
@@ -302,6 +326,39 @@ func _build_soil_things() -> void:
 	_pot_node.add_child(_pellets)
 	_root_ball = Node3D.new()
 	_lift.add_child(_root_ball)
+
+
+## The aim's highlights (0.8.1, item 18): a soft warm ring lying round the soil, and a ring
+## facing the eye round a tip. Drawn over everything, so a finger or the tool never hides them.
+func _build_aim_marks() -> void:
+	var mat := StandardMaterial3D.new()
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mat.no_depth_test = true
+	mat.albedo_texture = BonsaiTools.ring_texture(false)
+	mat.albedo_color = Color(1.0, 0.78, 0.35, 0.95)
+	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	mat.render_priority = 2
+	_soil_ring = MeshInstance3D.new()
+	var q := QuadMesh.new()
+	q.orientation = PlaneMesh.FACE_Y
+	q.size = Vector2(1.0, 1.0)
+	_soil_ring.mesh = q
+	_soil_ring.material_override = mat
+	_soil_ring.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_soil_ring.visible = false
+	_turn_node.add_child(_soil_ring)
+	_tip_ring = MeshInstance3D.new()
+	var tq := QuadMesh.new()
+	tq.size = Vector2(0.05, 0.05)
+	_tip_ring.mesh = tq
+	var tm := mat.duplicate() as StandardMaterial3D
+	tm.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
+	_tip_ring.material_override = tm
+	_tip_ring.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_tip_ring.visible = false
+	_tip_ring.top_level = true
+	add_child(_tip_ring)
 
 
 ## The tools lie on the sill beside the pot (shed/bonsai_tools.gd).
@@ -507,19 +564,53 @@ func _process(delta: float) -> void:
 	_follow_pointer(delta)
 
 
-## The tool in hand: lifted where it lay, then following the pointer (beside it, a little
-## nearer the eye than the tree, so it reads in front of it).
+## The tool in hand: lifted where it lay, then following the pointer with its working end on
+## the point aimed at (the pointer itself, at the depth of what it aims at or of the tree), its
+## body reaching up and aside, clear of the finger (BonsaiTools.hold_pose).
 func _follow_pointer(delta: float) -> void:
 	if not active or tool == "" or busy or tools.held != tool:
 		return
-	var target: Transform3D
+	tools.follow(_hold_target(), delta)
+
+
+func _hold_target() -> Transform3D:
 	if not _hold_moved:
-		target = tools.lifted_pose(tool)
-	else:
-		var depth := camera.global_position.distance_to(to_global(_focus)) - BonsaiTools.HOLD_NEARER
-		var at := tools.to_local(camera.project_position(_pointer + HOLD_OFFSET, depth))
-		target = tools.hold_pose(tool, at, tools.to_local(camera.global_position) - at)
-	tools.follow(target, delta)
+		return tools.lifted_pose(tool)
+	var at := camera.project_position(_pointer, _aim_depth())
+	var inv := tools.global_transform.affine_inverse()
+	var cb := camera.global_transform.basis
+	var eye := inv * camera.global_position
+	var pose := tools.hold_pose(tool, inv * at, (inv.basis * cb.x).normalized(), (inv.basis * cb.y).normalized(), eye)
+	# Drawn nearer the eye and smaller by the same share, so it looks just the same on screen but
+	# lies in front of the crown and the trunk, never half behind them.
+	return Transform3D(pose.basis * HOLD_NEARER, eye + (pose.origin - eye) * HOLD_NEARER)
+
+
+## How far from the eye the tool in hand works: at what it aims at (or last aimed at), else at
+## the tree.
+func _aim_depth() -> float:
+	var p := to_global(_focus)
+	if aimed.has("id") and int(aimed["id"]) >= 0 and int(aimed["id"]) < sim().graph.size():
+		p = _plant.to_global(sim().graph.positions[int(aimed["id"])])
+	elif aimed.has("kind"):
+		p = _base.to_global(Vector3(0, soil_height(sim().pot) + (0.12 if _lifted else 0.0), 0))
+	elif _depth > 0.0:
+		return _depth
+	_depth = maxf(camera.global_transform.basis.z.dot(camera.global_position - p), 0.05)
+	return _depth
+
+
+## The screen point of the working end of the tool in hand (for tests: it sits on the aim).
+func tool_tip_screen() -> Vector2:
+	return camera.unproject_position(tools.to_global(tools.tip_point(tool))) if tool != "" else Vector2(-1, -1)
+
+
+## The screen point of the body of the tool in hand (for tests: it is clear of the finger).
+func tool_body_screen() -> Vector2:
+	if tool == "":
+		return Vector2(-1, -1)
+	var n: Node3D = tools.items[tool]
+	return camera.unproject_position(n.global_transform * (tools.boxes[tool] as AABB).get_center())
 
 
 ## Rebuilds what changed (every half second; `force` after a tool).
@@ -585,6 +676,10 @@ const PAD_MAX: int = 34
 const PAD_MIN: int = 5
 ## Twigs thinner than this (sim units) inside a pad are hidden under its foliage.
 const PAD_TWIG: float = 0.02
+## The drawn trunk's height to its radius (sim units): with the builder's radius_scale its
+## diameter at the foot (above the flare) is about a seventh of the tree's height, as in the
+## classic proportion of 1:6 to 1:8 (0.8.1, item 32).
+const TRUNK_SLENDER: float = 21.0
 
 
 class Pad:
@@ -685,7 +780,8 @@ func _shape_pad(g: PlantGraph, pad: Pad, conifer: bool, top: float) -> void:
 	spread /= pad.members.size()
 	var size := sqrt(float(pad.members.size()))
 	pad.radius = clampf(maxf(spread * 1.25, size * 0.075), 0.14, 0.62 if conifer else 0.55)
-	pad.half_height = pad.radius * (0.48 if conifer else 0.75)
+	# The juniper's pads are soft clouds, not discs (0.8.1, item 32: 0.48 read flat from the side).
+	pad.half_height = pad.radius * (0.62 if conifer else 0.75)
 	var out := pad.centre - base
 	out.y = 0.0
 	pad.out = out.normalized() if out.length_squared() > 1e-6 else Vector3.FORWARD
@@ -717,7 +813,9 @@ func _look_graph(b: BonsaiSim, pads: Array[Pad]) -> PlantGraph:
 	for i in range(1, trunk.size()):
 		length += src.positions[trunk[i]].distance_to(src.positions[trunk[i - 1]])
 		lens.append(length)
-	var r0 := src.radii[0]
+	# Never thicker than a slim bonsai trunk for its height (0.8.1, item 32: the pipe model's
+	# radius made the young juniper's trunk a quarter as thick as it was tall).
+	var r0 := minf(src.radii[0], maxf(b.height(), 0.5) / TRUNK_SLENDER)
 	for i in range(trunk.size()):
 		var t := lens[i] / maxf(length, 1e-3)
 		var taper := r0 * lerpf(1.0, 0.22, pow(t, 0.8))
@@ -725,7 +823,11 @@ func _look_graph(b: BonsaiSim, pads: Array[Pad]) -> PlantGraph:
 			taper *= 1.45
 		elif i == 1:
 			taper *= 1.12
-		g.radii[trunk[i]] = maxf(src.radii[trunk[i]], taper)
+		g.radii[trunk[i]] = clampf(src.radii[trunk[i]], taper, taper * 1.2)
+	# Branches stay thinner than the trunk they grow from.
+	for id in range(1, src.size()):
+		if not trunk.has(id):
+			g.radii[id] = minf(g.radii[id], r0 * 0.62)
 	# A wired branch keeps its wood, so the coil always has something to wind round.
 	var keep := {}
 	for w in b.wired():
@@ -806,19 +908,35 @@ func _populate_foliage(b: BonsaiSim, pads: Array[Pad]) -> void:
 		var pad_blue := rng.randf_range(0.9, 1.02)
 		# Lower, inner pads see less sky.
 		var low := 1.0 - clampf(pad.centre.y / top, 0.0, 1.0)
-		var core := Basis(side0, up, fwd0).scaled(Vector3(pad.radius * 0.74, pad.half_height * 0.66, pad.radius * 0.74) * (core_scale if pad.members.size() >= PAD_MIN * 2 else 0.01))
-		cores.set_instance_transform(pi, Transform3D(core, pad.centre - up * pad.half_height * 0.08))
-		cores.set_instance_color(pi, dark.lerp(Color(0.5, 0.45, 0.25), droop * 0.5) * pad_tint)
+		# The juniper's pad is a cloud of two or three overlapping lobes at slightly different heights
+		# (0.8.1, item 32), so its outline is soft and layered from every side, never one disc.
+		var lobes: Array[Vector4] = [Vector4(0, 0, 0, 1)]
+		if conifer:
+			lobes.clear()
+			var n_l := 3 if pad.members.size() >= PAD_MIN * 3 else 2
+			var a0 := rng.randf() * TAU
+			for li in range(n_l):
+				var la := a0 + TAU * li / n_l + rng.randf_range(-0.4, 0.4)
+				var lift := rng.randf_range(-0.3, 0.35)
+				lobes.append(Vector4(cos(la) * 0.36, lift, sin(la) * 0.36, rng.randf_range(0.66, 0.78)))
+		# The dark inner mass: smaller and rounder than the pad, so from below it reads as shade
+		# inside the needles, not as a dark plate.
+		var core := Basis(side0, up, fwd0).scaled(Vector3(pad.radius * 0.6, pad.half_height * 0.62, pad.radius * 0.6) * (core_scale if pad.members.size() >= PAD_MIN * 2 else 0.01))
+		cores.set_instance_transform(pi, Transform3D(core, pad.centre))
+		cores.set_instance_color(pi, dark.lerp(Color(0.2, 0.3, 0.1), 0.35 if conifer else 0.0).lerp(Color(0.5, 0.45, 0.25), droop * 0.5) * pad_tint)
 		for m in pad.members:
 			var burnt := g.get_flag(m, "burnt") != null
 			for _k in range(per):
-				# A point on the pad's dome: mostly its top and rim, a few underneath.
+				# A point on the pad's dome: mostly its top and rim, a few underneath. The juniper's
+				# clouds are needled all round, the underside too (seen from below).
+				var lobe: Vector4 = lobes[rng.randi() % lobes.size()]
 				var a := rng.randf() * TAU
-				var v := rng.randf_range(-0.4, 1.0)
+				var v := rng.randf_range(-0.85, 1.0) if conifer else rng.randf_range(-0.4, 1.0)
 				var h := sqrt(maxf(0.0, 1.0 - v * v))
 				var unit := Vector3(cos(a) * h, v, sin(a) * h)
 				var depth := rng.randf_range(0.72, 1.0)
-				var local := Vector3(unit.x * pad.radius, unit.y * pad.half_height, unit.z * pad.radius) * depth
+				var local := Vector3(unit.x * pad.radius, unit.y * pad.half_height, unit.z * pad.radius) * depth * lobe.w
+				local += Vector3(lobe.x * pad.radius, lobe.y * pad.half_height, lobe.z * pad.radius)
 				var at := pad.centre + side0 * local.x + up * local.y + fwd0 * local.z
 				var nrm_l := Vector3(unit.x / pad.radius, unit.y / pad.half_height, unit.z / pad.radius).normalized()
 				var nrm := (side0 * nrm_l.x + up * nrm_l.y + fwd0 * nrm_l.z).normalized()
@@ -1001,9 +1119,13 @@ func _update_pellets(b: BonsaiSim) -> void:
 # --- the camera ------------------------------------------------------------------------
 
 func _orbit() -> Transform3D:
-	var focus := to_global(_focus)
-	var offset := Vector3(sin(_yaw) * cos(_pitch), sin(_pitch), -cos(_yaw) * cos(_pitch)) * _dist
-	var eye := to_global(_focus + offset)
+	return _orbit_at(_yaw, _pitch, _dist, _focus)
+
+
+func _orbit_at(yaw: float, pitch: float, dist: float, focus_at: Vector3) -> Transform3D:
+	var focus := to_global(focus_at)
+	var offset := Vector3(sin(yaw) * cos(pitch), sin(pitch), -cos(yaw) * cos(pitch)) * dist
+	var eye := to_global(focus_at + offset)
 	return Transform3D(Basis(), eye).looking_at(focus, Vector3.UP)
 
 
@@ -1011,14 +1133,44 @@ func _update_camera(delta: float) -> void:
 	if not active:
 		return
 	var target := _orbit()
+	var fov := base_fov()
 	if _blend < 1.0:
 		_blend = minf(1.0, _blend + delta / 0.9)
 		var t := ease(_blend, -2.0)
 		camera.global_transform = _from.interpolate_with(target, t)
-		camera.fov = lerpf(_from_fov, 50.0, t)
+		camera.fov = lerpf(_from_fov, fov, t)
 	else:
 		camera.global_transform = target
-		camera.fov = 50.0
+		camera.fov = fov
+
+
+## The close-up's field of view for this screen: FOV, or wider on a narrow (tall) screen, so every
+## thing on the sill is whole on screen in the default look (0.8.1, item 18: on the phone's 20:9
+## screen the trowel and the box of cuttings were cut at the edges).
+func base_fov() -> float:
+	var vp := get_viewport()
+	if vp == null:
+		return FOV
+	var size := vp.get_visible_rect().size
+	var aspect := size.x / maxf(size.y, 1.0)
+	if is_equal_approx(aspect, _fov_aspect):
+		return _fov
+	_fov_aspect = aspect
+	var eye := _orbit_at(0.0, PITCH, DIST, FOCUS)
+	var inv := eye.affine_inverse()
+	var need := tan(deg_to_rad(FOV * 0.5))
+	for id in tools.items:
+		if not tools.rests.has(id):
+			continue
+		var box: AABB = tools.boxes[id]
+		var xf := tools.global_transform * (tools.rests[id] as Transform3D)
+		for i in range(8):
+			var p := inv * (xf * box.get_endpoint(i))
+			if p.z < -0.01:
+				# A margin of 4 % of the half width on each side.
+				need = maxf(need, absf(p.x) / -p.z / aspect / 0.96)
+	_fov = clampf(rad_to_deg(atan(need)) * 2.0, FOV, 75.0)
+	return _fov
 
 
 ## Into bonsai mode: the camera glides from `from` (the shed's eye) close to the pot.
@@ -1038,6 +1190,7 @@ func enter(from: Camera3D) -> void:
 ## Back to the workbench: the camera glides back, then `to` takes over.
 func leave(to: Camera3D, done: Callable) -> void:
 	set_tool("")
+	_show_aim({})
 	var start := camera.global_transform
 	var fov0 := camera.fov
 	active = false
@@ -1055,13 +1208,14 @@ func leave(to: Camera3D, done: Callable) -> void:
 func set_tool(t: String) -> void:
 	if busy or t == tool:
 		return
-	pruning.preview(-1)
-	_preview_mesh.clear_surfaces()
+	_show_aim({})
 	_drag = ""
 	_pressing = false
 	if tools.held != "":
 		tools.put_down()
 	tool = t
+	uses = 0
+	_depth = -1.0
 	if t != "":
 		tools.hold(t)
 		_hold_moved = false
@@ -1113,7 +1267,12 @@ func _unhandled_input(event: InputEvent) -> void:
 			var pts: Array = _touches.values()
 			_pinch_dist = (pts[0] as Vector2).distance_to(pts[1])
 			_pinch_zoom = _dist
+			# A second finger: no tap, no aim, no cut from the first.
 			_pressing = false
+			_down_object = ""
+			if _drag in ["aim", "prune", "wire"]:
+				_show_aim({})
+			_drag = ""
 		return
 	if event is InputEventScreenDrag:
 		var d := event as InputEventScreenDrag
@@ -1137,10 +1296,10 @@ func _unhandled_input(event: InputEvent) -> void:
 		var mm := event as InputEventMouseMotion
 		if _pressing:
 			_move(mm.position, mm.relative)
-		else:
-			hover = tools.pick(camera, mm.position, TOOL_TAP)
-			if tool == "shears" and not _lifted and hover == "":
-				pruning.preview(pruning.pick(mm.position))
+		elif _touches.is_empty():
+			# A PC's pointer resting: the label of the thing under it, and what the tool would do.
+			hover = pick_object(mm.position)
+			_show_aim(aim_target(mm.position) if hover == "" else {})
 
 
 ## The pointer, which the held tool follows (a finger on the phone, the cursor on a PC).
@@ -1150,6 +1309,19 @@ func _track_pointer(pos: Vector2) -> void:
 	_pointer = pos
 
 
+## The thing on the sill a touch at `pos` means, or "" (0.8.1, item 18). A touch on the pot
+## itself is the pot's (other things answer there only right at their marks). With a tool in hand:
+## its own place (a larger target) puts it down; another thing is picked when the touch is inside
+## its outline or near its mark (nearer still over something the tool can work on, so a touch on
+## the soil beside the can is the tool's); the tool itself where it floats only off the tree.
+func pick_object(pos: Vector2) -> String:
+	var pot := on_pot(pos)
+	if tool == "":
+		return tools.pick(camera, pos, OBJECT_NEAR_TARGET if pot else TOOL_TAP, true, -1.0, not pot)
+	var target := not aim_target(pos).is_empty()
+	return tools.pick(camera, pos, OBJECT_NEAR_TARGET if target or pot else TOOL_TAP, not target and not on_bonsai(pos), PUT_DOWN, not pot)
+
+
 func _begin(pos: Vector2) -> void:
 	if _touches.size() >= 2:
 		return
@@ -1157,36 +1329,48 @@ func _begin(pos: Vector2) -> void:
 	_press = pos
 	_drag = ""
 	_pot_press = false
-	# The tool in hand answers where it floats only off the tree: on it, the tap uses the tool.
-	_down_object = tools.pick(camera, pos, TOOL_TAP, not on_bonsai(pos))
+	_down_object = pick_object(pos)
 	if _down_object != "":
+		_show_aim({})
 		_pick_at = pos
 		return
-	match tool:
-		"shears":
-			if not _lifted:
-				var id := pruning.pick(pos)
-				pruning.preview(id)
-				_drag = "prune" if id >= 0 else ""
-		"wire":
-			_wire_id = pick_branch(pos)
-			_drag = "wire" if _wire_id >= 0 else ""
-		"":
-			_pot_press = on_pot(pos)
+	if tool == "":
+		_pot_press = on_pot(pos)
+		return
+	# A tool in hand over something it works on: aim (the highlight shows), act on release.
+	var target := aim_target(pos)
+	if target.is_empty():
+		return
+	_show_aim(target)
+	match str(target["kind"]):
+		"cut":
+			_drag = "prune"
+		"branch":
+			_wire_id = int(target["id"])
+			_wire_target = Vector3.ZERO
+			_drag = "wire"
+		_:
+			_drag = "aim"
 
 
 func _move(pos: Vector2, rel: Vector2) -> void:
 	match _drag:
 		"prune":
-			pruning.preview(pruning.pick(pos))
+			var id := pruning.pick(pos)
+			_show_aim({"kind": "cut", "id": id} if id >= 0 else {})
+			return
+		"aim":
+			# Sliding the finger moves the aim; off the tree nothing is aimed at.
+			_show_aim(aim_target(pos))
 			return
 		"wire":
-			_wire_target = _drag_point(pos)
-			_draw_wire_preview()
+			if pos.distance_to(_press) > TAP_SLOP:
+				_wire_target = _drag_point(pos)
+				_draw_wire_preview()
 			return
 		"pot":
 			return
-	if _drag == "" and pos.distance_to(_press) > 10.0:
+	if _drag == "" and pos.distance_to(_press) > TAP_SLOP:
 		_down_object = ""
 		# A sideways drag on the pot turns it; anywhere else the view goes round the pot.
 		_drag = "pot" if _pot_press and absf(pos.x - _press.x) > absf(pos.y - _press.y) else "orbit"
@@ -1201,7 +1385,7 @@ func _end(pos: Vector2) -> void:
 		return
 	_pressing = false
 	var b := state.bonsai
-	var moved := pos.distance_to(_press) > 12.0
+	var moved := pos.distance_to(_press) > TAP_SLOP
 	if _down_object != "":
 		var id := _down_object
 		_down_object = ""
@@ -1210,25 +1394,38 @@ func _end(pos: Vector2) -> void:
 		return
 	match _drag:
 		"prune":
-			if pruning.target >= 0:
-				pruning.cut()
 			_drag = ""
+			if pruning.target >= 0:
+				uses += 1
+				pruning.cut()
+			_show_aim({})
+			return
+		"aim":
+			_drag = ""
+			var target := aimed
+			_show_aim({})
+			act(target)
 			return
 		"wire":
 			_preview_mesh.clear_surfaces()
 			_drag = ""
+			_show_aim({})
 			var g := b.graph
 			if b.graph.get_flag(_wire_id, "wire") is Dictionary and not moved:
 				b.unwire(_wire_id)
+				uses += 1
 				_play("wire")
 				refresh(true)
 				tool_used.emit("unwire")
 			elif moved:
 				var pivot := g.positions[g.parents[_wire_id]]
 				if b.wire(_wire_id, _wire_target - pivot):
+					uses += 1
 					_play("wire")
 					refresh(true)
 					tool_used.emit("wire")
+			else:
+				said.emit("Drag the branch into its new line; a tap only takes a wire off.")
 			return
 		"pot":
 			_drag = ""
@@ -1238,38 +1435,131 @@ func _end(pos: Vector2) -> void:
 	if _drag == "orbit":
 		_drag = ""
 		return
-	if not moved:
-		use_at(pos)
+
+
+## What the tool in hand would work on at a screen point, or {} (see `aimed`).
+func aim_target(pos: Vector2) -> Dictionary:
+	if state == null or sim() == null:
+		return {}
+	match tool:
+		"water", "fertiliser":
+			return {"kind": "soil"} if on_bonsai(pos) else {}
+		"trowel":
+			if not on_bonsai(pos):
+				return {}
+			return {"kind": "soil"} if _lifted else {"kind": "pot"}
+		"shears":
+			if _lifted:
+				return {"kind": "root_ball"} if on_bonsai(pos) else {}
+			var id := pruning.pick(pos)
+			return {"kind": "cut", "id": id} if id >= 0 else {}
+		"pinch":
+			var id := pick_tip(pos)
+			return {"kind": "tip", "id": id} if id >= 0 else {}
+		"wire":
+			var id := pick_branch(pos)
+			return {"kind": "branch", "id": id} if id >= 0 else {}
+	return {}
 
 
 ## The tool in hand used at a screen point (a tap on the tree, its soil or its pot).
 func use_at(pos: Vector2) -> void:
+	if tool == "fertiliser" and busy and on_bonsai(pos):
+		# A tap while the tin still pours is not lost (0.8 review: it was dropped silently): one
+		# more spoon follows when the tin is back up.
+		_spoon_waiting = true
+		return
+	var target := aim_target(pos)
+	if target.get("kind", "") == "cut":
+		pruning.preview(int(target["id"]))
+		uses += 1
+		pruning.cut()
+		return
+	act(target)
+
+
+## The tool in hand works on `target` (from aim_target): water, a spoon of pellets, the trowel,
+## a pinch, a snip round the root ball.
+func act(target: Dictionary) -> void:
+	if target.is_empty():
+		return
 	var b := state.bonsai
-	match tool:
-		"pinch":
-			var id := pick_tip(pos)
-			if id >= 0 and b.pinch(id):
+	match str(target["kind"]):
+		"tip":
+			if tool == "pinch" and b.pinch(int(target["id"])):
+				uses += 1
 				_play("snip")
 				refresh(true)
 				tool_used.emit("pinch")
-		"water":
-			if on_bonsai(pos):
-				water()
-		"fertiliser":
-			if on_bonsai(pos):
-				if busy:
-					# A tap while the tin still pours is not lost (0.8 review: it was dropped
-					# silently): one more spoon follows when the tin is back up.
-					_spoon_waiting = true
-				else:
-					fertilise(pellet_kind)
-		"trowel":
-			if on_bonsai(pos) and use_trowel() == "not_yet":
-				var n := days_to_repot()
-				said.emit("Not yet: it asks to be repotted about every seventh day (in %d day%s)." % [n, "" if n == 1 else "s"])
-		"shears":
-			if _lifted and on_bonsai(pos):
+		"soil", "pot":
+			match tool:
+				"water":
+					uses += 1
+					water()
+				"fertiliser":
+					uses += 1
+					if busy:
+						_spoon_waiting = true
+					else:
+						fertilise(pellet_kind)
+				"trowel":
+					var r := use_trowel()
+					if r == "not_yet":
+						var n := days_to_repot()
+						said.emit("Not yet: it asks to be repotted about every seventh day (in %d day%s)." % [n, "" if n == 1 else "s"])
+					elif r != "":
+						uses += 1
+		"root_ball":
+			if tool == "shears":
+				uses += 1
 				repot_trim()
+		"cut":
+			if tool == "shears":
+				pruning.preview(int(target["id"]))
+				uses += 1
+				pruning.cut()
+
+
+## Shows what the tool in hand aims at (0.8.1, item 18), before it acts: a glowing ring round the
+## soil for the can, the tin and the trowel, a ring round the tip for the tweezers, the branch
+## traced for the wire, the cut and what falls for the shears; {} hides it.
+func _show_aim(target: Dictionary) -> void:
+	aimed = target
+	var kind := str(target.get("kind", ""))
+	_soil_ring.visible = kind in ["soil", "pot", "root_ball"]
+	if _soil_ring.visible:
+		var half := soil_half(sim().pot) if not _lifted or kind != "root_ball" else soil_half(sim().pot) * 1.05
+		var y := soil_height(sim().pot) + 0.008 + (0.12 if _lifted else 0.0)
+		if kind == "root_ball":
+			y = soil_height(sim().pot) * 0.5 + 0.12
+		_soil_ring.transform = Transform3D(Basis().scaled(Vector3(half.x * 2.3, 1.0, half.y * 2.3)), Vector3(0, y, 0))
+	_tip_ring.visible = kind == "tip"
+	if _tip_ring.visible:
+		_tip_ring.position = _plant.to_global(sim().graph.positions[int(target["id"])])
+	pruning.preview(int(target["id"]) if kind == "cut" else -1)
+	if kind == "branch":
+		_trace_branch(int(target["id"]))
+	else:
+		_preview_mesh.clear_surfaces()
+
+
+## The branch the wire would take, traced in warm light from its fork to its tip.
+func _trace_branch(id: int) -> void:
+	var b := sim()
+	var g := b.graph
+	var chain: Array[int] = [g.parents[id]]
+	chain.append_array(b.wire_chain(id))
+	_preview_mesh.clear_surfaces()
+	_preview_mesh.surface_begin(Mesh.PRIMITIVE_TRIANGLES)
+	var eye := _plant.to_local(camera.global_position)
+	for k in range(chain.size() - 1):
+		var a := g.positions[chain[k]]
+		var c := g.positions[chain[k + 1]]
+		var along := (c - a).normalized()
+		var side := along.cross((eye - a).normalized()).normalized() * 0.035
+		for v in [a - side, c - side, c + side, a - side, c + side, a + side]:
+			_preview_mesh.surface_add_vertex(v)
+	_preview_mesh.surface_end()
 
 
 ## Whether a screen point is on the bonsai, its soil or its pot (a loose column round the pot).
@@ -1359,10 +1649,13 @@ func _drag_point(screen: Vector2) -> Vector3:
 func _draw_wire_preview() -> void:
 	var g := state.bonsai.graph
 	_preview_mesh.clear_surfaces()
-	_preview_mesh.surface_begin(Mesh.PRIMITIVE_LINES)
+	_preview_mesh.surface_begin(Mesh.PRIMITIVE_TRIANGLES)
 	var pivot := g.positions[g.parents[_wire_id]]
-	_preview_mesh.surface_add_vertex(pivot)
-	_preview_mesh.surface_add_vertex(pivot + (_wire_target - pivot).normalized() * maxf(1.0, g.positions[_wire_id].distance_to(pivot) * 3.0))
+	var end := pivot + (_wire_target - pivot).normalized() * maxf(1.0, g.positions[_wire_id].distance_to(pivot) * 3.0)
+	var eye := _plant.to_local(camera.global_position)
+	var side := (end - pivot).normalized().cross((eye - pivot).normalized()).normalized() * 0.035
+	for v in [pivot - side, end - side, end + side, pivot - side, end + side, pivot + side]:
+		_preview_mesh.surface_add_vertex(v)
 	_preview_mesh.surface_end()
 
 

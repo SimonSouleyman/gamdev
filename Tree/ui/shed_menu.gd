@@ -15,9 +15,10 @@ signal plant_pressed(species_id: String)
 ## kind (album, grove, bonsai stay), "all" starts over like a fresh install.
 signal reset_pressed(kind: String)
 
-## The words on the labels of the things in the shed (Shed.ITEMS); the pot names the tree.
+## The words on the labels of the things in the shed (Shed.ITEMS). (0.8.1, item 28: the flower
+## pot left the bench; the tree's page is the journal's first page.)
 const TAG_TEXTS := {"journal": "journal", "album": "photo album", "seeds": "seed bag",
-	"pot": "my linden", "gloves": "go outside", "options": "options", "bonsai": "my bonsai"}
+	"gloves": "go outside", "options": "options", "bonsai": "my bonsai"}
 ## The switches on the options pinboard, in their order.
 const OPTION_NAMES := {"sound": "sound", "no_ui": "no UI (pure scenery)", "battery_saver": "battery saver",
 	"notifications": "a note each day", "vibration": "vibration", "clearer_print": "clearer print",
@@ -136,11 +137,9 @@ func show_menu(on: bool) -> void:
 		_seeds.visible = false
 
 
-## The pot's label names the tree ("my silver birch").
+## The tree's name ("silver birch"), for its pages.
 func set_tree_name(tree_name: String) -> void:
 	_tree_name = tree_name
-	var l := _tags["pot"].get_child(0) as Label
-	l.text = "my " + tree_name
 
 
 ## Esc on the options board, in the album, at the seed bag or on the tree's page closes it.
@@ -838,7 +837,7 @@ When this %s has grown to its full size (%d of %d segments now), one goes into t
 	_seeds.visible = true
 
 
-# --- the tree's own page: "while you were away", and the flower pot ------------------------
+# --- the tree's own page: "while you were away" (its status page is the journal's first) -----
 
 func _build_tree_page() -> void:
 	_tree_page = Control.new()
@@ -867,7 +866,8 @@ func _build_tree_page() -> void:
 
 ## The torn diary page about the tree. With a report (GameState.take_away_report): what
 ## happened while the game was closed, the growth in metres, the visitors that came and an ink
-## sketch of the tree as it stands now. Without one it is the flower pot's page: how the tree is.
+## sketch of the tree as it stands now. Without one: how the tree is (the journal's first page
+## shows the same, Journal's "tree" ribbon).
 func show_tree_page(state: GameState, report: Dictionary = {}) -> void:
 	for c in _tree_box.get_children():
 		c.queue_free()
@@ -892,7 +892,7 @@ func show_tree_page(state: GameState, report: Dictionary = {}) -> void:
 	sketch.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	sketch.custom_minimum_size = Vector2(0, 300)
 	sketch.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	sketch.draw.connect(func() -> void: _draw_graph_sketch(sketch))
+	sketch.draw.connect(func() -> void: draw_graph_sketch(sketch, _sketch_graph))
 	_tree_box.add_child(sketch)
 	_tree_page.visible = true
 
@@ -933,7 +933,7 @@ static func away_text(tree_name: String, report: Dictionary) -> Array[String]:
 	return lines
 
 
-## The paragraphs of the flower pot's page: how the tree is doing and who has come so far.
+## The paragraphs of the tree's status page: how the tree is doing and who has come so far.
 static func status_text(state: GameState) -> Array[String]:
 	var sim := state.sim
 	var lines: Array[String] = []
@@ -954,8 +954,7 @@ static func status_text(state: GameState) -> Array[String]:
 
 ## The tree as it stands, drawn in ink from the plant graph: every living segment a stroke as
 ## thick as its wood, a little shaky like a quick drawing, leaves as pale green dabs at the tips.
-func _draw_graph_sketch(c: Control) -> void:
-	var g := _sketch_graph
+static func draw_graph_sketch(c: Control, g: PlantGraph) -> void:
 	if g == null or g.size() == 0:
 		return
 	# Seen from the south with a slight turn, so the crown has some depth.
