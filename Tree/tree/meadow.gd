@@ -14,9 +14,10 @@ var _mats: Dictionary = {}
 func build(ground: Underground) -> void:
 	for c in get_children():
 		c.queue_free()
+	_sheens.clear()
 	_rng.seed = hash([ground.seed, "meadow"])
 	_mats = {
-		"rush": _mat(Color(0.3, 0.45, 0.32)),
+		"rush": _mat(Color(0.2, 0.34, 0.13)),
 		"damp": _mat(Color(0.13, 0.19, 0.09)),
 		"clover": _mat(Color(0.3, 0.62, 0.25)),
 		"flower": _mat(Color(0.95, 0.93, 0.9)),
@@ -30,7 +31,7 @@ func build(ground: Underground) -> void:
 		var r: float = h["radius"]
 		match str(h["kind"]):
 			"damp":
-				_wet_patch(p, r * 1.2, Color(0.16, 0.22, 0.09), 0.9)
+				_damp_patch(p, r * 1.2)
 			"rushes":
 				_scatter(p, r, 18, func(q: Vector3) -> void: _blade(q, _rng.randf_range(0.45, 0.8), 0.012, _mats["rush"]))
 			"clover":
@@ -87,6 +88,101 @@ func _wet_patch(at: Vector3, radius: float, color: Color = Color(0.12, 0.17, 0.1
 	mat.set_shader_parameter("rough", roughness)
 	var m := _add(plane, mat, at + Vector3(0, 0.01, 0), Basis(Vector3.UP, _rng.randf() * TAU))
 	m.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+
+
+## The damp patch over water (0.8.2, look review: drawn as a see-through plate it read from above
+## as a flat pale grey-green hole in the grass). Now it only darkens the grass floor under it
+## (multiplied, so the grass texture shows through, deeper toward the middle and in wet spots)
+## and a second, additive pass lays a faint wet sheen on top that gleams at a low angle and in
+## a few puddle spots. Never lighter than the grass around it.
+const DAMP_SHADER := """
+shader_type spatial;
+render_mode blend_mul, unshaded, depth_draw_never, cull_back, shadows_disabled, fog_disabled;
+uniform vec3 wet = vec3(0.5, 0.58, 0.46);
+uniform float seed = 0.0;
+float h21(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+float vnoise(vec2 p) {
+	vec2 i = floor(p); vec2 f = fract(p); f = f * f * (3.0 - 2.0 * f);
+	return mix(mix(h21(i), h21(i + vec2(1, 0)), f.x), mix(h21(i + vec2(0, 1)), h21(i + vec2(1, 1)), f.x), f.y);
+}
+void fragment() {
+	vec2 c = UV * 2.0 - 1.0;
+	float n = vnoise(UV * 6.0 + seed) * 0.6 + vnoise(UV * 15.0 - seed) * 0.4;
+	float edge = 1.0 - smoothstep(0.35, 1.0, length(c) + 0.1 * sin(atan(c.y, c.x) * 5.0 + seed) + (n - 0.5) * 0.3);
+	float deep = edge * mix(0.75, 1.0, smoothstep(0.35, 0.7, n));
+	ALBEDO = mix(vec3(1.0), wet, deep);
+}
+"""
+const DAMP_SHEEN_SHADER := """
+shader_type spatial;
+render_mode blend_add, unshaded, depth_draw_never, cull_back, shadows_disabled, fog_disabled;
+uniform vec3 sky = vec3(0.55, 0.62, 0.62);
+uniform float strength = 0.16;
+uniform float seed = 0.0;
+float h21(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+float vnoise(vec2 p) {
+	vec2 i = floor(p); vec2 f = fract(p); f = f * f * (3.0 - 2.0 * f);
+	return mix(mix(h21(i), h21(i + vec2(1, 0)), f.x), mix(h21(i + vec2(0, 1)), h21(i + vec2(1, 1)), f.x), f.y);
+}
+void fragment() {
+	vec2 c = UV * 2.0 - 1.0;
+	float n = vnoise(UV * 6.0 + seed) * 0.6 + vnoise(UV * 15.0 - seed) * 0.4;
+	float edge = 1.0 - smoothstep(0.3, 0.85, length(c) + (n - 0.5) * 0.3);
+	// A wet surface mirrors the sky at a grazing look; from above only the puddle spots gleam.
+	float graze = pow(1.0 - clamp(dot(NORMAL, VIEW), 0.0, 1.0), 3.0);
+	float puddle = smoothstep(0.66, 0.78, n);
+	ALBEDO = sky * edge * strength * (graze * 1.6 + puddle * 0.7);
+}
+"""
+## The sheen follows the daylight (TreeView sets it): nothing gleams at night.
+var _sheens: Array[ShaderMaterial] = []
+
+
+func set_daylight(light: float) -> void:
+	for m in _sheens:
+		m.set_shader_parameter("strength", 0.16 * clampf(light, 0.0, 1.0))
+
+
+func _damp_patch(at: Vector3, radius: float) -> void:
+	var key := _rng.randf() * 50.0
+	var sh := Shader.new()
+	sh.code = DAMP_SHADER
+	var mat := ShaderMaterial.new()
+	mat.shader = sh
+	mat.set_shader_parameter("seed", key)
+	mat.render_priority = -1
+	var sheen_sh := Shader.new()
+	sheen_sh.code = DAMP_SHEEN_SHADER
+	var sheen := ShaderMaterial.new()
+	sheen.shader = sheen_sh
+	sheen.set_shader_parameter("seed", key)
+	mat.next_pass = sheen
+	_sheens.append(sheen)
+	var m := _add(_ground_sheet(at, radius, _rng.randf() * TAU), mat, Vector3.ZERO)
+	m.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+
+
+## How far the sheet floats over the terrain: enough that the coarser ground mesh between its
+## points never pokes through (a pale diamond in the patch), well under the grass blades.
+const SHEET_LIFT := 0.06
+
+
+## A square sheet lying on the ground (it follows Terrain's heights, so no edge of it sinks into a
+## slope and cuts the patch straight), turned by `yaw`; UV 0..1 across it.
+static func _ground_sheet(at: Vector3, radius: float, yaw: float, cells: int = 10) -> ArrayMesh:
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var b := Basis(Vector3.UP, yaw)
+	for j in range(cells):
+		for i in range(cells):
+			var quad := [Vector2(i, j), Vector2(i + 1, j), Vector2(i + 1, j + 1), Vector2(i, j), Vector2(i + 1, j + 1), Vector2(i, j + 1)]
+			for q in quad:
+				var uv: Vector2 = q / float(cells)
+				var p := at + b * Vector3((uv.x * 2.0 - 1.0) * radius, 0.0, (uv.y * 2.0 - 1.0) * radius)
+				st.set_uv(uv)
+				st.set_normal(Vector3.UP)
+				st.add_vertex(Terrain.at(p) + Vector3(0, SHEET_LIFT, 0))
+	return st.commit()
 
 
 func _mat(c: Color) -> StandardMaterial3D:

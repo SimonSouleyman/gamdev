@@ -457,7 +457,8 @@ func _build_window() -> void:
 	add_child(bonsai_spot)
 	_pick("bonsai", bonsai_spot.position + Vector3(0.0, 0.2, -0.04), 0.17)
 	var tag := Node3D.new()
-	tag.position = bonsai_spot.position + Vector3(0.0, 0.08, -0.16)
+	# 0.8.2 (look review): the label hangs under the sill's front edge, not over the tools on it.
+	tag.position = bonsai_spot.position + BONSAI_TAG
 	add_child(tag)
 	_tag_anchors["bonsai"] = [tag, true]
 	# Daylight through the window: a soft spot from outside, and a faint shaft of dusty air.
@@ -826,8 +827,17 @@ func _place_camera(_tree_height: float) -> void:
 	fit_view()
 
 
+## Where the bonsai's label hangs from, from the bonsai's spot: under the sill board's front edge.
+const BONSAI_TAG := Vector3(0.0, -0.05, -0.33)
+## The sill's tools (BonsaiTools.RESTS, from the bonsai's spot) and the room kept beside them, so
+## the watering can and the front row never touch the screen's edge (0.8.2, look review: they sat
+## within about 10 px of the left edge on a 450 px wide phone screen).
+const SILL_TOOLS_EDGE := 0.27
+
+
 ## What must be whole on screen (shed frame): the bonsai's pot and crown on the sill with its
-## label, the pinboard's corners and its label, the things on the bench with theirs.
+## label, the sill's tools with a margin, the pinboard's corners and its label, the things on the
+## bench with theirs.
 static func must_see() -> Array[Vector3]:
 	var cx := (WINDOW_X.x + WINDOW_X.y) * 0.5
 	var sill := WINDOW_Y.x + 0.01
@@ -838,6 +848,10 @@ static func must_see() -> Array[Vector3]:
 	return [
 		Vector3(cx + 0.14, sill, hd - 0.28), Vector3(cx - 0.14, sill, hd - 0.28), Vector3(cx, sill + 0.45, hd - 0.14),
 		Vector3(cx + 0.12, sill + 0.08, hd - 0.26),
+		# The watering can (top and foot) and the trowel's end of the front row, with room.
+		Vector3(cx + SILL_TOOLS_EDGE, sill + 0.14, hd - 0.05), Vector3(cx + SILL_TOOLS_EDGE, sill, hd - 0.36),
+		# The bonsai's label under the sill's edge.
+		Vector3(cx, sill + BONSAI_TAG.y - 0.12, hd - 0.1 + BONSAI_TAG.z),
 		Vector3(pin - pw, 1.45 - ph, hd - 0.06), Vector3(pin - pw, 1.45 + ph, hd - 0.06), Vector3(pin + pw, 1.45 - ph, hd - 0.06),
 		Vector3(pin, 1.45 + ph + 0.12, hd - 0.06),
 		Vector3(0.36, 0.88, 0.2), Vector3(-0.38, 0.88, 0.2), Vector3(0.0, 0.88, 0.16),

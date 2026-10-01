@@ -243,7 +243,9 @@ func _process(delta: float) -> void:
 	root_view.input_enabled = not paused and not _transitioning
 	root_view.process_mode = Node.PROCESS_MODE_DISABLED if paused else Node.PROCESS_MODE_INHERIT
 	if not paused or bonsai_live:
-		_sim_accum += delta * time_scale
+		# Held to fast-forward (specs/fast-forward.md): more fixed game-time steps per frame, the
+		# same steps; the result does not depend on the speed.
+		_sim_accum += delta * time_scale * tree_view.time_speed()
 		var steps := 0
 		while _sim_accum >= SIM_STEP and steps < 40:
 			state.tick(SIM_STEP)

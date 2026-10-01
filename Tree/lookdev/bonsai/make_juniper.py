@@ -21,103 +21,111 @@ OUT = "lookdev/bonsai/"
 SIZE = 1024
 CELL = SIZE // 2
 
-DARK = (30, 58, 38)
-MID = (62, 104, 46)
-FRESH = (150, 178, 72)
+DARK = (34, 64, 44)
+MID = (70, 114, 60)
+FRESH = (152, 184, 92)
 
 
 def shoot(rng, x, y, ang, length, depth, out):
-    """A cord-like shoot from (x, y) at angle `ang` (radians, 0 = up), branching pinnately and
-    densely. Appends (points, depth) polylines to `out`."""
-    n = max(3, int(length / 4))
+    """A whipcord shoot from (x, y) at angle `ang` (radians, 0 = up): nearly straight, with short
+    side shoots set at a narrow angle, alternately, like a frond. Appends (points, depth)."""
+    n = max(3, int(length / 3))
     pts = [(x, y)]
     a = ang
     for _ in range(n):
-        a += rng.uniform(-0.1, 0.1)
+        a += rng.uniform(-0.05, 0.05)
         x += math.sin(a) * length / n
         y -= math.cos(a) * length / n
         pts.append((x, y))
     out.append((pts, depth))
-    if depth >= 3 or length < 12:
+    if depth >= 3 or length < 9:
         return
     k = 0
-    t = rng.uniform(0.08, 0.16)
-    while t < 0.88:
+    t = rng.uniform(0.1, 0.2)
+    while t < 0.9:
         i = min(n - 1, int(t * n))
         side = 1 if k % 2 == 0 else -1
-        sa = ang + side * math.radians(rng.uniform(30, 55))
-        sl = length * rng.uniform(0.38, 0.55) * (1.0 - 0.45 * t)
-        if sl > 7:
+        sa = ang + side * math.radians(rng.uniform(22, 40))
+        sl = length * rng.uniform(0.3, 0.46) * (1.0 - 0.5 * t)
+        if sl > 5:
             shoot(rng, pts[i][0], pts[i][1], sa, sl, depth + 1, out)
-        t += rng.uniform(0.07, 0.12) * (1.0 + depth * 0.25)
+        t += rng.uniform(0.06, 0.1) * (1.0 + depth * 0.3)
         k += 1
 
 
 def scale_color(rng, t, depth, lift):
-    """t: 0 at a shoot's base, 1 at its tip. Tips of the outer shoots are the freshest."""
-    f = t * 0.75 + depth * 0.1 + lift * 0.35 + rng.uniform(-0.15, 0.15)
+    """t: 0 at a shoot's base, 1 at its tip. Only the very tips are fresh; the body stays a deep
+    blue-green, so a card reads as dark needles with light points, not as a leaf."""
+    f = t * 0.7 + depth * 0.1 + lift * 0.3 + rng.uniform(-0.12, 0.12)
     f = min(1.0, max(0.0, f))
-    if f < 0.5:
-        a, b, u = DARK, MID, f / 0.5
+    if f < 0.55:
+        a, b, u = DARK, MID, f / 0.55
     else:
-        a, b, u = MID, FRESH, (f - 0.5) / 0.5
-    g = rng.uniform(0.9, 1.08)
+        a, b, u = MID, FRESH, (f - 0.55) / 0.45
+    g = rng.uniform(0.88, 1.1)
     return tuple(min(255, int((a[i] + (b[i] - a[i]) * u) * g)) for i in range(3))
 
 
 def paint_cell(rng, col, height, ox, oy):
+    """0.8.2 (look review: the lobed tufts read as broadleaf leaves at phone size): a tuft is now
+    a loose fan of many thin, straight whipcord shoots with narrow side shoots, gaps between them,
+    a bristly outline and only the tips light. At phone size it reads as fine needle texture."""
     lines = []
     bx = ox + CELL * 0.5
-    by = oy + CELL * 0.96
-    # A short stem, then a fan of main shoots: the tuft is a rounded lobed cloud.
-    stem_len = CELL * rng.uniform(0.1, 0.16)
-    sa = rng.uniform(-0.15, 0.15)
+    by = oy + CELL * 0.97
+    stem_len = CELL * rng.uniform(0.04, 0.07)
+    sa = rng.uniform(-0.1, 0.1)
     sx = bx + math.sin(sa) * stem_len
     sy = by - math.cos(sa) * stem_len
-    fans = rng.randint(8, 10)
+    fans = rng.randint(15, 19)
     for f in range(fans):
-        u = (f + rng.uniform(-0.3, 0.3)) / (fans - 1) - 0.5
-        ang = sa + u * math.radians(112)
-        # The middle shoots reach furthest: a round top.
-        reach = CELL * (0.74 - abs(u) * 0.4) * rng.uniform(0.85, 1.0)
-        shoot(rng, sx, sy, ang, reach * 0.9, 0, lines)
+        u = (f + rng.uniform(-0.35, 0.35)) / (fans - 1) - 0.5
+        ang = sa + u * math.radians(104)
+        reach = CELL * (0.7 - abs(u) * 0.3) * rng.uniform(0.75, 1.0)
+        shoot(rng, sx, sy, ang, reach, 0, lines)
     dc = ImageDraw.Draw(col)
     dh = ImageDraw.Draw(height)
-    # The woody stem, red-brown, mostly hidden under the scales.
-    dc.line([(bx, by), (sx, sy)], fill=(96, 58, 40, 255), width=7)
+    dc.line([(bx, by), (sx, sy)], fill=(80, 52, 38, 255), width=4)
     cx0 = ox + CELL * 0.5
-    cy0 = oy + CELL * 0.45
-    # Scales, base shoots first so the fresh outer shoots lie on top.
+    cy0 = oy + CELL * 0.5
     for pts, depth in sorted(lines, key=lambda l: l[1]):
         n = len(pts)
-        r0 = 5.0 - depth * 0.8
+        r0 = 3.4 - depth * 0.5
         for i in range(n - 1):
             t = i / max(1, n - 1)
             (x0, y0), (x1, y1) = pts[i], pts[i + 1]
             seg = math.hypot(x1 - x0, y1 - y0)
-            steps = max(1, int(seg / 1.4))
+            steps = max(1, int(seg / 1.6))
+            ux = (x1 - x0) / max(seg, 1e-3)
+            uy = (y1 - y0) / max(seg, 1e-3)
             for s in range(steps):
                 u = s / steps
                 x = x0 + (x1 - x0) * u
                 y = y0 + (y1 - y0) * u
-                r = max(1.8, r0 * (1.0 - 0.5 * t) * rng.uniform(0.85, 1.12))
-                ax = -(y1 - y0) / max(seg, 1e-3)
-                ay = (x1 - x0) / max(seg, 1e-3)
-                off = rng.uniform(-0.55, 0.55) * r
-                cx = x + ax * off
-                cy = y + ay * off
-                # Outer shoots (far from the tuft's middle, and higher) are lighter.
-                lift = min(1.0, math.hypot(cx - cx0, cy - cy0) / (CELL * 0.45)) * 0.6 + (1.0 - (cy - oy) / CELL) * 0.4
+                r = max(1.1, r0 * (1.0 - 0.45 * t) * rng.uniform(0.85, 1.1))
+                lift = min(1.0, math.hypot(x - cx0, y - cy0) / (CELL * 0.45)) * 0.7 + (1.0 - (y - oy) / CELL) * 0.3
                 c = scale_color(rng, t, depth, lift)
-                shade = tuple(int(v * 0.55) for v in c)
-                dc.ellipse([cx - r * 1.08, cy - r * 1.3, cx + r * 1.08, cy + r * 1.3], fill=shade + (255,))
-                dc.ellipse([cx - r, cy - r * 1.2, cx + r, cy + r * 1.2], fill=c + (255,))
-                hl = tuple(min(255, int(v * 1.22 + 8)) for v in c)
-                dc.ellipse([cx - r * 0.55, cy - r * 1.05, cx + r * 0.25, cy - r * 0.25], fill=hl + (255,))
-                for k in range(3):
-                    rr = r * (1.0 - k * 0.3)
-                    v = 100 + k * 45 + int(depth * 10) + int(lift * 30)
-                    dh.ellipse([cx - rr, cy - rr * 1.2, cx + rr, cy + rr * 1.2], fill=min(255, v))
+                shade = tuple(int(v * 0.45) for v in c)
+                # A scale leaf: a short pointed oval along the shoot, a dark rim under it.
+                ex, ey = ux * r * 1.5, uy * r * 1.5
+                px, py = -uy * r, ux * r
+                rim = [(x - ex * 1.1, y - ey * 1.1), (x + px * 1.2, y + py * 1.2), (x + ex * 1.25, y + ey * 1.25), (x - px * 1.2, y - py * 1.2)]
+                dc.polygon(rim, fill=shade + (255,))
+                body = [(x - ex, y - ey), (x + px, y + py), (x + ex * 1.15, y + ey * 1.15), (x - px, y - py)]
+                dc.polygon(body, fill=c + (255,))
+                if rng.random() < 0.35:
+                    hl = tuple(min(255, int(v * 1.3 + 10)) for v in c)
+                    dc.line([(x, y), (x + ex * 0.8, y + ey * 0.8)], fill=hl + (255,), width=1)
+                v = 110 + int(depth * 14) + int(lift * 40)
+                dh.ellipse([x - r, y - r, x + r, y + r], fill=min(255, v))
+                dh.point((x, y), fill=min(255, v + 40))
+            # A needle point at the very tip of each shoot.
+        (xa, ya), (xb, yb) = pts[-2], pts[-1]
+        seg = math.hypot(xb - xa, yb - ya)
+        if seg > 0:
+            ux, uy = (xb - xa) / seg, (yb - ya) / seg
+            tip = FRESH if rng.random() < 0.7 else MID
+            dc.line([(xb, yb), (xb + ux * 4.5, yb + uy * 4.5)], fill=tip + (255,), width=1)
 
 
 def normal_from_height(h):
@@ -146,7 +154,7 @@ def main():
     # Soft alpha edges; transparent pixels keep a leaf colour so mipmaps do not bleed black.
     alpha = col.getchannel("A").filter(ImageFilter.GaussianBlur(0.7))
     rgb = col.convert("RGB")
-    fill = Image.new("RGB", (SIZE, SIZE), (48, 80, 42))
+    fill = Image.new("RGB", (SIZE, SIZE), (36, 66, 44))
     rgb = Image.composite(rgb, fill, col.getchannel("A"))
     out = rgb.copy()
     out.putalpha(alpha)

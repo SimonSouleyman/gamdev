@@ -73,7 +73,7 @@ var prune_mode: bool = false:
 	set(on):
 		prune_mode = on
 		if on and state != null:
-			prune_height = state.sim.height() * 0.55
+			prune_height = state.sim.height() * PRUNE_FOCUS
 ## Where on the trunk the camera looks while the shears are out.
 var prune_height: float = 1.0
 var pruning: Pruning
@@ -126,6 +126,17 @@ var _press_pos: Vector2
 var _drag_mode: String = ""
 var _press_phase: int = -1
 var _press_time: float = 0.0  # "", "orbit", "sun", "boost"
+## Hold to fast-forward the day (specs/fast-forward.md, 0.8.2): a still finger held this long
+## by day starts it; it runs while the finger stays down. A tap stays the boost.
+const HOLD_START := 0.6
+## The day's clock while held (tuning lever).
+const FAST_FORWARD := 4.0
+## Real seconds the speed takes to ease in from 1x to FAST_FORWARD (no hitch when it starts).
+const FAST_EASE := 0.5
+## 0..1: how far the fast-forward has eased in (0 = the normal clock).
+var _ff_amount: float = 0.0
+## The small ink hourglass by the day scrap, shown only while held.
+var hourglass: Hourglass
 var _touches: Dictionary = {}
 var _pinch_start: float = 0.0
 var _pinch_zoom: float = 1.0
@@ -574,6 +585,9 @@ func _build_hud() -> void:
 	bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	hud.add_child(bar)
 	_day_label = _pill(bar, Color(1, 1, 1, 0.0))
+	hourglass = Hourglass.new()
+	hourglass.visible = false
+	_day_label.get_parent().add_child(hourglass)
 	_life_label = _pill(bar, Color(1.0, 0.9, 0.55))
 	var bar2 := HBoxContainer.new()
 	bar2.set_anchors_preset(Control.PRESET_TOP_WIDE)
@@ -754,6 +768,7 @@ func _process(delta: float) -> void:
 		sun_arc.cancel_drag()
 		_pinch_start = 0.0
 	_time += delta
+	_update_hold(delta)
 	_rebuild_timer += delta
 	_update_care()
 	if _rebuild_timer >= REBUILD_INTERVAL and (state.sim.graph.size() != _built_size or _care_changed() or marks_key() != _built_marks):
@@ -906,6 +921,7 @@ func _update_sun() -> void:
 	_sun_light.light_color = Color(1.0, 0.68, 0.42).lerp(Color(1.0, 0.96, 0.9), smoothstep(0.05, 0.5, h))
 	var k := smoothstep(0.0, 0.6, h)
 	_scenery.update(get_process_delta_time(), h > 0.0, h, _sun_light.light_color, state.sim.height(), camera.global_position)
+	_meadow.set_daylight(clampf(h * 3.0, 0.0, 1.0))
 	# The sky glows brighter near the horizon hours, and the haze takes the sun's colour.
 	# A low sun: a bright golden sky and haze, the ground in raking light (the reference photos).
 	_sky_mat.energy_multiplier = 1.5 + 1.7 * (1.0 - k) + (0.35 if clock.boost_active else 0.0)
@@ -1118,6 +1134,21 @@ const FRAME_SHIFT_MAX := 2.5
 
 
 ## The height to frame in play for a tree this tall (0.8.1): its own height and a little meadow.
+## The shears' first view: the camera looks at this share of the tree's height ...
+const PRUNE_FOCUS := 0.5
+## ... and the tree stands between the HUD (FRAME_TOP) and the hint scrap at the bottom.
+const PRUNE_BASE := 0.78
+
+
+## Half the height of the shears' view (metres at the focus) that holds the whole tree, its top
+## below the HUD and its foot above the hint, and the crown's width with a margin at the sides.
+static func prune_frame(height: float, width: float, aspect: float) -> float:
+	var up := height * (1.0 - PRUNE_FOCUS) / ((0.5 - FRAME_TOP) * 2.0)
+	var down := height * PRUNE_FOCUS / ((PRUNE_BASE - 0.5) * 2.0)
+	var across := width * 0.5 / (aspect * (1.0 - 2.0 * FRAME_SIDE))
+	return maxf(maxf(up, down), across)
+
+
 static func play_frame_height(tree_height: float) -> float:
 	return maxf(tree_height, 0.2) + FRAME_PAD * (1.0 - smoothstep(0.0, FRAME_PAD_UNTIL, tree_height))
 
@@ -1268,9 +1299,13 @@ func _frame_camera(snap: bool, delta: float = 0.0) -> void:
 	if _album:
 		# Always from the same spot at the clearing's edge; the lens holds the grown tree.
 		want_distance = room + 0.5
+	var prune_half := 0.0
 	if prune_mode:
-		# Closer in, looking at the part of the crown around prune_height.
-		want_distance = clampf((_framed_height * 0.45 + 2.0) * _zoom, 1.5, room + 0.5)
+		# 0.8.2 (look review: the shears' view cut the crown at the top): the shears come out on
+		# the whole crown, between the HUD and the hint (prune_frame); a pinch closes in, a drag
+		# beside the tree rides the trunk at that distance.
+		prune_half = prune_frame(maxf(state.sim.height(), 0.5), crown_width(), aspect)
+		want_distance = clampf(prune_half / tan(deg_to_rad(FRAME_FOV * 0.5)) * _zoom, 1.5, room + 0.5)
 	# Wide enough to hold the frame at this distance (a lens, not a step back, once the clearing
 	# is too small to step back in).
 	camera.fov = clampf(rad_to_deg(2.0 * atan(half / maxf(want_distance, 0.1))), fov_min, fov_cap)
@@ -1278,7 +1313,8 @@ func _frame_camera(snap: bool, delta: float = 0.0) -> void:
 		# In play the lens is set by the frame, the pinch only moves the camera (a real zoom).
 		camera.fov = clampf(rad_to_deg(2.0 * atan(half / maxf(base_distance, 0.1))), fov_min, fov_cap)
 	if prune_mode:
-		camera.fov = FRAME_FOV
+		# The lens widens only where the clearing is too small to step back in.
+		camera.fov = clampf(rad_to_deg(2.0 * atan(prune_half * _zoom / maxf(want_distance, 0.1))), FRAME_MIN_FOV, FRAME_MAX_FOV)
 	# The meadow grass fades out beyond the tree, however far back the camera stands.
 	# (A phone lets it fade sooner: meadow cards are what it pays most for.)
 	var fade := maxf(14.0 if Budgets.PHONE else 24.0, want_distance + (8.0 if Budgets.PHONE else 22.0))
@@ -1311,6 +1347,35 @@ func _frame_camera(snap: bool, delta: float = 0.0) -> void:
 		camera.look_at(look, Vector3.UP if absf(d.normalized().y) < 0.98 else Vector3.FORWARD)
 	if look_up != 0.0:
 		camera.rotate_object_local(Vector3.RIGHT, look_up)
+
+
+# --- hold to fast-forward ---------------------------------------------------
+
+## How fast the day's clock runs now: 1, or up to FAST_FORWARD while a still finger is held by
+## day. main.gd multiplies the sim's real time by it; the sim itself still steps in fixed game
+## time, so a held day grows exactly the tree a watched one does.
+func time_speed() -> float:
+	return lerpf(1.0, FAST_FORWARD, _ff_amount)
+
+
+func fast_forwarding() -> bool:
+	return _drag_mode == "hold" and _pressing and state != null and state.phase == GameState.Phase.DAY
+
+
+func _update_hold(delta: float) -> void:
+	# A still finger (no move past the drag threshold, one finger only, not with the shears)
+	# that began by day and is still down after HOLD_START becomes the hold.
+	if _pressing and _drag_mode == "" and not prune_mode and _touches.size() < 2 			and _press_phase == GameState.Phase.DAY and state.phase == GameState.Phase.DAY 			and _time - _press_time >= HOLD_START:
+		_drag_mode = "hold"
+	if fast_forwarding():
+		_ff_amount = minf(1.0, _ff_amount + delta / FAST_EASE)
+	else:
+		# Stops on release, at the sunset hold, and when a page or the shed takes the input.
+		_ff_amount = 0.0
+	if hourglass != null:
+		hourglass.visible = fast_forwarding()
+		hourglass.hours = state.sim.clock.clock_hour()
+	_scenery.cloud_speed = time_speed()
 
 
 # --- input ------------------------------------------------------------------
@@ -1383,6 +1448,9 @@ func _begin_press(pos: Vector2) -> void:
 
 
 func _drag(pos: Vector2, rel: Vector2) -> void:
+	if _drag_mode == "hold":
+		# One gesture, one meaning: once the day runs fast, the finger does not turn the camera.
+		return
 	if _drag_mode == "trunk":
 		# With the shears out the camera rides the trunk (Simon, 0.5.1): up and down along it,
 		# around it sideways, so every branch can be reached.
@@ -1411,6 +1479,11 @@ func _end_press(is_release: bool, pos: Vector2 = Vector2.ZERO) -> void:
 	_pressing = false
 	if _drag_mode == "trunk":
 		_drag_mode = ""
+		return
+	if _drag_mode == "hold":
+		# A hold never boosts, never ends the day and never dives (also when it ran into sunset).
+		_drag_mode = ""
+		_ff_amount = 0.0
 		return
 	if _drag_mode == "prune":
 		_drag_mode = ""

@@ -2,7 +2,8 @@ extends SceneTree
 ## Screenshots of the tree view with the real HUD (grow_shot.gd hides it): the pictures at the
 ## middle right, the hand compass, then the camera turned (the compass turns with it) and the
 ## shears out (glowing; the secateurs pointer is drawn into the picture where the mouse is, as a
-## screenshot of the viewport has no pointer). Plays main.tscn in an ephemeral run.
+## screenshot of the viewport has no pointer), then a still finger held on the meadow (0.8.2
+## fast-forward: hud_hold with its hourglass). Plays main.tscn in an ephemeral run.
 ## Run: godot --path . -s tools/hud_shot.gd -- --shots=C:/some/folder [--days=6] [--size=540x1200]
 
 var main: Node
@@ -80,5 +81,11 @@ func _process(_d: float) -> bool:
 		var s: Vector2 = root.get_viewport().get_visible_rect().size
 		_shot("hud_shears", Vector2(s.x * 0.42, s.y * 0.45) * (Vector2(root.get_viewport().get_texture().get_size()) / s))
 		main._set_shears(false)
+		# 0.8.2: a still finger held on the meadow fast-forwards the day (the hourglass shows).
+		main.tree_view._begin_press(root.get_viewport().get_visible_rect().size * Vector2(0.5, 0.7))
+	if frame == 240:
+		_shot("hud_hold")
+		print("hold: speed x%.1f, hour %.2f" % [main.tree_view.time_speed(), main.state.sim.clock.clock_hour()])
+		main.tree_view._end_press(true, root.get_viewport().get_visible_rect().size * Vector2(0.5, 0.7))
 		quit()
 	return false
