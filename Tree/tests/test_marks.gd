@@ -189,6 +189,41 @@ func test_cutting_marked_twigs_never_finishes_sooner() -> void:
 	t.check(tip.sim.grown_nodes() <= calm.sim.grown_nodes() + noise, "cut at the tip: no nearer the finish (%d vs %d grown)" % [tip.sim.grown_nodes(), calm.sim.grown_nodes()])
 
 
+## 0.8.2 (item 3; the 0.8.1 check found cut_marks 1 day sooner on 3 of 36 strategies runs):
+## played to the finish, cutting every marked twig (at its fork or just the tip) never finishes
+## a tree sooner than leaving them. The nights are fed alike (_fed_night), because a night's root
+## alone moves a month by 1 to 3 days: in strategies.gd "dots" itself finishes up to 3 days
+## apart when one number changes by a millionth (notes/roots-0.8.2.md), and that, not the
+## cut, is what those runs showed.
+func test_cutting_marked_twigs_never_finishes_a_month_sooner() -> void:
+	for sp in ["linden", "sycamore", "alder"]:
+		var start := _play(10, 14, sp)
+		var copies: Array = []
+		for _i in range(3):
+			copies.append(GameState.from_dict(JSON.parse_string(JSON.stringify(start.to_dict()))))
+		var finished := [-1, -1, -1]
+		var cut := [0, 0]
+		for day in range(10, 45):
+			for i in range(3):
+				var g: GameState = copies[i]
+				if finished[i] > 0:
+					continue
+				_fed_night(g)
+				_day_to(g, 0.5)
+				if i > 0:
+					cut[i - 1] += _cut_marks(g.sim, i == 2)
+				_day(g)
+				if g.finished or g.sim.is_finished():
+					finished[i] = day + 1
+			if finished[0] > 0 and finished[1] > 0 and finished[2] > 0:
+				break
+		print("  %s fed to the finish: calm day %d, cut at the fork %d, at the tip %d (%d / %d segments cut)" % [sp, finished[0], finished[1], finished[2], cut[0], cut[1]])
+		t.check(finished[0] > 0, "%s: the calm copy finishes (day %d)" % [sp, finished[0]])
+		t.check(cut[0] > 0 and cut[1] > 0, "%s: marked twigs were cut (%d, %d segments)" % [sp, cut[0], cut[1]])
+		t.check(finished[1] >= finished[0] or finished[1] < 0, "%s: cut at the fork, no sooner (day %d vs %d)" % [sp, finished[1], finished[0]])
+		t.check(finished[2] >= finished[0] or finished[2] < 0, "%s: cut at the tip, no sooner (day %d vs %d)" % [sp, finished[2], finished[0]])
+
+
 func _cut_marks(sim: GrowthSim, tip_only: bool) -> int:
 	var cut := 0
 	for m in sim.marks.duplicate():
