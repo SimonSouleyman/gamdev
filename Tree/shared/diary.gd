@@ -6,7 +6,8 @@ extends RefCounted
 ## tip (Underground.wish_deposits): it glows at night, and reaching it writes a line with a small ink drawing (docs/notes/wish-0.7.md).
 
 ## Each: {"day": int, "text": String, "by": "tree" | "player"}, plus "drawing": String (an ink
-## sketch the journal draws beside the line: "rushes" or "clover") on a reached wish.
+## sketch, InkSketch kind) and from 0.8.2 "topic": String (TOPICS; a line without one is a plain
+## note, shown only when nothing else fills the day's third place).
 var entries: Array = []
 var wish: String = ""
 ## The wish deposit (index into Underground.patches) today's wish points at, or -1.
@@ -57,11 +58,79 @@ const DAY_WISHES: Array[String] = [
 ]
 
 
-func add(day: int, text: String, by: String = "tree", drawing: String = "") -> void:
+## A shorter journal (0.8.2, specs/0.8.md items 21 and 22): a day page holds at most
+## PAGE_MAX of the game's lines, each about eight words: the day's wish, a need the tree shows,
+## and one find, visitor or milestone (a mood line, then a plain note, only when there is none).
+## Routine lines (numbers, "the tree grew") are no longer written. The player's own notes are
+## theirs and always show, below.
+const PAGE_MAX: int = 3
+## A game line stays at or under this many words (one line on the phone; tests check the width).
+const MAX_WORDS: int = 9
+const TOPICS: Array[String] = ["wish", "care", "find", "visitor", "milestone", "mood"]
+## The third place of a day page, in order of preference.
+const THIRD: Array[String] = ["find", "visitor", "milestone", "mood", ""]
+
+
+func add(day: int, text: String, by: String = "tree", drawing: String = "", topic: String = "") -> void:
 	var e := {"day": day, "text": text, "by": by}
 	if drawing != "":
 		e["drawing"] = drawing
+	if topic != "":
+		e["topic"] = topic
 	entries.append(e)
+
+
+## The game's lines shown on a day's page (at most PAGE_MAX): the day's wish, then a need, then
+## the best of the rest (THIRD). A topic written twice keeps its last line (a reached wish after
+## the morning's wish is a find, not a repeat).
+func page(day: int) -> Array:
+	var by_topic := {}
+	for e in entries:
+		if int(e["day"]) != day or str(e.get("by", "tree")) == "player":
+			continue
+		var t := str(e.get("topic", ""))
+		if t == "wish" or t == "care":
+			by_topic[t] = e
+		elif not by_topic.has(t):
+			by_topic[t] = e
+	var out: Array = []
+	for t in ["wish", "care"]:
+		if by_topic.has(t):
+			out.append(by_topic[t])
+	for t in THIRD:
+		if by_topic.has(t):
+			out.append(by_topic[t])
+			break
+	return out.slice(0, PAGE_MAX)
+
+
+## The player's own notes of a day.
+func notes(day: int) -> Array:
+	return entries.filter(func(e: Dictionary) -> bool: return int(e["day"]) == day and str(e.get("by", "tree")) == "player")
+
+
+## Days that have a page, in order.
+func days() -> Array[int]:
+	var out: Array[int] = []
+	for e in entries:
+		var d := int(e["day"])
+		if not out.has(d):
+			out.append(d)
+	out.sort()
+	return out
+
+
+## The one doodle of a day's page (0.8.2, item 23): the drawing of its find, visitor or
+## milestone, else of the wish (its plant), else of the need (its leaf); a sun when none has one.
+func doodle(day: int) -> String:
+	var lines := page(day)
+	for i in [2, 0, 1]:
+		if i < lines.size() and lines[i].has("drawing"):
+			return str(lines[i]["drawing"])
+	for e in lines:
+		if e.has("drawing"):
+			return str(e["drawing"])
+	return "sun"
 
 
 func lines_for_day(day: int) -> Array:
@@ -277,18 +346,28 @@ static func wish_text_at(kind: int, center: Vector3) -> String:
 	return "Today, find what feeds the clover in the %s." % where
 
 
+## The plants over the deposits, for the day page's short lines.
+const PLANTS: Array[String] = ["rushes", "clover", "nettles", "comfrey"]
+
+
+## The day page's wish line (0.8.2): short, with where it points. A day wish keeps its gist.
+static func wish_entry(kind: int, center: Vector3, kept: bool = false) -> String:
+	if kind < 0:
+		return ""
+	var where := Underground.compass(center)
+	return ("Still: the %s in the %s." if kept else "Wish: the %s in the %s.") % [PLANTS[kind], where]
+
+
+const DAY_WISH_LINES: Array[String] = [
+	"Wish: boost early, grow eastward.",
+	"Wish: see the tree from every side.",
+	"Wish: a calm sun, a long root tonight.",
+]
+
+
 ## The line the diary gets when a root reaches a wish deposit.
 static func reached_text(ground: Underground, patch_id: int, night: int) -> String:
-	var patch: Dictionary = ground.patches[patch_id]
-	var where := Underground.compass(patch["center"])
-	match int(patch["kind"]):
-		Resources.Kind.WATER:
-			return "Night %d: the root found the damp patch under the rushes in the %s, the one I wished for." % [night, where]
-		Resources.Kind.PHOSPHORUS:
-			return "Night %d: the root found what feeds the nettles in the %s, the one I wished for." % [night, where]
-		Resources.Kind.POTASSIUM:
-			return "Night %d: the root found the deep soil under the comfrey in the %s, the one I wished for." % [night, where]
-	return "Night %d: the root found what feeds the clover in the %s, the one I wished for." % [night, where]
+	return "Night %d: wish found, the %s." % [night, PLANTS[int(ground.patches[patch_id]["kind"])]]
 
 
 ## The ink sketch beside a reached wish's line: what grows (or lies) above the deposit.
@@ -369,6 +448,8 @@ func new_wish(ground: Underground, day: int, seed: int, roots: RootSystem, res: 
 		var placed := int(ground.patches[wish_patch].get("day", day))
 		if day - placed < FAR_DAYS and _untouched(ground, roots, wish_patch):
 			last_patch = -1
+			var p: Dictionary = ground.patches[wish_patch]
+			add(day, wish_entry(int(p["kind"]), p["center"], true), "tree", DRAWINGS[int(p["kind"])], "wish")
 			return
 	last_patch = wish_patch if wish_patch >= 0 and not wish_reached else -1
 	wish_reached = false
@@ -381,6 +462,10 @@ func new_wish(ground: Underground, day: int, seed: int, roots: RootSystem, res: 
 	wish = str(w["text"]) if wish_patch >= 0 else DAY_WISHES[day % DAY_WISHES.size()]
 	if wish_patch >= 0:
 		last_patch = -1
+		var p: Dictionary = ground.patches[wish_patch]
+		add(day, wish_entry(int(p["kind"]), p["center"]), "tree", DRAWINGS[int(p["kind"])], "wish")
+	else:
+		add(day, DAY_WISH_LINES[maxi(0, DAY_WISHES.find(wish))], "tree", "sun", "wish")
 
 
 ## The deposits that glow tonight: [{"patch", "center", "radius", "strength"}].
@@ -418,7 +503,7 @@ func check_reached(ground: Underground, roots: RootSystem, day: int, night: int)
 		var p := glow_at(ground, g.positions[id])
 		if p < 0:
 			continue
-		add(day, reached_text(ground, p, night), "tree", drawing_for(ground, p))
+		add(day, reached_text(ground, p, night), "tree", drawing_for(ground, p), "find")
 		if p == wish_patch:
 			wish_reached = true
 		ground.mark_wish_reached(p)
@@ -435,7 +520,7 @@ func to_dict() -> Dictionary:
 static func from_dict(d: Dictionary) -> Diary:
 	var diary := Diary.new()
 	for e in d.get("entries", []):
-		diary.add(int(e.get("day", 0)), str(e.get("text", "")), str(e.get("by", "tree")), str(e.get("drawing", "")))
+		diary.add(int(e.get("day", 0)), str(e.get("text", "")), str(e.get("by", "tree")), str(e.get("drawing", "")), str(e.get("topic", "")))
 	diary.wish = str(d.get("wish", ""))
 	diary.wish_patch = int(d.get("wish_patch", -1))
 	diary.last_patch = int(d.get("last_patch", -1))

@@ -796,6 +796,9 @@ func _open_folder(dir: String) -> void:
 
 # --- the seed bag -------------------------------------------------------------------
 
+## Size of a species' seed or leaf in the seed bag (0.8.2, item 19), in reference pixels.
+const SEED_PICTURE: int = 96
+
 func _build_seeds() -> void:
 	_seeds = Control.new()
 	_seeds.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -810,8 +813,8 @@ func _build_seeds() -> void:
 	sheet.set_anchors_preset(Control.PRESET_FULL_RECT)
 	sheet.offset_left = 50
 	sheet.offset_right = -50
-	sheet.offset_top = 170
-	sheet.offset_bottom = -540
+	sheet.offset_top = 110
+	sheet.offset_bottom = -120
 	sheet.rotation_degrees = 1.2
 	_seeds.add_child(sheet)
 	_seeds_box = VBoxContainer.new()
@@ -834,33 +837,61 @@ func open_seeds(state: GameState, any_species: bool) -> void:
 	close.pressed.connect(close_boards)
 	head.add_child(close)
 	var unlocked := state.unlocked_species(any_species)
-	var names: Array[String] = []
-	for sid in unlocked:
-		names.append(Species.from_id(sid).display_name.to_lower())
 	var text := ""
 	if state.finished:
-		text = "The %s has grown to its full size and dropped a seed. Which seed goes into the ground beside it?" % state.tree_name()
+		text = "The %s is grown and dropped a seed. Which goes in beside it?" % state.tree_name()
 	elif any_species:
-		text = "(Every seed is at hand now, from the pinboard. The %s is not finished yet.)" % state.tree_name()
+		text = "(Every seed is at hand, from the pinboard. The %s is not grown yet.)" % state.tree_name()
 	else:
-		text = "Seeds saved for later: %s.
-
-When this %s has grown to its full size (%d of %d segments now), one goes into the ground beside it and a new tree begins. Each finished tree brings a new kind of seed." % [
-			", ".join(names), state.tree_name(), state.sim.graph.size(), state.sim.species.finish_nodes]
-	var body := Paper.ink_label(text, 27)
+		text = "When the %s is grown (%d of %d segments), a seed goes in beside it. Each grown tree brings a new kind." % [
+			state.tree_name(), state.sim.graph.size(), state.sim.species.finish_nodes]
+	var body := Paper.ink_label(text, 26)
 	body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_seeds_box.add_child(body)
-	if state.can_plant_next(any_species):
-		_seeds_box.add_child(Paper.ink_label("plant the next seed:", 30, Paper.INK, true))
-		for sid in unlocked:
-			var sp := Species.from_id(sid)
-			var b := Paper.ink_button(sp.display_name, 30)
-			b.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
-			b.pressed.connect(func() -> void:
-				_seeds.visible = false
-				plant_pressed.emit(sid))
-			_seeds_box.add_child(b)
+	var can_plant := state.can_plant_next(any_species)
+	for sid in Species.ORDER:
+		_seeds_box.add_child(seed_row(sid, unlocked.has(sid), can_plant))
 	_seeds.visible = true
+
+
+## One species in the seed bag (0.8.2, item 19): its seed or leaf in ink beside its name. An
+## open one can be planted (when the tree is grown); a locked one is drawn faint, its name
+## faded, and says which tree opens it.
+func seed_row(sid: String, open: bool, can_plant: bool) -> HBoxContainer:
+	var sp := Species.from_id(sid)
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 14)
+	var pic := TextureRect.new()
+	pic.texture = InkSketch.texture(InkSketch.species_kind(sid))
+	pic.custom_minimum_size = Vector2(SEED_PICTURE, SEED_PICTURE)
+	pic.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	pic.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	pic.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	pic.modulate.a = 1.0 if open else 0.3
+	pic.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
+	row.add_child(pic)
+	var words := VBoxContainer.new()
+	words.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	words.alignment = BoxContainer.ALIGNMENT_CENTER
+	row.add_child(words)
+	if open and can_plant:
+		var b := Paper.ink_button(sp.display_name, 30)
+		b.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+		b.pressed.connect(func() -> void:
+			_seeds.visible = false
+			plant_pressed.emit(sid))
+		words.add_child(b)
+	else:
+		var label := Paper.ink_label(sp.display_name, 30, Paper.INK if open else Paper.FAINT_INK, true)
+		label.modulate.a = 1.0 if open else 0.6
+		words.add_child(label)
+	if not open:
+		var i := Species.ORDER.find(sid)
+		var note := Paper.ink_label("locked: after the %s" % Species.from_id(Species.ORDER[i - 1]).display_name.to_lower(), 22, Paper.FAINT_INK)
+		words.add_child(note)
+	elif not can_plant:
+		words.add_child(Paper.ink_label("saved for later", 22, Paper.FAINT_INK))
+	return row
 
 
 # --- the tree's own page: "while you were away" (its status page is the journal's first) -----

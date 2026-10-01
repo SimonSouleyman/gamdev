@@ -6,8 +6,8 @@ extends RefCounted
 
 const LINES := {
 	"butterflies": "The first butterflies came to the leaves.",
-	"nest": "A pair of blackbirds is building a nest in the crown.",
-	"fox": "A fox slept in the shade of the tree this morning and trotted off at noon.",
+	"nest": "Blackbirds are nesting in the crown.",
+	"fox": "A fox slept in my shade this morning.",
 }
 
 
@@ -25,7 +25,7 @@ static func arrive(state: GameState) -> Array[String]:
 	var out: Array[String] = []
 	for id in due:
 		if state.first_time("visitor_" + id):
-			state.diary.add(day, LINES[id])
+			state.diary.add(day, LINES[id], "tree", id, "visitor")
 			out.append(id)
 	return out
 

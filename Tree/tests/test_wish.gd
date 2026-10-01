@@ -272,10 +272,10 @@ func test_reaching_it_writes_a_line_with_a_drawing_and_survives_a_save() -> void
 		guard += 1
 	var events := g.take_events()
 	t.check(events.has("wish:%d" % p), "the wish event: " + str(events))
-	var drawn := g.diary.entries.slice(lines_before).filter(func(e: Dictionary) -> bool: return e.has("drawing"))
+	var drawn := g.diary.entries.slice(lines_before).filter(func(e: Dictionary) -> bool: return e.get("topic", "") == "find")
 	t.check_eq(drawn.size(), 1, "one diary line with a drawing")
 	if drawn.size() == 1:
-		t.check(str(drawn[0]["text"]).contains("wished for"), "the line: " + str(drawn[0]["text"]))
+		t.check(str(drawn[0]["text"]).contains("wish found"), "the line: " + str(drawn[0]["text"]))
 		t.check_eq(str(drawn[0]["drawing"]), Diary.drawing_for(g.ground, p), "rushes for water, clover for nitrogen")
 	t.check(g.diary.wish_reached and g.wish_glows().is_empty(), "the glow settles once reached")
 	t.check(g.roots.run_totals[int(g.ground.patches[p]["kind"])] > 1.0, "and the root drank from it")
@@ -283,7 +283,7 @@ func test_reaching_it_writes_a_line_with_a_drawing_and_survives_a_save() -> void
 	t.check_eq(h.diary.wish_patch, p, "the wish deposit survives a save")
 	t.check(h.diary.wish_reached, "reached survives a save")
 	t.check_eq(h.ground.dot_count(), g.ground.dot_count(), "the deposits survive a save")
-	var kept := h.diary.entries.filter(func(e: Dictionary) -> bool: return e.has("drawing"))
+	var kept := h.diary.entries.filter(func(e: Dictionary) -> bool: return e.get("topic", "") == "find" and Diary.DRAWINGS.has(str(e.get("drawing", ""))))
 	t.check_eq(kept.size(), 1, "the drawing survives a save")
 	# Reached: tomorrow it does not glow as yesterday's missed wish.
 	while g.phase != GameState.Phase.DAY:
