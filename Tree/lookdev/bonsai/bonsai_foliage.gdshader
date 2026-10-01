@@ -17,6 +17,9 @@ uniform float fade = 0.0;
 // > 0: cards whose middle is closer to the camera than this drop out.
 uniform float near_fade = 0.0;
 uniform bool cheap = false;
+// Mip bias for the atlas (0.8.2): the juniper's fine whipcord shoots blur into flat leaf shapes
+// at phone size on the regular mips; a sharper mip keeps them reading as needles.
+uniform float detail_bias = 0.0;
 
 varying float card_key;
 varying float drop;
@@ -53,7 +56,7 @@ void vertex() {
 
 void fragment() {
 	if (drop > 0.5) { discard; }
-	vec4 tex = texture(spray_color, UV);
+	vec4 tex = texture(spray_color, UV, detail_bias);
 	float dither = fract(sin(dot(floor(FRAGCOORD.xy), vec2(12.9898, 78.233))) * 43758.5453);
 	if (tex.a < 0.4 + 0.2 * dither) { discard; }
 	ALBEDO = tex.rgb * COLOR.rgb * tint_mul * (1.0 - 0.45 * COLOR.a);

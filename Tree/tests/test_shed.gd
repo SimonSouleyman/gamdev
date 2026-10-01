@@ -170,3 +170,33 @@ func test_shed_view_fits_the_phone() -> void:
 			# Finger size on a phone (portrait): its tap circle at least 9 mm (100 canvas px).
 			t.check(canvas.x > canvas.y or shed._screen_radius(c.global_position, float(shed._picks[item][1])) * 2.0 >= 100.0, "%s: %s at least finger size" % [where, item])
 		vp.free()
+
+
+## 0.8.2 (look review, sillzoom): on a narrow phone screen the sill's tools keep a margin from
+## the left edge, and the bonsai's label hangs under the sill's edge, below the tools.
+func test_the_sill_keeps_its_tools_clear() -> void:
+	for canvas in [Vector2i(450, 1000), Vector2i(450, 800), Vector2i(720, 1600)]:
+		var vp := SubViewport.new()
+		vp.size = canvas
+		vp.disable_3d = false
+		t.root.add_child(vp)
+		var shed := Shed.new()
+		vp.add_child(shed)
+		shed.bonsai_ready = true
+		shed.camera.current = true
+		shed.fit_view()
+		var where := "%dx%d" % [canvas.x, canvas.y]
+		var spot := shed.bonsai_spot.position
+		var lowest := 0.0
+		for id in BonsaiTools.RESTS:
+			var r: Array = BonsaiTools.RESTS[id]
+			var p: Vector3 = spot + (r[0] as Vector3)
+			var s := shed.camera.unproject_position(shed.to_global(p))
+			t.check(s.x >= canvas.x * 0.05 and s.x <= canvas.x * 0.95, "%s: the %s keeps off the edge (%.0f px)" % [where, id, s.x])
+			if (r[0] as Vector3).y < 0.01:
+				lowest = maxf(lowest, s.y)
+		var edge := shed.camera.unproject_position(shed.to_global(spot + Vector3(BonsaiTools.RESTS["water"][0].x + 0.06, 0.12, 0.05)))
+		t.check(edge.x >= 24.0, "%s: the can's outer side %.0f px from the edge" % [where, edge.x])
+		var tag := shed.item_tag_position("bonsai")
+		t.check(shed.item_tag_below("bonsai") and tag.y > lowest, "%s: the label hangs below the tools (%.0f > %.0f)" % [where, tag.y, lowest])
+		vp.free()
