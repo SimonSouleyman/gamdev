@@ -33,6 +33,17 @@ const PLACE_TRIES: int = 24
 ## wish (0.8, B4 of the 0.7 check).
 const MISSED_MAX: int = 4
 const UNTOUCHED_SHARE: float = 0.5
+## Far wishes (0.8.1, item 34): in the wider root field (layout 3) this share of the new
+## underground wishes places its deposit in the middle or far ring (Underground.FAR_RING or more
+## from the trunk), FAR_AHEAD_MIN to FAR_AHEAD_MAX beyond the newest root tip, where a straight
+## root from that tip costs at most FAR_REACH_NIGHTS calm reaches (REACH_SHARE of a calm tank
+## each), so continuing the root reaches it within two or three nights. The wish then stays for up
+## to FAR_DAYS mornings until a root reaches it. A static var so tools can try other shares.
+static var far_share: float = 0.5
+const FAR_AHEAD_MIN: float = 9.0
+const FAR_AHEAD_MAX: float = 17.0
+const FAR_REACH_NIGHTS: float = 2.5
+const FAR_DAYS: int = 3
 ## The root reached the patch when a main-root node lies within its radius plus this.
 const REACH_MARGIN: float = 0.35
 ## Glow strength of today's wish deposit and of yesterday's missed one.
@@ -99,10 +110,19 @@ static func plan_wish(ground: Underground, day: int, seed: int, roots: RootSyste
 		# instead of one more (a kind the tree lacks and no missed deposit holds still gets one).
 		if untouched_wishes(ground, sys) >= MISSED_MAX and untouched_wishes(ground, sys, kind) > 0:
 			return {"text": DAY_WISHES[pick % DAY_WISHES.size()], "kind": -1}
-		var center := place_ahead(ground, sys, sys.graph.positions[tip], float(size["radius"]), rng)
+		var center := Vector3.INF
+		if ground.layout >= 3:
+			# A separate draw, so the near wishes of the wider field stay as they would be.
+			var far_rng := RandomNumberGenerator.new()
+			far_rng.seed = hash([seed, "far_wish", day])
+			if far_rng.randf() < far_share:
+				center = place_far(ground, sys, sys.graph.positions[tip], float(size["radius"]), far_rng)
+		var far := center != Vector3.INF
+		if center == Vector3.INF:
+			center = place_ahead(ground, sys, sys.graph.positions[tip], float(size["radius"]), rng)
 		if center != Vector3.INF:
 			return {"text": wish_text_at(kind, center), "kind": kind, "center": center,
-				"radius": size["radius"], "count": size["count"], "from": tip}
+				"radius": size["radius"], "count": size["count"], "from": tip, "far": far}
 	return {"text": DAY_WISHES[pick % DAY_WISHES.size()], "kind": -1}
 
 
@@ -195,7 +215,7 @@ static func place_ahead(ground: Underground, sys: RootSystem, from: Vector3, rad
 		var depth := clampf(-from.y + rng.randf_range(-0.3, 0.5), Underground.WISH_MIN_DEPTH, Underground.WISH_MAX_DEPTH)
 		var c := Vector3(from.x + cos(a) * d, -depth, from.z + sin(a) * d)
 		var r := Vector2(c.x, c.z).length()
-		if r > Underground.EXTENT - radius - 0.5 or r < 2.5:
+		if r > ground.extent - radius - 0.5 or r < 2.5:
 			continue
 		if ground.rock_at(c, radius + 0.3) >= 0:
 			continue
@@ -203,6 +223,39 @@ static func place_ahead(ground: Underground, sys: RootSystem, from: Vector3, rad
 		if line_cost(ground, sys, from, goal) <= tank:
 			return c
 	return Vector3.INF
+
+
+## A far wish's place (0.8.1, item 34): in the middle or far ring, FAR_AHEAD_MIN..FAR_AHEAD_MAX
+## beyond `from` (outward from the trunk first, turning aside with each try), free of rock, in the
+## topsoil, inside the field, and within FAR_REACH_NIGHTS calm reaches of a straight root from
+## `from`. Vector3.INF if none was found (the wish is then a near one).
+static func place_far(ground: Underground, sys: RootSystem, from: Vector3, radius: float, rng: RandomNumberGenerator) -> Vector3:
+	var flat := Vector2(from.x, from.z)
+	var base := flat.angle() if flat.length() > 0.8 else rng.randf() * TAU
+	var tank := sys.calm_life_force * REACH_SHARE * FAR_REACH_NIGHTS
+	for i in range(PLACE_TRIES):
+		var spread := lerpf(0.4, PI, float(i) / (PLACE_TRIES - 1))
+		var a := base + rng.randf_range(-spread, spread)
+		var d := rng.randf_range(FAR_AHEAD_MIN, FAR_AHEAD_MAX)
+		var depth := rng.randf_range(Underground.WISH_MIN_DEPTH, Underground.WISH_MAX_DEPTH)
+		var c := Vector3(from.x + cos(a) * d, -depth, from.z + sin(a) * d)
+		var r := Vector2(c.x, c.z).length()
+		if r > ground.extent - radius - 0.5 or r < Underground.FAR_RING:
+			continue
+		if ground.rock_at(c, radius + 0.3) >= 0:
+			continue
+		var goal := c - (c - from).normalized() * radius * 0.6
+		if line_cost(ground, sys, from, goal) <= tank:
+			return c
+	return Vector3.INF
+
+
+## A far wish's deposit (item 34): placed by place_far, in the middle or far ring and a long drive
+## beyond the newest tip.
+static func is_far(ground: Underground, patch_id: int) -> bool:
+	if patch_id < 0 or patch_id >= ground.patches.size():
+		return false
+	return bool(ground.patches[patch_id].get("far", false))
 
 
 static func wish_text(ground: Underground, patch_id: int) -> String:
@@ -308,6 +361,13 @@ static func _positions(sys: RootSystem, ids: PackedInt32Array) -> Array[Vector3]
 ## deposit glows faintly one more night only when the new wish does not glow: one glow at a time
 ## (0.7 broken item 3; 0.8 section 5). Either way the missed deposit stays as a plain deposit.
 func new_wish(ground: Underground, day: int, seed: int, roots: RootSystem, res: Resources = null) -> void:
+	# A far wish not reached yet stays for up to FAR_DAYS mornings: it takes a root continued over
+	# two or three nights (0.8.1, item 34).
+	if wish_patch >= 0 and not wish_reached and is_far(ground, wish_patch):
+		var placed := int(ground.patches[wish_patch].get("day", day))
+		if day - placed < FAR_DAYS and _untouched(ground, roots, wish_patch):
+			last_patch = -1
+			return
 	last_patch = wish_patch if wish_patch >= 0 and not wish_reached else -1
 	wish_reached = false
 	wish_patch = -1
@@ -315,7 +375,7 @@ func new_wish(ground: Underground, day: int, seed: int, roots: RootSystem, res: 
 	if w.has("patch"):
 		wish_patch = int(w["patch"])
 	elif int(w["kind"]) >= 0:
-		wish_patch = ground.add_wish_deposit(day, int(w["kind"]), w["center"], float(w["radius"]), int(w["count"]))
+		wish_patch = ground.add_wish_deposit(day, int(w["kind"]), w["center"], float(w["radius"]), int(w["count"]), bool(w.get("far", false)))
 	wish = str(w["text"]) if wish_patch >= 0 else DAY_WISHES[day % DAY_WISHES.size()]
 	if wish_patch >= 0:
 		last_patch = -1

@@ -194,7 +194,17 @@ func test_a_dying_tip_gives_nothing_back() -> void:
 	t.check(not sim.marks.is_empty(), "a mark to cut on day 14")
 	if sim.marks.is_empty():
 		return
-	var twig := sim.marked_twig(int(sim.marks[0]["id"]))
+	# A marked tip that is still a tip (a marked node may have grown a shoot since it was marked).
+	var tip := int(sim.marks[0]["id"])
+	for m in sim.marks:
+		var living := 0
+		for c in sim.graph.children[int(m["id"])]:
+			if not sim.graph.get_flag(c, "dead", false):
+				living += 1
+		if living == 0 and not sim.graph.get_flag(int(m["id"]), "dead", false):
+			tip = int(m["id"])
+			break
+	var twig := sim.marked_twig(tip)
 	sim.cuts.clear()
 	sim.prune(twig[0])
 	t.check(sim.cuts.is_empty(), "the dying tip alone: no refund")

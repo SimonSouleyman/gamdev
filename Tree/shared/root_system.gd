@@ -7,8 +7,13 @@ extends RefCounted
 
 ## Life force per metre at the trunk, near the surface.
 var base_cost_per_metre: float = 1.0
-## Extra cost per metre for each metre of horizontal distance from the trunk.
+## Extra cost per metre for each metre of horizontal distance from the trunk. 0.8.1: 0.03 in the
+## wider root field (layout 3; fit_soil), or a 25 m drive would cost about 2.5x a metre by the
+## trunk and far patches would never pay (specs/0.8.md, "A wider root field"). An older soil
+## keeps 0.06.
 var distance_cost: float = 0.06
+const DISTANCE_COST_OLD: float = 0.06
+static var distance_cost_wide: float = 0.03
 ## Extra cost per metre for each metre of depth.
 var depth_cost: float = 0.12
 ## Tip speed in metres per second, and while diving.
@@ -59,7 +64,7 @@ const MAX_RUN_SECONDS: float = 44.0
 ## During the run the tip's speed follows what is left (life force at the local price per metre
 ## over the time left), so a root near the trunk, where metres are cheap, cannot run long
 ## (sim-0.6.3: nights of 54 to 58 s). At most this fast.
-const MAX_REPACE_SCALE: float = 4.0
+const MAX_REPACE_SCALE: float = 3.0
 ## Seconds over which the speed eases to the new pace.
 const REPACE_EASE: float = 1.5
 var run_seconds_target: float = 34.0
@@ -69,7 +74,7 @@ const TYPICAL_COST: float = 2.2
 const MAX_SPEED_SCALE: float = 1.8
 ## A small tank grows slower, so even the first nights last about 20 s (0.8: 0.3; 0.65 left the
 ## first nights after a boosted day at 10 to 15 s).
-const MIN_SPEED_SCALE: float = 0.18
+const MIN_SPEED_SCALE: float = 0.3
 var run_cost_scale: float = 1.0
 var run_speed_scale: float = 1.0
 var _fine_budget: int = Budgets.FINE_ROOTS_PER_MAIN_ROOT
@@ -118,15 +123,18 @@ var nightly_water_factor: float = 2.0
 ## Groundwater seeps into the main roots (not the fine roots): water per metre each night, so a
 ## player who never finds a deposit still keeps the tree growing, only slower (soft failure).
 var seep_per_metre: float = 0.03
-## A metre of fine root draws this share of a main root's seep. 0.8 check: 0.3 -> 0.5. A player
-## who ends every root at once grows almost only fine roots, and at 0.3 their seep was too little
-## water for a day's growth: boost_quit did not finish by day 45 on three runs (balance-0.8.md).
-var fine_seep_share: float = 0.5
+## A metre of fine root draws this share of a main root's seep.
+var fine_seep_share: float = 0.3
 
 
 func _init(random_seed: int = 1) -> void:
 	rng.seed = hash([random_seed, "roots"])
 	graph = PlantGraph.new(Vector3.ZERO, Budgets.MAX_MAIN_ROOTS * (Budgets.ROOT_MAX_NODES_PER_MAIN_ROOT + Budgets.FINE_ROOTS_MAX_PER_MAIN_ROOT) + 1)
+
+
+## The price of distance for this soil: the wider field (layout 3) halves it.
+func fit_soil(ground: Underground) -> void:
+	distance_cost = distance_cost_wide if ground.layout >= 3 else DISTANCE_COST_OLD
 
 
 ## Life force for one metre of root at `p`: rises with distance from the trunk and with depth.
@@ -396,11 +404,11 @@ func _move(distance: float, drift: Vector3, ground: Underground) -> void:
 			heading = _flattened(Vector3(heading.x, 0.0, heading.z))
 			moved = true
 		var flat := Vector2(p.x, p.z)
-		if flat.length() > Underground.EXTENT:
+		if flat.length() > ground.extent:
 			var n := Vector3(flat.x, 0.0, flat.y).normalized()
 			# Turn back inward a little, so the corner of floor and edge cannot trap the root.
 			heading = _flattened(heading - n * maxf(0.0, heading.dot(n)) - n * 0.3)
-			flat = flat.normalized() * Underground.EXTENT
+			flat = flat.normalized() * ground.extent
 			p = Vector3(flat.x, p.y, flat.y)
 			moved = true
 		if not moved:

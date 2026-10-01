@@ -8,10 +8,11 @@ const FRAME: float = 1.0 / 30.0
 
 
 ## B2 and B4: fewer, larger rich patches set apart, phosphorus as plentiful as nitrogen, and
-## nettles over it on the meadow. An old save keeps its old soil, dot for dot.
+## nettles over it on the meadow. An old save keeps its old soil, dot for dot. (Layout 2, the 0.8
+## soil, which 0.8 saves keep; 0.8.1's wider field is tests/test_field.gd.)
 func test_the_new_soil_has_fewer_larger_patches() -> void:
 	for seed in [3, 14, 27]:
-		var u := Underground.new(seed)
+		var u := Underground.new(seed, 2)
 		var old := Underground.new(seed, 1)
 		var rich := {0: [], 1: [], 2: [], 3: []}
 		var old_rich := 0
@@ -155,8 +156,11 @@ func test_the_night_fills_only_the_trees_room() -> void:
 ## B2 to B4 in one month of meadow play (the 0.7 check's probe, tools/qa_nutri.gd): linden
 ## seed 3, the root bot starting by need. Days at the soft floor at most a quarter, no kind over
 ## two days of stock on more than a third of the days, and the choice between deposits real.
+## On 0.8's soil (layout 2), which 0.8 saves keep; the wider field's month is in test_field.gd.
 func test_a_month_of_meadow_play_is_balanced() -> void:
+	Underground.game_layout = 2
 	var g := GameState.new_game(3, "linden")
+	Underground.game_layout = Underground.LAYOUT
 	var needs := g.sim.species.needs
 	var days := 0
 	var floor_days := 0

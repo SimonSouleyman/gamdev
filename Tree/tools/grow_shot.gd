@@ -8,7 +8,8 @@ extends SceneTree
 ## walk, --wren=<s> the wren on the pile; --pile_close adds a photo from a tool camera 4 m in front
 ## of the pile (a closer look than the game's camera gives).
 ## --roots: instead, the underground after the last night (0.8, the dots' shapes): the overview,
-## a close view as in a run and a medium one, each also saved in greyscale (`*_grey.png`).
+## a close view as in a run and a medium one, each also saved in greyscale (`*_grey.png`); then
+## (0.8.1) the whole root field from a tool camera far out, slanted and from above.
 ## --stats: also print draw calls and primitives of each view, with and without the forest ring
 ## and shrub belt. Add `--phone` (and `--rendering-method gl_compatibility` before `--`) to
 ## measure the phone path on a PC.
@@ -337,6 +338,20 @@ func _roots_frames() -> bool:
 		rview.camera.look_at(spot, Vector3.UP)
 	if frame == 80:
 		_save_both("roots_medium")
+		# 0.8.1: the whole wider field from a tool camera far out (the game's own far view is
+		# 0.8.2), slanted and from above, with the fog pushed back so the far ring shows.
+		var reach := g.ground.extent
+		rview.camera.position = Vector3(0.0, reach * 0.55, reach * 1.55)
+		rview.camera.look_at(Vector3(0, -3, 0), Vector3.UP)
+		rview.camera.far = 400.0
+		(rview._dots.material_override as ShaderMaterial).set_shader_parameter("fog_far", reach * 4.0)
+	if frame == 90:
+		_save_both("roots_field")
+		var reach := g.ground.extent
+		rview.camera.position = Vector3(0.0, reach * 2.3, 0.5)
+		rview.camera.look_at(Vector3(0, -3, 0), Vector3.UP)
+	if frame == 100:
+		_save_both("roots_field_top")
 		quit()
 	return false
 

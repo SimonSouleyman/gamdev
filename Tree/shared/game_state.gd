@@ -90,9 +90,10 @@ static func new_game(random_seed: int, species_id: String = "linden") -> GameSta
 	g.sim = GrowthSim.new(random_seed)
 	g.sim.natural_form = true
 	g.sim.species = Species.from_id(species_id)
-	g.ground = Underground.new(random_seed)
+	g.ground = Underground.new(random_seed, Underground.game_layout)
 	g.roots = RootSystem.new(random_seed)
 	g.roots.species = g.sim.species
+	g.roots.fit_soil(g.ground)
 	g.clearing = Clearing.new(random_seed)
 	g.sim.clock.time_of_day = g.sim.clock.daylight_fraction
 	g.sim.resources.life_force = SEED_LIFE_FORCE
@@ -664,6 +665,7 @@ static func from_dict(d_in: Dictionary) -> GameState:
 	g.ground = Underground.from_dict(d.get("underground", {"seed": g.seed}))
 	g.roots = RootSystem.from_dict(d.get("roots", {}), g.seed)
 	g.roots.species = g.sim.species
+	g.roots.fit_soil(g.ground)
 	g.diary = Diary.from_dict(d.get("diary", {}))
 	g.clearing = Clearing.from_dict(d.get("clearing", {}), g.seed)
 	g.phase = clampi(int(d.get("phase", Phase.DAY)), Phase.DAY, Phase.NIGHT) as Phase
