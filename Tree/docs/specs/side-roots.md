@@ -12,7 +12,7 @@ toward water and nutrients, not very far for now. Life force left at the end of 
 into these small roots. Whoever drives the root to the very end of the life force gets no or very
 few extra roots; instead that root grows thicker.
 
-**Reading taken (Simon's sentence is ambiguous as dictated; confirm on his return):** leftover
+**Reading taken (confirmed by Simon, 2026-10-01 14:42 UTC: "ja"):** leftover
 life force buys second-level side roots; life force spent on the player's own root makes that
 root thicker. Both come from the same tank, so every night is a split between the two.
 
