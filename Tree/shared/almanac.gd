@@ -210,15 +210,19 @@ static func dew_amount(w: Dictionary, t: float) -> float:
 static func diary_line(w: Dictionary, part: String) -> String:
 	if part == "morning":
 		if w.get("mist", false) and w.get("dew", false):
-			return "A misty morning; dew hung on every blade of grass."
+			return "A misty morning, dew on every blade."
 		if w.get("mist", false):
-			return "Mist lay over the clearing this morning."
+			return "Mist over the clearing this morning."
 		if w.get("dew", false):
-			return "Dew sparkled on the meadow in the first sun."
+			return "Dew sparkled in the first sun."
 		return ""
-	var lines: Array[String] = []
-	if w.get("rain", false):
-		lines.append("A light shower passed over the clearing in the afternoon.")
-	if w.get("thunder", false):
-		lines.append("Thunder rumbled somewhere far away.")
-	return " ".join(lines)
+	# One short line (0.8.2): the shower, the thunder, or both.
+	var rain: bool = w.get("rain", false)
+	var thunder: bool = w.get("thunder", false)
+	if rain and thunder:
+		return "Thunder far away, and a light shower."
+	if rain:
+		return "A light shower in the afternoon."
+	if thunder:
+		return "Thunder rumbled somewhere far away."
+	return ""

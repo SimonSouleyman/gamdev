@@ -20,10 +20,10 @@ const DEPOSIT_MIN := 0.1
 ## Colour of each kind's dots (0.8.1: plain coloured dots in play, so the words name the colour).
 const DOT_WORDS: Array[String] = ["blue", "green", "orange", "violet"]
 const HINT_WORDS: Array[String] = [
-	"rushes and a damp patch on the meadow mark water",
-	"clover on the meadow marks nitrogen",
-	"nettles on the meadow mark phosphorus, close under the grass",
-	"potassium sits deep down beside the rocks",
+	"rushes mark water",
+	"clover marks nitrogen",
+	"nettles mark phosphorus, just under the grass",
+	"potassium lies deep by the rocks",
 ]
 
 
@@ -122,14 +122,16 @@ static func crown_shape(sim: GrowthSim) -> Dictionary:
 		"crowded": float(shaded) / tips, "shaded": shaded}
 
 
-const TIRED_LINE := "A branch looks tired: thin, dull leaves and greying bark. Left in the shade it dies back within a day or two; cut, it gives some of its strength back."
+const TIRED_LINE := "A tired branch (dull leaves, grey bark) dies back in shade; cut, it gives strength back."
 
 const NEED_LINES: Array[String] = [
-	"Thirsty: the leaves hang. The water the roots brought will not last the day.",
-	"Short of nitrogen (N): the new shoots stay sparse and small; while the leaves are green, they pale.",
-	"Short of phosphorus (P): some leaf masses stay bare; while the leaves are green, they darken.",
-	"Short of potassium (K): some leaf masses stay bare; while the leaves are green, their edges brown.",
+	"Thirsty: the leaves hang.",
+	"Short of nitrogen (N): sparse shoots, pale leaves.",
+	"Short of phosphorus (P): bare leaf masses, dark leaves.",
+	"Short of potassium (K): bare leaf masses, brown edges.",
 ]
+## The care page's doodle (0.8.2): the leaf of the strongest need, a healthy leaf without one.
+const NEED_LEAVES: Array[String] = ["leaf_water", "leaf_n", "leaf_p", "leaf_k"]
 
 
 ## The journal's care page (0.6.3), in handwritten words: [{"title", "text"}, ...] for what the
@@ -143,9 +145,9 @@ static func page(state: GameState) -> Array:
 	# The kinds named, so the page can show their marks (0.8).
 	var kinds: Array = []
 	if state.finished:
-		lacks = "The tree is grown. It needs nothing more; the shears are only for its look now."
+		lacks = "Grown: it needs nothing. The shears are for its look."
 	elif state.is_seed() or state.day_number() <= 1:
-		lacks = "Too young to read yet: the first leaves are only just out. Any dot the root reaches helps."
+		lacks = "Too young to read yet. Any dot helps."
 	else:
 		var shown := sim.care_shown()
 		for k in range(4):
@@ -155,12 +157,12 @@ static func page(state: GameState) -> Array:
 			kinds.append(k)
 			var r := state.reach_for(k)
 			if r.is_empty():
-				tonight += ("\n" if tonight != "" else "") + "No %s dot is in reach tonight; the old roots keep drinking what they reached." % DOT_WORDS[k]
+				tonight += ("\n" if tonight != "" else "") + "No %s dot in reach tonight." % DOT_WORDS[k]
 			else:
-				tonight += ("\n" if tonight != "" else "") + "Steer for the %s dots: the nearest lies %s. (%s.)" % [DOT_WORDS[k], where_words(r), HINT_WORDS[k].substr(0, 1).to_upper() + HINT_WORDS[k].substr(1)]
+				tonight += ("\n" if tonight != "" else "") + "Steer for the %s dots: %s (%s)." % [DOT_WORDS[k], where_words(r), HINT_WORDS[k]]
 		if lacks == "":
-			lacks = "It has what it needs today: the roots brought enough for the whole day."
-			tonight = "Any dots will do tonight; water and nitrogen are used most."
+			lacks = "It has what it needs today."
+			tonight = "Any dots will do; water and nitrogen go fastest."
 	out.append({"title": "What it lacks", "text": lacks})
 	if tonight != "":
 		out.append({"title": "Tonight's root", "text": tonight, "kinds": kinds if not kinds.is_empty() else [0, 1, 2, 3]})
@@ -169,13 +171,13 @@ static func page(state: GameState) -> Array:
 		var shape := crown_shape(sim)
 		var words: Array[String] = []
 		if float(shape["lean"]) > 0.25:
-			words.append("The crown leans %s, towards where the sun fed it most." % shape["lean_dir"])
+			words.append("It leans %s, where the sun fed it." % shape["lean_dir"])
 		else:
-			words.append("The crown stands evenly round the trunk.")
+			words.append("It stands evenly round the trunk.")
 		if float(shape["crowded"]) > 0.15:
-			words.append("Crowded inside: %d twigs sit in the shade of the crown above them. Thinning a branch above them lets the light in." % int(shape["shaded"]))
+			words.append("%d twigs sit in shade: thin a branch above them." % int(shape["shaded"]))
 		else:
-			words.append("Open inside: the light reaches most twigs.")
+			words.append("Open: light reaches most twigs.")
 		# A twig the tree marks for pruning (0.7): one calm line, never a count.
 		if not state.finished and not sim.tired_nodes().is_empty():
 			words.append(TIRED_LINE)
@@ -184,14 +186,27 @@ static func page(state: GameState) -> Array:
 		out.append({"title": "The crown", "text": " ".join(words)})
 	# The last cut.
 	var cut := sim.last_cut
-	var cut_text := "No cuts yet. A cut gives part of its strength back: the next morning buds wake just below it."
+	var cut_text := "No cuts yet. Buds wake below a cut next morning."
 	if not cut.is_empty():
-		var head := "Day %d: I cut a branch of %d segment%s." % [int(cut["day"]), int(cut["nodes"]), "" if int(cut["nodes"]) == 1 else "s"]
+		var head := "Day %d: %d segment%s cut." % [int(cut["day"]), int(cut["nodes"]), "" if int(cut["nodes"]) == 1 else "s"]
 		if not bool(cut.get("woken", false)):
-			cut_text = head + " At dawn buds will wake below the cut, about %d segments' worth." % sim.pending_refund()
+			cut_text = head + " At dawn buds will wake below it (about %d segments)." % sim.pending_refund()
 		elif int(cut.get("regrown", 0)) == 0 and int(cut.get("buds", 0)) == 0:
-			cut_text = head + " The tree is grown; that cut was for its look."
+			cut_text = head + " Grown: that cut was for its look."
 		else:
-			cut_text = head + " At dawn %d bud%s woke below it, and %d segments grew back near the cut and around the crown." % [int(cut["buds"]), "" if int(cut["buds"]) == 1 else "s", int(cut["regrown"])]
+			cut_text = head + " %d bud%s woke; %d segments grew back." % [int(cut["buds"]), "" if int(cut["buds"]) == 1 else "s", int(cut["regrown"])]
 	out.append({"title": "The last cut", "text": cut_text})
 	return out
+
+
+## The care page's doodle (0.8.2, item 23): the leaf of the need the tree shows most, a healthy
+## leaf when it lacks nothing.
+static func doodle(state: GameState) -> String:
+	if state.finished or state.is_seed() or state.day_number() <= 1:
+		return "leaf_ok"
+	var shown := state.sim.care_shown()
+	var best := -1
+	for k in range(4):
+		if shown[k] >= SHOW_MIN and (best < 0 or shown[k] > shown[best]):
+			best = k
+	return NEED_LEAVES[best] if best >= 0 else "leaf_ok"

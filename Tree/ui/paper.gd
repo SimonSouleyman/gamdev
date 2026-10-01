@@ -3,7 +3,7 @@ extends RefCounted
 ## The journal look, shared by every page, scrap and button: aged paper with fibres and a
 ## torn edge, handwriting, ink colours, a leather book cover. Everything is generated (seeded)
 ## so the look needs no downloads; CC0 paper textures and bundled OFL handwriting fonts
-## (Caveat, Patrick Hand) can replace the stand-ins later without touching the callers.
+## (Caveat, Kalam, Patrick Hand) can replace the stand-ins later without touching the callers.
 
 const PAPER := Color(0.95, 0.91, 0.8)
 const PAPER_SHADE := Color(0.86, 0.8, 0.66)
@@ -24,6 +24,10 @@ const CLEAR_PRINT_SCALE := 1.2
 const _FONT_SLOTS: Array[String] = ["font", "normal_font", "bold_font", "italics_font"]
 const _SIZE_SLOTS: Array[String] = ["font_size", "normal_font_size", "bold_font_size", "italics_font_size"]
 static var _hands: Array[Font] = []
+## The body hand (Kalam, OFL, 0.8.2) and the "clearer print" hand (Patrick Hand, OFL).
+const BODY_FONT := "res://ui/fonts/Kalam-Regular.ttf"
+const CLEAR_FONT := "res://ui/fonts/PatrickHand-Regular.ttf"
+const HEADING_FONT := "res://ui/fonts/Caveat-Regular.ttf"
 
 
 ## Handwriting: the bundled font once it exists, else a handwriting font Windows ships.
@@ -32,8 +36,9 @@ static func hand_font(bold: bool = false) -> Font:
 	if _cache.has(key):
 		return _cache[key]
 	var f: Font
-	# Caveat for headings (lively), Patrick Hand for reading (calm, legible on a phone).
-	var paths := ["res://ui/fonts/Caveat-Regular.ttf", "res://ui/fonts/PatrickHand-Regular.ttf"] if bold 		else ["res://ui/fonts/PatrickHand-Regular.ttf", "res://ui/fonts/Caveat-Regular.ttf"]
+	# Caveat for headings (lively), Kalam for reading (0.8.2, item 24: clearly handwritten, still
+	# legible on a phone); Patrick Hand stays as "clearer print" (clear_font).
+	var paths := ["res://ui/fonts/Caveat-Regular.ttf", BODY_FONT] if bold else [BODY_FONT, CLEAR_FONT]
 	for path in paths:
 		if ResourceLoader.exists(path):
 			f = load(path)
@@ -52,13 +57,19 @@ static func hand_font(bold: bool = false) -> Font:
 
 ## The hand used by "clearer print": Patrick Hand, calm and legible on a phone.
 static func clear_font() -> Font:
-	return hand_font(false)
+	if not _cache.has("font_clear"):
+		var f: Font = load(CLEAR_FONT) if ResourceLoader.exists(CLEAR_FONT) else hand_font(false)
+		_cache["font_clear"] = f
+		if not _hands.has(f):
+			_hands.append(f)
+	return _cache["font_clear"]
 
 
 static func is_hand_font(f: Font) -> bool:
 	if _hands.is_empty():
 		hand_font(false)
 		hand_font(true)
+		clear_font()
 	return f != null and _hands.has(f)
 
 

@@ -269,7 +269,7 @@ static func load_with_safety(path: String, current: GameState, game_path: String
 ## The diary line after a copy was loaded.
 static func diary_line(manifest: Dictionary) -> String:
 	var made := float(manifest.get("made_at_unix", 0.0))
-	return "I loaded a copy of my tree, made on %s." % local_date(made) if made > 0.0 else "I loaded a copy of my tree."
+	return "I loaded a copy made on %s." % local_date(made) if made > 0.0 else "I loaded a copy of my tree."
 
 
 ## "The linden on day 12, copied 2026-09-30." for the note before loading.

@@ -18,6 +18,7 @@ All third-party assets in this project, with their licences. CC0 needs no attrib
 | `tools/icon_models/seadogs_compass/` (rendered to `ui/icons/compass_*.png`) | Poly Haven, "Seadogs Compass" by Benny Weimer (https://polyhaven.com/a/seadogs_compass) | CC0 |
 | `tools/icon_models/book_encyclopedia_set_01/` (one volume rendered to `ui/icons/journal.png`) | Poly Haven, "Book Encyclopedia Set 01" by John Malcolm (https://polyhaven.com/a/book_encyclopedia_set_01) | CC0 |
 | `ui/fonts/Caveat-Regular.ttf` | Google Fonts, Caveat by Impallari Type | SIL Open Font License 1.1 (`ui/fonts/OFL-Caveat.txt`) |
+| `ui/fonts/Kalam-Regular.ttf` | Google Fonts (github.com/google/fonts, ofl/kalam), Kalam by Indian Type Foundry; the journal's body hand from 0.8.2 | SIL Open Font License 1.1 (`ui/fonts/OFL-Kalam.txt`) |
 | `ui/fonts/PatrickHand-Regular.ttf` | Google Fonts, Patrick Hand by Patrick Wagesreiter | SIL Open Font License 1.1 (`ui/fonts/OFL-PatrickHand.txt`) |
 
 The HUD's shed and shears pictures (`ui/icons/shed.png`, `shears.png`, `shears_cursor.png`) are small models built in `tools/render_icons.gd` from the Poly Haven wood textures above. Everything else (tree, roots, meadow plants, leaf fallback, paper, the wind, the root run's hum and four-note melody (`AmbienceSynth.night_song`, 0.8.1) and the collect note) is generated in code.

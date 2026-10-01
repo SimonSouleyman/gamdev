@@ -26,6 +26,12 @@ var _page: Control
 var _page_sheet: PanelContainer
 var _page_title: Label
 var _page_body: Label
+## The torn page's ink doodle (0.8.2) and its kind.
+var _page_doodle: TextureRect
+var _page_doodle_kind: String = ""
+## Size of a page's doodle and of a day page's, in pixels.
+const PAGE_DOODLE_SIZE: int = 104
+const DAY_DOODLE_SIZE: int = 72
 var _page_id: String = ""
 var _page_shown_at: float = 0.0
 var _pages_torn: int = 0
@@ -36,8 +42,6 @@ var _tabs: Dictionary = {}  # name -> Control (content)
 var _tab_buttons: Dictionary = {}
 ## The book opens at its first page, the tree's own (0.8.1, item 28), then where it was left.
 var _current_tab: String = "tree"
-## Size of a diary line's ink drawing (a reached wish), in pixels.
-const DRAWING_SIZE: int = 88
 var _diary_text: RichTextLabel
 var _wish_label: Label
 var _note: LineEdit
@@ -77,9 +81,13 @@ func is_open() -> bool:
 
 # --- torn-out pages -----------------------------------------------------------
 
-## Queues a one-time page. Pages show one after another; each closes with a tap.
-func show_page(id: String, title: String, body: String) -> void:
-	_queue.append({"id": id, "title": title, "body": body})
+## Queues a one-time page. Pages show one after another; each closes with a tap. Each carries
+## one ink doodle about its topic (0.8.2, item 23): `doodle` (an InkSketch kind), else the
+## page's own (Pages.doodle).
+func show_page(id: String, title: String, body: String, doodle: String = "") -> void:
+	if doodle == "":
+		doodle = Pages.doodle(id)
+	_queue.append({"id": id, "title": title, "body": body, "doodle": doodle})
 	if not _page.visible:
 		_next_page()
 
@@ -94,6 +102,9 @@ func _next_page() -> void:
 	_page_id = p["id"]
 	_page_title.text = p["title"]
 	_page_body.text = p["body"]
+	_page_doodle_kind = str(p.get("doodle", ""))
+	_page_doodle.texture = InkSketch.texture(_page_doodle_kind) if InkSketch.has(_page_doodle_kind) else null
+	_page_doodle.visible = _page_doodle.texture != null
 	_page_marks.visible = MARK_PAGES.has(_page_id)
 	# Each page is torn a little differently and lies a little askew.
 	_pages_torn += 1
@@ -126,7 +137,7 @@ func clear_pages() -> void:
 ## Puts the open and queued pages aside without marking them read (entering the shed).
 func hold_pages() -> void:
 	if _page.visible:
-		_held.append({"id": _page_id, "title": _page_title.text, "body": _page_body.text})
+		_held.append({"id": _page_id, "title": _page_title.text, "body": _page_body.text, "doodle": _page_doodle_kind})
 		_page.visible = false
 		_page_id = ""
 	_held.append_array(_queue)
@@ -191,8 +202,15 @@ func _build_page() -> void:
 	box.add_theme_constant_override("separation", 10)
 	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_page_sheet.add_child(box)
+	var head := HBoxContainer.new()
+	head.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	box.add_child(head)
 	_page_title = Paper.ink_label("", 44, Paper.INK, true)
-	box.add_child(_page_title)
+	_page_title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_page_title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	head.add_child(_page_title)
+	_page_doodle = _doodle_rect(PAGE_DOODLE_SIZE)
+	head.add_child(_page_doodle)
 	box.add_child(_rule())
 	_page_body = Paper.ink_label("", 29)
 	_page_body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -206,6 +224,30 @@ func _build_page() -> void:
 	footer.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	box.add_child(footer)
 	_page.visible = false
+
+
+## A small ink doodle (InkSketch), fixed size, never taking a tap.
+static func _doodle_rect(px: int, kind: String = "") -> TextureRect:
+	var r := TextureRect.new()
+	r.custom_minimum_size = Vector2(px, px)
+	r.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	r.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	r.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	r.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	r.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
+	if kind != "":
+		r.texture = InkSketch.texture(kind)
+	return r
+
+
+## A heading with its doodle at the right (the book's tabs, 0.8.2).
+static func _heading(text: String, kind: String) -> HBoxContainer:
+	var row := HBoxContainer.new()
+	var l := Paper.ink_label(text, 32, Paper.INK, true)
+	l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	row.add_child(l)
+	row.add_child(_doodle_rect(80, kind))
+	return row
 
 
 ## A hand-drawn line under a heading.
@@ -395,6 +437,8 @@ func _build_diary_tab() -> Control:
 	box.add_child(_wish_label)
 	_diary_text = RichTextLabel.new()
 	_diary_text.bbcode_enabled = true
+	# The day pages' doodles are drawn smaller than they were made (InkSketch.texture's mipmaps).
+	_diary_text.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
 	_diary_text.scroll_following = true
 	_diary_text.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	_diary_text.add_theme_color_override("default_color", Paper.INK)
@@ -480,7 +524,7 @@ func current_tab() -> String:
 func _build_pages_tab() -> Control:
 	var box := VBoxContainer.new()
 	box.add_theme_constant_override("separation", 12)
-	box.add_child(Paper.ink_label("Pages to read again", 32, Paper.INK, true))
+	box.add_child(_heading("Pages to read again", "feather"))
 	_pages_empty = Paper.ink_label("Nothing to read again yet. Pages the journal shows you will be kept here.", 25, Paper.FAINT_INK)
 	_pages_empty.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	box.add_child(_pages_empty)
@@ -495,7 +539,7 @@ func _build_pages_tab() -> Control:
 func _build_clearing_tab() -> Control:
 	var box := VBoxContainer.new()
 	box.add_theme_constant_override("separation", 12)
-	box.add_child(Paper.ink_label("Under my crown", 32, Paper.INK, true))
+	box.add_child(_heading("Under my crown", "fern"))
 	var intro := Paper.ink_label("Where the crown's shade falls, the sun meadow gives way. What has come up there so far:", 25, Paper.FAINT_INK)
 	intro.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	box.add_child(intro)
@@ -523,7 +567,7 @@ func _build_care_tab() -> Control:
 func _refresh_care() -> void:
 	for c in _care_box.get_children():
 		c.queue_free()
-	_care_box.add_child(Paper.ink_label("Tree care", 32, Paper.INK, true))
+	_care_box.add_child(_heading("Tree care", Care.doodle(state)))
 	for part in Care.page(state):
 		_care_box.add_child(Paper.ink_label(str(part["title"]), 27, Paper.RED_INK, true))
 		# The marks of the dots it names (0.8), as they glow underground.
@@ -684,18 +728,16 @@ func _refresh_diary() -> void:
 	_wish_label.text = ("A wish: " + wish_line(state.diary.wish)) if state.diary.wish != "" else ""
 	_wish_label.visible = state.diary.wish != ""
 	_diary_text.clear()
-	var last_day := -1
-	for e in state.diary.entries:
-		var day := int(e["day"])
-		if day != last_day:
-			_diary_text.append_text("\n[b]Day %d[/b]\n" % day)
-			last_day = day
-		_diary_text.append_text(("[i][color=#8a2c1e]%s[/color][/i]\n" if e["by"] == "player" else "%s\n") % str(e["text"]).replace("[", "[lb]"))
-		# A reached wish (0.7): a small ink drawing under its line (0.7 review: set mid-line, the
-		# text wrapped round and under it).
-		if e.has("drawing"):
-			_diary_text.add_image(InkSketch.texture(str(e["drawing"])), DRAWING_SIZE, DRAWING_SIZE, Color.WHITE, INLINE_ALIGNMENT_CENTER)
-			_diary_text.append_text("\n")
+	# A day page (0.8.2): the day with its one doodle, at most three short lines of the game
+	# (Diary.page), then the player's own notes in red.
+	for day in state.diary.days():
+		_diary_text.append_text("\n[b]Day %d[/b]  " % day)
+		_diary_text.add_image(InkSketch.texture(state.diary.doodle(day)), DAY_DOODLE_SIZE, DAY_DOODLE_SIZE, Color.WHITE, INLINE_ALIGNMENT_CENTER)
+		_diary_text.append_text("\n")
+		for e in state.diary.page(day):
+			_diary_text.append_text("%s\n" % str(e["text"]).replace("[", "[lb]"))
+		for e in state.diary.notes(day):
+			_diary_text.append_text("[i][color=#8a2c1e]%s[/color][/i]\n" % str(e["text"]).replace("[", "[lb]"))
 	for c in _pages_list.get_children():
 		c.queue_free()
 	var any := false

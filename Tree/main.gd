@@ -136,8 +136,7 @@ func _build() -> void:
 
 	tree_view.ground_tapped.connect(_on_ground_tapped)
 	tree_view.weather_fx.thunder.connect(ambience.play_thunder)
-	tree_view.pruned.connect(func(n: int) -> void:
-		state.diary.add(state.day_number(), "I cut off a branch (%d segments)." % n))
+	# A cut is routine (0.8.2): the care page's "last cut" tells what it did, no diary line.
 	root_view.can_start = func() -> bool: return state.can_start_run()
 	root_view.run_started.connect(func(_id: int) -> void: state.mark_run_started())
 	# Swipe up after the night's root: straight on to the morning.
@@ -304,7 +303,7 @@ func _handle_events() -> void:
 			_:
 				if e.begins_with("find:"):
 					var kind := e.substr(5)
-					journal.show_page("find", "A find", "I touched %s.\n\nIt is written in the diary now." % Underground.FIND_TEXTS.get(kind, kind))
+					journal.show_page("find", "A find", "I touched %s." % Underground.FIND_TEXTS.get(kind, kind), kind)
 
 
 ## The first time the tree runs out: which nutrient is missing and where to find it tonight.
@@ -317,12 +316,12 @@ func _spent_page() -> void:
 		return
 	var body := Pages.body("spent")
 	var missing: Array[String] = []
-	var names: Array[String] = ["water (blue drop dots)", "nitrogen (green leaf dots)", "phosphorus (orange spark dots)", "potassium (violet ring dots)"]
+	var names: Array[String] = ["water (blue dots)", "nitrogen (green dots)", "phosphorus (orange dots)", "potassium (violet dots)"]
 	for k in range(4):
 		if state.sim.resources.stock[k] < state.sim.cost_per_node * state.sim.species.needs[k]:
 			missing.append(names[k])
 	if not missing.is_empty() and state.sim.resources.stock[0] >= state.sim.cost_per_node:
-		body = "The tree is short of %s, so it only grows very slowly now. Tonight, steer the root toward them.
+		body = "Short of %s: it grows slowly now. Steer tonight's root to them.
 
 " % " and ".join(missing) + body
 	journal.show_page("spent", Pages.title("spent"), body)
@@ -891,7 +890,7 @@ func _load_copy(path: String, _manifest: Dictionary) -> void:
 		return
 	if path.get_file() == "picked.zip":
 		DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
-	loaded.diary.add(loaded.day_number(), Backup.diary_line(got["manifest"]))
+	loaded.diary.add(loaded.day_number(), Backup.diary_line(got["manifest"]), "tree", "book", "milestone")
 	start(loaded)
 	save()
 	in_shed = false
