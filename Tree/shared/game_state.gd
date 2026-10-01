@@ -438,7 +438,8 @@ func _sunrise() -> void:
 	var was_seed := sim.graph.size() <= 2
 	ground.regrow(REGROW_SHARE, day_number())
 	# The old roots drank from the deposits they reach all night, as far as the tree has room.
-	var drawn := roots.drink_tapped(ground, sim.resources, sim.stock_room())
+	var seep_cap := sim.day_capacity() * sim.node_cost() * sim.species.needs[Resources.Kind.WATER] * roots.seep_day_cover
+	var drawn := roots.drink_tapped(ground, sim.resources, sim.stock_room(), seep_cap)
 	var total_drawn := drawn[0] + drawn[1] + drawn[2] + drawn[3]
 	if total_drawn > 0.5:
 		diary.add(day_number(), "The old roots drew water %.1f, nitrogen %.1f, phosphorus %.1f, potassium %.1f from the soil overnight." % [drawn[0], drawn[1], drawn[2], drawn[3]])

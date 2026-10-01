@@ -55,7 +55,7 @@ var patches: Array = []
 ## continuing tonight's root from there reaches it (Diary.plan_wish). Seeded from the save seed
 ## and the day; its dots come after all older ids, so saves keep their deposit state.
 ## Each placed: {"day": int, "kind": int, "center": Vector3, "radius": float, "count": int, "far": bool
-## (0.8.1: a far wish, Diary.place_far)}.
+## (0.8.1: a far wish, Diary.place_far), "reached": bool (0.8.1: a root reached its glow)}.
 var wish_deposits: Array = []
 const WISH_SIZE: float = 1.5
 const WISH_RADIUS: float = 1.15
@@ -348,6 +348,9 @@ func _place_wish_deposit(w: Dictionary) -> int:
 	patches[-1]["wish"] = true
 	patches[-1]["day"] = int(w["day"])
 	patches[-1]["far"] = bool(w.get("far", false))
+	patches[-1]["reached"] = bool(w.get("reached", false))
+	# Always the newest entry of wish_deposits (add_wish_deposit, from_dict).
+	patches[-1]["wish_index"] = wish_deposits.size() - 1
 	_rng.seed = saved_seed
 	_rng.state = saved
 	for i in range(first, dot_count()):
@@ -358,6 +361,18 @@ func _place_wish_deposit(w: Dictionary) -> int:
 		arr.append(i)
 		_grid[c] = arr
 	return patches.size() - 1
+
+
+## A root reached this wish deposit's glow (Diary.check_reached): it is never a missed deposit
+## again, even when the root only grazed its edge (0.8.1: a wish pointed a second time at a far
+## deposit reached five nights before). Saved with the deposit.
+func mark_wish_reached(patch_id: int) -> void:
+	if patch_id < 0 or patch_id >= patches.size() or not bool(patches[patch_id].get("wish", false)):
+		return
+	patches[patch_id]["reached"] = true
+	var wi := int(patches[patch_id].get("wish_index", -1))
+	if wi >= 0 and wi < wish_deposits.size():
+		wish_deposits[wi]["reached"] = true
 
 
 ## Indices into `patches` of the wish deposits.
@@ -652,7 +667,9 @@ func to_dict() -> Dictionary:
 	for w in wish_deposits:
 		var c: Vector3 = w["center"]
 		var row: Array = [w["day"], w["kind"], c.x, c.y, c.z, w["radius"], w["count"]]
-		if bool(w.get("far", false)):
+		if bool(w.get("far", false)) or bool(w.get("reached", false)):
+			row.append(1 if bool(w.get("far", false)) else 0)
+		if bool(w.get("reached", false)):
 			row.append(1)
 		wishes.append(row)
 	return {"seed": seed, "layout": layout, "collected": Marshalls.raw_to_base64(dot_collected),
@@ -667,7 +684,7 @@ static func from_dict(d: Dictionary) -> Underground:
 	for w in d.get("wish_deposits", []):
 		if w is Array and (w as Array).size() >= 7:
 			u.wish_deposits.append({"day": int(w[0]), "kind": int(w[1]), "center": Vector3(w[2], w[3], w[4]), "radius": float(w[5]), "count": int(w[6]),
-				"far": (w as Array).size() >= 8 and int(w[7]) != 0})
+				"far": (w as Array).size() >= 8 and int(w[7]) != 0, "reached": (w as Array).size() >= 9 and int(w[8]) != 0})
 			u._place_wish_deposit(u.wish_deposits[-1])
 	var raw := Marshalls.base64_to_raw(str(d.get("collected", "")))
 	if raw.size() <= u.dot_collected.size():

@@ -125,6 +125,11 @@ var nightly_water_factor: float = 2.0
 var seep_per_metre: float = 0.03
 ## A metre of fine root draws this share of a main root's seep.
 var fine_seep_share: float = 0.3
+## 0.8.1: the seep covers at most this share of a calm day's water (GameState passes the cap). In
+## the wider field a steered tree's main roots grow to 700 m by day 20 and their seep alone covered
+## 0.75 of its water, so a tree whose water deposits ran dry never showed thirst (care broken
+## list; tuning "Water upkeep"). Below Care.NEED_START, so neglect can still show.
+var seep_day_cover: float = 0.65
 
 
 func _init(random_seed: int = 1) -> void:
@@ -563,7 +568,8 @@ func _collect_ids(ids: PackedInt32Array, ground: Underground, res: Resources, sh
 ## Every night the whole root network keeps drinking from the deposits it has reached, and
 ## groundwater seeps in. `room` (per Resources.Kind, empty = no limit) caps what it draws: a tree
 ## whose stock is full draws less, and the deposits keep the rest. Returns what it drew, by kind.
-func drink_tapped(ground: Underground, res: Resources, room: PackedFloat32Array = PackedFloat32Array()) -> PackedFloat32Array:
+## `seep_cap`: the most water the seep brings tonight (seep_day_cover of a calm day's water).
+func drink_tapped(ground: Underground, res: Resources, room: PackedFloat32Array = PackedFloat32Array(), seep_cap: float = INF) -> PackedFloat32Array:
 	var totals := PackedFloat32Array([0, 0, 0, 0])
 	var by_kind: Array = [PackedInt32Array(), PackedInt32Array(), PackedInt32Array(), PackedInt32Array()]
 	for i in tapped.keys():
@@ -575,7 +581,7 @@ func drink_tapped(ground: Underground, res: Resources, room: PackedFloat32Array 
 	for k in range(4):
 		var ids: PackedInt32Array = by_kind[k]
 		var share := nightly_share
-		var seep := seep_length() * seep_per_metre if k == Resources.Kind.WATER else 0.0
+		var seep := minf(seep_length() * seep_per_metre, seep_cap) if k == Resources.Kind.WATER else 0.0
 		if not room.is_empty():
 			# What the night would bring, scaled down to the room the tree has left.
 			var want := seep

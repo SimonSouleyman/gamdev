@@ -29,6 +29,21 @@ func _day_to(g: GameState, share: float) -> void:
 		g.tick(0.5)
 
 
+## Plays 14 days to the 15th noon, or on day by day (to day 18) until the tree marks a twig: the
+## marks are seeded rolls, so which noon first shows one moves whenever the month's growth does
+## (0.8.1: the seep cap left this seed's day 14 without one, day 15 has it).
+func _marked_noon() -> GameState:
+	var g := _play(14)
+	_day_to(g, 0.5)
+	var guard := 0
+	while g.sim.marks.is_empty() and guard < 4:
+		guard += 1
+		_day(g)
+		_night(g)
+		_day_to(g, 0.5)
+	return g
+
+
 func _play(days: int, seed: int = 14, species_id: String = "linden") -> GameState:
 	var g := GameState.new_game(seed, species_id)
 	for _d in range(days):
@@ -188,10 +203,9 @@ func _cut_marks(sim: GrowthSim, tip_only: bool) -> int:
 ## A marked tip was dying anyway: cutting only it gives nothing back; cutting the twig at its
 ## fork gives the usual share of the living wood.
 func test_a_dying_tip_gives_nothing_back() -> void:
-	var g := _play(14)
+	var g := _marked_noon()
 	var sim := g.sim
-	_day_to(g, 0.5)
-	t.check(not sim.marks.is_empty(), "a mark to cut on day 14")
+	t.check(not sim.marks.is_empty(), "a mark to cut by day 18")
 	if sim.marks.is_empty():
 		return
 	# A marked tip that is still a tip (a marked node may have grown a shoot since it was marked).
@@ -218,11 +232,10 @@ func test_a_dying_tip_gives_nothing_back() -> void:
 ## The look: the marked twig's leaf mass thins and dulls, its bark greys; a twig that died back
 ## stays bare; an unmarked crown is exactly as before.
 func test_the_sign_is_in_the_crown_and_the_bark() -> void:
-	var g := _play(14)
+	var g := _marked_noon()
 	var sim := g.sim
-	_day_to(g, 0.5)
 	var marks: Array = sim.marks.duplicate(true)
-	t.check(not marks.is_empty(), "marks on day 14")
+	t.check(not marks.is_empty(), "marks by day 18")
 	var marked := _mm()
 	HeroCrown.populate(marked, sim, g.seed)
 	var marked_autumn := _mm()
@@ -258,8 +271,7 @@ func test_the_sign_is_in_the_crown_and_the_bark() -> void:
 
 ## One calm handwritten line on the care page while a twig shows the sign, never a count.
 func test_care_page_mentions_a_tired_branch() -> void:
-	var g := _play(14)
-	_day_to(g, 0.5)
+	var g := _marked_noon()
 	var text := ""
 	for sec in Care.page(g):
 		text += str(sec["text"]) + "\n"

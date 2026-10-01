@@ -170,6 +170,8 @@ static func untouched_wishes(ground: Underground, sys: RootSystem, kind: int = -
 ## Most of the patch (UNTOUCHED_SHARE of its dots) still waits fresh: a root that only grazed
 ## its edge did not find it.
 static func _untouched(ground: Underground, sys: RootSystem, pid: int) -> bool:
+	if bool(ground.patches[pid].get("reached", false)):
+		return false
 	var dots := ground.patch_dots(pid)
 	var fresh := 0
 	for i in dots:
@@ -419,6 +421,7 @@ func check_reached(ground: Underground, roots: RootSystem, day: int, night: int)
 		add(day, reached_text(ground, p, night), "tree", drawing_for(ground, p))
 		if p == wish_patch:
 			wish_reached = true
+		ground.mark_wish_reached(p)
 		if p == last_patch:
 			last_patch = -1
 		return p
