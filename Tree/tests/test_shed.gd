@@ -159,7 +159,7 @@ func test_shed_view_fits_the_phone() -> void:
 		shed.camera.current = true
 		shed.fit_view()
 		var where := "%dx%d" % [canvas.x, canvas.y]
-		for p in Shed.MUST_SEE:
+		for p in Shed.must_see():
 			var s := shed.camera.unproject_position(shed.to_global(p))
 			t.check(not shed.camera.is_position_behind(shed.to_global(p)) and s.x >= 0.0 and s.x <= canvas.x and s.y >= 0.0 and s.y <= canvas.y, "%s: %s on screen (%s)" % [where, p, s])
 		for item in Shed.ITEMS:

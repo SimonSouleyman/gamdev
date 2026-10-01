@@ -58,6 +58,9 @@ func _initialize() -> void:
 		elif a == "--juniper-only":
 			juniper_only = true
 	DirAccess.make_dir_recursive_absolute(shots)
+	if sill:
+		# The phone's live picture scrap shows on the pinboard (a PC has no live wallpaper).
+		ShedMenu.show_live_note = true
 	main = load("res://main.tscn").instantiate()
 	main.ephemeral = true
 	root.add_child(main)
@@ -220,6 +223,13 @@ func _run() -> void:
 		main.shed_menu.open_options()
 		await _wait(8)
 		_shot("shed_options_clearer_print")
+		# The live picture's scrap (on the phone) and the backup's note slip, where they lie.
+		main.shed_menu.backup_notes.set_note("Copied: tree-backup.json in Downloads.")
+		await _wait(6)
+		_shot("shed_options_backup_slip")
+		main.shed_menu.live_note.emit_signal("pressed")
+		await _wait(6)
+		_shot("shed_options_live_open")
 		main.shed_menu.close_boards()
 		main._apply_setting("clearer_print", false)
 		main.journal.set_setting("clearer_print", false)

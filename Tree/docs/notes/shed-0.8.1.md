@@ -75,16 +75,23 @@ tap went.
 on 20:9 (450 x 1000 and 720 x 1600) the view was 35 degrees wide and cut the sill with the bonsai
 and the pinboard at the sides (pictures "before").
 
-**What changed:** the eye stands by the back wall (`Shed.EYE` (0, 1.75, -1.2), looking at
-(0, 1.25, 1.4)) and `fit_view()` widens the field of view until `MUST_SEE` (the sill's front
-corners, the bonsai and its label, the pinboard's corners and its label, the bench's things) is
-inside the picture with a 6 % margin; never under 62 degrees. 82.5 degrees on the phone,
-70 at 720 x 1280. Everything is smaller than before on the phone (about 360 px per metre at the
-sill): the span from the sill to the pinboard is 1.7 m, and that is the price of seeing both
-without turning; every tap circle is still at least 100 px (test). The lantern hangs over the bench
-now (it hung large in the wider picture's top) and its glass is smaller and warmer; the night
-still has its warm pool on the bench. The pinboard's notes open as before, whole in both prints.
-Test `test_shed.gd: test_shed_view_fits_the_phone` (720 x 1600, 720 x 1280, 1280 x 720).
+**What changed:** `fit_view()` widens the field of view until `must_see()` (the bonsai's pot and
+crown with its label, the pinboard's corners and its label, the bench's things) is inside the
+picture with a 5 % margin, never under 62 degrees, and tilts the eye (at (0, 1.62, -0.9)) so the
+picture's top edge meets the front wall just under the rafters (`TOP_Y`): the ceiling is a thin
+strip and the rest of the tall picture goes to the room and the bench. The span from the sill to
+the pinboard sets the size of everything on the wall (the screen's width must hold it), so the
+door narrowed from 0.8 to 0.7 m and the window and the pinboard moved 5 cm toward it; the
+pinboard is a little smaller (scale 0.66 from 0.72). The middle rafter is gone (it ran from the
+eye to the door and showed as a long lit wedge at the picture's top); the lantern hangs over the
+bench with a smaller, warmer glass and still lights the bench at night. Every tap circle stays at
+least 100 px on the phone (test `test_shed.gd: test_shed_view_fits_the_phone`, 720 x 1600,
+720 x 1280, 1280 x 720).
+
+The pinboard's switches now spread over the cork down to the backup notes (`_layout_notes`: row
+pitch 128 to 230 px), keeping two rows free above the backup notes for their note slip or the
+live picture's open note; on the 720 x 1280 screen nothing moves. Shots show the board plain, in
+clearer print, with the backup's slip and with the live picture's note open.
 
 ## 28. The pot's page into the journal
 

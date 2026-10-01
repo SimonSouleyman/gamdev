@@ -27,12 +27,17 @@ static var origin := Vector3(0.0, 0.0, 15.5)
 const WIDTH := 3.2
 const DEPTH := 2.8
 const WALL_H := 2.4
-const DOOR_W := 0.8
+## (0.8.1, item 26: the door, the window and the pinboard closer together, 0.8 to 0.7 m and
+## 5 cm nearer the door, so the phone's narrow view shows them larger.)
+const DOOR_W := 0.7
 const DOOR_H := 2.05
 ## The small window in the front wall, left of the door as seen from inside (local +x).
-const WINDOW_X := Vector2(0.5, 0.78)
+const WINDOW_X := Vector2(0.45, 0.73)
 const WINDOW_Y := Vector2(1.2, 1.72)
 const BENCH_Z := 0.4
+## The pinboard right of the door (shed frame x) and its size.
+const PINBOARD_X := -(DOOR_W * 0.5 + 0.235)
+const PINBOARD_SCALE := 0.66
 const BENCH_TOP := 0.87
 
 var camera: Camera3D
@@ -372,7 +377,8 @@ func _build_room() -> void:
 		back.scale = Vector3(-1, 1, 1)
 		add_child(back)
 	# Rafters, and a bunch of herbs drying from one.
-	for x in [-1.0, 0.0, 1.0]:
+	# (0.8.1: the middle rafter ran from the eye to the door, a long lit wedge at the picture's top.)
+	for x in [-1.0, 1.0]:
 		_box(Vector3(0.08, 0.1, DEPTH), Vector3(x, WALL_H + 0.05, 0), _mat(Color(0.3, 0.21, 0.13)))
 	for k in range(3):
 		var herb := _box(Vector3(0.1, 0.24, 0.04), Vector3(-1.0 + (k - 1) * 0.12, WALL_H - 0.16, -0.4), _mat(Color(0.35, 0.42, 0.2).lerp(Color(0.5, 0.45, 0.25), k * 0.3), 0.95))
@@ -755,9 +761,9 @@ func _seed_bag() -> Node3D:
 func _build_pinboard() -> void:
 	var hd := DEPTH * 0.5
 	var board := Node3D.new()
-	board.position = Vector3(-0.63, 1.45, hd - 0.06)
+	board.position = Vector3(PINBOARD_X, 1.45, hd - 0.06)
 	board.rotation.y = PI
-	board.scale = Vector3.ONE * 0.72
+	board.scale = Vector3.ONE * PINBOARD_SCALE
 	add_child(board)
 	var cork := _mat(Color(0.62, 0.46, 0.3), 0.95)
 	cork.normal_enabled = true
@@ -800,33 +806,46 @@ func _build_camera() -> void:
 
 ## The eye stands at the back of the shed: the workbench in the middle of the view, the tree
 ## in the doorway above it, the window with its sill on the left and the pinboard on the right.
-## 0.8.1 (item 26): it stands further back, by the back wall, a little higher, and the field of
-## view fits the screen's shape, so on the phone's tall 20:9 screen the sill with the bonsai and the pinboard
-## are whole and reachable too (they were cut at the sides), see fit_view().
-const EYE := Vector3(0.0, 1.75, -1.2)
-const LOOK_AT := Vector3(0.0, 1.25, DEPTH * 0.5)
-## The view never gets narrower than this (a wide screen keeps the old look).
+## 0.8.1 (item 26): the field of view fits the screen's shape, so on the phone's tall 20:9 screen
+## the sill with the bonsai and the pinboard are whole and reachable too (they were cut at the
+## sides), and the eye tilts so the picture's top edge meets the wall's top: a thin strip of
+## ceiling, the room below it (see fit_view()).
+const EYE := Vector3(0.0, 1.62, -0.9)
+## The picture's top edge meets the front wall this high (just under the rafters).
+const TOP_Y := WALL_H + 0.06
+## The view never gets narrower than this (a wide screen keeps about the old look).
 const MIN_FOV := 62.0
-## What must be whole on screen (shed frame): the sill's front corners and the bonsai on it with
-## its label, the pinboard's corners and its label, the things on the bench with theirs.
-const MUST_SEE: Array[Vector3] = [
-	Vector3(0.84, 1.2, 1.0), Vector3(0.42, 1.2, 1.0), Vector3(0.64, 1.66, 1.26), Vector3(0.82, 1.25, 1.12),
-	Vector3(-0.83, 1.22, 1.33), Vector3(-0.83, 1.68, 1.33), Vector3(-0.43, 1.22, 1.33), Vector3(-0.63, 1.8, 1.34),
-	Vector3(0.36, 0.88, 0.2), Vector3(-0.38, 0.88, 0.2), Vector3(0.0, 0.88, 0.16),
-]
 ## A margin of this share of the half width (and height) on each side of the screen.
-const VIEW_MARGIN := 0.06
+const VIEW_MARGIN := 0.05
 var _fit_aspect: float = -1.0
+var _fit_pitch: float = -0.2
 
 
 func _place_camera(_tree_height: float) -> void:
-	camera.position = EYE
-	camera.look_at(to_global(LOOK_AT), Vector3.UP)
 	_fit_aspect = -1.0
 	fit_view()
 
 
-## The field of view for this screen's shape: MUST_SEE all inside the picture, at least MIN_FOV.
+## What must be whole on screen (shed frame): the bonsai's pot and crown on the sill with its
+## label, the pinboard's corners and its label, the things on the bench with theirs.
+static func must_see() -> Array[Vector3]:
+	var cx := (WINDOW_X.x + WINDOW_X.y) * 0.5
+	var sill := WINDOW_Y.x + 0.01
+	var hd := DEPTH * 0.5
+	var pin := PINBOARD_X
+	var pw := 0.25 * PINBOARD_SCALE + 0.015
+	var ph := 0.3 * PINBOARD_SCALE + 0.01
+	return [
+		Vector3(cx + 0.14, sill, hd - 0.28), Vector3(cx - 0.14, sill, hd - 0.28), Vector3(cx, sill + 0.45, hd - 0.14),
+		Vector3(cx + 0.12, sill + 0.08, hd - 0.26),
+		Vector3(pin - pw, 1.45 - ph, hd - 0.06), Vector3(pin - pw, 1.45 + ph, hd - 0.06), Vector3(pin + pw, 1.45 - ph, hd - 0.06),
+		Vector3(pin, 1.45 + ph + 0.12, hd - 0.06),
+		Vector3(0.36, 0.88, 0.2), Vector3(-0.38, 0.88, 0.2), Vector3(0.0, 0.88, 0.16),
+	]
+
+
+## The view for this screen's shape: the field of view that holds must_see(), and the tilt that
+## puts the picture's top at TOP_Y on the front wall (or as near as the things allow).
 func fit_view() -> void:
 	var vp := get_viewport()
 	if vp == null or camera == null:
@@ -836,15 +855,39 @@ func fit_view() -> void:
 	if is_equal_approx(aspect, _fit_aspect):
 		return
 	_fit_aspect = aspect
-	camera.fov = fov_for(aspect)
+	var best := INF
+	var best_fov := MIN_FOV
+	for i in range(61):
+		var pitch := deg_to_rad(lerpf(-35.0, 5.0, i / 60.0))
+		var fov := _fov_at(pitch, aspect)
+		# Where the top edge meets the front wall.
+		var up_ray := Basis(Vector3.RIGHT, pitch) * Vector3(0, tan(deg_to_rad(fov * 0.5)), -1)
+		var t := (DEPTH * 0.5 - EYE.z) / maxf(-up_ray.z, 1e-3)
+		var top := EYE.y + up_ray.y * t
+		# Under the wall's top is fine only if nothing is cut; a little above costs less than below.
+		var cost := absf(top - TOP_Y) + (0.0 if top >= TOP_Y else 0.5) + fov * 0.002
+		if cost < best:
+			best = cost
+			_fit_pitch = pitch
+			best_fov = fov
+	camera.position = EYE
+	# Facing the door (+Z in the shed's frame), tilted down.
+	camera.basis = Basis(Vector3.UP, PI) * Basis(Vector3.RIGHT, _fit_pitch)
+	camera.fov = best_fov
 
 
-## The vertical field of view (degrees) that shows MUST_SEE on a screen of this shape.
+## The vertical field of view (degrees) that shows must_see() on a screen of this shape.
 func fov_for(aspect: float) -> float:
-	var eye := Transform3D(Basis(), EYE).looking_at(LOOK_AT, Vector3.UP)
-	var inv := eye.affine_inverse()
+	_fit_aspect = -1.0
+	fit_view()
+	return camera.fov
+
+
+func _fov_at(pitch: float, aspect: float) -> float:
+	var basis := Basis(Vector3.UP, PI) * Basis(Vector3.RIGHT, pitch)
+	var inv := Transform3D(basis, EYE).affine_inverse()
 	var need := tan(deg_to_rad(MIN_FOV * 0.5))
-	for p in MUST_SEE:
+	for p in must_see():
 		var c := inv * p
 		if c.z < -0.01:
 			need = maxf(need, maxf(absf(c.x) / -c.z / aspect, absf(c.y) / -c.z) / (1.0 - VIEW_MARGIN))

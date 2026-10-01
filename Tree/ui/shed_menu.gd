@@ -57,6 +57,8 @@ var _flip_tree: int = -1
 ## The current tree is finished (main sets it): its flip-book page follows its last photo.
 var tree_finished: bool = false
 var _toggles: Dictionary = {}
+## The switches' notes on the pinboard, in order (laid out over the board's height, _layout_notes).
+var _notes: Array[Control] = []
 var _loading: Control
 var _seeds: Control
 var _seeds_box: VBoxContainer
@@ -187,6 +189,7 @@ func _build_options() -> void:
 		note.custom_minimum_size = Vector2(560 if last else 260, 120)
 		note.rotation_degrees = [-3.0, 2.0, 1.5, -2.0, 2.5, -1.0, 1.0][i]
 		board.add_child(note)
+		_notes.append(note)
 		var c := CheckBox.new()
 		c.text = names[key]
 		c.focus_mode = Control.FOCUS_NONE
@@ -355,7 +358,30 @@ func open_options() -> void:
 		(_toggles[k] as CheckBox).set_pressed_no_signal(bool(settings.get(k, false)))
 	backup_notes.reset()
 	_place_live_note(false)
+	_layout_notes()
 	_options.visible = true
+
+
+## The switches' rows spread over the cork down to the backup notes, keeping room above those
+## for their note slip or the live picture's open note (0.8.1: on the phone's tall screen the
+## rows sat at the top over a large empty board). The rows are never closer than they were.
+func _layout_notes() -> void:
+	var room := get_viewport().get_visible_rect().size if get_viewport() != null else Vector2(720, 1280)
+	var backup_bottom := LIVE_BOTTOM - Paper.INK_TAP - ROW_GAP if show_live_note else RESETS_BOTTOM - Paper.INK_TAP - ROW_GAP
+	# Board-local: the backup notes' row top, less two rows for the slip or the open live note.
+	var free_bottom := room.y + backup_bottom - Paper.INK_TAP - 2.0 * (Paper.INK_TAP + ROW_GAP) - BOARD_TOP
+	var rows := (_notes.size() + 1) / 2
+	var last_h := 0.0
+	for n in _notes:
+		last_h = maxf(last_h, n.get_combined_minimum_size().y)
+	var pitch := clampf((free_bottom - NOTES_TOP - last_h) / maxf(rows - 1, 1), ROW_PITCH, ROW_PITCH * 1.8)
+	for i in range(_notes.size()):
+		_notes[i].position.y = NOTES_TOP + (i / 2) * pitch
+
+
+## The switches' first row (board-local) and their least row pitch.
+const NOTES_TOP := 36.0
+const ROW_PITCH := 128.0
 
 
 # --- the photo album -------------------------------------------------------------
