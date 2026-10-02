@@ -21,10 +21,9 @@ var life_force_per_tip: float = 0.02  # scaled with the 2-minute day (play test 
 ## Low enough that one night's nutrients last a good part of the day.
 var max_growth_per_second: float = 1.0
 ## Soft Liebig floor: growth with a needed nutrient (N, P or K) used up, as a share of full speed.
-## 0.8.2: 0.6 (top of its range; was 0.55): the leftover's side roots reach only about 3 m where
-## 0.8.1's fine roots reached 7.6 m, so a tree never steered finds less and leans on the floor
-## (tuning 10a: by day 40, oak 42).
-var liebig_floor: float = 0.6
+## 0.8.2.5: the species' own (Species.liebig_floor: 0.45, oak 0.55); this is an override for
+## tools (strategies.gd --set=sim.liebig_floor=0.5), below 0 none. 0.8 to 0.8.2.4: 0.6 for all.
+var liebig_floor: float = -1.0
 ## The seed's own reserves: on the first SEEDLING_DAYS days (natural_form) a missing N, P or K
 ## slows growth only to this share, so every early day shows (sim-0.6.3: unsteered oak and beech
 ## grew 21 to 24 segments on days 2 and 3).
@@ -318,9 +317,10 @@ func marker_center(sun: Vector3, top: float, steer: float = 1.0) -> Vector3:
 
 ## The soft Liebig floor today: higher while the seedling lives off its seed (natural_form).
 func growth_floor() -> float:
+	var floor_now := liebig_floor if liebig_floor >= 0.0 else species.liebig_floor
 	if natural_form and clock.day_count <= SEEDLING_DAYS:
-		return maxf(liebig_floor, SEEDLING_FLOOR)
-	return liebig_floor
+		return maxf(floor_now, SEEDLING_FLOOR)
+	return floor_now
 
 
 ## Growth speed cap today: the species' pace (slow start, fast start) on the common maximum.

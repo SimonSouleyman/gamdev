@@ -293,6 +293,8 @@ func _handle_events() -> void:
 				# The day's growth is done: the live picture shows it, drawn behind the dive's black
 				# (0.8.2.2: drawn here it froze the sunset for about 1.5 s on the phone).
 				_live_due = true
+				# 0.8.2.5: a small ink ring round today's wish plant, before the dive.
+				tree_view.show_wish_ring()
 				if state.is_seed() and state.day_number() == 0:
 					_page_once("planted")
 					# Each species introduces itself once, the first time it is planted from the seed bag
@@ -313,6 +315,8 @@ func _handle_events() -> void:
 				if state.ground.wish_deposits.size() != _meadow_wishes:
 					_meadow_wishes = state.ground.wish_deposits.size()
 					tree_view.refresh_meadow()
+				# Today's wish place (a wish for a deposit already there places none).
+				tree_view.refresh_wish()
 				_rise()
 			"morning":
 				_morning()
@@ -377,6 +381,7 @@ func _on_ground_tapped() -> void:
 
 func _dive() -> void:
 	_transitioning = true
+	tree_view.show_wish_ring()
 	Haptics.buzz("dive")
 	ambience.set_world(false, 2.2)
 	var tw := _new_tween()
@@ -511,6 +516,9 @@ func _morning() -> void:
 		# The day's wish is a small scrap for the morning hours, not a page that stops play
 		# (0.6 review); it stays in the diary too.
 		tree_view.show_wish(state.diary.wish)
+		# 0.8.2.5: the compass needle points to the wish place; one line the first time.
+		if state.diary.wish_patch >= 0:
+			_page_once("compass")
 
 
 # --- settings, saving, dev keys -----------------------------------------------

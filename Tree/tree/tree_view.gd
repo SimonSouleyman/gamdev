@@ -45,6 +45,8 @@ var _clearing: float = -1.0
 var _scenery: Scenery
 var _env: Environment
 var _meadow: Meadow
+## Today's wish place on the meadow (0.8.2.5).
+var wish_plant: WishPlant
 ## Shade plants under the crown (the living clearing).
 var _understory: Understory
 var _builder := BranchMeshBuilder.new()
@@ -189,6 +191,8 @@ func setup(p_state: GameState) -> void:
 	_light_snap = true
 	apply_species(state.sim.species)
 	_clearing = -1.0
+	# Another game's wish place (a load): built again.
+	wish_plant.patch_id = -2
 	refresh_clearing()
 	_built_size = -1
 	_births.clear()
@@ -235,6 +239,20 @@ func refresh_clearing() -> void:
 func refresh_meadow() -> void:
 	_meadow.build(state.ground)
 	RockLook.apply_meadow(_meadow)
+	refresh_wish()
+
+
+## Today's wish place (0.8.2.5): its plant large and in flower; none once the wish was reached.
+func refresh_wish() -> void:
+	var d := state.diary
+	var pid := d.wish_patch if not d.wish_reached else -1
+	wish_plant.show_wish(state.ground, pid, Terrain.edge)
+
+
+## At sunset, a small ink ring is drawn around the wish plant for a moment (0.8.2.5).
+func show_wish_ring() -> void:
+	refresh_wish()
+	wish_plant.ring()
 
 
 func _build_clearing(r: float) -> void:
@@ -244,6 +262,7 @@ func _build_clearing(r: float) -> void:
 	_ground.mesh = Terrain.ground_mesh(160.0 + (r - Scenery.CLEARING_RADIUS) * 2.0, 110)
 	_meadow.build(state.ground)
 	RockLook.apply_meadow(_meadow)
+	refresh_wish()
 	_plant_grass(state.seed)
 	GrassLook.apply(self)
 	GrassLook.apply_meadow2(self)
@@ -397,6 +416,8 @@ func _build_world() -> void:
 
 	_meadow = Meadow.new()
 	add_child(_meadow)
+	wish_plant = WishPlant.new()
+	add_child(wish_plant)
 	_understory = Understory.new()
 	add_child(_understory)
 	_scenery = Scenery.new()
@@ -631,6 +652,8 @@ func _build_hud() -> void:
 
 	var compass := Compass.new()
 	compass.camera = camera
+	# 0.8.2.5: the needle points from the trunk to today's wish place.
+	compass.target = func() -> Vector3: return Compass.wish_way(state, Vector3.ZERO)
 	compass.set_anchors_preset(Control.PRESET_TOP_RIGHT)
 	# The old hand compass, its ring at the top.
 	compass.offset_left = -168
@@ -975,6 +998,7 @@ func _update_sun() -> void:
 	var k := smoothstep(0.0, 0.6, h)
 	_scenery.update(get_process_delta_time(), h > 0.0, h, _sun_light.light_color, state.sim.height(), camera.global_position)
 	_meadow.set_daylight(clampf(h * 3.0, 0.0, 1.0))
+	wish_plant.set_daylight(clampf(h * 3.0, 0.0, 1.0))
 	# The sky glows brighter near the horizon hours, and the haze takes the sun's colour.
 	# A low sun: a bright golden sky and haze, the ground in raking light (the reference photos).
 	_sky_mat.energy_multiplier = 1.5 + 1.7 * (1.0 - k) + (0.35 if clock.boost_active else 0.0)

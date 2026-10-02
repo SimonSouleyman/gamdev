@@ -68,13 +68,19 @@ func test_far_wishes_are_balanced_on_every_seed() -> void:
 		var wish_days := 0
 		var far_days := 0
 		for day in range(1, 41):
+			var placed := u.wish_deposits.size()
 			diary.new_wish(u, day, seed, roots)
+			# 0.8.2.5: a morning whose wish points at a deposit already in the soil because no new
+			# one could be placed (here: the soil's dot budget full from about day 28, nothing is
+			# collected) does not count in the share of new wishes.
+			var fallback := u.wish_deposits.size() == placed and not Diary.is_far(u, diary.wish_patch)
 			# 0.8.2.1: far wishes, and the running share, start on day 5 (Diary.FAR_FROM_DAY).
-			if diary.wish_patch >= 0 and day >= Diary.FAR_FROM_DAY:
+			if diary.wish_patch >= 0 and day >= Diary.FAR_FROM_DAY and not fallback:
 				wish_days += 1
 				if Diary.is_far(u, diary.wish_patch):
 					far_days += 1
-				# A player who reaches every wish the night it shows (the draw itself is measured).
+			# A player who reaches every wish the night it shows (the draw itself is measured).
+			if diary.wish_patch >= 0:
 				u.mark_wish_reached(diary.wish_patch)
 				diary.wish_reached = true
 		var share := float(far_days) / maxf(1.0, wish_days)

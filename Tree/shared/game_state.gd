@@ -40,6 +40,8 @@ var run_used: bool = false
 var night_done: bool = false
 ## Tonight there was no life force for a root.
 var night_empty: bool = false
+## Tonight's root reached a deposit: the morning's page says so once (0.8.2.5, Diary.DRANK_LINE).
+var drank: bool = false
 var _empty_timer: float = 0.0
 ## One-time journal pages already shown (the tutorial lives in the journal).
 var seen_pages: Dictionary = {}
@@ -288,6 +290,7 @@ func dive() -> bool:
 	sim.clock.time_of_day = sim.clock.daylight_fraction + 0.0001
 	run_used = false
 	night_done = false
+	drank = false
 	_empty_timer = 0.0
 	roots.run_totals = PackedFloat32Array([0, 0, 0, 0])
 	roots.run_room = Array(sim.stock_room(sim.find_hold_days))
@@ -404,7 +407,28 @@ func _on_run_done() -> void:
 	var reached := diary.check_reached(ground, roots, day_number(), day_number() + 1)
 	if reached >= 0:
 		_event("wish:%d" % reached)
+	drank = run_reached_deposit()
 	_event("run_done")
+
+
+## Tonight's main root came within reach of a deposit (any patch but the starter one at the
+## trunk): its dots were in the root's collect radius.
+func run_reached_deposit() -> bool:
+	var g := roots.graph
+	var main := roots.main_root_count - 1
+	if main < 0 or roots.run_first_new_id < 0:
+		return false
+	for pid in range(ground.patches.size()):
+		var p: Dictionary = ground.patches[pid]
+		var c: Vector3 = p["center"]
+		if Vector2(c.x, c.z).length() < 2.0:
+			continue
+		var reach := float(p["radius"]) + Diary.REACH_MARGIN
+		reach *= reach
+		for id in range(maxi(1, roots.run_first_new_id), g.size()):
+			if g.positions[id].distance_squared_to(c) <= reach and g.get_flag(id, "main", -1) == main:
+				return true
+	return false
 
 
 ## The wish deposits that glow underground tonight (Diary.glows).
@@ -460,6 +484,10 @@ func _sunrise() -> void:
 	if was_seed and not sim.nutrients_spent():
 		diary.add(day_number(), "The seed sprouted at dawn.", "tree", "sapling", "milestone")
 	_care_line()
+	# The night's root reached a deposit: one short line (0.8.2.5; the page's third place).
+	if drank and not was_seed:
+		diary.add(day_number(), Diary.DRANK_LINE, "tree", "fine_roots", "drank")
+	drank = false
 	# A missed wish deposit glows faintly one more night; the new wish may place a deposit ahead
 	# of the newest root tip, of what the tree is shorter of (Diary.plan_wish).
 	diary.new_wish(ground, day_number(), seed, roots, sim.resources)
@@ -658,6 +686,7 @@ func to_dict() -> Dictionary:
 		"run_used": run_used,
 		"night_done": night_done,
 		"night_empty": night_empty,
+		"drank": drank,
 		"seen_pages": seen_pages.keys(),
 		"pending_pages": pending_pages,
 		"empty_timer": _empty_timer,
@@ -696,6 +725,7 @@ static func from_dict(d_in: Dictionary) -> GameState:
 	g.run_used = bool(d.get("run_used", false))
 	g.night_done = bool(d.get("night_done", false))
 	g.night_empty = bool(d.get("night_empty", false))
+	g.drank = bool(d.get("drank", false))
 	g.pending_pages = Array(d.get("pending_pages", []))
 	g.finished = bool(d.get("finished", false))
 	for t in d.get("grove", []):

@@ -37,7 +37,6 @@ func _all_game_lines() -> Array[String]:
 			out.append(Diary.wish_entry(kind, where, true))
 			out.append(Diary.wish_entry(kind, where, false, true))
 			out.append(Diary.wish_entry(kind, where, true, true))
-	out.append_array(Diary.DAY_WISH_LINES)
 	for kind in range(4):
 		ground.patches.append({"kind": kind, "center": Vector3(5, -1, 5), "radius": 1.0})
 		out.append(Diary.reached_text(ground, ground.patches.size() - 1, 28))
@@ -136,11 +135,12 @@ func test_a_played_month_writes_short_day_pages() -> void:
 			t.check(page.size() > 0 and str(page[0].get("topic", "")) == "wish", "day %d: the wish first" % day)
 			wishes += 1
 	t.check(wishes >= 7, "every morning's wish is on its page (%d)" % wishes)
-	# The wish names where it points.
+	# The wish names its plant only (0.8.2.5: the meadow shows the place, the compass points to it).
 	for e in g.diary.entries:
-		if str(e.get("topic", "")) == "wish" and str(e.get("drawing", "")) != "sun":
+		if str(e.get("topic", "")) == "wish":
 			var text := str(e["text"])
-			t.check(text.contains("north") or text.contains("south") or text.contains("east") or text.contains("west"), "where it points: " + text)
+			t.check(not (text.contains("north") or text.contains("south") or text.contains("east") or text.contains("west")), "no direction: " + text)
+			t.check(Diary.PLANTS.any(func(p: String) -> bool: return text.contains(p)), "the plant: " + text)
 
 
 func test_the_need_is_written_with_its_leaf() -> void:

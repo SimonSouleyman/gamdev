@@ -530,6 +530,21 @@ func set_wish_glows(glows: Array) -> void:
 			_set_dot(i)
 
 
+## The way from the newest root tip (the growing tip during a run) to tonight's wish glow, flat;
+## Vector3.ZERO when no glow waits (none tonight, or the root reached it).
+func wish_way() -> Vector3:
+	if roots == null:
+		return Vector3.ZERO
+	for glow in _wish_glows:
+		if glow["reached"]:
+			continue
+		var from := roots.tip_position if roots.run_active else roots.graph.positions[Diary.newest_tip(roots)]
+		var c: Vector3 = glow["center"]
+		var way := Vector3(c.x - from.x, 0.0, c.z - from.z)
+		return way if way.length_squared() > 1e-4 else Vector3.ZERO
+	return Vector3.ZERO
+
+
 ## The tip entered a glowing deposit: the haze swells once and settles (a quiet "found it").
 func _check_wish_reached() -> void:
 	for k in range(_wish_glows.size()):
@@ -738,6 +753,8 @@ func _build_hud() -> void:
 
 	compass = Compass.new()
 	compass.camera = camera
+	# 0.8.2.5: the needle shows the way to tonight's wish from the newest root tip.
+	compass.target = wish_way
 	compass.set_anchors_preset(Control.PRESET_TOP_RIGHT)
 	# The old hand compass, its ring at the top.
 	compass.offset_left = -168

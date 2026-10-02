@@ -62,15 +62,18 @@ func test_the_wish_places_a_bigger_deposit_ahead_of_the_newest_tip() -> void:
 			diary.new_wish(u, day, seed, roots)
 			days += 1
 			var p := diary.wish_patch
+			# 0.8.2.5: every morning has a wish place (test_wish_0825.gd).
+			t.check(p >= 0, "a wish place")
 			if p < 0:
-				t.check(not diary.wish.is_empty(), "a day wish instead")
 				continue
 			placed += 1
 			var patch: Dictionary = u.patches[p]
 			var c: Vector3 = patch["center"]
 			var r := float(patch["radius"])
 			var ratio := u.patch_amount(p, true) / _normal_mean(u, int(patch["kind"]))
-			t.check(ratio > 1.25 and ratio < 1.8, "seed %d day %d: about 1.5x a normal rich patch (%.2f)" % [seed, day, ratio])
+			# 0.8.2.5: with no new place in reach, a deposit already in the soil (Diary.fallback_patch).
+			var again := int(patch.get("day", -1)) != day
+			t.check(not bool(patch.get("wish", false)) or ratio > 1.25 and ratio < 1.8, "seed %d day %d: about 1.5x a normal rich patch (%.2f)" % [seed, day, ratio])
 			var ahead := Vector2(c.x - tip.x, c.z - tip.z).length()
 			# 0.8: a missed deposit ahead may be wished for again, a little nearer or further.
 			var slack := 0.01 if int(patch.get("day", day)) == day else 2.01
@@ -79,7 +82,7 @@ func test_the_wish_places_a_bigger_deposit_ahead_of_the_newest_tip() -> void:
 			var far := Diary.is_far(u, p)
 			var lo := Diary.FAR_AHEAD_MIN if far else Diary.AHEAD_MIN
 			var hi := Diary.FAR_AHEAD_MAX if far else Diary.AHEAD_MAX
-			var waiting := far and int(patch.get("day", day)) != day
+			var waiting := again
 			if not waiting:
 				t.check(ahead > lo - slack and ahead < hi + slack, "a few metres beyond the newest tip (%.1f m)" % ahead)
 			t.check(-c.y < Underground.HINT_MAX_DEPTH, "in the topsoil, under a meadow hint")
@@ -87,14 +90,14 @@ func test_the_wish_places_a_bigger_deposit_ahead_of_the_newest_tip() -> void:
 			var nights := Diary.FAR_REACH_NIGHTS if far else 1.0
 			if not waiting:
 				t.check(Diary.line_cost(u, roots, tip, goal) <= Diary.calm_reach(roots) * nights, "a calm tank reaches it from the newest tip")
-			t.check(diary.wish.contains(Underground.compass(c)), "the wish names its direction: " + diary.wish)
+			t.check(not diary.wish.contains(Underground.compass(c)), "0.8.2.5: no direction in the wish: " + diary.wish)
 			var hinted := false
 			for h in u.surface_hints():
 				if (h["position"] as Vector3).distance_to(Vector3(c.x, 0, c.z)) < 0.01:
 					hinted = hinted or str(h["kind"]) == Diary.DRAWINGS[int(patch["kind"])]
-			t.check(hinted, "the meadow shows what the wish names")
+			t.check(hinted or not bool(patch.get("wish", false)), "the meadow shows what the wish names")
 			_night(u, roots, diary, day, true, wander)
-	t.check(placed > days * 0.55, "most wishes point underground (%d of %d)" % [placed, days])
+	t.check(placed == days, "every wish points underground (%d of %d)" % [placed, days])
 
 
 func test_the_wish_follows_what_the_tree_lacks() -> void:
@@ -157,11 +160,13 @@ func test_a_patch_is_never_placed_in_or_behind_rock() -> void:
 		t.check(Diary.line_cost(u, roots, Vector3.ZERO, c2) < INF, "with a free line from the tip")
 	else:
 		t.check(not str(again["text"]).is_empty(), "or a day wish")
-	# The trunk walled in completely: nothing reachable, so only day wishes.
+	# The trunk walled in completely: nothing reachable, so no new deposit; 0.8.2.5: the wish
+	# points at a deposit already in the soil (there are no day wishes any more).
 	u.rock_centers.append(Vector3(0, -1, 0))
 	u.rock_radii.append(13.0)
 	for d in range(1, 20):
-		t.check_eq(int(Diary.plan_wish(u, d, 14, roots)["kind"]), -1, "nothing in reach: a day wish")
+		var w := Diary.plan_wish(u, d, 14, roots)
+		t.check(w.has("patch") and bool(w["fallback"]), "nothing in reach: a deposit already there")
 
 
 func test_aiming_for_the_glow_reaches_it_and_beats_random_steering() -> void:
@@ -223,7 +228,9 @@ func test_a_missed_wish_glows_one_more_night_then_fades() -> void:
 				var later := diary.glows(u).filter(func(g: Dictionary) -> bool: return int(g["patch"]) == before and float(g["strength"]) < 1.0)
 				t.check(later.is_empty(), "then it fades")
 				break
-	t.check(faint_seen > 0 and replaced_seen > 0, "both cases seen (faint %d, replaced %d)" % [faint_seen, replaced_seen])
+	# 0.8.2.5: every morning has a new wish place, so yesterday's never glows on (only an old
+	# save from a day-wish morning can still show it, faintly, as above).
+	t.check(faint_seen == 0 and replaced_seen > 0, "a new glow every morning (faint %d, replaced %d)" % [faint_seen, replaced_seen])
 
 
 func _first_morning(seed: int) -> GameState:
