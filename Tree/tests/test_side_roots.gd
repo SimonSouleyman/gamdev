@@ -5,6 +5,8 @@ extends RefCounted
 var t
 
 const FRAME := 1.0 / 30.0
+## The month player of tools/strategies.gd (a SceneTree script, so no class_name).
+const Strategies = preload("res://tools/strategies.gd")
 
 
 ## A run from the trunk on `life` life force in the wide field (layout 3, fit_soil), steered
