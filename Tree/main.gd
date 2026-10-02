@@ -95,6 +95,13 @@ func _build() -> void:
 	journal = Journal.new()
 	add_child(journal)
 	tree_view.page_open = func() -> bool: return journal.current_page() != ""
+	# The Collection lists the finds kept in the bench's drawers (0.8.2.6).
+	journal.finds_source = func() -> Array:
+		var out: Array = []
+		if state != null and state.finds != null:
+			for f in state.finds.list():
+				out.append({"kind": f["kind"], "text": "%s %s" % [f["note"], Finds.when_line(f)], "day": f["day"]})
+		return out
 	shed = Shed.new()
 	tree_view.add_child(shed)
 	# The shed is only seen from inside, in the shed scene, never in the tree scene (Simon).
