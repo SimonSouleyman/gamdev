@@ -103,7 +103,12 @@ func test_a_day_page_holds_one_line_only_when_something_happened() -> void:
 	q.add(1, "Dew sparkled in the first sun.", "tree", "mist", "mood")
 	q.add(1, "a plain note")
 	t.check(q.page(1).is_empty(), "a quiet day stays empty")
-	t.check(q.days().has(1), "but its date is there")
+	t.check(q.days().has(1), "its date is recorded")
+	# 0.8.2.7 (Simon): the Diary leaves a quiet day out entirely, no heading.
+	q.add(2, "Dew sparkled.", "tree", "mist", "mood")
+	q.add(4, "my own note", "player")
+	q.add(5, "Found a lost coin, green with age.", "tree", "coin", "find")
+	t.check_eq(Journal.shown_days(q), [5, 4] as Array[int], "only days with a line or a note, newest first")
 	t.check_eq(Diary.new().doodle(9), "sun", "a day without lines still has a doodle")
 	# The night's root reached something: a line when nothing better came.
 	q.add(1, Diary.DRANK_LINE, "tree", "fine_roots", "drank")

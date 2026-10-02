@@ -35,6 +35,9 @@ var sill := false
 var tools_only := false
 ## Only the juniper's close-ups (young, after 14 days, from the side and from below), then quit.
 var juniper_only := false
+## Only bonsai mode and two taps on the tree (with nothing and with each tool in hand), then quit
+## (0.8.2.7: green circles showed on the leaves after a second tap).
+var tap_tree := false
 
 
 func _initialize() -> void:
@@ -57,6 +60,8 @@ func _initialize() -> void:
 			tools_only = true
 		elif a == "--juniper-only":
 			juniper_only = true
+		elif a == "--tap-tree":
+			tap_tree = true
 	DirAccess.make_dir_recursive_absolute(shots)
 	if sill:
 		# The phone's live picture scrap shows on the pinboard (a PC has no live wallpaper).
@@ -210,6 +215,10 @@ func _run() -> void:
 	main.enter_shed(false)
 	if juniper_only:
 		await _juniper_shots()
+		quit()
+		return
+	if tap_tree:
+		await _tap_tree_sequence()
 		quit()
 		return
 	if bonsai_only:
@@ -487,6 +496,41 @@ func _click(at: Vector2, down: bool) -> void:
 	# Input arrives in window pixels; the views work in the 720 x 1280 canvas.
 	e.position = root.get_final_transform() * at
 	Input.parse_input_event(e)
+
+
+## Bonsai mode, then two taps on the crown with nothing in hand and with each held tool.
+func _tap_tree_sequence() -> void:
+	var st: GameState = main.state
+	main.shed_menu.close_boards()
+	main.journal.clear_pages()
+	if st.grove.is_empty():
+		st.grove.append({"species": st.sim.species.id, "days": days, "seed": 42})
+	st.ensure_bonsai()
+	for k in ["bonsai", "bonsai_water", "bonsai_fertiliser", "bonsai_wire", "bonsai_repot", "bonsai_pinch", "bonsai_shears", "bonsai_burn"]:
+		st.seen_pages[k] = true
+	_care(st.bonsai, 3, false)
+	main.in_shed = false
+	main.enter_shed(false)
+	await _wait(20)
+	main.open_shed_item("bonsai")
+	await _seconds(1.3)
+	main.journal.clear_pages()
+	await _wait(3)
+	var view: BonsaiView = main.bonsai_view
+	var crown: Rect2 = view.crown_screen_rect()
+	var at := crown.get_center()
+	for tool in ["", "pinch", "shears", "wire"]:
+		if tool != "":
+			await _tap_thing(view, tool)
+			await _wait(6)
+		for k in range(2):
+			await _tap(at + Vector2(12 * k, 0))
+			await _wait(10)
+			main.journal.clear_pages()
+			await _wait(3)
+			_shot("tap_tree_%s_%d" % [tool if tool != "" else "none", k + 1])
+		await _put_down(view)
+		await _wait(6)
 
 
 ## The tools on the sill, each picked up with a real tap, shown in the hand, used and put down.
