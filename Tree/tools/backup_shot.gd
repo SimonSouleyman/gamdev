@@ -76,6 +76,11 @@ func _run() -> void:
 	# Three mornings for the album (the tree grows a day between them).
 	var tv: TreeView = main.tree_view
 	main.shed.camera.current = false
+	# Outside, as the game takes its morning photos: the shed (its room, seen from inside) is
+	# hidden in tree mode. (0.8.2.1: with it left on, the Polaroid showed its walls black from
+	# behind.)
+	main.shed.visible = false
+	tv.set_shed_open(false)
 	tv.camera.make_current()
 	main.shed_menu.show_menu(false)
 	for i in range(3):
@@ -86,6 +91,8 @@ func _run() -> void:
 			tv._frame_camera(true)
 		await _wait(6)
 		Photos.save_from(root.get_viewport(), g.day_number(), "morning", g.sim.species.id)
+	main.shed.visible = true
+	tv.set_shed_open(true)
 	main.shed.camera.make_current()
 	main.shed_menu.show_menu(true)
 	await _wait(20)

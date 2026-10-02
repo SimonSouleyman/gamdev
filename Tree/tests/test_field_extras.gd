@@ -44,7 +44,22 @@ func test_far_view_opens_only_outside_the_run() -> void:
 	t.check(rv.open_far_view(), "the far view opens while choosing the start")
 	t.check(rv.camera.far >= rv.far_distance() + Underground.field_extent, "the far camera sees the whole field")
 	var d := rv.far_distance()
-	t.check(d >= 40.0 and d <= 60.0, "the far camera's distance stays in its 40 to 60 m range (%.1f m)" % d)
+	t.check(d >= 12.0 and d <= 60.0, "the far camera's distance stays within 12 to 60 m (%.1f m)" % d)
+	# 0.8.2.1: the far view frames what is known and fills the portrait screen with margins.
+	rv.camera.fov = rv.far_fov()
+	rv.camera.global_position = rv._orbit_position()
+	rv._look_now = rv._look
+	rv.camera.global_position = rv._orbit_position()
+	rv.camera.look_at(rv._look, Vector3.UP)
+	var vp := rv.get_viewport().get_visible_rect().size
+	var lo := Vector2(INF, INF)
+	var hi := Vector2(-INF, -INF)
+	for p in rv._far_pts:
+		var s := rv.camera.unproject_position(p)
+		lo = lo.min(s)
+		hi = hi.max(s)
+	t.check(lo.x >= -1.0 and hi.x <= vp.x + 1.0 and lo.y >= vp.y * 0.2 and hi.y <= vp.y + 1.0, "the map stays on screen, below the HUD (%s to %s)" % [lo, hi])
+	t.check((hi.x - lo.x) / vp.x > 0.8 or (hi.y - lo.y) / vp.y > 0.65, "the map fills the screen (%.2f x %.2f)" % [(hi.x - lo.x) / vp.x, (hi.y - lo.y) / vp.y])
 	rv.leave_far_view()
 	t.check(not rv.far_view, "pinch in (or back) returns")
 	t.check(rv.start_at(0), "a run starts")

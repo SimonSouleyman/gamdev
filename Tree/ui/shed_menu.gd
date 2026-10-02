@@ -128,6 +128,37 @@ func place_tags(at: Dictionary, below: Dictionary, shown: Dictionary) -> void:
 			# Always whole on the screen.
 			var room := _tags_layer.size
 			tag.position = pos.clamp(Vector2(8, 8), Vector2(maxf(room.x - tag.size.x - 8.0, 8.0), maxf(room.y - tag.size.y - 8.0, 8.0)))
+	_spread_tags()
+
+
+## 0.8.2.1 (look review: "photo album" and "seed bag" overlapped): labels that would overlap
+## are pushed apart sideways (each half the way, a small gap between), then kept on screen.
+const TAG_GAP := 10.0
+
+
+func _spread_tags() -> void:
+	var shown: Array = []
+	for item in _tags:
+		if (_tags[item] as Control).visible:
+			shown.append(_tags[item])
+	var room := _tags_layer.size
+	for _pass in range(3):
+		for i in range(shown.size()):
+			for j in range(i + 1, shown.size()):
+				var a: Control = shown[i]
+				var b: Control = shown[j]
+				var ra := Rect2(a.position, a.size)
+				var rb := Rect2(b.position, b.size)
+				if not ra.grow(TAG_GAP * 0.5).intersects(rb.grow(TAG_GAP * 0.5)):
+					continue
+				var left: Control = a if ra.get_center().x <= rb.get_center().x else b
+				var right: Control = b if left == a else a
+				var push := (left.position.x + left.size.x + TAG_GAP - right.position.x) * 0.5
+				left.position.x -= push
+				right.position.x += push
+		for t in shown:
+			var c := t as Control
+			c.position = c.position.clamp(Vector2(8, 8), Vector2(maxf(room.x - c.size.x - 8.0, 8.0), maxf(room.y - c.size.y - 8.0, 8.0)))
 
 
 func show_menu(on: bool) -> void:

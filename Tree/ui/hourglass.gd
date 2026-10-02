@@ -13,7 +13,8 @@ var hours: float = 6.0:
 
 
 func _init() -> void:
-	custom_minimum_size = Vector2(22, 32)
+	# (0.8.2.1 look review: about 12 px on the phone; a little larger.)
+	custom_minimum_size = Vector2(30, 42)
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	size_flags_vertical = Control.SIZE_SHRINK_CENTER
 

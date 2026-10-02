@@ -15,7 +15,11 @@ const LEATHER := Color(0.33, 0.2, 0.12)
 const PICTURE_TAP := Vector2(150, 96)
 ## Least tap area of an ink button, in reference pixels: about 9 mm on a phone (53 px of a
 ## 450 px wide screen; 0.6.3 review: "close", "write" and the album's words were 22-36 px).
-const INK_TAP := 88.0
+## (0.8.2.1: 88 measured about 7.5 mm on the test phone; 104 is 9 mm there.)
+const INK_TAP := 104.0
+## The drawn ring's smallest height (px at the 720 reference): the circled word reads as a
+## button you can hit, not a 3 mm word (0.8.2.1 look review).
+const RING_MIN_H := 58.0
 
 static var _cache: Dictionary = {}
 ## "clearer print" on the pinboard (0.6): one calm, legible hand everywhere, a size larger.
@@ -349,7 +353,7 @@ static func _draw_ring(b: Button, rings: Dictionary) -> void:
 	var text := font.get_multiline_string_size(b.text, HORIZONTAL_ALIGNMENT_CENTER, -1, fs)
 	var lines := b.text.count("
 ") + 1
-	var ring := Vector2(text.x + 32.0, font.get_height(fs) * lines + 6.0 + 8.0 * (lines - 1))
+	var ring := Vector2(text.x + 40.0, maxf(font.get_height(fs) * lines + 6.0 + 8.0 * (lines - 1), RING_MIN_H))
 	ring = ring.min(b.size)
 	b.draw_style_box(rings[k], Rect2((b.size - ring) * 0.5 + Vector2(0, -1), ring))
 

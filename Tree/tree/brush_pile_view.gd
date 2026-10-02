@@ -64,6 +64,9 @@ func _ready() -> void:
 	(hedgehog.material_override as StandardMaterial3D).rim_enabled = true
 	(hedgehog.material_override as StandardMaterial3D).rim = 0.5
 	(hedgehog.material_override as StandardMaterial3D).rim_tint = 0.6
+	# (0.8.2.1 look review: too dark to make out at dusk.) A faint warm fill of its own coat.
+	(hedgehog.material_override as StandardMaterial3D).emission_enabled = true
+	(hedgehog.material_override as StandardMaterial3D).emission = Color(0.16, 0.12, 0.08)
 	hedgehog.scale = Vector3.ONE * HOG_SCALE
 	hedgehog.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	hedgehog.visible = false

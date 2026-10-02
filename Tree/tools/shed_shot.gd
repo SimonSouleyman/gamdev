@@ -628,7 +628,7 @@ func _repot_sequence(view: BonsaiView, b: BonsaiSim) -> void:
 	await _tap(ball)
 	await _seconds(0.3)
 	_shot("repot_trimmed")
-	await _tap_button("grey rectangle")
+	await _tap_button("grey rectangular pot")
 	await _wait(3)
 	_shot("repot_pot_picked")
 	await _tap_thing(view, "trowel")

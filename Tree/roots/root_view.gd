@@ -32,6 +32,7 @@ const SOIL_AMBIENT := Color(0.34, 0.33, 0.4)
 const SOIL_AMBIENT_ENERGY := 0.95
 ## Fine roots are drawn at least this thick (radius in m): readable from the overview.
 const ROOT_MIN_RADIUS := 0.026
+const OLD_ROOT_NEAR_FADE := 1.5
 ## 0.8.2 side roots (specs/side-roots.md): the second level a little finer than the fine roots,
 ## the third half as thick as the second and a shade dimmer (vertex colour, which the bark shader
 ## also applies to the glow rim). A main root is drawn RootSystem.thickness_of times as thick.
@@ -115,7 +116,18 @@ var _glow_root: Node3D
 const NORMAL_MAX_DISTANCE := 30.0
 ## The far camera: a high three-quarter view (pitch, radians) framing the field with this margin
 ## at FAR_HFOV degrees across the screen (portrait widens the vertical angle to keep that).
-const FAR_PITCH := 1.0
+const FAR_PITCH := 1.2
+## 0.8.2.1 (look review: the map filled about 55 % x 30 % of the portrait screen): the far camera
+## frames what is known (roots, known patches, the trunk), not the whole field, turned so the
+## longer side runs up the screen, within these margins (shares of the screen: sides, under the
+## HUD's bar and hint, above the bottom).
+const FAR_MARGIN_SIDE := 0.06
+const FAR_MARGIN_TOP := 0.22
+const FAR_MARGIN_BOTTOM := 0.06
+## The far view's tap dots at the root ends, as a share of the camera's distance (about 14 px
+## across on a 450 px wide phone), and the bands' ink stroke half-width (m).
+const FAR_TIP_SHARE := 0.017
+const FAR_STROKE_WIDTH := 0.9
 const FAR_FIELD_MARGIN := 1.08
 const FAR_HFOV := 62.0
 ## A rich patch counts as known within this distance of any root (the run's fog shows dots to
@@ -123,7 +135,6 @@ const FAR_HFOV := 62.0
 static var known_reach: float = 8.0
 const FAR_FOG := 0.004
 const FAR_SOIL := Color(0.105, 0.09, 0.08)
-const FAR_BAND := Color(0.02, 0.018, 0.016)
 ## The roots' line thickness as a share of the far camera's distance (about 3 to 4 px on a phone).
 const FAR_ROOT_SHARE := 0.0045
 ## The camera eases at this rate (1/s), slower while it pulls back or flies down.
@@ -140,10 +151,14 @@ var _run_met: Dictionary = {}
 var _far_roots: MeshInstance3D
 var _far_clouds: MultiMeshInstance3D
 var _far_trunk: MeshInstance3D
+var _far_bands: MeshInstance3D
+var _far_tips: MeshInstance3D
+var _far_pts := PackedVector3Array()
+var _far_fit_yaw: float = INF
+var _far_fit_distance: float = 40.0
 var _bands: MeshInstance3D
 var _veins: MeshInstance3D
 var _band_mat: Material
-var _band_far_mat: StandardMaterial3D
 var _saved_view: Array = []
 var _cam_rate: float = CAM_RATE
 var _cam_slow_t: float = 0.0
@@ -159,6 +174,7 @@ func _ready() -> void:
 	_builder.radius_scale = 0.75
 	_builder.min_radius = ROOT_MIN_RADIUS
 	_builder.bark_tiling = 2.0
+	_builder.extra_sides = 2
 	_build_world()
 	_build_hud()
 	if get_parent() == get_tree().root:
@@ -210,6 +226,7 @@ func _build_world() -> void:
 	env.glow_bloom = 0.15
 	camera.environment = env
 	add_child(camera)
+	_build_soil()
 
 	_dots = MultiMeshInstance3D.new()
 	var mm := MultiMesh.new()
@@ -240,6 +257,10 @@ func _build_world() -> void:
 	root_mat.set_shader_parameter("texture_tint", Color(1.25, 1.15, 0.95))
 	root_mat.set_shader_parameter("glow", OLD_ROOT_GLOW)
 	root_mat.set_shader_parameter("glow_rim", OLD_ROOT_RIM)
+	# 0.8.2.1 (look review: a run started by the trunk put the camera inside the thick old roots):
+	# old roots dissolve within OLD_ROOT_NEAR_FADE m of the camera, so they never fill the view.
+	root_mat.set_shader_parameter("near_fade", OLD_ROOT_NEAR_FADE)
+	root_mat.set_shader_parameter("near_fade_band", 0.0)
 	_static_roots = MeshInstance3D.new()
 	_static_roots.material_override = root_mat
 	add_child(_static_roots)
@@ -247,6 +268,7 @@ func _build_world() -> void:
 	var live_mat := root_mat.duplicate() as ShaderMaterial
 	live_mat.set_shader_parameter("glow", LIVE_ROOT_GLOW)
 	live_mat.set_shader_parameter("glow_rim", LIVE_ROOT_RIM)
+	live_mat.set_shader_parameter("near_fade", 0.6)
 	_live_roots = MeshInstance3D.new()
 	_live_roots.material_override = live_mat
 	add_child(_live_roots)
@@ -274,16 +296,14 @@ func _build_world() -> void:
 	_bands = MeshInstance3D.new()
 	_bands.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(_bands)
-	_band_far_mat = StandardMaterial3D.new()
-	_band_far_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	_band_far_mat.albedo_color = FAR_BAND
 	_veins = MeshInstance3D.new()
 	_veins.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	var vm := StandardMaterial3D.new()
 	vm.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	vm.vertex_color_use_as_albedo = true
 	vm.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	vm.albedo_color = Color(1, 1, 1, 0.16)
+	# (0.8.2.1: a little stronger, the phone did not show them.)
+	vm.albedo_color = Color(1, 1, 1, 0.26)
 	vm.cull_mode = BaseMaterial3D.CULL_DISABLED
 	vm.depth_draw_mode = BaseMaterial3D.DEPTH_DRAW_DISABLED
 	_veins.material_override = vm
@@ -321,6 +341,68 @@ func _build_world() -> void:
 	_far_trunk.position = Vector3(0, 0.3, 0)
 	_far_trunk.visible = false
 	add_child(_far_trunk)
+	_far_bands = _far_flat()
+	_far_tips = _far_flat()
+
+
+## 0.8.2.1 (phone test: below the first cluster of dots the soil was a flat black): a faint
+## mottled soil all around, a big sphere seen from inside that travels with the camera (unshaded,
+## unfogged, behind everything the fog has not already hidden), textured in world space so it
+## turns with the view like soil around you. Its tones sit a little above SOIL_COLOR: darker
+## mottling is lost in the phone renderer's dark steps.
+const SOIL_SPHERE := 44.0
+var _soil: MeshInstance3D
+
+
+func _build_soil() -> void:
+	_soil = MeshInstance3D.new()
+	var sphere := SphereMesh.new()
+	sphere.radius = SOIL_SPHERE
+	sphere.height = SOIL_SPHERE * 2.0
+	sphere.radial_segments = 16
+	sphere.rings = 8
+	_soil.mesh = sphere
+	var tex := NoiseTexture2D.new()
+	tex.seamless = true
+	tex.width = 256
+	tex.height = 256
+	var fn := FastNoiseLite.new()
+	fn.seed = 11
+	fn.frequency = 0.02
+	fn.fractal_octaves = 4
+	fn.fractal_gain = 0.6
+	tex.noise = fn
+	var ramp := Gradient.new()
+	ramp.set_color(0, SOIL_COLOR.darkened(0.2))
+	ramp.set_color(1, Color(0.1, 0.085, 0.072))
+	ramp.add_point(0.55, Color(0.058, 0.05, 0.045))
+	tex.color_ramp = ramp
+	var mat := StandardMaterial3D.new()
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.albedo_texture = tex
+	mat.uv1_triplanar = true
+	mat.uv1_world_triplanar = true
+	mat.uv1_scale = Vector3.ONE * 0.06
+	mat.cull_mode = BaseMaterial3D.CULL_FRONT
+	mat.disable_fog = true
+	mat.disable_receive_shadows = true
+	_soil.material_override = mat
+	_soil.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_child(_soil)
+
+
+## An unshaded vertex-coloured mesh node for the far view's map marks (hidden until it opens).
+func _far_flat() -> MeshInstance3D:
+	var m := MeshInstance3D.new()
+	m.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	var mat := StandardMaterial3D.new()
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.vertex_color_use_as_albedo = true
+	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	m.material_override = mat
+	m.visible = false
+	add_child(m)
+	return m
 
 
 func _glow_sphere(r: float, color: Color, energy: float) -> MeshInstance3D:
@@ -595,19 +677,21 @@ func _build_hud() -> void:
 	dive_button = _scrap_button("hold\nto dive", 30)
 	dive_button.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
 	dive_button.offset_left = -250
-	dive_button.offset_top = -300
+	dive_button.offset_top = -330
 	dive_button.offset_right = -60
-	dive_button.offset_bottom = -110
+	dive_button.offset_bottom = -140
 	dive_button.focus_mode = Control.FOCUS_NONE
 	root.add_child(dive_button)
 
 	# End tonight's root here; the rest of the life force goes into fine roots.
-	end_button = _scrap_button("end root here", 26)
+	# (0.8.2.1 look review: 56 px tall with small words, well under 9 mm on the phone.)
+	end_button = _scrap_button("end root
+here", 30)
 	end_button.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
 	end_button.offset_left = -250
-	end_button.offset_top = -80
+	end_button.offset_top = -124
 	end_button.offset_right = -60
-	end_button.offset_bottom = -24
+	end_button.offset_bottom = -18
 	end_button.focus_mode = Control.FOCUS_NONE
 	end_button.pressed.connect(end_early)
 	root.add_child(end_button)
@@ -666,7 +750,8 @@ func _update_hud() -> void:
 		return
 	var frac := clampf(res.life_force / maxf(_life_at_start, 0.001), 0.0, 1.0)
 	_life_bar.size = Vector2(_life_bar_bg.size.x * frac, _life_bar_bg.size.y)
-	_life_label.text = "life force %.1f" % res.life_force
+	# Whole numbers, as in tree mode (0.8.2.1 look review: the far view read "67.1").
+	_life_label.text = "life force %d" % roundi(res.life_force)
 	var t := roots.run_totals
 	_counts.visible = mode == Mode.RUN or mode == Mode.DONE and not quiet_night
 	var words := ["water", "N", "P", "K"]
@@ -770,6 +855,7 @@ func _orbit_position() -> Vector3:
 func _process(delta: float) -> void:
 	if roots == null:
 		return
+	_soil.global_position = camera.global_position
 	match mode:
 		Mode.RUN:
 			(_dots.material_override as ShaderMaterial).set_shader_parameter("fog_far", 15.0)
@@ -779,8 +865,11 @@ func _process(delta: float) -> void:
 				_process_settle(delta)
 			# From the overview the whole underground glows; up close only the near dots do.
 			(_dots.material_override as ShaderMaterial).set_shader_parameter("fog_far", _orbit_distance + 12.0)
-			if not _pressing:
-				_orbit_yaw += delta * (0.03 if far_view else 0.08)
+			if not _pressing and not far_view:
+				_orbit_yaw += delta * 0.08
+			if far_view and absf(_orbit_yaw - _far_fit_yaw) > 0.01:
+				# Turned by a drag: the frame follows, so the map still fills the screen.
+				_far_fit(_orbit_yaw)
 			# 0.8.2: the look point eases too, slower while the far view pulls back or returns.
 			_cam_slow_t = maxf(0.0, _cam_slow_t - delta)
 			_cam_rate = CAM_RATE_FAR if _cam_slow_t > 0.0 else CAM_RATE
@@ -1092,8 +1181,11 @@ func _build_field() -> void:
 	_bands.mesh = FieldLook.band_mesh(ground)
 	if _band_mat == null:
 		var mat := RockLook.material(0.0, 0.45)
-		mat.set_shader_parameter("stone_a", Color(0.4, 0.37, 0.34))
-		mat.set_shader_parameter("stone_b", Color(0.25, 0.23, 0.21))
+		# (0.8.2.1: lighter stone, so the blocks and cracks read in the dark soil.)
+		mat.set_shader_parameter("stone_a", Color(0.56, 0.52, 0.47))
+		mat.set_shader_parameter("stone_b", Color(0.36, 0.33, 0.3))
+		# Finer grain: the big blotches read as one camouflaged slab, not as stone.
+		mat.set_shader_parameter("grain_scale", 3.4)
 		mat.set_shader_parameter("void_fill", 0.35)
 		_band_mat = mat
 	_bands.material_override = _band_mat
@@ -1115,10 +1207,64 @@ func far_fov() -> float:
 	return clampf(rad_to_deg(2.0 * atan(tan(deg_to_rad(FAR_HFOV) * 0.5) / aspect)), 62.0, 112.0)
 
 
-## The far camera's distance: the whole field (its radius, with a margin) across the screen.
+## The far camera's distance (set by _far_fit when the far view opens; before, the whole field).
 func far_distance() -> float:
+	if far_view and not _far_pts.is_empty():
+		return _far_fit_distance
 	var half_w := tan(deg_to_rad(far_fov()) * 0.5) * _aspect()
 	return maxf(ground.extent * FAR_FIELD_MARGIN / maxf(half_w, 0.1), 20.0)
+
+
+## Frames the far content seen from `yaw`: the look point and distance at which every point lies
+## inside the screen's margins (the camera's own projection, solved per point), the look point
+## moved so the content sits in the middle of the free band. Returns the distance.
+func _far_fit(yaw: float) -> float:
+	_far_fit_yaw = yaw
+	var dir := Vector3(sin(yaw) * cos(FAR_PITCH), sin(FAR_PITCH), cos(yaw) * cos(FAR_PITCH))
+	var f := -dir
+	var r := f.cross(Vector3.UP).normalized()
+	var u := r.cross(f).normalized()
+	var tv := tan(deg_to_rad(far_fov()) * 0.5)
+	var th := tv * _aspect()
+	# The free band in normalised screen units (-1..1) and its middle.
+	var x_half := 1.0 - 2.0 * FAR_MARGIN_SIDE
+	var y_top := 1.0 - 2.0 * FAR_MARGIN_TOP
+	var y_bot := -1.0 + 2.0 * FAR_MARGIN_BOTTOM
+	var y_half := (y_top - y_bot) * 0.5
+	var y_mid := (y_top + y_bot) * 0.5
+	var lo := Vector2(INF, INF)
+	var hi := Vector2(-INF, -INF)
+	for p in _far_pts:
+		var q := Vector2(r.dot(p), u.dot(p))
+		lo = lo.min(q)
+		hi = hi.max(q)
+	var centre := r * (lo.x + hi.x) * 0.5 + u * (lo.y + hi.y) * 0.5
+	var d := 12.0
+	for p in _far_pts:
+		var q := p - centre
+		var depth := f.dot(q)
+		d = maxf(d, absf(r.dot(q)) / (th * x_half) - depth)
+		d = maxf(d, absf(u.dot(q)) / (tv * y_half) - depth)
+	# The content's middle at the band's middle: the camera looks a little below it.
+	var look := centre - u * (y_mid * tv * d)
+	_look = look
+	_orbit_pitch = FAR_PITCH
+	_orbit_distance = d
+	_far_fit_distance = d
+	return d
+
+
+## The turn of the far camera that frames the content largest (24 headings), from the current one.
+func _far_best_yaw() -> float:
+	var best := _orbit_yaw
+	var best_d := INF
+	for k in range(24):
+		var yaw := _orbit_yaw + TAU * k / 24.0
+		var d := _far_fit(yaw)
+		if d < best_d - 0.05:
+			best_d = d
+			best = yaw
+	return best
 
 
 func _aspect() -> float:
@@ -1131,12 +1277,12 @@ func open_far_view() -> bool:
 	if far_view or not can_far_view():
 		return false
 	far_view = true
-	_saved_view = [_look, _orbit_distance, _orbit_pitch]
+	_saved_view = [_look, _orbit_distance, _orbit_pitch, _orbit_yaw]
+	_far_pts = FieldLook.far_content(roots, ground, far_known_patches())
+	_orbit_yaw = _far_best_yaw()
+	_far_fit(_orbit_yaw)
 	_build_far()
 	_show_far(true)
-	_look = Vector3(0.0, -2.0, 0.0)
-	_orbit_pitch = FAR_PITCH
-	_orbit_distance = far_distance()
 	_cam_slow_t = 2.5
 	_tween_fov(far_fov(), 1.6)
 	_hover.visible = false
@@ -1155,7 +1301,7 @@ func _leave_far(instant: bool) -> void:
 		return
 	far_view = false
 	_show_far(false)
-	if _saved_view.size() == 3:
+	if _saved_view.size() >= 3:
 		_look = _saved_view[0]
 		_orbit_distance = _saved_view[1]
 		_orbit_pitch = _saved_view[2]
@@ -1190,9 +1336,14 @@ func _show_far(on: bool) -> void:
 	_far_roots.visible = on and _far_roots.mesh != null
 	_far_clouds.visible = on
 	_far_trunk.visible = on
-	_bands.material_override = _band_far_mat if on else _band_mat
+	# The bands as ink strokes on the map, not their rock walls seen from above (black blots).
+	_bands.visible = not on and _bands.mesh != null
+	_far_bands.visible = on and _far_bands.mesh != null
+	_far_tips.visible = on and _far_tips.mesh != null
 	var env := camera.environment
 	env.fog_density = FAR_FOG if on else 0.05
+	# The far view is a map on a plain ground; the run's soil is mottled (0.8.2.1).
+	_soil.visible = not on
 	env.background_color = FAR_SOIL if on else SOIL_COLOR
 	env.fog_light_color = FAR_SOIL if on else SOIL_COLOR
 	camera.far = 220.0 if on else 60.0
@@ -1206,6 +1357,8 @@ func _show_far(on: bool) -> void:
 ## The far view's meshes, from the save: main roots by night, and the known patches.
 func _build_far() -> void:
 	_far_roots.mesh = FieldLook.far_roots_mesh(roots, far_distance() * FAR_ROOT_SHARE)
+	_far_bands.mesh = FieldLook.band_strokes_mesh(ground, FAR_STROKE_WIDTH * clampf(far_distance() / 40.0, 0.6, 1.5))
+	_far_tips.mesh = FieldLook.tip_dots_mesh(roots, far_distance() * FAR_TIP_SHARE)
 	var known := far_known_patches()
 	var mm := _far_clouds.multimesh
 	mm.instance_count = known.size()

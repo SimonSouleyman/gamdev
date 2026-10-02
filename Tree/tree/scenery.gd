@@ -356,6 +356,9 @@ const BACKDROP_SHADER := """
 shader_type spatial;
 render_mode cull_front, depth_draw_opaque, unshaded;
 uniform vec3 tint = vec3(1.0);
+// The season (SeasonLook, 0.8.2.1): the far wood browns in autumn.
+uniform float autumn = 0.0;
+uniform float late = 0.0;
 // The haze over the far wood, drawn here because the phone renderer does not fog this wall.
 uniform vec4 haze = vec4(0.5, 0.6, 0.6, 0.0);
 uniform sampler2D noise : filter_linear_mipmap, repeat_enable;
@@ -368,6 +371,8 @@ void fragment() {
 	ALPHA = smoothstep(line, line + 0.06, UV.y);
 	float trunk = smoothstep(0.55, 0.6, texture(noise, vec2(uv.x * 14.0, 0.7)).r) * smoothstep(0.55, 0.8, UV.y);
 	vec3 leaves = mix(vec3(0.07, 0.11, 0.06), vec3(0.16, 0.24, 0.11), crowns);
+	float turn = max(autumn, late) * smoothstep(0.3, 0.7, texture(noise, vec2(uv.x * 5.0, 0.5)).r);
+	leaves = mix(leaves, mix(vec3(0.22, 0.15, 0.06), vec3(0.17, 0.11, 0.07), late), turn * 0.8);
 	ALBEDO = mix(leaves, vec3(0.1, 0.08, 0.06), trunk * 0.6) * mix(1.0, 0.55, UV.y) * tint;
 	ALBEDO = mix(ALBEDO, haze.rgb, haze.a);
 	ROUGHNESS = 1.0;
@@ -857,7 +862,7 @@ func update(delta: float, day: bool, h: float, sun_color: Color, tree_height: fl
 		(_wall.material_override as ShaderMaterial).set_shader_parameter("tint", Color(0.55, 0.6, 0.55).lerp(sun_color, 0.1) * (0.5 + 0.5 * clampf(h * 3.0, 0.0, 1.0)))
 	# Clouds: drift with the wind, white by day, warm and dim at the low sun.
 	var cloud_col := Color(1.0, 0.72, 0.55).lerp(Color(1, 1, 1), clampf(h * 3.0, 0.0, 1.0))
-	var bright := 0.35 + 0.75 * clampf(h * 2.5, 0.0, 1.0) if day else 0.3
+	var bright := 0.5 + 0.6 * clampf(h * 2.5, 0.0, 1.0) if day else 0.45
 	for i in range(_clouds.size()):
 		var c := _clouds[i]
 		c.position.x += delta * 1.2 * cloud_speed
@@ -866,7 +871,9 @@ func update(delta: float, day: bool, h: float, sun_color: Color, tree_height: fl
 		_cloud_mats[i].set_shader_parameter("sun_color", cloud_col)
 		_cloud_mats[i].set_shader_parameter("brightness", bright)
 	# Butterflies: only by day, once the tree has leaves, fluttering around the crown.
-	_butterflies.visible = day and tree_height > 0.6
+	# (0.8.2.1 look review: around a day-1 sapling the close camera saw a butterfly as a floating
+	# white ball in the grass: they come once the tree is a couple of metres tall.)
+	_butterflies.visible = day and tree_height > 2.0
 	if _butterflies.visible:
 		var mm := _butterflies.multimesh
 		for i in range(mm.instance_count):
@@ -889,12 +896,14 @@ func update(delta: float, day: bool, h: float, sun_color: Color, tree_height: fl
 func set_mood(night: float, rain: float) -> void:
 	for i in range(_cloud_mats.size()):
 		var m := _cloud_mats[i]
-		m.set_shader_parameter("opacity", maxf(1.0 if i % 4 == 0 else 1.0 - night * 0.95, rain))
+		# (0.8.2.1 look review: at dusk and night the clouds were dark grey smudges on the lifted
+		# blue sky: the ones that stay are thinner and moonlit pale, a little lighter than the sky.)
+		m.set_shader_parameter("opacity", maxf(1.0 - night * 0.45 if i % 4 == 0 else 1.0 - night * 0.95, rain))
 		m.set_shader_parameter("grey", rain * 0.85)
 		m.set_shader_parameter("coverage", _cloud_coverage[i] - rain * 0.16)
 		if night > 0.0:
 			m.set_shader_parameter("sun_color", Color(1.0, 0.72, 0.55).lerp(Color(0.6, 0.66, 0.82), night))
-			m.set_shader_parameter("brightness", lerpf(0.3, 0.12, night))
+			m.set_shader_parameter("brightness", lerpf(0.55, 0.42, night))
 	# No butterflies or pollen in the rain.
 	if rain > 0.3:
 		_butterflies.visible = false

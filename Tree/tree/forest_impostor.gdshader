@@ -25,6 +25,12 @@ uniform float wind_strength = 1.0;
 uniform float lift = 0.3;
 // A little lower than the crowns' 0.5: mipmaps thin the far cards' leaves out otherwise.
 uniform float alpha_cut = 0.4;
+// The season (SeasonLook): each cell's autumn colour and how far its kind turns (0.8.2.1), the
+// autumn and late-autumn amounts. Each tree turns a little differently (its wind phase).
+uniform vec4 cell_fall[10];
+uniform float autumn = 0.0;
+uniform float late = 0.0;
+varying vec4 v_fall;
 
 varying vec3 v_right;
 varying vec3 v_facing;
@@ -55,6 +61,10 @@ void vertex() {
 	v_right = right;
 	v_facing = facing;
 	v_bright = INSTANCE_CUSTOM.z;
+	v_fall = cell_fall[c];
+	// Some trees turn early, some late: the turn by this tree's own share.
+	float own = fract(INSTANCE_CUSTOM.w * 3.71);
+	v_fall.a *= clamp((max(autumn, late) - own * 0.45) / 0.55, 0.0, 1.0);
 }
 
 void fragment() {
@@ -66,6 +76,15 @@ void fragment() {
 	world_n = normalize(mix(world_n, vec3(0.0, 1.0, 0.0), lift));
 	NORMAL = normalize((VIEW_MATRIX * vec4(world_n, 0.0)).xyz);
 	ALBEDO = tex.rgb / max(tex.a, 0.01) * tint_mul * v_bright;
+	if (v_fall.a > 0.0) {
+		// Only the leaves turn (green-dominant texels), keeping their light and shade.
+		vec3 c = ALBEDO;
+		float leafy = clamp((c.g - max(c.r, c.b)) * 8.0 + 0.5, 0.0, 1.0);
+		float lum = dot(c, vec3(0.3, 0.55, 0.15));
+		vec3 turned = v_fall.rgb * (lum * 3.0 + 0.03);
+		turned = mix(turned, vec3(0.42, 0.3, 0.2) * lum * 1.8, late * 0.6);
+		ALBEDO = mix(c, turned, leafy * v_fall.a);
+	}
 	// Leaves are thin: the low sun shines through the wall a little, as through the real crowns.
 	BACKLIGHT = translucency * 0.35;
 	ROUGHNESS = 0.9;
