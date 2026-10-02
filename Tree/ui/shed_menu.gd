@@ -1097,9 +1097,7 @@ func _build_loading() -> void:
 	var t := Paper.ink_label("Tree", 64, Paper.INK, true)
 	t.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	box.add_child(t)
-	var sub := Paper.ink_label("the forest is growing...", 30, Paper.FAINT_INK)
-	sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	box.add_child(sub)
+	# 0.8.2.7: no subtitle under the title (Simon). New art proposals: tools/render_splash.gd.
 	_loading.visible = false
 
 
