@@ -143,4 +143,5 @@ func test_weather_lines_in_the_diary() -> void:
 	g.tick(1.0)
 	Almanac.weather_override = ""
 	t.check_eq(g.phase, GameState.Phase.SUNSET, "the day ended")
-	t.check(g.diary.entries.size() == before + 1 and str(g.diary.entries[-1]["text"]).contains("shower"), "the shower is in the diary at sunset")
+	# 0.8.2.6 (J3): the weather is mood only; no diary line.
+	t.check_eq(g.diary.entries.size(), before, "the shower writes no diary line")

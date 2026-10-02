@@ -33,6 +33,31 @@ const TEXTS: Dictionary = {
 	"compass": ["The compass", "The needle points to the wish."],
 }
 
+## 0.8.2.6 (specs/journal-drawers-loop.md, J4 "Kurz im Bild"): a first-time hint is one ink
+## sentence at the screen's edge, gone on the next tap (Journal.show_page). The full page above
+## waits at the back of the book, behind the "notes" corner.
+const HINTS: Dictionary = {
+	"planted": "Tap the ground to grow the seed's first root.",
+	"first_night": "Steer to the glowing dots; each metre drinks life force.",
+	"first_run_done": "The seed grows at sunrise from what the root drank.",
+	"sapling": "Tap for brighter sun; hold a still finger to speed the day.",
+	"spent": "Nothing left to grow with: tonight's root finds more.",
+	"first_sunset": "Tap the ground or swipe up to dive.",
+	"pick": "Tap an old root to start tonight's from there.",
+	"shears": "Touch a branch, slide to choose, lift to cut.",
+	"finished": "Fully grown: the seed bag in the shed holds the next.",
+	"bonsai": "A juniper to keep: turn, water and shape it.",
+	"bonsai_water": "Water when the soil looks pale.",
+	"bonsai_fertiliser": "Pellets feed it; too many brown the tips.",
+	"bonsai_shears": "Cut a third at most: it grows denser.",
+	"bonsai_pinch": "Pinch a fresh tip: the pad fills in.",
+	"bonsai_wire": "Wire sets a branch in four days; then take it off.",
+	"bonsai_repot": "A week fills the pot: repot it.",
+	"bonsai_burn": "Too many pellets browned a few tips.",
+	"empty_night": "No life force tonight: calm days fill the vial.",
+	"compass": "The needle points to the wish.",
+}
+
 ## The doodle on each page (InkSketch kinds); a species page shows its seed or leaf.
 const DOODLES: Dictionary = {
 	"planted": "seed", "first_night": "root", "first_run_done": "fine_roots", "sapling": "sapling",
@@ -76,6 +101,19 @@ static func body(id: String) -> String:
 	if id.begins_with(SPECIES_PREFIX):
 		return Species.from_id(id.substr(SPECIES_PREFIX.length())).page_body()
 	return (TEXTS[id][1] as String).replace("{end}", END_ROOT_NAME)
+
+
+## A page's one-sentence hint (0.8.2.6): its own, else the first sentence of its text.
+static func hint(id: String, body_text: String = "") -> String:
+	if HINTS.has(id):
+		return HINTS[id]
+	if id.begins_with(SPECIES_PREFIX) and has(id):
+		return "A %s: its ways are in the notes." % title(id).to_lower()
+	var text := body_text if body_text != "" else (body(id) if has(id) else "")
+	text = text.split("
+", false)[0] if text != "" else ""
+	var stop := text.find(". ")
+	return text.substr(0, stop + 1) if stop > 0 else text
 
 
 ## The ink doodle of a page (0.8.2, item 23).

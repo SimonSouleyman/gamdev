@@ -54,7 +54,7 @@ func test_every_morning_has_a_wish_place_and_a_short_line() -> void:
 			var p: Dictionary = u.patches[diary.wish_patch]
 			t.check(-(p["center"] as Vector3).y <= Underground.HINT_MAX_DEPTH, "in the topsoil, under the meadow")
 			var line := ""
-			for e in diary.page(day):
+			for e in diary.lines_for_day(day):
 				if Diary.topic_of(e) == "wish":
 					line = str(e["text"])
 			var plant := Diary.PLANTS[int(p["kind"])]
@@ -101,10 +101,8 @@ func test_an_old_save_with_a_day_wish_loads_and_gets_a_place() -> void:
 	var g := GameState.from_dict(d)
 	t.check(not g.drank, "no 'drank' flag in an old save")
 	var page := g.diary.page(9)
-	var shown := false
-	for e in page:
-		shown = shown or str(e["text"]) == "Wish: see the tree from every side."
-	t.check(shown, "the old day wish line still shows on its page")
+	t.check(page.all(func(e: Dictionary) -> bool: return Diary.topic_of(e) != "wish"), "the old day wish line is no diary line now (0.8.2.6)")
+	t.check(Journal.today_lines(g)[0]["text"] == "Wish: " + Journal.wish_line(g.diary.wish), "Today still names it: " + str(Journal.today_lines(g)[0]["text"]))
 	t.check_eq(Compass.wish_way(g, Vector3.ZERO), Vector3.ZERO, "no place: the needle rests")
 	g.diary.new_wish(g.ground, g.day_number() + 1, g.seed, g.roots, g.sim.resources)
 	t.check(g.diary.wish_patch >= 0, "the next morning has a place")
@@ -337,7 +335,7 @@ func test_the_roots_drank_well_after_a_night_at_a_deposit() -> void:
 		g.tick(0.25)
 	var page := g.diary.page(day + 1)
 	var texts: Array = page.map(func(e: Dictionary) -> String: return str(e["text"]))
-	t.check(page.size() <= Diary.PAGE_MAX, "three lines at most")
+	t.check(page.size() <= Diary.PAGE_MAX, "one line at most")
 	t.check(texts.has(Diary.DRANK_LINE) or page.size() == Diary.PAGE_MAX, "the morning says so: %s" % str(texts))
 	t.check(not g.drank, "once")
 	# A night that reached nothing: no line.

@@ -66,20 +66,21 @@ const REACH_MARGIN: float = 0.35
 const GLOW_TODAY: float = 1.0
 const GLOW_YESTERDAY: float = 0.45
 
-## A shorter journal (0.8.2, specs/0.8.md items 21 and 22): a day page holds at most
-## PAGE_MAX of the game's lines, each about eight words: the day's wish, a need the tree shows,
-## and one find, visitor or milestone (a mood line, then a plain note, only when there is none).
-## Routine lines (numbers, "the tree grew") are no longer written. The player's own notes are
-## theirs and always show, below.
-const PAGE_MAX: int = 3
+## A shorter journal (0.8.2, specs/0.8.md items 21 and 22). 0.8.2.6 (specs/journal-drawers-loop.md,
+## J3 "Nur Besonderes"): the Diary ribbon shows one game line a day, and only on a day something
+## happened (SPECIAL): a reached wish first, then a find, a visitor, a milestone, what the night's
+## root reached. The wish and the need moved to the Today page (Journal.today_lines); mood and
+## care lines are no longer written. A quiet day shows its date and nothing under it. The player's
+## own notes are theirs and always show, below.
+const PAGE_MAX: int = 1
 ## A game line stays at or under this many words (one line on the phone; tests check the width).
 const MAX_WORDS: int = 9
 ## "drank" (0.8.2.5, specs/wish-compass-vial.md item 3): the morning after a night whose root
-## reached a deposit, DRANK_LINE. It takes the third place when no find, visitor or milestone
-## fills it, ahead of the weather.
+## reached a deposit, DRANK_LINE.
 const TOPICS: Array[String] = ["wish", "care", "find", "visitor", "milestone", "drank", "mood"]
-## The third place of a day page, in order of preference.
-const THIRD: Array[String] = ["find", "visitor", "milestone", "drank", "mood", ""]
+## The topics worth a diary line, in order of preference (0.8.2.6). "wish" (the morning's wish
+## line, still kept as the day's record), "care" and "mood" (written before 0.8.2.6) never show.
+const SPECIAL: Array[String] = ["find", "visitor", "milestone", "drank"]
 const DRANK_LINE := "The roots drank well."
 
 
@@ -92,10 +93,10 @@ func add(day: int, text: String, by: String = "tree", drawing: String = "", topi
 	entries.append(e)
 
 
-## The game's lines shown on a day's page (at most PAGE_MAX): the day's wish, then a need, then
-## the best of the rest (THIRD). A topic written twice keeps its last line (a reached wish after
-## the morning's wish is a find, not a repeat), and a reached wish beats every other find (0.8.2.1,
-## bug 2: the clearing's lines, written at sunrise, hid the night's "wish found").
+## The game's line shown on a day's page (at most PAGE_MAX, 0.8.2.6: one, and only on a day
+## something happened): the best of SPECIAL. A topic written twice keeps its last line, and a
+## reached wish beats every other find (0.8.2.1, bug 2: the clearing's lines, written at sunrise,
+## hid the night's "wish found").
 ## Lines written before 0.8.2 have no topic: topic_of reads it from their wording, and drops the
 ## routine ones (bug 1: every old day showed "The old roots drew ...", and a sun).
 func page(day: int) -> Array:
@@ -104,19 +105,15 @@ func page(day: int) -> Array:
 		if int(e["day"]) != day or str(e.get("by", "tree")) == "player":
 			continue
 		var t := topic_of(e)
-		if t == ROUTINE:
+		if not SPECIAL.has(t):
 			continue
 		if t == "find" and by_topic.has(t) and is_reached_line(by_topic[t]) and not is_reached_line(e):
 			continue
 		by_topic[t] = e
 	var out: Array = []
-	for t in ["wish", "care"]:
+	for t in SPECIAL:
 		if by_topic.has(t):
 			out.append(by_topic[t])
-	for t in THIRD:
-		if by_topic.has(t):
-			out.append(by_topic[t])
-			break
 	return out.slice(0, PAGE_MAX)
 
 
@@ -226,17 +223,12 @@ func days() -> Array[int]:
 	return out
 
 
-## The one doodle of a day's page (0.8.2, item 23): the drawing of its find, visitor or
-## milestone, else of the wish (its plant), else of the need (its leaf); a sun when none has one.
+## The one doodle of a day's page (0.8.2, item 23): the drawing of its line; a sun when it has
+## none (0.8.2.6: a quiet day shows no doodle in the book, Journal).
 func doodle(day: int) -> String:
-	var lines := page(day)
-	# The third place first (it may stand second on a day without a need), then the wish, the need.
-	for want in ["third", "wish", "care"]:
-		for e in lines:
-			var t := topic_of(e)
-			var place := t if t == "wish" or t == "care" else "third"
-			if place == want and drawing_of(e) != "":
-				return drawing_of(e)
+	for e in page(day):
+		if drawing_of(e) != "":
+			return drawing_of(e)
 	return "sun"
 
 

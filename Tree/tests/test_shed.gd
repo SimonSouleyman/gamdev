@@ -104,27 +104,27 @@ func test_pinboard_has_the_new_switches() -> void:
 		t.check(ShedMenu.TAG_TEXTS.has(item), "every thing on the bench has a label: " + item)
 
 
-## 0.8.1, item 28: the flower pot left the bench; the tree's page (how it is, the wish, an ink
-## sketch) is the journal's first page, and the book opens there; "while you were away" still
-## comes as its own page.
+## 0.8.1, item 28: the flower pot left the bench; the tree's page is the journal's first page,
+## and the book opens there (0.8.2.6: the Today ribbon, J2); "while you were away" still comes as
+## its own page.
 func test_tree_page_is_the_journals_first_page() -> void:
 	t.check(not Shed.ITEMS.has("pot") and not ShedMenu.TAG_TEXTS.has("pot"), "no flower pot on the bench")
 	var g := _grown(12)
-	g.diary.wish = "Today, the tree would like some water."
 	var j := Journal.new()
 	t.root.add_child(j)
 	j.state = g
 	j.open_diary()
-	t.check_eq(j.current_tab(), "tree", "the book opens at the tree's page")
-	t.check_eq(j._tab_buttons.keys()[0], "tree", "its ribbon is the first")
-	var lines := Journal.tree_page_lines(g)
-	t.check(lines[0].contains("%.1f m" % g.sim.height()), "how tall it is: " + lines[0])
-	t.check(lines[1].begins_with("A wish: today"), "the day's wish: " + lines[1])
+	t.check_eq(j.current_tab(), "today", "the book opens at Today")
+	t.check_eq(j._tab_buttons.keys()[0], "today", "its ribbon is the first")
+	var lines := Journal.today_lines(g)
+	t.check(lines.size() >= 1 and lines.size() <= 3, "at most three lines (%d)" % lines.size())
 	var words: Array[String] = []
-	for c in j._tree_box.get_children():
-		if not c.is_queued_for_deletion():
-			words.append((c as Label).text)
-	t.check_eq(words, lines, "the page shows them")
+	for row in j._today_box.get_children():
+		if not row.is_queued_for_deletion():
+			for c in row.get_children():
+				if c is Label:
+					words.append((c as Label).text)
+	t.check_eq(words, lines.map(func(l: Dictionary) -> String: return str(l["text"])), "the page shows them")
 	t.check(j._tree_sketch.custom_minimum_size.y >= 300.0, "with room for the ink sketch")
 	# Another ribbon, closed and opened again: where it was left.
 	j._show_tab("diary", false)
@@ -134,7 +134,7 @@ func test_tree_page_is_the_journals_first_page() -> void:
 	j.free()
 	# The page is never lost: a new tree's page is that tree's.
 	var h := GameState.new_tree(5, "linden", g)
-	t.check(Journal.tree_page_lines(h)[0].contains("linden"), "a new tree has its own page: " + Journal.tree_page_lines(h)[0])
+	t.check(Journal.today_lines(h).size() >= 1, "a new tree has its own page")
 	# "While you were away" still opens as its own page.
 	var menu := ShedMenu.new()
 	t.root.add_child(menu)

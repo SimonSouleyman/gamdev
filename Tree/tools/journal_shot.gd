@@ -1,8 +1,8 @@
 extends SceneTree
-## Journal shots (0.8.2): a tree grown for a few days with the root bot, then the diary's day
-## pages, the care page, the pages tab, several torn-out explanation pages and the seed bag (a
-## finished tree: two species done, the rest locked), each in the normal hand and in "clearer
-## print".
+## Journal shots (0.8.2, 0.8.2.6): a tree grown for a few days with the root bot, then the
+## book's three ribbons (Today, Diary, Collection), the notes at the back and one of them read
+## again, first-time hints as one ink sentence at the screen's edge, and the seed bag (a finished
+## tree: two species done, the rest locked), each in the normal hand and in "clearer print".
 ## Run: godot --path . --resolution 450x1000 -s tools/journal_shot.gd -- --shots=<folder> [--days=9] [--prefix=after_]
 ## For the phone's look add `--rendering-method gl_compatibility` before `--` and `--phone` after it.
 
@@ -12,6 +12,8 @@ var days := 9
 var prefix := ""
 var frame := 0
 const PAGES: Array[String] = ["planted", "first_night", "sapling", "first_sunset", "shears", "bonsai", "bonsai_wire", "species_oak"]
+## The hints photographed in play.
+const HINTS: Array[String] = ["first_night", "sapling", "shears"]
 
 
 func _initialize() -> void:
@@ -82,21 +84,21 @@ func _run() -> void:
 		var j: Journal = main.journal
 		j.clear_pages()
 		j.open_diary()
-		j._show_tab("diary", false)
-		await _wait(12)
-		_shot("diary" + tag)
+		for tab in ["today", "diary", "collection", "notes"]:
+			j._show_tab(tab, false)
+			await _wait(12)
+			_shot(tab + tag)
 		print("diary line width %.0f (clearer print %s)" % [j._diary_text.size.x, on])
-		j._show_tab("care", false)
-		await _wait(8)
-		_shot("care" + tag)
-		j._show_tab("pages", false)
-		await _wait(8)
-		_shot("pages" + tag)
+		j.read_page("first_night")
+		await _wait(10)
+		_shot("notes_read" + tag)
+		j.close_page()
 		j.close_diary()
-		for id in PAGES:
+		await _wait(6)
+		for id in HINTS:
 			j.show_page(id, Pages.title(id), Pages.body(id))
 			await _wait(14)
-			_shot("page_" + id + tag)
+			_shot("hint_" + id + tag)
 			j._page_shown_at = -10.0
 			j.close_page()
 			await _wait(2)

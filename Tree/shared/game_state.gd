@@ -241,7 +241,6 @@ func _tick_loop(delta: float) -> void:
 				clock.boost_active = false
 				clock.boost_remaining = 0.0
 				phase = Phase.SUNSET
-				_weather_note("evening")
 				# A shower today: mushrooms come up under the crown for a few days (living clearing).
 				if bool(weather_today().get("rain", false)) and day_number() > 0:
 					after_rain()
@@ -483,7 +482,6 @@ func _sunrise() -> void:
 	sim.start_dawn_burst()
 	if was_seed and not sim.nutrients_spent():
 		diary.add(day_number(), "The seed sprouted at dawn.", "tree", "sapling", "milestone")
-	_care_line()
 	# The night's root reached a deposit: one short line (0.8.2.5; the page's third place).
 	if drank and not was_seed:
 		diary.add(day_number(), Diary.DRANK_LINE, "tree", "fine_roots", "drank")
@@ -491,7 +489,6 @@ func _sunrise() -> void:
 	# A missed wish deposit glows faintly one more night; the new wish may place a deposit ahead
 	# of the newest root tip, of what the tree is shorter of (Diary.plan_wish).
 	diary.new_wish(ground, day_number(), seed, roots, sim.resources)
-	_weather_note("morning")
 	morning_timer = 0.0
 	_event("sunrise")
 
@@ -508,8 +505,8 @@ const FIND_LINES := {
 	"water_vein": "Found a water vein that hums quietly.",
 	"coin": "Found a lost coin, green with age.",
 }
-## The need the tree shows at sunrise, one line with the leaf it shows (0.8.2: the day page's
-## second place; the care page says where to steer).
+## The need's words before 0.8.2.6, when it was a diary line; the leaves it shows (doodles). The
+## need is read on the journal's Today page now (Journal.today_lines), not written each sunrise.
 const CARE_LINES: Array[String] = [
 	"Thirsty: the leaves hang.",
 	"Pale leaves: short of nitrogen.",
@@ -517,19 +514,6 @@ const CARE_LINES: Array[String] = [
 	"Brown edges: short of potassium.",
 ]
 const CARE_LEAVES: Array[String] = ["leaf_water", "leaf_n", "leaf_p", "leaf_k"]
-
-
-## The strongest need the night left, as the day page's care line (none on the first days, when
-## the tree is grown, or when it lacks nothing).
-func _care_line() -> void:
-	if finished or is_seed() or day_number() <= 1:
-		return
-	var best := -1
-	for k in range(4):
-		if sim.care_need[k] >= Care.SHOW_MIN and (best < 0 or sim.care_need[k] > sim.care_need[best]):
-			best = k
-	if best >= 0:
-		diary.add(day_number(), CARE_LINES[best], "tree", CARE_LEAVES[best], "care")
 
 
 ## A branch of the tree was cut (tree/pruning.gd): it goes onto the brush pile at sunrise.
@@ -561,13 +545,7 @@ func weather_today() -> Dictionary:
 	return _weather
 
 
-## A diary line when the weather was worth noting: mist and dew at sunrise, a shower at sunset.
-func _weather_note(part: String) -> void:
-	if day_number() == 0:
-		return
-	var line := Almanac.diary_line(weather_today(), part)
-	if line != "":
-		diary.add(day_number(), line, "tree", "mist" if part == "morning" else "rain", "mood")
+## 0.8.2.6 (specs/journal-drawers-loop.md, J3): the weather is mood only and writes no diary line.
 
 
 # --- care (0.6.3) -------------------------------------------------------------
