@@ -1178,11 +1178,26 @@ static func draw_graph_sketch(c: Control, g: PlantGraph) -> void:
 
 # --- loading page -------------------------------------------------------------------
 
+## The start page with its tree and title (style 2, Simon 2026-10-02) (also the boot splash, project.godot).
+const SPLASH_PAGE := "res://ui/splash/boot_splash.png"
+
+
 func _build_loading() -> void:
 	_loading = PanelContainer.new()
 	_loading.add_theme_stylebox_override("panel", Paper.paper_box(360, 640, 99, "", 40.0, Paper.PAPER, "cream"))
 	_loading.set_anchors_preset(Control.PRESET_FULL_RECT)
 	add_child(_loading)
+	# 0.8.2.7: the start page Simon picked (tools/render_splash.gd --apply=N), the same picture
+	# as the boot splash, so the phone's start runs from one into the other without a jump.
+	if ResourceLoader.exists(SPLASH_PAGE):
+		var page := TextureRect.new()
+		page.texture = load(SPLASH_PAGE)
+		page.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		page.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
+		page.set_anchors_preset(Control.PRESET_FULL_RECT)
+		_loading.add_child(page)
+		_loading.visible = false
+		return
 	var box := VBoxContainer.new()
 	box.alignment = BoxContainer.ALIGNMENT_CENTER
 	_loading.add_child(box)
@@ -1193,9 +1208,7 @@ func _build_loading() -> void:
 	var t := Paper.ink_label("Tree", 64, Paper.INK, true)
 	t.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	box.add_child(t)
-	var sub := Paper.ink_label("the forest is growing...", 30, Paper.FAINT_INK)
-	sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	box.add_child(sub)
+	# 0.8.2.7: no subtitle under the title (Simon). New art proposals: tools/render_splash.gd.
 	_loading.visible = false
 
 

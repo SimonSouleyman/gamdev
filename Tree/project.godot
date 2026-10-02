@@ -19,6 +19,9 @@ run/main_scene="res://main.tscn"
 config/quit_on_go_back=false
 config/features=PackedStringArray("4.7", "Mobile")
 config/icon="res://icon_app.png"
+boot_splash/bg_color=Color(0.95, 0.91, 0.78, 1)
+boot_splash/image="res://ui/splash/boot_splash.png"
+boot_splash/stretch_mode=4
 
 [display]
 
