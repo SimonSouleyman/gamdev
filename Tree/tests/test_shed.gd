@@ -159,10 +159,10 @@ func test_shed_view_fits_the_phone() -> void:
 		shed.camera.current = true
 		shed.fit_view()
 		var where := "%dx%d" % [canvas.x, canvas.y]
-		for p in Shed.must_see():
+		for p in shed.must_see():
 			var s := shed.camera.unproject_position(shed.to_global(p))
 			t.check(not shed.camera.is_position_behind(shed.to_global(p)) and s.x >= 0.0 and s.x <= canvas.x and s.y >= 0.0 and s.y <= canvas.y, "%s: %s on screen (%s)" % [where, p, s])
-		for item in Shed.ITEMS:
+		for item in Shed.ITEMS + ["door"]:
 			var c: Node3D = shed._picks[item][0]
 			var s := shed.camera.unproject_position(c.global_position)
 			t.check(s.x > 20.0 and s.x < canvas.x - 20.0 and s.y > 20.0 and s.y < canvas.y - 20.0, "%s: %s inside the screen (%s)" % [where, item, s])
@@ -170,6 +170,35 @@ func test_shed_view_fits_the_phone() -> void:
 			# Finger size on a phone (portrait): its tap circle at least 9 mm (100 canvas px).
 			t.check(canvas.x > canvas.y or shed._screen_radius(c.global_position, float(shed._picks[item][1])) * 2.0 >= 100.0, "%s: %s at least finger size" % [where, item])
 		vp.free()
+
+
+## 0.8.2.5 (Simon picked layout 08): the pinboard hangs on the inside of the open door's leaf, the
+## window with the sill right of the doorway (seen from inside), the bench low before them; a tap
+## on the door swings the leaf with the pinboard and lets it settle back.
+func test_the_shed_is_layout_08() -> void:
+	var vp := SubViewport.new()
+	vp.size = Vector2i(450, 1000)
+	vp.disable_3d = false
+	t.root.add_child(vp)
+	var shed := Shed.new()
+	vp.add_child(shed)
+	shed.bonsai_ready = true
+	shed.camera.current = true
+	shed.fit_view()
+	var board: Node3D = shed._items["options"]
+	var leaf: Node3D = shed._items["door"]
+	t.check(board.get_parent() == leaf, "the pinboard hangs on the door leaf")
+	var pin := shed.camera.unproject_position(board.global_position)
+	var sill := shed.camera.unproject_position(shed.bonsai_spot.global_position)
+	var door := shed.camera.unproject_position(shed.to_global(Vector3(Shed.DOOR_X, 1.2, Shed.DEPTH * 0.5)))
+	t.check(pin.x < door.x and door.x < sill.x, "pinboard left, doorway, sill right (%.0f < %.0f < %.0f)" % [pin.x, door.x, sill.x])
+	var bench := shed.camera.unproject_position(shed.to_global(Vector3(0.0, Shed.BENCH_TOP, Shed.BENCH_Z)))
+	t.check(bench.y > sill.y and bench.y > pin.y, "the bench below them")
+	var rest := leaf.rotation.y
+	shed.tap("door")
+	(shed._busy["door"] as Tween).custom_step(2.0)
+	t.check_near(leaf.rotation.y, rest, 0.001, "the door settles back after a tap")
+	vp.free()
 
 
 ## 0.8.2 (look review, sillzoom): on a narrow phone screen the sill's tools keep a margin from
@@ -220,7 +249,7 @@ func test_the_shed_shows_little_floor() -> void:
 		var foot := shed.camera.unproject_position(shed.to_global(Vector3(0.0, 0.1, Shed.BENCH_Z - 0.32)))
 		t.check(foot.y >= canvas.y * 0.9, "%s: the bench's foot at %.0f%% of the height (floor below it: %.0f%%)" % [where, foot.y / canvas.y * 100.0, 100.0 - foot.y / canvas.y * 100.0])
 		var hd := Shed.DEPTH * 0.5
-		for p in [Vector3(Shed.DOOR_W * 0.5 + 0.07, Shed.DOOR_H + 0.08, hd), Vector3(-Shed.DOOR_W * 0.5 - 0.07, Shed.DOOR_H + 0.08, hd)]:
+		for p in [Vector3(Shed.DOOR_X + Shed.DOOR_W * 0.5 + 0.07, Shed.DOOR_H + 0.08, hd), Vector3(Shed.DOOR_X - Shed.DOOR_W * 0.5 - 0.07, Shed.DOOR_H + 0.08, hd)]:
 			var s := shed.camera.unproject_position(shed.to_global(p))
 			t.check(s.x >= 0.0 and s.x <= canvas.x and s.y >= 0.0, "%s: the door frame whole (%s)" % [where, s])
 		vp.free()

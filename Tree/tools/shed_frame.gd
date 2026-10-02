@@ -22,7 +22,7 @@ func _initialize() -> void:
 		print("aspect %.3f: fov %.1f pitch %.1f, bench top edge at %.0f%%, bench foot at %.0f%% (floor below: %.0f%%)" % [aspect, cam.fov, rad_to_deg(shed._fit_pitch), top_y * 100.0, front_y * 100.0, (1.0 - front_y) * 100.0])
 		var inv := Transform3D(cam.basis, cam.position).affine_inverse()
 		var worst := ""
-		for q in Shed.must_see():
+		for q in shed.must_see():
 			var c := inv * q
 			worst += " %.2f/%.2f" % [absf(c.x) / -c.z / aspect, absf(c.y) / -c.z]
 		print("   need (x / y tan) per point:", worst)
