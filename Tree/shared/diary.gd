@@ -82,6 +82,27 @@ const TOPICS: Array[String] = ["wish", "care", "find", "visitor", "milestone", "
 ## line, still kept as the day's record), "care" and "mood" (written before 0.8.2.6) never show.
 const SPECIAL: Array[String] = ["find", "visitor", "milestone", "drank"]
 const DRANK_LINE := "The roots drank well."
+## 0.8.2.6 (specs/journal-drawers-loop.md G3): the "drank" line names the best thing the night
+## reached instead (GameState.night_best: "wish", "rich:<kind>", "find:<kind>"; "rich" from an
+## old save). DRANK_LINE is no longer written.
+const RICH_PLANTS: Array[String] = ["rushes", "clover", "nettles", "comfrey"]
+
+
+static func morning_line(best: String) -> String:
+	var what := best.get_slice(":", 0)
+	var kind := best.get_slice(":", 1) if best.contains(":") else ""
+	match what:
+		"wish":
+			return "The roots reached the wish."
+		"find":
+			# The find's first three words: "a fossil shell", "an old root", "a lost coin".
+			var words := str(Underground.FIND_TEXTS.get(kind, "something old")).replace(",", "").split(" ")
+			return "The roots found %s." % " ".join(words.slice(0, 3))
+		_:
+			var k := int(kind) if kind.is_valid_int() else -1
+			if k >= 0 and k < RICH_PLANTS.size():
+				return "The roots found rich soil by the %s." % RICH_PLANTS[k]
+			return "The roots found a rich patch."
 
 
 func add(day: int, text: String, by: String = "tree", drawing: String = "", topic: String = "") -> void:

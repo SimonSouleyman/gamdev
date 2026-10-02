@@ -153,16 +153,22 @@ func test_the_wish_plant_is_large_in_flower_and_at_the_edge_when_far() -> void:
 func _plant_box(wp: WishPlant) -> AABB:
 	var box := AABB()
 	for c in wp.get_children():
-		if c is MeshInstance3D and (c as MeshInstance3D).material_override == Meadow._plant_material():
+		if c is MeshInstance3D and _is_stand(c, wp):
 			box = (c as MeshInstance3D).mesh.get_aabb()
 	return box
+
+
+## The stand's mesh (0.8.2.6: its own material, whose flowers open at the morning moment).
+func _is_stand(c: Node, wp: WishPlant) -> bool:
+	var m := (c as MeshInstance3D).material_override
+	return m == Meadow._plant_material() or (m != null and m == wp._stand_mat)
 
 
 ## Flower colours among the plant's vertex colours: brown rush tufts, pink or white clover heads,
 ## green-brown nettle tassels, violet comfrey bells.
 func _has_flowers(wp: WishPlant, kind: int) -> bool:
 	for c in wp.get_children():
-		if not (c is MeshInstance3D) or (c as MeshInstance3D).material_override != Meadow._plant_material():
+		if not (c is MeshInstance3D) or not _is_stand(c, wp):
 			continue
 		var arrays := (c as MeshInstance3D).mesh.surface_get_arrays(0)
 		for col: Color in arrays[Mesh.ARRAY_COLOR]:
@@ -311,7 +317,7 @@ func test_the_roots_drank_well_after_a_night_at_a_deposit() -> void:
 	var day := g.day_number()
 	while g.phase != GameState.Phase.DAY:
 		g.tick(0.25)
-	var lines := g.diary.lines_for_day(day + 1).filter(func(e: Dictionary) -> bool: return str(e["text"]) == Diary.DRANK_LINE)
+	var lines := g.diary.lines_for_day(day + 1).filter(func(e: Dictionary) -> bool: return str(e.get("topic", "")) == "drank")
 	# The first morning is the seed's (no line then); the next night counts.
 	t.check(lines.is_empty(), "not on the seed's first morning")
 	while g.phase == GameState.Phase.DAY:
@@ -336,11 +342,12 @@ func test_the_roots_drank_well_after_a_night_at_a_deposit() -> void:
 	var page := g.diary.page(day + 1)
 	var texts: Array = page.map(func(e: Dictionary) -> String: return str(e["text"]))
 	t.check(page.size() <= Diary.PAGE_MAX, "one line at most")
-	t.check(texts.has(Diary.DRANK_LINE) or page.size() == Diary.PAGE_MAX, "the morning says so: %s" % str(texts))
+	# 0.8.2.6: the line names the best thing reached (a wish here) instead of "drank well".
+	t.check(texts.has(Diary.morning_line("wish")) or page.size() == Diary.PAGE_MAX, "the morning says so: %s" % str(texts))
 	t.check(not g.drank, "once")
 	# A night that reached nothing: no line.
 	var q := GameState.new_game(14)
 	q.drank = false
 	q.diary.entries.clear()
 	q._sunrise()
-	t.check(q.diary.entries.filter(func(e: Dictionary) -> bool: return str(e["text"]) == Diary.DRANK_LINE).is_empty(), "no line without a deposit reached")
+	t.check(q.diary.entries.filter(func(e: Dictionary) -> bool: return str(e.get("topic", "")) == "drank").is_empty(), "no line without a deposit reached")

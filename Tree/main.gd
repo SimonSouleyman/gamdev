@@ -277,6 +277,11 @@ func _process(delta: float) -> void:
 			if Time.get_ticks_usec() - t0 > budget:
 				_sim_accum = minf(_sim_accum, SIM_STEP)
 				break
+			# 0.8.2.6: a moment of the day stops a fast-forwarded frame there; the view slows down
+			# from the next frame (the steps stay the same fixed steps).
+			if steps < 40 and state.moment_due() and tree_view.time_speed() > 1.0:
+				_sim_accum = minf(_sim_accum, SIM_STEP)
+				break
 		if steps == 40:
 			_sim_accum = 0.0  # a long hitch: drop the rest rather than spiral
 	_handle_events()
@@ -328,6 +333,8 @@ func _handle_events() -> void:
 				_rise()
 			"morning":
 				_morning()
+			"moment:morning", "moment:visitor", "moment:weather":
+				_moment(e.substr(7))
 			"finished":
 				Haptics.buzz("finished")
 				state.seen_pages["finished"] = true
@@ -474,11 +481,16 @@ func _rise() -> void:
 		tree_view.dive_amount = 1.0
 		# 0.8.2.4: the sunrise rises from above the grass, outside the crown (TreeView.rising).
 		tree_view.rising = true
+		# 0.8.2.6: turned toward last night's new roots, so the morning glow is seen.
+		tree_view.face_night_roots()
 		# The camera rises from its first frame on: placed now, not one frame late (0.8.2.2).
 		tree_view.snap_camera()
 		ambience.set_world(true, 2.5)
 		_hold_black(tw, _morning_behind_black))
 	tw.tween_property(_fade, "color:a", 0.0, 1.2)
+	# 0.8.2.6 (G3): as the black lifts, last night's new roots glow through the soil and the
+	# dawn burst sparkles (TreeView.morning_reveal).
+	tw.parallel().tween_callback(tree_view.morning_reveal).set_delay(0.7)
 	tw.parallel().tween_property(tree_view, "dive_amount", 0.0, 3.0).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
 	tw.tween_callback(func() -> void:
 		_transitioning = false
@@ -519,9 +531,7 @@ func _hold_black(tw: Tween, work: Callable = Callable()) -> void:
 func _morning() -> void:
 	# (0.8.2.2: the album's morning photo and the live picture are taken behind the sunrise's
 	# black now, _rise; here they froze the morning and showed the album camera's view.)
-	# Visitors come as the tree grows (diary lines; the nest and the bench stay in view).
-	if not Visitors.arrive(state).is_empty():
-		tree_view.update_visitors()
+	# (0.8.2.6: visitors come at the late-morning moment, _moment.)
 	tree_view.show_wish("")
 	if state.day_number() == 1:
 		_page_once("sapling")
@@ -532,6 +542,16 @@ func _morning() -> void:
 		# 0.8.2.5: the compass needle points to the wish place; one line the first time.
 		if state.diary.wish_patch >= 0:
 			_page_once("compass")
+
+
+## A moment of the day (0.8.2.6, Moments): the view shows it and slows a fast-forward down.
+func _moment(m: String) -> void:
+	var note := ""
+	if m == Moments.VISITOR:
+		# Visitors come as the tree grows (diary lines; the nest stays in view).
+		tree_view.update_visitors()
+		note = str(Visitors.LINES.get(state.today_visitor, ""))
+	tree_view.moment(m, note)
 
 
 # --- settings, saving, dev keys -----------------------------------------------
