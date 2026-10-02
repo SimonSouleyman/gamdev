@@ -50,3 +50,5 @@ nightly target (specs/0.7-candidates.md).
 **Design risk (sent to the build thread).** If the night gets shorter but the life force keeps
 growing with the crown, the unused rest piles up (seed 27 ended the month with 656 unused). The
 tank and the night need to scale together.
+
+**Replay camera (Simon, 2026-10-02, 20:15 UTC).** When the night's root is finished, the replay frames tonight's new root: the camera centres on it and moves close enough that it fills most of the screen (older roots stay in view only as context), instead of the wider view of the whole network.
