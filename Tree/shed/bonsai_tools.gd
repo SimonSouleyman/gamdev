@@ -5,13 +5,17 @@ extends Node3D
 ## coil of copper wire, the trowel and the style sketchbook, two arrows carved into the board
 ## for turning the pot, the album card tucked into the window frame and a small box of
 ## cuttings. A tool is picked up (it lifts and then follows the pointer) and put down again;
-## the others answer a tap. Only the things and their places: BonsaiView does the input and the
-## care. Lies in the sill's frame of the pot's base (+Z toward the window, +X on screen left).
+## the others answer a tap (0.8.2.2: the can waters, the tin opens its slip and the trowel
+## starts the repotting on one tap, no picking up). Only the things and their places:
+## BonsaiView does the input and the care. Lies in the sill's frame of the pot's base (+Z
+## toward the window, +X on screen left).
 
 ## Tools that are picked up, and things that answer a tap. The ids of the held tools are the
-## care kinds BonsaiView.tool knows ("pinch" are the tweezers, "fertiliser" the pellet tin).
-const HELD: Array[String] = ["water", "fertiliser", "shears", "pinch", "wire", "trowel"]
-const TAPPED: Array[String] = ["turn_left", "turn_right", "styles", "album", "cuttings"]
+## care kinds BonsaiView.tool knows ("pinch" are the tweezers). 0.8.2.2 (Simon: "ein Tippen auf
+## die Gießkanne sollte direkt gießen"): the can, the pellet tin ("fertiliser") and the trowel
+## work on one tap where they lie; only the tools that need a place on the tree are held.
+const HELD: Array[String] = ["shears", "pinch", "wire"]
+const TAPPED: Array[String] = ["water", "fertiliser", "trowel", "turn_left", "turn_right", "styles", "album", "cuttings"]
 ## Their paper labels (first time, and with "clearer print").
 const LABELS := {
 	"water": "watering can", "fertiliser": "pellets N P K", "shears": "shears",
@@ -22,12 +26,14 @@ const LABELS := {
 ## widest pot), a front row of the four hand tools and the box of cuttings along the board's edge,
 ## and the album card and the sketchbook tucked into the window frame either side (0.8.1, item 18:
 ## the front row lost the sketchbook, so its five things lie 6 cm apart instead of 5, about 12 mm
-## on the phone; tests/test_bonsai.gd checks it at 720 x 1600 and 720 x 1280).
+## on the phone; tests/test_bonsai.gd checks it at 720 x 1600 and 720 x 1280). 0.8.2.2 (Simon:
+## the can and the tin stood "in der Wand"): both stand forward on the board, clear of the window
+## frame and the wall (WALL_Z), the can's spout toward the room.
 const FRONT_Z := -0.24
 const ROW_GAP := 0.06
 const RESTS := {
-	"water": [Vector3(0.165, 0.0, 0.055), -0.75],
-	"fertiliser": [Vector3(-0.15, 0.0, 0.03), 0.3],
+	"water": [Vector3(0.15, 0.0, -0.025), PI],
+	"fertiliser": [Vector3(-0.15, 0.0, -0.035), 0.3],
 	"trowel": [Vector3(2.0 * ROW_GAP, 0.0, FRONT_Z + 0.01), 0.3],
 	"shears": [Vector3(ROW_GAP, 0.0, FRONT_Z), -0.45],
 	"pinch": [Vector3(0.0, 0.0, FRONT_Z), 0.2],
@@ -36,6 +42,9 @@ const RESTS := {
 	"album": [Vector3(0.15, 0.19, 0.03), 0.0],
 	"styles": [Vector3(-0.148, 0.165, 0.035), 0.12, -1.2],
 }
+## The window's casing and frame stand proud of the wall this far toward the room (sill frame of
+## the pot's base): every thing on the board beside the window stays in front of it.
+const WALL_Z := 0.04
 ## The carved arrows: arcs round the pot's front, at this radius.
 const ARROW_R := 0.135
 const ARROW_SPAN := Vector2(0.28, 0.82)
@@ -365,7 +374,7 @@ static func _cyl(parent: Node3D, r: float, h: float, at: Vector3, mat: Material,
 func _build_can() -> void:
 	var can := (load("res://assets/shed/watering_can_metal_01/watering_can_metal_01_1k.gltf") as PackedScene).instantiate() as Node3D
 	var n := Node3D.new()
-	can.scale = Vector3.ONE * 0.38
+	can.scale = Vector3.ONE * 0.35
 	n.add_child(can)
 	_add("water", n, Vector3(0.0, 0.07, 0.0))
 	water_fx = CPUParticles3D.new()
@@ -374,8 +383,8 @@ func _build_can() -> void:
 	water_fx.lifetime = 0.5
 	water_fx.direction = Vector3(0, -1, 0)
 	water_fx.spread = 6.0
-	water_fx.initial_velocity_min = 0.25
-	water_fx.initial_velocity_max = 0.4
+	water_fx.initial_velocity_min = 0.32
+	water_fx.initial_velocity_max = 0.32
 	water_fx.gravity = Vector3(0, -3.0, 0)
 	water_fx.emission_shape = CPUParticles3D.EMISSION_SHAPE_SPHERE
 	water_fx.emission_sphere_radius = 0.012

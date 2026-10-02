@@ -28,13 +28,16 @@ const WIDTH := 3.2
 const DEPTH := 2.8
 const WALL_H := 2.4
 ## (0.8.1, item 26: the door, the window and the pinboard closer together, 0.8 to 0.7 m and
-## 5 cm nearer the door, so the phone's narrow view shows them larger.)
-const DOOR_W := 0.7
+## 5 cm nearer the door, so the phone's narrow view shows them larger. 0.8.2.2, the tighter view:
+## 0.66 m, the window 2 cm nearer still.)
+const DOOR_W := 0.66
 const DOOR_H := 2.05
 ## The small window in the front wall, left of the door as seen from inside (local +x).
-const WINDOW_X := Vector2(0.45, 0.73)
+const WINDOW_X := Vector2(0.43, 0.71)
 const WINDOW_Y := Vector2(1.2, 1.72)
-const BENCH_Z := 0.4
+## The workbench's middle (shed frame z). 0.8.2.2 (Simon: "im Schuppen sieht man noch viel Boden"):
+## it stands 0.32 m nearer the eye, so it fills the picture's foot where the empty floor was.
+const BENCH_Z := 0.08
 ## The pinboard right of the door (shed frame x) and its size.
 const PINBOARD_X := -(DOOR_W * 0.5 + 0.235)
 const PINBOARD_SCALE := 0.66
@@ -401,7 +404,7 @@ func _build_room() -> void:
 	_lamp_range = _lamp.omni_range
 	# Over the bench (0.8.1: with the eye further back it hung large in the picture's top; here it
 	# shows small above the doorway and still lights the bench).
-	_lamp.position = Vector3(-0.3, WALL_H - 0.35, 0.15)
+	_lamp.position = Vector3(-0.3, WALL_H - 0.35, BENCH_Z - 0.45)
 	add_child(_lamp)
 	var glass := MeshInstance3D.new()
 	var s := SphereMesh.new()
@@ -575,7 +578,7 @@ func _build_bench() -> void:
 	var top := BENCH_TOP - 0.05  # bench-local height of the table top
 	# The journal: dark leather with an elastic band and a red ribbon, lying on the left.
 	var journal := _book(Vector3(0.16, 0.026, 0.22), _leather(Paper.LEATHER), Color(0.92, 0.88, 0.78), true)
-	journal.position = Vector3(0.2, top, -0.08)
+	journal.position = Vector3(0.17, top, -0.08)
 	journal.rotation.y = 0.25
 	bench.add_child(journal)
 	_register("journal", journal, Vector3(0, 0.02, 0), 0.12)
@@ -589,7 +592,7 @@ func _build_bench() -> void:
 	_tag("album", album, Vector3(0.0, 0.06, 0.1), false)
 	# The seed bag: a kraft paper sack, the top rolled over, a few seeds spilled beside it.
 	var seeds := _seed_bag()
-	seeds.position = Vector3(-0.25, top, -0.04)
+	seeds.position = Vector3(-0.21, top, -0.04)
 	seeds.rotation.y = -0.35
 	bench.add_child(seeds)
 	_register("seeds", seeds, Vector3(0, 0.09, 0), 0.1)
@@ -603,23 +606,64 @@ func _build_bench() -> void:
 	_register("gloves", gloves, Vector3(0, 0.03, 0), 0.1)
 	_tag("gloves", gloves, Vector3(0.0, 0.0, -0.04), true)
 	# A trowel for the feel of the place, and a watering can on the floor under the window.
-	var trowel := _model("trowel_01", Vector3(-0.36, top + 0.035, 0.2), 0.75, 0.0, bench)
+	var trowel := _model("trowel_01", Vector3(-0.31, top + 0.035, 0.2), 0.75, 0.0, bench)
 	trowel.rotation = Vector3(PI * 0.5 - 0.02, -0.6, 0.0)
 	_model("watering_can_metal_01", Vector3(0.78, 0.05, DEPTH * 0.5 - 0.3), 1.1, 2.4, self)
 	# Contact shadows (0.6.1 review: the things floated): a soft dark patch under each thing on
 	# the bench, under the bench and the can on the floor, and along the foot of the walls.
 	var y := top + 0.004
-	_blob(Vector3(0.2, y, -0.08), Vector2(0.24, 0.3), 0.25, 0.8, bench)
+	_blob(Vector3(0.17, y, -0.08), Vector2(0.24, 0.3), 0.25, 0.8, bench)
 	_blob(Vector3(-0.04, y, 0.13), Vector2(0.38, 0.31), -0.12, 0.8, bench)
-	_blob(Vector3(-0.25, y, -0.04), Vector2(0.2, 0.15), -0.35, 0.9, bench)
+	_blob(Vector3(-0.21, y, -0.04), Vector2(0.2, 0.15), -0.35, 0.9, bench)
 	_blob(Vector3(-0.03, y, -0.17), Vector2(0.28, 0.2), 1.45, 0.6, bench)
-	_blob(Vector3(-0.36, y, 0.2), Vector2(0.24, 0.1), -0.6, 0.6, bench)
+	_blob(Vector3(-0.31, y, 0.2), Vector2(0.24, 0.1), -0.6, 0.6, bench)
 	var floor_y := 0.1015
 	_blob(Vector3(0.0, floor_y, BENCH_Z), Vector2(1.9, 1.1), 0.0, 0.85)
 	_blob(Vector3(0.78, floor_y, DEPTH * 0.5 - 0.3), Vector2(0.45, 0.45), 0.0, 0.8)
 	for side in [-1.0, 1.0]:
 		_blob(Vector3(side * (WIDTH * 0.5 - 0.05), floor_y, 0.0), Vector2(0.5, DEPTH * 1.1), 0.0, 0.5)
 	_blob(Vector3(0.0, floor_y, -DEPTH * 0.5 + 0.05), Vector2(WIDTH * 1.1, 0.5), 0.0, 0.5)
+	_build_rug(floor_y)
+
+
+## A woven rag rug on the strip of floor before the bench (0.8.2.2, the tighter view: the little
+## floor left in the picture's foot is a place to stand, not bare boards).
+func _build_rug(floor_y: float) -> void:
+	var rug := MeshInstance3D.new()
+	var pm := PlaneMesh.new()
+	pm.size = Vector2(1.5, 0.9)
+	rug.mesh = pm
+	var m := ShaderMaterial.new()
+	m.shader = _rug_shader()
+	rug.material_override = m
+	rug.position = Vector3(0.05, floor_y + 0.002, BENCH_Z - 0.62)
+	rug.rotation.y = 0.04
+	rug.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_child(rug)
+
+
+static func _rug_shader() -> Shader:
+	var s := Shader.new()
+	s.code = """
+shader_type spatial;
+render_mode cull_disabled;
+float hash(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
+void fragment() {
+	// Bands of rag in faded colours across the rug, a woven texture, a dark border and a frayed edge.
+	vec2 uv = UV;
+	float band = floor(uv.y * 14.0 + sin(uv.x * 9.0) * 0.08);
+	float pick = hash(vec2(band, 3.0));
+	vec3 col = pick < 0.3 ? vec3(0.42, 0.2, 0.15) : (pick < 0.55 ? vec3(0.55, 0.47, 0.33) : (pick < 0.8 ? vec3(0.26, 0.3, 0.33) : vec3(0.5, 0.36, 0.22)));
+	float weave = 0.85 + 0.15 * sin(uv.x * 420.0) * sin(uv.y * 260.0);
+	col *= weave * (0.85 + 0.3 * hash(floor(uv * vec2(160.0, 90.0))));
+	float edge = min(min(uv.x, 1.0 - uv.x) * 1.6, min(uv.y, 1.0 - uv.y));
+	col = mix(vec3(0.16, 0.11, 0.08), col, smoothstep(0.03, 0.05, edge));
+	if (edge < 0.012 && hash(floor(uv * 300.0)) > 0.5) discard;
+	ALBEDO = col * 0.8;
+	ROUGHNESS = 1.0;
+}
+"""
+	return s
 
 
 func _register(name: String, node: Node3D, centre: Vector3, radius: float) -> void:
@@ -810,8 +854,12 @@ func _build_camera() -> void:
 ## 0.8.1 (item 26): the field of view fits the screen's shape, so on the phone's tall 20:9 screen
 ## the sill with the bonsai and the pinboard are whole and reachable too (they were cut at the
 ## sides), and the eye tilts so the picture's top edge meets the wall's top: a thin strip of
-## ceiling, the room below it (see fit_view()).
-const EYE := Vector3(0.0, 1.62, -0.9)
+## ceiling, the room below it (see fit_view()). 0.8.2.2 (the tighter view, specs/0.8.md item 43):
+## the eye stands 0.4 m further back by the back wall and 8 cm toward the window, which narrows
+## the field of view the front wall needs (92 to 76 degrees on a 450 x 1000 screen); with the
+## bench nearer the floor left under it is a strip of about 6 % (was 21 %). tools/shed_frame.gd
+## prints the numbers.
+const EYE := Vector3(0.08, 1.62, -1.3)
 ## The picture's top edge meets the front wall this high (just under the rafters).
 const TOP_Y := WALL_H + 0.06
 ## The view never gets narrower than this (a wide screen keeps about the old look).
@@ -854,7 +902,7 @@ static func must_see() -> Array[Vector3]:
 		Vector3(cx, sill + BONSAI_TAG.y - 0.12, hd - 0.1 + BONSAI_TAG.z),
 		Vector3(pin - pw, 1.45 - ph, hd - 0.06), Vector3(pin - pw, 1.45 + ph, hd - 0.06), Vector3(pin + pw, 1.45 - ph, hd - 0.06),
 		Vector3(pin, 1.45 + ph + 0.12, hd - 0.06),
-		Vector3(0.36, 0.88, 0.2), Vector3(-0.38, 0.88, 0.2), Vector3(0.0, 0.88, 0.16),
+		Vector3(0.33, 0.88, BENCH_Z - 0.2), Vector3(-0.33, 0.88, BENCH_Z - 0.2), Vector3(0.0, 0.88, BENCH_Z - 0.24),
 	]
 
 
@@ -868,6 +916,11 @@ func fit_view() -> void:
 	var aspect := size.x / maxf(size.y, 1.0)
 	if is_equal_approx(aspect, _fit_aspect):
 		return
+	_fit_for(aspect)
+
+
+## Fits the view to a screen of this shape (width over height).
+func _fit_for(aspect: float) -> void:
 	_fit_aspect = aspect
 	var best := INF
 	var best_fov := MIN_FOV

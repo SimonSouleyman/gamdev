@@ -486,35 +486,45 @@ func test_sill_tools_do_what_the_paper_menu_did() -> void:
 	var soil := v.plant_screen_position(0) + Vector2(0, 10)
 	t.check(v.on_bonsai(soil), "the soil is on the bonsai")
 	t.check(not v.on_bonsai(v.object_screen_points()["pinch"]), "the front row is not")
-	# One tap picks a tool up, a tap on it (or its place) puts it down.
-	v.tap_object("water")
-	t.check_eq(v.tool, "water", "the can is in hand")
-	t.check_eq(v.tools.pick(v.camera, v.tools.rest_point(v.camera, "water"), BonsaiView.TOOL_TAP), "water", "its place answers")
-	v.tap_object("water")
+	# One tap picks a held tool up, a tap on it (or its place) puts it down.
+	v.tap_object("shears")
+	t.check_eq(v.tool, "shears", "the shears are in hand")
+	t.check_eq(v.tools.pick(v.camera, v.tools.rest_point(v.camera, "shears"), BonsaiView.TOOL_TAP), "shears", "their place answers")
+	v.tap_object("shears")
 	t.check_eq(v.tool, "", "put down again")
 	_finish(v)
-	# Watering.
-	v.tap_object("water")
+	# 0.8.2.2: one tap on the can waters at once, and nothing is left in hand.
 	b.moisture = 0.1
-	v.use_at(soil)
+	v.tap_object("water")
 	_finish(v)
-	t.check(b.moisture > 0.5, "the can waters the soil")
-	t.check_eq(v.tool, "water", "and is still in hand")
-	# Swapping: tapping the tin puts the can down.
+	t.check(b.moisture > 0.5, "one tap on the can waters the soil")
+	t.check_eq(v.tool, "", "nothing is in hand after")
+	t.check(v.tools.items["water"].transform.is_equal_approx(v.tools.rests["water"]), "the can is back at its place")
+	# 0.8.2.2 (Simon: drops ran on below the sill): a drop lives just as long as its fall from the
+	# rose to the soil, so none falls past the pot.
+	var fx := v.tools.water_fx
+	var life := fx.lifetime
+	var fall := fx.initial_velocity_max * life + 0.5 * -fx.gravity.y * life * life
+	var soil_y := v._base.to_global(Vector3(0, BonsaiView.soil_height(b.pot), 0)).y
+	t.check_near(fx.global_position.y - fall, soil_y, 0.004, "the drops end on the soil")
+	t.check(fx.global_position.y > soil_y + 0.05, "the rose pours from above the rim")
+	var inv := v._base.global_transform.affine_inverse() * fx.global_position
+	t.check(Vector2(inv.x, inv.z).length() < BonsaiView.soil_half(b.pot).x, "over the soil, not beside the pot (%s)" % inv)
+	# The tin: a tap opens its slip, a kind on the slip pours a spoon of it at once.
 	v.tap_object("fertiliser")
-	t.check_eq(v.tool, "fertiliser", "the tin is in hand")
-	# 0.8 (C1): no choice made yet, the tin gives what the soil holds least of; two taps.
-	var low := b.tin_kind()
-	var before := b.soil[low]
-	v.pellet_kind = -1
-	v.use_at(soil)
-	_finish(v)
-	t.check(b.soil[low] > before, "no choice on the slip yet: a spoon of what the soil lacks most")
+	t.check(v.tin_open and v.tool == "", "a tap on the tin opens its slip, nothing in hand")
 	var k0 := b.soil[2]
-	v.pellet_kind = 2
-	v.use_at(soil)
+	v.pour_pellets(2)
 	_finish(v)
-	t.check(b.soil[2] > k0, "a spoon of K pellets")
+	t.check(b.soil[2] > k0, "K on the slip: a spoon of K pellets")
+	t.check_eq(v.pellet_kind, 2, "the slip rings K now")
+	var low := b.soil[0]
+	v.pour_pellets(0)
+	v.pour_pellets(0)
+	_finish(v)
+	t.check(b.soil[0] > low + 0.01, "two taps on N while it pours: two spoons")
+	v.tap_object("fertiliser")
+	t.check(not v.tin_open, "a second tap on the tin closes the slip")
 	# The tweezers pinch a fresh tip.
 	v.tap_object("pinch")
 	var trunk := b.trunk_chain()
@@ -555,20 +565,23 @@ func test_trowel_repots_only_when_asked() -> void:
 	var soil := v.plant_screen_position(0) + Vector2(0, 10)
 	b.repot_due = false
 	v.tap_object("trowel")
+	_finish(v)
 	t.check_eq(v.use_trowel(), "not_yet", "on other days the trowel only says when")
 	t.check(not v.is_lifted() and v.days_to_repot() >= 1, "not lifted; days to wait known")
+	# 0.8.2.2: three taps, the trowel (the tree comes out), the roots (trimmed), a pot (in).
 	b.repot_due = true
-	v.use_at(soil)
-	_finish(v)
-	t.check(v.is_lifted(), "on a repot day the trowel lifts the tree out")
-	v.tap_object("shears")
-	v.use_at(soil)
-	t.check(v.trim_share() > 0.0, "the shears trim the root ball")
-	v.repot_pick("oval")
 	v.tap_object("trowel")
-	v.use_at(soil)
 	_finish(v)
-	t.check(not v.is_lifted() and b.pot == "oval" and not b.repot_due, "the trowel puts it back in fresh soil, in the new pot")
+	t.check(v.is_lifted() and v.tool == "", "on a repot day one tap on the trowel lifts the tree out")
+	t.check(not v._moss.visible and not v._pellets.visible and v._soil.position.y < 0.0, "the empty pot keeps no grit, no pellets, only a little old soil low down")
+	t.check(not v.shows_rootbound(), "no roots on a soil that is not there")
+	v.use_at(soil + Vector2(0, -60))
+	t.check_near(v.trim_share(), 1.0, 1e-4, "a tap on the roots trims them all round")
+	v.repot_into("oval")
+	_finish(v)
+	t.check(not v.is_lifted() and b.pot == "oval" and not b.repot_due, "a tap on a pot: in it goes, in fresh soil")
+	t.check(v._moss.visible and is_zero_approx(v._soil.position.y), "the fresh soil is full again")
+	t.check_near(b.root_fill, 0.0, 1e-4, "the trimmed roots have room again")
 	(made[0] as Node).free()
 
 
@@ -583,7 +596,6 @@ func test_back_puts_a_lifted_tree_back() -> void:
 	var pot := b.pot
 	b.repot_due = true
 	v.tap_object("trowel")
-	v.use_at(soil)
 	_finish(v)
 	t.check(v.is_lifted(), "lifted out")
 	v.repot_pick("oval")
@@ -594,35 +606,24 @@ func test_back_puts_a_lifted_tree_back() -> void:
 	(made[0] as Node).free()
 
 
-## 0.8, C1 of the 0.7 check: the pellet tin remembers the last kind chosen, in the save, so a
-## spoon is two taps (tin, soil); changing the kind on the slip is optional.
-func test_pellets_are_two_taps_and_remembered() -> void:
+## 0.8.2.2 (Simon: the pellets go on "direkt nach Auswahl"): a spoon is the tin, then its kind on
+## the slip; the kind poured last stays ringed on the slip, in the save.
+func test_pellets_pour_on_choosing_and_are_remembered() -> void:
 	var g := GameState.new_game(47)
 	g.ensure_bonsai(true)
 	var made := _sill_view(g)
 	var v: BonsaiView = made[1]
-	var soil := v.plant_screen_position(0) + Vector2(0, 10)
+	var p0 := g.bonsai.soil[1]
 	v.tap_object("fertiliser")
-	v.pellet_kind = 1
+	v.pour_pellets(1)
 	_finish(v)
+	t.check(g.bonsai.soil[1] > p0, "tin, then P on the slip: a spoon of P at once")
 	v.tap_object("fertiliser")
 	_finish(v)
-	t.check_eq(v.tool, "", "the tin put down")
+	t.check(v.tool == "" and not v.tin_open, "the tin closed again")
 	var h := GameState.from_dict(JSON.parse_string(JSON.stringify(g.to_dict())))
-	t.check_eq(h.bonsai.pellet_kind, 1, "the choice is kept in the save")
+	t.check_eq(h.bonsai.pellet_kind, 1, "the kind is kept in the save")
 	(made[0] as Node).free()
-	var again := _sill_view(h)
-	var w: BonsaiView = again[1]
-	var p0 := h.bonsai.soil[1]
-	var taps := 0
-	w.tap_object("fertiliser")
-	taps += 1
-	w.use_at(soil)
-	taps += 1
-	_finish(w)
-	t.check(h.bonsai.soil[1] > p0, "tin, then soil: a spoon of the remembered P pellets")
-	t.check(taps <= 2, "two taps")
-	(again[0] as Node).free()
 
 
 ## 0.8, C4 of the 0.7 check: the needs read on the tree and the pot, natural signs only.
@@ -695,4 +696,31 @@ func test_tool_labels_until_used_once() -> void:
 	t.check(hud.is_new("shears"), "the others keep theirs")
 	hud.close_sheet()
 	hud.free()
+	v.free()
+
+
+## 0.8.2.2 (Simon: repotting showed graphics errors): the glazed pots were drawn inside out, the
+## front wall culled, so the soil, the pellets and the root ball showed through. Their outer
+## walls face outward.
+func test_glazed_pots_face_outward() -> void:
+	var v := BonsaiView.new()
+	for id in ["rectangle", "oval", "round", "cascade"]:
+		var n := v._pot_mesh(BonsaiView.POT_LOOKS[id])
+		var body := n.get_child(0) as MeshInstance3D
+		var arr := body.mesh.surface_get_arrays(0)
+		var verts: PackedVector3Array = arr[Mesh.ARRAY_VERTEX]
+		var norms: PackedVector3Array = arr[Mesh.ARRAY_NORMAL]
+		var out := 0
+		var inward := 0
+		var wall_y := 0.008 + float(BonsaiView.POT_LOOKS[id]["h"]) * 0.3
+		for i in range(verts.size()):
+			var p := verts[i]
+			# The outer wall, a third of the way up: its normals point away from the pot's axis.
+			if absf(p.z) < 0.004 and p.x > 0.0 and absf(p.y - wall_y) < 0.002:
+				if norms[i].x > 0.3:
+					out += 1
+				elif norms[i].x < -0.3:
+					inward += 1
+		t.check(out > 0 and inward == 0, "%s pot: the outer wall faces out (%d out, %d in)" % [id, out, inward])
+		n.free()
 	v.free()

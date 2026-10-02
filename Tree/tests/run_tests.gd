@@ -1,6 +1,7 @@
 extends SceneTree
 ## Minimal headless test runner (no addon needed).
 ## Run: godot --headless -s tests/run_tests.gd   (exit code 0 = all passed)
+## `-- --only=bonsai,shed` runs only the suites whose file names hold one of the words.
 
 var _failures: int = 0
 var _passes: int = 0
@@ -75,7 +76,18 @@ func _run_all() -> void:
 		preload("res://tests/test_bugs_0821.gd"),
 		preload("res://tests/test_look_0821.gd"),
 	]
+	# `-- --only=bonsai,shed`: only the suites whose file names hold one of these words.
+	var only: PackedStringArray = []
+	for a in OS.get_cmdline_user_args():
+		if a.begins_with("--only="):
+			only = a.substr(7).split(",")
 	for script in tests:
+		if not only.is_empty():
+			var keep := false
+			for w in only:
+				keep = keep or script.resource_path.get_file().contains(w)
+			if not keep:
+				continue
 		var suite: RefCounted = script.new()
 		suite.set("t", self)
 		for m in suite.get_method_list():

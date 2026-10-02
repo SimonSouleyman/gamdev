@@ -1,4 +1,6 @@
 extends RefCounted
+## 0.8.2.2 (docs/notes/shed-0.8.2.2.md): the can waters on one tap, the tin pours on a tap on its
+## slip, repotting is three taps, a tap below the sill goes back to the bench.
 ## 0.8.1, item 18 (docs/notes/shed-0.8.1.md): every bonsai tool handled by simulated touches on
 ## phone-shaped screens. The views see the 720-wide canvas (stretch mode canvas_items), the touches
 ## arrive in the screen's own pixels, as on the phone: a mouse event emulated from the touch, then
@@ -163,7 +165,7 @@ func _empty_spot(canvas: Vector2i) -> Vector2:
 	for y in range(260, canvas.y - 100, 40):
 		for x in range(40, canvas.x - 40, 40):
 			var p := Vector2(x, y)
-			if _view.pick_object(p) == "" and _view.aim_target(p).is_empty() and not _view.on_bonsai(p) and _hud_at(p) == null:
+			if _view.pick_object(p) == "" and _view.aim_target(p).is_empty() and not _view.on_bonsai(p) and not _view.below_sill(p) and _hud_at(p) == null:
 				var clear := true
 				for id in _view.object_screen_points():
 					if (_view.object_screen_points()[id] as Vector2).distance_to(p) < BonsaiView.TOOL_TAP * 2.0:
@@ -256,52 +258,54 @@ func _tools_on(phys: Vector2i, canvas: Vector2i) -> void:
 		for r in [0.5, 0.9]:
 			rim.append(_view.camera.unproject_position(_view._base.to_global(Vector3(cos(a) * half.x * r, BonsaiView.soil_height(b.pot), sin(a) * half.y * r))))
 		rim.append(_view.camera.unproject_position(_view._base.to_global(Vector3(cos(a) * half.x, BonsaiView.soil_height(b.pot) * 0.5, sin(a) * half.y))))
-	for tool in ["", "water", "fertiliser", "trowel"]:
+	for tool in ["", "shears", "pinch"]:
 		_view.set_tool(tool)
 		_settle()
 		for p in rim:
 			if _view.on_bonsai(p):
 				t.check_eq(_view.pick_object(p), "", "%s: with '%s' in hand a touch on the pot at %s finds no sill thing" % [where, tool, p])
+				t.check(not _view.below_sill(p), "%s: the pot is not below the sill (%s)" % [where, p])
 	_view.set_tool("")
 	_settle()
 
-	# The watering can: pick up, aim at the soil (it lights up, nothing yet), lift to water.
+	# 0.8.2.2 (Simon: "ein Tippen auf die Gießkanne sollte direkt gießen"): one tap on the can
+	# waters at once; the can goes back to its place and nothing is left in hand.
 	b.moisture = 0.1
-	_pick_up("water", where + " can")
-	if _aim(soil, "soil", where + " can"):
-		t.check(_view._soil_ring.visible, where + " can: the soil's ring shows")
-		t.check_near(b.moisture, 0.1, 0.02, where + " can: no water before the finger lifts")
-	_release(soil)
-	t.check(b.moisture > 0.5, "%s can: lifting the finger waters (%.2f)" % [where, b.moisture])
-	t.check(not _view._soil_ring.visible, where + " can: the ring goes")
+	taps = 0
+	_tap(_thing("water"))
+	t.check(b.moisture > 0.5, "%s can: one tap waters (%.2f)" % [where, b.moisture])
+	t.check_eq(_view.tool, "", where + " can: nothing left in hand")
+	t.check(not _view.tools.ghost.visible, where + " can: no put-back ring")
 	counts["water"] = taps
-	t.check_eq(_view.tool, "water", where + " can: still in hand after use")
-	# A touch off everything with the can: nothing happens, it stays in hand.
+	# A touch off everything (not below the sill): nothing happens.
 	var m0 := b.moisture
 	var empty := _empty_spot(canvas)
 	t.check(empty.x >= 0.0, where + ": an empty spot on screen")
+	var backs := []
+	var on_back := func() -> void: backs.append(1)
+	_hud.back_pressed.connect(on_back)
 	_tap(empty)
-	t.check(_view.tool == "water" and is_equal_approx(b.moisture, m0), where + " can: a touch on the wall does nothing")
-	_put_down(where + " can")
+	t.check(is_equal_approx(b.moisture, m0) and backs.is_empty(), where + ": a touch on the wall beside the window does nothing")
 
-	# The pellet tin: two taps for the remembered kind; the slip changes it.
-	_pick_up("fertiliser", where + " tin")
-	var kind := _view.pellet_kind
-	var before := b.soil[kind]
-	_aim(soil, "soil", where + " tin")
-	t.check_near(b.soil[kind], before, 1e-5, where + " tin: no pellets before the finger lifts")
-	_release(soil)
-	t.check(b.soil[kind] > before, "%s tin: a spoon of %s" % [where, BonsaiHud.PELLETS[kind]])
-	counts["fertiliser"] = taps
+	# The pellet tin: a tap opens its slip, a tap on a kind there pours a spoon of it at once.
+	taps = 0
+	_tap(_thing("fertiliser"))
+	t.check(_view.tin_open and _view.tool == "", where + " tin: one tap opens its slip, nothing in hand")
+	t.check(_hud._hint.text.begins_with("The pellet tin"), where + " tin: the scrap says what to tap (%s)" % _hud._hint.text)
 	var k_button := _hud._pellet_buttons[2]
 	t.check(k_button.is_visible_in_tree(), where + " tin: the slip shows")
-	_tap(k_button.get_global_rect().get_center())
-	t.check_eq(_view.pellet_kind, 2, where + " tin: a tap on K on the slip chooses K")
-	t.check_eq(_view.tool, "fertiliser", where + " tin: and the tin stays in hand")
+	for id in ["fertiliser", "water"]:
+		t.check(not _hud._pellet_slip.get_global_rect().has_point(_thing(id)), "%s tin: the slip leaves the %s free" % [where, id])
 	var k0 := b.soil[2]
-	_tap(soil)
-	t.check(b.soil[2] > k0, where + " tin: then a tap on the soil spoons K")
-	_put_down(where + " tin")
+	_tap(k_button.get_global_rect().get_center())
+	t.check(b.soil[2] > k0, where + " tin: a tap on K pours a spoon of K at once")
+	t.check_eq(_view.pellet_kind, 2, where + " tin: K is ringed on the slip now")
+	counts["fertiliser"] = taps
+	var n0 := b.soil[0]
+	_tap(_hud._pellet_buttons[0].get_global_rect().get_center())
+	t.check(b.soil[0] > n0, where + " tin: then N, one more tap")
+	_tap(_thing("fertiliser"))
+	t.check(not _view.tin_open and not _hud._pellet_slip.visible, where + " tin: a tap on the tin closes its slip")
 
 	# The shears: touch a branch (the cut shows), lift to cut.
 	var cut := _side_branch(b)
@@ -316,6 +320,10 @@ func _tools_on(phys: Vector2i, canvas: Vector2i) -> void:
 		_release(at)
 		t.check(b.leafy_count() < green, "%s shears: lifting cuts (%d -> %d)" % [where, green, b.leafy_count()])
 	counts["shears"] = taps
+	# With the shears in hand the can still waters on one tap, and the shears stay in hand.
+	b.moisture = 0.1
+	_tap(_thing("water"))
+	t.check(b.moisture > 0.5 and _view.tool == "shears", where + " shears: a tap on the can waters, the shears stay in hand")
 	_put_down(where + " shears")
 
 	# The tweezers: touch a fresh tip (ringed), lift to pinch.
@@ -360,36 +368,33 @@ func _tools_on(phys: Vector2i, canvas: Vector2i) -> void:
 		t.check(not b.wired().has(traced), where + " wire: a tap on a wired branch frees it")
 	_put_down(where + " wire")
 
-	# The trowel: on another day it only says when; on a repot day it lifts the tree out; the
-	# shears trim the root ball; a pot on the slip; the trowel puts it back in fresh soil.
+	# Repotting (0.8.2.2: at most three taps): the trowel on another day only says when; on a
+	# repot day one tap lifts the tree out, a tap on the roots trims them, a tap on a pot puts
+	# it in and the fresh soil fills by itself. The current pot is offered first.
 	b.repot_due = false
 	var said := []
 	var on_said := func(text: String) -> void: said.append(text)
 	_view.said.connect(on_said)
-	_pick_up("trowel", where + " trowel")
-	_tap(soil)
+	_tap(_thing("trowel"))
 	t.check(not _view.is_lifted() and said.size() == 1 and str(said[0]).begins_with("Not yet"), where + " trowel: not yet")
 	b.repot_due = true
-	taps = 1
-	_aim(soil, "pot", where + " trowel")
-	_release(soil)
-	t.check(_view.is_lifted(), where + " trowel: on a repot day it lifts the tree out")
-	counts["trowel"] = taps
-	# Swapping tools: a tap on the shears while the trowel is in hand.
-	_tap(_thing("shears"))
-	t.check_eq(_view.tool, "shears", where + " repot: one tap swaps the trowel for the shears")
-	var ball := _view.plant_screen_position(0) + Vector2(10, 0)
-	_tap(ball)
-	t.check(_view.trim_share() > 0.0, where + " repot: the shears trim the root ball")
-	var oval := _hud._pot_buttons["oval"] as Button
-	t.check(oval.is_visible_in_tree(), where + " repot: the pot slip shows")
-	_tap(oval.get_global_rect().get_center())
-	t.check_eq(_view.new_pot(), "oval", where + " repot: a tap on the slip picks the oval pot")
+	taps = 0
 	_tap(_thing("trowel"))
-	_tap(_view.plant_screen_position(0) + Vector2(0, 10))
-	t.check(not _view.is_lifted() and b.pot == "oval", where + " repot: the trowel puts it back in the oval pot")
+	t.check(_view.is_lifted() and _view.tool == "", where + " repot: one tap on the trowel lifts the tree out")
+	var trim := _hud._trim_button
+	t.check(trim.is_visible_in_tree(), where + " repot: the slip shows")
+	var flow := _hud._pot_flow
+	t.check(flow.get_child(0) == _hud._pot_buttons[b.pot], where + " repot: the current pot is offered first")
+	var ball := _view.camera.unproject_position(_view._base.to_global(Vector3(0, BonsaiView.soil_height(b.pot) * 0.5 + 0.12, 0)))
+	t.check(_hud_at(ball) == null, where + " repot: the slip leaves the roots free (%s, %s)" % [ball, _hud_at(ball)])
+	_tap(ball)
+	t.check_near(_view.trim_share(), 1.0, 1e-4, where + " repot: a tap on the roots trims them")
+	var oval := _hud._pot_buttons["oval"] as Button
+	t.check(oval.is_visible_in_tree(), where + " repot: the pots show")
+	_tap(oval.get_global_rect().get_center())
+	t.check(not _view.is_lifted() and b.pot == "oval" and not b.repot_due, where + " repot: a tap on the oval pot puts it in, done")
+	counts["repot"] = taps
 	_view.said.disconnect(on_said)
-	_put_down(where + " trowel")
 	_view.refresh(true)
 	_settle()
 
@@ -399,9 +404,9 @@ func _tools_on(phys: Vector2i, canvas: Vector2i) -> void:
 	_tap(_thing("turn_right"))
 	t.check_eq(b.turn, posmod(turn0 + 1, 4), where + " arrows: one tap turns the pot")
 	counts["turn"] = taps
-	_pick_up("water", where + " can again")
+	_pick_up("shears", where + " shears again")
 	_tap(_thing("turn_left"))
-	t.check(b.turn == turn0 and _view.tool == "water", where + " arrows: with the can in hand the arrow turns, the can stays")
+	t.check(b.turn == turn0 and _view.tool == "shears", where + " arrows: with the shears in hand the arrow turns, they stay")
 	# The other things: a tap opens their page, never waters.
 	var m1 := b.moisture
 	var opened: Array[String] = []
@@ -414,13 +419,12 @@ func _tools_on(phys: Vector2i, canvas: Vector2i) -> void:
 	t.check_eq(opened, ["styles", "album", "cuttings"] as Array[String], where + ": the sketchbook, the album card and the cuttings open with one tap")
 	t.check(is_equal_approx(b.moisture, m1), where + ": none of them watered")
 	_view.object_tapped.disconnect(on_open)
-	# Every other tool answers a tap while the can is in hand (a swap, never a pour).
+	# Every other held tool answers a tap while the shears are in hand (a swap).
 	for id in BonsaiTools.HELD:
 		if id == _view.tool:
 			continue
 		_tap(_thing(id))
 		t.check_eq(_view.tool, id, "%s: a tap on the %s swaps to it" % [where, id])
-	t.check(is_equal_approx(b.moisture, m1), where + ": no swap watered")
 	_put_down(where + " last")
 	# A finger's wobble (18 px) is still a tap.
 	var p0 := _thing("pinch")
@@ -430,8 +434,27 @@ func _tools_on(phys: Vector2i, canvas: Vector2i) -> void:
 	_settle()
 	t.check_eq(_view.tool, "pinch", where + ": a wobbling tap still picks the tweezers up")
 	_put_down(where + " wobble")
-	# Taps per action (C1: at most two from the close-up, the pick-up included).
-	for k in counts:
+
+	# Back to the bench (0.8.2.2, Simon): a tap anywhere below the windowsill goes back; a drag
+	# there still looks round.
+	var below := Vector2(canvas.x * 0.5, _view.sill_edge_y(canvas.x * 0.5) + 40.0)
+	t.check(below.y < canvas.y - 10.0, "%s: room below the sill on screen (%s)" % [where, below])
+	t.check(_view.pick_object(below) == "" and _view.below_sill(below), where + ": below the sill is no thing")
+	_tap(below)
+	t.check_eq(backs.size(), 1, where + ": a tap below the sill goes back to the bench")
+	var yaw0 := _view._yaw
+	_touch(below, true)
+	_slide(below, below + Vector2(120, 0), 4)
+	_touch(below + Vector2(120, 0), false)
+	_settle()
+	t.check(backs.size() == 1 and not is_equal_approx(_view._yaw, yaw0), where + ": a drag below the sill turns the view, no back")
+	_hud.back_pressed.disconnect(on_back)
+	# Taps per action: one for the can, the tin's own tap and its kind, three for the repotting,
+	# at most two for a held tool (the pick-up included).
+	t.check_eq(int(counts["water"]), 1, where + ": watering is one tap")
+	t.check(int(counts["fertiliser"]) <= 2, "%s: pellets take %d taps (one on the tin)" % [where, int(counts["fertiliser"])])
+	t.check(int(counts["repot"]) <= 3, "%s: repotting takes %d taps" % [where, int(counts["repot"])])
+	for k in ["shears", "pinch", "wire", "turn"]:
 		t.check(int(counts[k]) <= 2, "%s: %s takes %d taps" % [where, k, int(counts[k])])
 	print("%s taps per action: %s" % [where, counts])
 	_free()
