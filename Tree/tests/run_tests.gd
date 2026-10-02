@@ -84,6 +84,7 @@ func _run_all() -> void:
 		preload("res://tests/test_moments_0826.gd"),
 		preload("res://tests/test_replay_0827.gd"),
 		preload("res://tests/test_controls_0827.gd"),
+		preload("res://tests/test_missed_glows_0827.gd"),
 	]
 	# `-- --only=root_system,feedback` runs only the suites whose file name holds one of the words.
 	var only: PackedStringArray = []

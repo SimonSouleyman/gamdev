@@ -13,12 +13,12 @@ const END_ROOT_LABEL := "let roots\nspread"
 
 const TEXTS: Dictionary = {
 	"planted": ["Day 0", "A seed went in at sunset. Tap the ground to grow its first root."],
-	"first_night": ["Below the meadow", "Glowing dots feed the tree: blue dots are water, green nitrogen, orange phosphorus, violet potassium.\n\nDrag anywhere to steer: the root turns the way your finger moves and keeps its way when you lift it (WASD, arrows; space sinks faster). Each metre drinks life force from the vial. \"{end}\" (E) spends the rest on fine roots."],
+	"first_night": ["Below the meadow", "Glowing dots feed the tree: blue dots are water, green nitrogen, orange phosphorus, violet potassium.\n\nDrag anywhere to steer (WASD); space sinks faster. Each metre drinks life force from the vial. \"{end}\" (E) spends the rest on fine roots."],
 	"first_run_done": ["The first root", "The root drank what it touched; the seed grows at sunrise."],
 	"sapling": ["A sapling", "Tap: an hour of brighter sun. Faster growth, but the green vial (tonight's life force) fills slower than its pencil mark.\n\nMorning boosts grow it east, noon tall, evening west; the arc shows the sun.\n\nHold a still finger: the day runs at 4x. Drag to walk, pinch to zoom."],
 	"spent": ["Nothing left to grow with", "The roots' haul is used up. The leaves still gather life force."],
 	"first_sunset": ["Sunset", "Tap the ground or swipe up to dive.\n\nThe meadow hints below: rushes water, clover nitrogen, nettles phosphorus, stones rock, comfrey potassium."],
-	"pick": ["A new root", "Tonight a root can start anywhere on the old roots: tap one, and it lights up where the new root will grow. Drag to look around."],
+	"pick": ["A new root", "Tonight a root can start anywhere on the old roots: tap one."],
 	"shears": ["The shears", "Touch a branch to outline what would fall; slide to choose, lift to cut.\n\nCutting is free; the tree grows into your shape. Tap the shears to put them away."],
 	"finished": ["A grown tree", "Fully grown; it dropped a seed. The shed's seed bag holds the next kind. No hurry."],
 	"bonsai": ["A bonsai on the windowsill", "A juniper to keep as long as I like; forgetting it harms nothing.\n\nThe window side grows: turn the pot now and then. Water when the soil is pale, pellets when it hungers, a new pot weekly. Shape it with shears, tweezers and wire."],

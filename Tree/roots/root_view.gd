@@ -598,7 +598,8 @@ func wish_way() -> Vector3:
 	if roots == null:
 		return Vector3.ZERO
 	for glow in _wish_glows:
-		if glow["reached"]:
+		# Only today's wish (0.8.2.7: the missed ones glow on, with no needle).
+		if glow["reached"] or not bool(glow.get("today", true)):
 			continue
 		var from := roots.tip_position if roots.run_active else roots.graph.positions[Diary.newest_tip(roots)]
 		var c: Vector3 = glow["center"]

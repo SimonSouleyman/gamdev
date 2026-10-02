@@ -12,9 +12,14 @@ var entries: Array = []
 var wish: String = ""
 ## The wish deposit (index into Underground.patches) today's wish points at, or -1.
 var wish_patch: int = -1
-## Yesterday's wish deposit, missed: it still glows faintly tonight when no new wish glows, then
-## fades; a new wish's glow puts it out at once (0.8: one glow at a time). -1 if none.
+## Yesterday's wish deposit when it was missed (-1 if none or reached). Kept for old saves and
+## tools; the glows come from `missed` (0.8.2.7).
 var last_patch: int = -1
+## 0.8.2.7 (specs/wish-compass-vial.md section 5, broken 50a): the missed wish deposits not yet
+## reached, oldest first, at most MISSED_MAX. Each keeps glowing at GLOW_YESTERDAY until a root
+## reaches it; a fifth puts out the oldest's glow (it stays an ordinary deposit). No marker above
+## ground, no compass, no journal line: those are today's wish's only.
+var missed: PackedInt32Array = PackedInt32Array()
 ## Today's wish deposit was reached (the diary line is written once).
 var wish_reached: bool = false
 ## Mornings whose wish pointed underground, and of them those at a far wish (0.8.2): the far draw
@@ -631,8 +636,8 @@ static func _positions(sys: RootSystem, ids: PackedInt32Array) -> Array[Vector3]
 
 
 ## Called at sunrise: the new wish, whose deposit the generator places now. A missed wish
-## deposit glows faintly one more night only when the new wish does not glow: one glow at a time
-## (0.7 broken item 3; 0.8 section 5). Either way the missed deposit stays as a plain deposit.
+## deposit joins `missed` and keeps glowing faintly until a root reaches it (0.8.2.7; until
+## 0.8.2.6 one glow at a time).
 func new_wish(ground: Underground, day: int, seed: int, roots: RootSystem, res: Resources = null) -> void:
 	# A far wish not reached yet stays for up to FAR_DAYS mornings: it takes a root continued over
 	# two or three nights (0.8.1, item 34).
@@ -646,6 +651,8 @@ func new_wish(ground: Underground, day: int, seed: int, roots: RootSystem, res: 
 			far_days += 1
 			return
 	last_patch = wish_patch if wish_patch >= 0 and not wish_reached else -1
+	if last_patch >= 0:
+		_add_missed(ground, last_patch)
 	wish_reached = false
 	wish_patch = -1
 	var w := plan_wish(ground, day, seed, roots, res, far_share * (wish_days + 1) - far_days)
@@ -661,7 +668,10 @@ func new_wish(ground: Underground, day: int, seed: int, roots: RootSystem, res: 
 			fallback = true
 	wish = wish_text(ground, wish_patch) if wish_patch >= 0 else ""
 	if wish_patch >= 0:
-		last_patch = -1
+		# Pointed at a missed deposit anew: it is today's wish again, at full glow.
+		var again := missed.find(wish_patch)
+		if again >= 0:
+			missed.remove_at(again)
 		var p: Dictionary = ground.patches[wish_patch]
 		add(day, wish_entry(int(p["kind"]), p["center"], false, is_far(ground, wish_patch)), "tree", DRAWINGS[int(p["kind"])], "wish")
 		# The running far share counts from FAR_FROM_DAY (no far wish before it to balance), and
@@ -674,20 +684,35 @@ func new_wish(ground: Underground, day: int, seed: int, roots: RootSystem, res: 
 			far_days += 1
 
 
-## The deposits that glow tonight: [{"patch", "center", "radius", "strength"}].
+## The deposits that glow tonight: [{"patch", "center", "radius", "strength", "today"}], today's
+## wish first (full), then the missed ones not yet reached (fainter), oldest first.
 func glows(ground: Underground) -> Array:
 	var out: Array = []
 	if wish_patch >= 0 and wish_patch < ground.patches.size() and not wish_reached:
-		out.append(_glow(ground, wish_patch, GLOW_TODAY))
-	elif last_patch >= 0 and last_patch < ground.patches.size() and wish_patch < 0:
-		# Yesterday's missed glow only on a night without a new one (an old save may hold both).
-		out.append(_glow(ground, last_patch, GLOW_YESTERDAY))
+		out.append(_glow(ground, wish_patch, GLOW_TODAY, true))
+	for pid in missed:
+		if pid == wish_patch or pid < 0 or pid >= ground.patches.size():
+			continue
+		if bool(ground.patches[pid].get("reached", false)):
+			continue
+		out.append(_glow(ground, pid, GLOW_YESTERDAY, false))
 	return out
 
 
-func _glow(ground: Underground, patch_id: int, strength: float) -> Dictionary:
+func _glow(ground: Underground, patch_id: int, strength: float, today: bool) -> Dictionary:
 	var p: Dictionary = ground.patches[patch_id]
-	return {"patch": patch_id, "center": p["center"], "radius": p["radius"], "strength": strength}
+	return {"patch": patch_id, "center": p["center"], "radius": p["radius"], "strength": strength, "today": today}
+
+
+## A missed wish deposit joins the glowing ones; past MISSED_MAX the oldest stops glowing.
+func _add_missed(ground: Underground, pid: int) -> void:
+	if pid < 0 or pid >= ground.patches.size() or bool(ground.patches[pid].get("reached", false)):
+		return
+	if missed.has(pid):
+		return
+	missed.append(pid)
+	while missed.size() > MISSED_MAX:
+		missed.remove_at(0)
 
 
 ## A point lies within reach of a glowing deposit: its patch id, or -1.
@@ -715,13 +740,16 @@ func check_reached(ground: Underground, roots: RootSystem, day: int, night: int)
 		ground.mark_wish_reached(p)
 		if p == last_patch:
 			last_patch = -1
+		var k := missed.find(p)
+		if k >= 0:
+			missed.remove_at(k)
 		return p
 	return -1
 
 
 func to_dict() -> Dictionary:
 	return {"entries": entries, "wish": wish, "wish_patch": wish_patch, "last_patch": last_patch, "wish_reached": wish_reached,
-		"wish_days": wish_days, "far_days": far_days, "wish_since": wish_since}
+		"wish_days": wish_days, "far_days": far_days, "wish_since": wish_since, "missed": Array(missed)}
 
 
 static func from_dict(d: Dictionary) -> Diary:
@@ -735,4 +763,10 @@ static func from_dict(d: Dictionary) -> Diary:
 	diary.wish_days = int(d.get("wish_days", 0))
 	diary.far_days = int(d.get("far_days", 0))
 	diary.wish_since = int(d.get("wish_since", -1))
+	# 0.8.2.7: the missed glows; an older save had only yesterday's (last_patch).
+	if d.has("missed"):
+		for pid in d["missed"]:
+			diary.missed.append(int(pid))
+	elif diary.last_patch >= 0 and diary.last_patch != diary.wish_patch:
+		diary.missed.append(diary.last_patch)
 	return diary
