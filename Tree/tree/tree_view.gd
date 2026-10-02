@@ -160,7 +160,9 @@ var _pinch_zoom: float = 1.0
 # HUD
 var hud: CanvasLayer
 var _day_label: Label
-var _life_label: Label
+## Life force, as a green vial (ui/vial.gd).
+var vial: Vial
+const VIAL_SIZE := Vector2(140, 165)
 var _res_labels: Array[Label] = []
 var _hint: PaperNote
 ## Today's wish, shown on the hint scrap in the morning (main._morning).
@@ -197,6 +199,9 @@ func setup(p_state: GameState) -> void:
 	update_visitors()
 	brush_pile.setup(state)
 	_frame_camera(true)
+	if vial != null:
+		vial.track_day(state)
+		vial.settle()
 
 
 ## The hero tree's look per species: bark and leaf tint on the existing materials
@@ -593,9 +598,14 @@ func _build_hud() -> void:
 	hud = CanvasLayer.new()
 	hud.layer = 5
 	add_child(hud)
+	# Life force is a glass vial in the top left corner (0.8.2.5, no number); the scraps sit beside it.
+	vial = Vial.new()
+	vial.position = Vector2(14, 12)
+	vial.size = Vector2(VIAL_SIZE.x, VIAL_SIZE.y)
+	hud.add_child(vial)
 	var bar := HBoxContainer.new()
 	bar.set_anchors_preset(Control.PRESET_TOP_WIDE)
-	bar.offset_left = 24
+	bar.offset_left = VIAL_SIZE.x + 8
 	bar.offset_top = 24
 	bar.offset_right = -150
 	bar.add_theme_constant_override("separation", 10)
@@ -605,12 +615,11 @@ func _build_hud() -> void:
 	hourglass = Hourglass.new()
 	hourglass.visible = false
 	_day_label.get_parent().add_child(hourglass)
-	_life_label = _pill(bar, Color(1.0, 0.9, 0.55))
 	var bar2 := HBoxContainer.new()
 	bar2.set_anchors_preset(Control.PRESET_TOP_WIDE)
-	bar2.offset_left = 24
+	bar2.offset_left = VIAL_SIZE.x + 8
 	bar2.offset_top = 80
-	bar2.add_theme_constant_override("separation", 10)
+	bar2.add_theme_constant_override("separation", 6)
 	bar2.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	hud.add_child(bar2)
 	for k in range(4):
@@ -727,7 +736,7 @@ func _missing_nutrients() -> Array:
 func _update_hud() -> void:
 	var s := state.sim
 	_day_label.text = "the seed" if state.is_seed() and state.day_number() == 0 else "day %d" % state.day_number()
-	_life_label.text = "life force %.0f" % s.resources.life_force
+	vial.track_day(state)
 	var short: Array[String] = ["water", "N", "P", "K"]
 	for k in range(4):
 		_res_labels[k].text = "%s %.1f" % [short[k], s.resources.amount(k)]
