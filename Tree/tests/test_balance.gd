@@ -114,7 +114,7 @@ func test_missed_wishes_do_not_pile_up() -> void:
 			if diary.wish_patch >= 0 and u.wish_deposits.size() == before:
 				again += 1
 			most = maxi(most, Diary.untouched_wishes(u, roots))
-			t.check(diary.glows(u).size() <= 1, "seed %d day %d: one glow at a time" % [seed, day])
+			t.check(diary.glows(u).size() <= 1 + Diary.MISSED_MAX, "seed %d day %d: today's glow and at most %d missed (0.8.2.7)" % [seed, day, Diary.MISSED_MAX])
 		t.check(most <= Diary.MISSED_MAX, "seed %d: at most %d missed deposits wait (%d)" % [seed, Diary.MISSED_MAX, most])
 		t.check(again > 0, "seed %d: a wish points at a missed deposit again (%d times)" % [seed, again])
 

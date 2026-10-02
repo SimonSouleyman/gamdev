@@ -209,6 +209,19 @@ func _build_options() -> void:
 	board.offset_top = BOARD_TOP
 	board.offset_bottom = -230
 	_options.add_child(board)
+	# The cork itself: one seamless tile repeated (a stylebox's tiles showed seams), inside the frame.
+	var cork := TextureRect.new()
+	cork.name = "Cork"
+	cork.texture = _cork_tile()
+	cork.stretch_mode = TextureRect.STRETCH_TILE
+	cork.texture_repeat = CanvasItem.TEXTURE_REPEAT_ENABLED
+	cork.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	cork.set_anchors_preset(Control.PRESET_FULL_RECT)
+	cork.offset_left = FRAME_PX - 2
+	cork.offset_top = FRAME_PX - 2
+	cork.offset_right = -FRAME_PX + 2
+	cork.offset_bottom = -FRAME_PX + 2
+	board.add_child(cork)
 	var names := OPTION_NAMES
 	var i := 0
 	for key in names:
@@ -363,25 +376,108 @@ func _place_live_note(open: bool) -> void:
 	backup_notes.hide_slip(open)
 
 
-## Cork in a wooden frame: speckled noise, generated once.
+## Cork in a dark wooden frame, like the board on the door (0.8.2.7, Simon: the open board was a
+## plain one-colour shape): granular cork from seamless noise with darker and lighter crumbs, and
+## a frame of grained wood with mitred corners, a lit outer edge and a shadow line at the cork.
+## One nine-slice texture, generated once: the cork tiles, the frame's grain runs along each side.
+const CORK_TILE := 240
+const FRAME_PX := 28
+static var _cork_tex: ImageTexture
+static var _frame_tex: ImageTexture
+
+
+## The cork alone (the board's TextureRect repeats it).
+func _cork_tile() -> ImageTexture:
+	if _cork_tex == null:
+		var img := _cork_image()
+		_frame_tex = ImageTexture.create_from_image(img)
+		_cork_tex = ImageTexture.create_from_image(img.get_region(Rect2i(FRAME_PX, FRAME_PX, CORK_TILE, CORK_TILE)))
+	return _cork_tex
+
+
+## The frame (its middle is covered by the cork).
 func _cork_box() -> StyleBoxTexture:
-	var img := Image.create(128, 128, false, Image.FORMAT_RGBA8)
-	var rng := RandomNumberGenerator.new()
-	rng.seed = 5
-	for y in range(128):
-		for x in range(128):
-			var frame := x < 10 or y < 10 or x > 117 or y > 117
-			var c := Color(0.36, 0.25, 0.16) if frame else Color(0.66, 0.5, 0.33).darkened(rng.randf() * 0.25).lightened(rng.randf() * 0.08)
-			img.set_pixel(x, y, c)
+	_cork_tile()
 	var sb := StyleBoxTexture.new()
-	sb.texture = ImageTexture.create_from_image(img)
-	sb.texture_margin_left = 12
-	sb.texture_margin_right = 12
-	sb.texture_margin_top = 12
-	sb.texture_margin_bottom = 12
+	sb.texture = _frame_tex
+	sb.texture_margin_left = FRAME_PX
+	sb.texture_margin_right = FRAME_PX
+	sb.texture_margin_top = FRAME_PX
+	sb.texture_margin_bottom = FRAME_PX
 	sb.axis_stretch_horizontal = StyleBoxTexture.AXIS_STRETCH_MODE_TILE_FIT
 	sb.axis_stretch_vertical = StyleBoxTexture.AXIS_STRETCH_MODE_TILE_FIT
 	return sb
+
+
+static func _cork_image() -> Image:
+	var n := CORK_TILE + 2 * FRAME_PX
+	var img := Image.create(n, n, false, Image.FORMAT_RGBA8)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 5
+	# The cork: soft seamless mottling plus crumbs.
+	var noise := FastNoiseLite.new()
+	noise.seed = 7
+	noise.noise_type = FastNoiseLite.TYPE_SIMPLEX
+	noise.frequency = 0.035
+	noise.fractal_octaves = 4
+	var mott := noise.get_seamless_image(CORK_TILE, CORK_TILE, false, false, 0.1, true)
+	var fine := FastNoiseLite.new()
+	fine.seed = 9
+	fine.frequency = 0.22
+	var grain := fine.get_seamless_image(CORK_TILE, CORK_TILE, false, false, 0.1, true)
+	var base := Color(0.64, 0.47, 0.3)
+	var cork := Image.create(CORK_TILE, CORK_TILE, false, Image.FORMAT_RGBA8)
+	for y in range(CORK_TILE):
+		for x in range(CORK_TILE):
+			var m := mott.get_pixel(x, y).r
+			var f := grain.get_pixel(x, y).r
+			var c := base.darkened(0.18 * (1.0 - m)).lightened(0.07 * m)
+			c = c.darkened(0.16 * smoothstep(0.55, 0.85, f)).lightened(0.1 * smoothstep(0.45, 0.15, f))
+			cork.set_pixel(x, y, c)
+	# Crumbs: small dark and light specks, wrapped so the tile stays seamless.
+	for k in range(1400):
+		var cx := rng.randi_range(0, CORK_TILE - 1)
+		var cy := rng.randi_range(0, CORK_TILE - 1)
+		var r := rng.randi_range(1, 2)
+		var dark := rng.randf() < 0.6
+		var amt := rng.randf_range(0.12, 0.3)
+		for dy in range(-r, r + 1):
+			for dx in range(-r, r + 1):
+				if dx * dx + dy * dy > r * r:
+					continue
+				var px := posmod(cx + dx, CORK_TILE)
+				var py := posmod(cy + dy, CORK_TILE)
+				var c := cork.get_pixel(px, py)
+				cork.set_pixel(px, py, c.darkened(amt) if dark else c.lightened(amt * 0.6))
+	img.blit_rect(cork, Rect2i(0, 0, CORK_TILE, CORK_TILE), Vector2i(FRAME_PX, FRAME_PX))
+	# The frame: dark wood, the grain along each side, mitred at the corners.
+	var wood := Color(0.3, 0.2, 0.12)
+	var wn := FastNoiseLite.new()
+	wn.seed = 3
+	wn.frequency = 0.02
+	for y in range(n):
+		for x in range(n):
+			var d_side := [x, n - 1 - x, y, n - 1 - y]
+			var inside: int = d_side.min()
+			if inside >= FRAME_PX:
+				continue
+			# Which side this pixel belongs to (the mitre: the nearer edge wins).
+			var horizontal := mini(y, n - 1 - y) <= mini(x, n - 1 - x)
+			var along := float(x if horizontal else y)
+			var across := float(inside)
+			var warp := wn.get_noise_2d(along * 0.5, across * 4.0 + (0.0 if horizontal else 500.0))
+			var g := 0.5 + 0.5 * sin(across * 1.9 + warp * 7.0 + along * 0.01)
+			var c := wood.darkened(0.25 * g).lightened(0.08 * (1.0 - g))
+			# A lit outer edge, a dark inner lip where the frame meets the cork.
+			if across < 2.0:
+				c = c.lightened(0.18)
+			elif across > FRAME_PX - 4:
+				c = c.darkened(0.45)
+			# The mitre line.
+			if absi(mini(y, n - 1 - y) - mini(x, n - 1 - x)) == 0:
+				c = c.darkened(0.3)
+			img.set_pixel(x, y, c)
+	return img
 
 
 func open_options() -> void:

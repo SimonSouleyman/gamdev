@@ -2,8 +2,8 @@ class_name BonsaiHud
 extends CanvasLayer
 ## Bonsai mode's paper (design doc section 16; 0.7: the tools are real things on the sill,
 ## docs/notes/bonsai-tools-0.7.md). A small handwritten scrap with how the bonsai is (care day,
-## the soil's water and N, P, K, the pot, a repotting due) and a line for the tool in hand; a
-## note "back to the bench"; small paper labels on the sill's things (until each was used once,
+## the soil's water and N, P, K, the pot, a repotting due) and a line for the tool in hand
+## (0.8.2.7: no "back to the bench" note any more, a tap below the sill goes back); small paper labels on the sill's things (until each was used once,
 ## and always with "clearer print"); the pellet tin's slip (N, P or K); the repotting slip while
 ## the tree is out of its pot; and the pages: the style pages (drawings of the classic styles,
 ## for inspiration only), the bonsai's album page (milestones and an ink sketch) and the
@@ -51,7 +51,6 @@ var _root: Control
 var _status: Label
 var _soil: Label
 var _hint: Label
-var _back: Control
 var _labels_layer: Control
 var _labels: Dictionary = {}  # sill thing id -> PanelContainer
 var _pellet_slip: PanelContainer
@@ -78,7 +77,6 @@ func _ready() -> void:
 	add_child(_root)
 	_build_labels()
 	_build_status()
-	_build_back()
 	_build_pellet_slip()
 	_build_repot_slip()
 	_build_sheet()
@@ -93,9 +91,13 @@ func _set_view(v: BonsaiView) -> void:
 	v.tool_picked.connect(func(id: String) -> void:
 		_forget_said()
 		if id in ["shears", "pinch", "wire"]:
+			# 0.8.2.7 (Simon: "the tweezers' label was still there"): picking a tool up is
+			# knowing it; its first-time label goes, as the others' do once used.
+			_mark_used(id)
 			first_page.call(id))
 	v.tool_used.connect(_on_used)
-	# A tap below the windowsill goes back to the bench, as the note does (0.8.2.2).
+	# A tap below the windowsill goes back to the bench (0.8.2.2; 0.8.2.7: the only way back,
+	# the note in the top left corner is gone).
 	v.back_requested.connect(func() -> void:
 		if not v.busy and not _sheet.visible:
 			back_pressed.emit())
@@ -104,7 +106,7 @@ func _set_view(v: BonsaiView) -> void:
 		_said_time = 4.0)
 
 
-## The status as a small scrap in the top right corner, beside the note back to the bench.
+## The status as a small scrap in the top right corner.
 func _build_status() -> void:
 	var scrap := PanelContainer.new()
 	PaperLook.apply(scrap, "strip", 171, 14.0)
@@ -129,22 +131,6 @@ func _build_status() -> void:
 	_hint = Paper.ink_label("", 20, Paper.FAINT_INK)
 	_hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	box.add_child(_hint)
-
-
-## A small torn note in the top left corner: back to the workbench.
-func _build_back() -> void:
-	var note := PanelContainer.new()
-	note.add_theme_stylebox_override("panel", Paper.paper_box(200, 90, 177, "all", 10.0))
-	note.position = Vector2(16, 22)
-	note.rotation_degrees = -2.5
-	_root.add_child(note)
-	var b := Paper.ink_button("back to\nthe bench", 24)
-	b.custom_minimum_size = Vector2(170, 84)
-	b.pressed.connect(func() -> void:
-		if view != null and not view.busy:
-			back_pressed.emit())
-	note.add_child(b)
-	_back = note
 
 
 ## A small paper label for each thing on the sill.
@@ -432,6 +418,10 @@ func _place_labels() -> void:
 		if l.text != word:
 			l.text = word
 		var on: bool = (held or pts.has(id)) and not _sheet.visible and (held or Paper.clear_print or is_new(id) or view.hover == id)
+		# 0.8.2.7 (Simon): the tools carry no name label (they speak for themselves); a tool in
+		# hand still shows "put back" at its place.
+		if not held and id in UNNAMED:
+			on = false
 		tag.modulate.a = move_toward(tag.modulate.a, 1.0 if on else 0.0, 0.12)
 		tag.visible = tag.modulate.a > 0.01
 		if not pts.has(id) and not held:
@@ -472,6 +462,10 @@ func _place_labels() -> void:
 			tag.visible = tag.modulate.a > 0.01
 		if on:
 			placed.append(Rect2(tag.position, tag.size))
+
+
+## The sill's tools: no name label on them (0.8.2.7), only "put back" while one is in hand.
+const UNNAMED: Array[String] = ["water", "fertiliser", "shears", "pinch", "wire", "trowel"]
 
 
 ## The share of a label that may lie over labels placed before it before it waits.
@@ -551,7 +545,7 @@ func _place_pellet_slip() -> void:
 ## Where the slip lies: the right or the left edge, below the notes at the top, whichever side
 ## covers least of the crown, the tin and the album card (screen rectangles of them).
 func pellet_slip_spot(room: Vector2, size: Vector2) -> Vector2:
-	var top := maxf((_status.get_parent() as Control).get_global_rect().end.y, _back.get_global_rect().end.y) + 12.0
+	var top := (_status.get_parent() as Control).get_global_rect().end.y + 12.0
 	var avoid: Array[Rect2] = [view.crown_screen_rect()]
 	var pts := view.object_screen_points()
 	for id in ["fertiliser", "water", "album"]:

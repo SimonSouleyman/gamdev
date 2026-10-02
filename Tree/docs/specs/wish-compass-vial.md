@@ -33,13 +33,13 @@ reading anything.
   plant at the clearing's edge in its direction (the existing rule for meadow signs, made larger).
 - **At sunset** a small ink ring is drawn around the plant for a second before the dive, so the
   player knows what to aim for.
-- **Underground**, the deposit glows as now (one glow at a time).
+- **Underground**, today's deposit glows as now; missed ones keep glowing too (section 5).
 - **The journal line** names the plant without a direction: "Wish: the clover." A far wish says
   "Wish: the clover, far away."
 - **Reaching it** writes the diary line with its doodle, as now.
 
-**Not changed.** The wish never punishes. A missed wish stays an ordinary deposit, and its glow
-goes out when the next wish shows.
+**Not changed.** The wish never punishes. A missed wish stays a deposit (and from section 5 keeps
+glowing faintly until a root reaches it).
 
 ## 2. The compass needle points to the wish
 
@@ -93,6 +93,26 @@ tonight without a number.
 - The **leftover** for small roots ("let roots spread") is what remains in the vial.
 - No number anywhere; the life force number in the debug overlay stays for testing.
 
+## 5. Missed wishes stay open
+
+Simon, 2026-10-02, 20:36 UTC: "Wenn man den einen nicht findet, dann soll trotzdem noch ein
+weiterer dazukommen. Und dann können auch dann irgendwann zwei, drei, vier da sein ... dann kann
+man zumindest alle als Optionen dann noch anfahren mit den Wurzeln. Alte müssen aber nicht mehr
+nochmal explizit nochmal so angezeigt werden. Sie sollten aber weiterhin unter der Erde dann
+leuchten."
+
+**Reading (design thread).** "Funde" here means the wish deposits, the things that glow under the
+soil. The underground finds (fossil, coin and so on) do not glow and stay as they are.
+
+**Output.**
+- A new wish comes every morning whether or not the last one was reached (as section 1).
+- A missed wish deposit keeps glowing underground, fainter than today's (about half,
+  `GLOW_YESTERDAY` 0.45), until a root reaches it. Up to four missed ones glow at once
+  (`MISSED_MAX` 4); a fifth makes the oldest stop glowing (it stays an ordinary deposit).
+- Only today's wish has the large flowering plant, the sunset ink ring, the compass needle and
+  the journal line. Older ones get no marker above ground and no announcement.
+- Reaching an older glow pays its nutrient and writes the diary line, like today's wish.
+
 ## What working looks like (broken list, short)
 
 45. A morning without a wish place, or a journal page showing a day wish line.
@@ -103,6 +123,8 @@ tonight without a number.
     tree after day 34.
 49. A life force number visible in normal play, or a vial that does not fall during the root run.
 50. A boosted hour where the liquid and the calm-day mark stay level.
+50a. A missed wish deposit that stops glowing before a root reaches it (while four or fewer
+    are missed), or an older wish with a meadow marker, compass or journal line.
 
 ## Sim (design thread, 2026-10-02)
 

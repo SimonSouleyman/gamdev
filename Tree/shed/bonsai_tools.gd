@@ -40,7 +40,7 @@ const RESTS := {
 	"wire": [Vector3(-ROW_GAP, 0.0, FRONT_Z), 0.0],
 	"cuttings": [Vector3(-2.0 * ROW_GAP - 0.005, 0.0, FRONT_Z + 0.01), 1.5],
 	"album": [Vector3(0.15, 0.19, 0.03), 0.0],
-	"styles": [Vector3(-0.148, 0.165, 0.035), 0.12, -1.2],
+	"styles": [Vector3(-0.148, 0.19, 0.039), 0.0],
 }
 ## The window's casing and frame stand proud of the wall this far toward the room (sill frame of
 ## the pot's base): every thing on the board beside the window stays in front of it.
@@ -484,32 +484,70 @@ func _build_wire() -> void:
 	_add("wire", w, Vector3(0, 0.01, 0.0))
 
 
-## A small sketchbook lying open: two style drawings on its pages.
+## The hung sketchbook's width and height.
+const PICTURE_SIZE := Vector2(0.078, 0.056)
+
+
+## The style sketchbook, open and hung flat on the window's casing like a picture (0.8.2.7, Simon:
+## it hung crooked and into the wall; "nailed flat to the wall with a nail, or a string holding
+## it"): its back lies on the casing's face, upright, a string from its top corners over a nail.
+## Its own frame: faces the room (-Z), up is +Y, the back at z = 0.
 func _build_sketchbook() -> void:
 	var b := Node3D.new()
 	var cover := _mat(Color(0.2, 0.26, 0.22), 0.9)
-	_box(b, Vector3(0.078, 0.004, 0.056), Vector3(0, 0.002, 0), cover)
+	_box(b, Vector3(PICTURE_SIZE.x, PICTURE_SIZE.y, 0.004), Vector3(0, 0, -0.002), cover)
 	for side: float in [-1.0, 1.0]:
 		var page := MeshInstance3D.new()
 		var q := QuadMesh.new()
 		q.size = Vector2(0.036, 0.052)
 		page.mesh = q
-		var pm := _mat(Color(0.97, 0.94, 0.86), 0.95)
-		pm.albedo_texture = load("res://ui/bonsai_styles/%s.png" % ("informal_upright" if side < 0.0 else "cascade"))
-		page.material_override = pm
-		# Lying face up, bottom edge toward the room, each page tipped toward the spine.
-		page.rotation = Vector3(-PI * 0.5, 0.0, 0.0)
-		page.position = Vector3(side * 0.0185, 0.0055, 0.0)
-		var holder := Node3D.new()
-		holder.rotation.z = side * 0.06
-		holder.add_child(page)
-		b.add_child(holder)
-	# A pencil across the pages.
-	_cyl(b, 0.0017, 0.06, Vector3(0.004, 0.009, -0.012), _mat(Color(0.85, 0.65, 0.2), 0.6), Vector3(0, 0.35, PI * 0.5), 6)
-	_add("styles", b, Vector3(0, 0.006, 0.0))
+		page.material_override = _mat(Color(0.97, 0.94, 0.86), 0.95)
+		# Facing the room; the drawing on screen left is the informal upright (+X is screen left).
+		page.rotation = Vector3(0.0, PI, 0.0)
+		page.position = Vector3(side * 0.0185, 0.0, -0.0042)
+		b.add_child(page)
+		# The drawing in ink on the cream page (its paper is clear in the picture).
+		var ink := MeshInstance3D.new()
+		var iq := QuadMesh.new()
+		iq.size = Vector2(0.034, 0.04)
+		ink.mesh = iq
+		var im := _mat(Color(1, 1, 1), 0.95)
+		im.albedo_texture = sharp_texture("res://ui/bonsai_styles/%s.png" % ("informal_upright" if side < 0.0 else "cascade"), 128)
+		im.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
+		im.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		ink.material_override = im
+		ink.rotation = Vector3(0.0, PI, 0.0)
+		ink.position = Vector3(side * 0.0185, 0.0, -0.0046)
+		b.add_child(ink)
+	# The nail above it, driven into the casing, and the string from the top corners over it.
+	var iron := _mat(Color(0.25, 0.24, 0.23), 0.45, 0.7)
+	var nail_at := Vector3(0.0, PICTURE_SIZE.y * 0.5 + 0.018, -0.004)
+	_cyl(b, 0.0011, 0.009, nail_at, iron, Vector3(PI * 0.5, 0.0, 0.0), 6)
+	_cyl(b, 0.0024, 0.0012, nail_at + Vector3(0, 0, -0.0045), iron, Vector3(PI * 0.5, 0.0, 0.0), 8)
+	var twine := _mat(Color(0.72, 0.62, 0.45), 0.9)
+	for side: float in [-1.0, 1.0]:
+		var corner := Vector3(side * (PICTURE_SIZE.x * 0.5 - 0.008), PICTURE_SIZE.y * 0.5 - 0.004, -0.0046)
+		var top := nail_at + Vector3(side * 0.0012, 0.0008, -0.0006)
+		var mid := (corner + top) * 0.5
+		var d := top - corner
+		var s := MeshInstance3D.new()
+		var cm := CylinderMesh.new()
+		cm.top_radius = 0.0006
+		cm.bottom_radius = 0.0006
+		cm.height = d.length()
+		cm.radial_segments = 4
+		cm.rings = 1
+		s.mesh = cm
+		s.material_override = twine
+		s.position = mid
+		s.basis = Basis(Quaternion(Vector3.UP, d.normalized()))
+		b.add_child(s)
+	_add("styles", b, Vector3(0, 0.0, -0.005))
 
 
 ## The bonsai's album page: a small card tucked into the window frame, "my bonsai" and a sketch.
+## 0.8.2.7 (Simon: "the note on the left is still blurry"): its paper and sketch have mipmaps and
+## the words are set large and shrunk, so the card stays sharp at any distance.
 func _build_album() -> void:
 	var c := Node3D.new()
 	var card := MeshInstance3D.new()
@@ -517,19 +555,22 @@ func _build_album() -> void:
 	q.size = Vector2(0.056, 0.072)
 	card.mesh = q
 	var pm := _mat(Color(0.96, 0.92, 0.82), 0.95)
-	pm.albedo_texture = load("res://assets/paper/paper_cream.png")
+	pm.albedo_texture = sharp_texture("res://assets/paper/paper_cream.png")
+	pm.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
 	card.material_override = pm
 	# Facing the room (-Z), leaning back against the frame.
 	card.rotation = Vector3(-0.12, PI, 0.08)
 	c.add_child(card)
 	var words := Label3D.new()
 	words.text = "my bonsai"
-	words.font = Paper.hand_font(true)
-	words.font_size = 40
-	words.pixel_size = 0.00034
+	words.font = sharp_font(Paper.hand_font(true))
+	words.font_size = 128
+	words.pixel_size = 0.00034 * 40.0 / 128.0
+	words.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
 	words.modulate = Paper.INK
 	words.outline_size = 0
 	words.shaded = true
+	words.alpha_cut = Label3D.ALPHA_CUT_OPAQUE_PREPASS
 	words.position = Vector3(0, -0.024, -0.003)
 	words.rotation = Vector3(0.12, PI, -0.08)
 	c.add_child(words)
@@ -538,13 +579,59 @@ func _build_album() -> void:
 	pq.size = Vector2(0.04, 0.04)
 	pic.mesh = pq
 	var sm := _mat(Color(1, 1, 1), 0.95)
-	sm.albedo_texture = load("res://ui/bonsai_styles/broom.png")
-	sm.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA_SCISSOR
+	sm.albedo_texture = sharp_texture("res://ui/bonsai_styles/broom.png", 160)
+	sm.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
+	# Blended, not cut: a cut thins the ink lines away in the smaller mipmaps.
+	sm.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	pic.material_override = sm
 	pic.position = Vector3(0, 0.008, -0.002)
 	pic.rotation = Vector3(-0.12, PI, 0.08)
 	c.add_child(pic)
 	_add("album", c, Vector3(0, 0.0, 0.0))
+
+
+static var _sharp: Dictionary = {}
+
+
+## A picture with mipmaps (the imported ones have none, which made small cards shimmer and blur
+## on the phone): loaded once, its mipmaps made here.
+## `ink`: for a drawing in thin ink lines on clear paper shown small, it is shrunk to this width
+## first and its ink made bolder (the thin lines otherwise fade to nothing in the small mipmaps).
+static func sharp_texture(path: String, ink: int = 0) -> Texture2D:
+	var key := "%s@%d" % [path, ink]
+	if _sharp.has(key):
+		return _sharp[key]
+	var src := load(path) as Texture2D
+	var img := src.get_image()
+	if img == null:
+		return src
+	if img.is_compressed():
+		img.decompress()
+	if ink > 0 and img.get_width() > ink:
+		img.convert(Image.FORMAT_RGBA8)
+		img.resize(ink, int(round(float(img.get_height()) * ink / img.get_width())), Image.INTERPOLATE_LANCZOS)
+		for y in range(img.get_height()):
+			for x in range(img.get_width()):
+				var c := img.get_pixel(x, y)
+				if c.a > 0.0:
+					img.set_pixel(x, y, Color(c.r, c.g, c.b, minf(c.a * 2.5, 1.0)))
+	img.generate_mipmaps()
+	var tex := ImageTexture.create_from_image(img)
+	_sharp[key] = tex
+	return tex
+
+
+## The same font with mipmaps for its glyphs (crisp when a 3D label shows small).
+static func sharp_font(f: Font) -> Font:
+	if _sharp.has(f):
+		return _sharp[f]
+	var out := f
+	if f is FontFile:
+		var d := (f as FontFile).duplicate() as FontFile
+		d.generate_mipmaps = true
+		out = d
+	_sharp[f] = out
+	return out
 
 
 ## A little wooden box (Poly Haven "Cheese Box 01") holding the cuttings: twigs with a leaf or two.

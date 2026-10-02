@@ -10,6 +10,9 @@ var main: Node
 var shots := ""
 var days := 9
 var prefix := ""
+## Days made quiet before the shots (their special lines dropped), to show the Diary's gaps:
+## --quiet=3,4,5 (0.8.2.7: a quiet day shows no heading at all).
+var quiet: Array[int] = []
 var frame := 0
 const PAGES: Array[String] = ["planted", "first_night", "sapling", "first_sunset", "shears", "bonsai", "bonsai_wire", "species_oak"]
 ## The hints photographed in play.
@@ -24,6 +27,9 @@ func _initialize() -> void:
 			days = int(a.substr(7))
 		elif a.begins_with("--prefix="):
 			prefix = a.substr(9)
+		elif a.begins_with("--quiet="):
+			for d in a.substr(8).split(","):
+				quiet.append(int(d))
 	DirAccess.make_dir_recursive_absolute(shots)
 	main = load("res://main.tscn").instantiate()
 	main.ephemeral = true
@@ -74,6 +80,9 @@ func _print(on: bool) -> void:
 
 func _run() -> void:
 	var g := _grown_game()
+	if not quiet.is_empty():
+		g.diary.entries = g.diary.entries.filter(func(e: Dictionary) -> bool:
+			return not (int(e["day"]) in quiet and Diary.topic_of(e) in Diary.SPECIAL))
 	for id in PAGES:
 		g.seen_pages[id] = true
 	main.start(g)

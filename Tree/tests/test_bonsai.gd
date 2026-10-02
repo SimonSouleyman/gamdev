@@ -694,6 +694,9 @@ func test_tool_labels_until_used_once() -> void:
 	for id in ["water", "fertiliser", "wire", "trowel", "styles"]:
 		t.check(not hud.is_new(id), "used once, no label: " + id)
 	t.check(hud.is_new("shears"), "the others keep theirs")
+	# 0.8.2.7 (Simon): picking the tweezers up is enough, their label goes.
+	v.tool_picked.emit("pinch")
+	t.check(not hud.is_new("pinch"), "picked up once, no label: tweezers")
 	hud.close_sheet()
 	hud.free()
 	v.free()
