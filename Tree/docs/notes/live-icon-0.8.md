@@ -126,11 +126,17 @@ Not yet measured on the Fairphone; the reasoning:
   fuller, this side was; follow-up review 2026-09-30), rendered with the game's bark and crown in soft morning
   light from the east (the viewer's left), transparent background.
 - Adaptive icon: background layer = a clear pale-blue sky (lighter toward the horizon) and a low
-  grass line with a gentle swell; foreground = the tree only, scaled so the crown (all but the
+  grass line with a gentle swell (removed in 0.8.2.5, below); foreground = the tree only, scaled so the crown (all but the
   lowest 30 % of the tree, the bare trunk) lies inside the safe circle (66 of 108 dp, 97 % of it),
   the trunk's foot low in the grass at 0.8 of the layer. A brighter fill (ambient 1.15) keeps the
   inner crown from reading as dark holes at 48 px.
   Round, squircle and square masks keep the whole crown (14f). Nothing else in it (14g).
+- 0.8.2.5 (Simon: "nur unten den grünen Teil, also den Boden, weg"): no grass line any more. The
+  background is only the sky, lighter down to the visible lower edge; the trunk's foot moved to 0.86
+  of the layer, below the visible part of every mask (its lower edge at 0.833), so the trunk runs out
+  of the icon's lower edge, and fades out below 0.835 for launchers that show more of the layer. The
+  icons were rendered with the tree code of `b4fbd37` (the same linden as 0.8; today's growth grows
+  seed 2026 sparser). Before and after: `GameDev/tree-qa/icon-0.8.2.5/before_after.png`.
 - Also written: `icons/icon_mono_432.png` (Android 13 themed icon, the white silhouette),
   `icons/icon_192.png` and `icons/icon_full.png` (512, legacy square icons: the visible middle),
   `icon_app.png` (256, the project icon). The 0.3 icons are kept in `icons/v0.7/` to swap back

@@ -1,7 +1,8 @@
 extends SceneTree
 ## The app icon (specs/0.8.md section 7): a grown linden from the game's own growth, rendered with
-## the game's bark and crown against a clear pale-blue morning sky, a low grass line at its foot,
-## nothing else. Written as an Android adaptive icon: the sky and grass as the background layer,
+## the game's bark and crown against a clear pale-blue morning sky, nothing else (0.8.2.5: no grass
+## line any more, Simon: only the tree and the sky). Written as an Android adaptive icon: the sky as
+## the background layer,
 ## the tree as the foreground layer with the whole crown inside the safe circle (66 of 108 dp), so
 ## round, squircle and square masks all keep it. Also the legacy square icons and the project icon.
 ## The old icon stays in icons/v0.7 to swap back.
@@ -25,17 +26,18 @@ const K := 4
 const LAYER := 432
 const SAFE_RADIUS := 66.0 / 108.0 * 0.5
 const VISIBLE := 72.0 / 108.0
-## Where the trunk's foot stands (share of the layer from the top; low, in the grass, so the crown
-## gets the most of the circle) and the crown's room inside the safe circle (a small margin). Only
-## the crown must be inside the circle: the lowest 30 % of the tree (bare trunk) may reach below it
-## into the grass, which every mask keeps near the middle.
-const FOOT_Y := 0.8
+## Where the trunk's foot stands (share of the layer from the top) and the crown's room inside the
+## safe circle (a small margin). Only the crown must be inside the circle: the lowest 30 % of the
+## tree (bare trunk) reaches below it. 0.8.2.5: with no ground to stand on, the foot is below the
+## visible part of every mask (72 dp, its lower edge at 0.833), so the trunk runs out of the icon's
+## lower edge instead of ending in the air; below that edge it fades out (FADE_FROM to the foot),
+## so a launcher that shows more of the layer (parallax) never shows a cut stump either.
+const FOOT_Y := 0.86
+const FADE_FROM := 0.835
 const FIT := 0.97
-## The sky: a clear pale blue, lighter toward the horizon (soft morning), and the grass line.
+## The sky: a clear pale blue, lighter toward the horizon (soft morning), down to the lower edge.
 const SKY_TOP := Color(0.42, 0.63, 0.88)
 const SKY_LOW := Color(0.85, 0.9, 0.93)
-const GRASS_TOP := Color(0.5, 0.66, 0.27)
-const GRASS_LOW := Color(0.25, 0.4, 0.13)
 ## The morning light on the tree (from the east, the viewer's left; LiveExport's dawn, higher).
 const LIGHT_DIR := Vector3(0.8, 0.45, 0.4)
 const LIGHT_COLOR := Color(1.0, 0.88, 0.72)
@@ -70,7 +72,7 @@ func _run() -> void:
 	for i in range(4):
 		await process_frame
 	var tree := await _render_tree(view, game)
-	var fg := _fuller(_place_tree(tree["image"], tree["foot"]))
+	var fg := _fade_foot(_fuller(_place_tree(tree["image"], tree["foot"])))
 	var bg := _background()
 	var mono := _monochrome(fg)
 	var full := bg.duplicate() as Image
@@ -268,28 +270,32 @@ static func _box_colors(src: PackedColorArray, n: int, r: int) -> PackedColorArr
 	return out
 
 
-## The background layer: the sky and a low grass line with a gentle swell, the tree's foot on it.
+## The background layer: only the sky, a clear pale blue growing lighter toward the visible lower
+## edge (the horizon, just below the icon) and staying that light below it.
 func _background() -> Image:
 	var n := LAYER * K
 	var img := Image.create(n, n, false, Image.FORMAT_RGBA8)
-	# The trunk's foot stands a little into the grass (never above it).
-	var line := n * (FOOT_Y - 0.01)
-	var noise := FastNoiseLite.new()
-	noise.seed = 3
-	noise.frequency = 0.02
+	var low := n * (0.5 + VISIBLE * 0.5)
 	for y in range(n):
-		var sky := SKY_TOP.lerp(SKY_LOW, pow(float(y) / line, 1.3)) if y < line else SKY_LOW
+		var sky := SKY_TOP.lerp(SKY_LOW, pow(minf(float(y) / low, 1.0), 1.3))
 		for x in range(n):
-			var edge := line + (sin(float(x) / n * TAU * 0.5 + 0.4) - 0.9) * n * 0.012
-			if y < edge:
-				img.set_pixel(x, y, sky)
-			else:
-				var k := clampf((y - edge) / (n - edge), 0.0, 1.0)
-				var g := GRASS_TOP.lerp(GRASS_LOW, pow(k, 0.7))
-				g = g.darkened(0.08 * (noise.get_noise_2d(x * 0.25, y) * 0.5 + 0.5))
-				# A soft edge against the sky.
-				img.set_pixel(x, y, sky.lerp(g, clampf(y - edge + 0.5, 0.0, 1.0)))
+			img.set_pixel(x, y, sky)
 	return img
+
+
+## The trunk below the visible lower edge fades out toward its foot (see FOOT_Y).
+func _fade_foot(fg: Image) -> Image:
+	var n := fg.get_height()
+	var from := int(n * FADE_FROM)
+	var to := n * FOOT_Y
+	for y in range(from, n):
+		var k := 1.0 - smoothstep(float(from), to, float(y))
+		for x in range(fg.get_width()):
+			var c := fg.get_pixel(x, y)
+			if c.a > 0.0:
+				c.a *= k
+				fg.set_pixel(x, y, c)
+	return fg
 
 
 ## Android 13 themed icons: the tree's silhouette in white.
