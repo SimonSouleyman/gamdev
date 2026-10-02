@@ -530,6 +530,36 @@ func set_wish_glows(glows: Array) -> void:
 			_set_dot(i)
 
 
+## Tonight's hint from a find (0.8.2.6, Finds.hint_for): {} or {"kind": "patch"|"gap", "pos",
+## "radius"}. A faint pencil ring over a far patch (a map scrap) or a rock band's gap (a shard),
+## in the run and in the far view; it only shows the place, it changes nothing in the soil.
+var find_hint: Dictionary = {}
+var _hint_mark: MeshInstance3D
+const HINT_INK := {"patch": Color(0.86, 0.8, 0.66), "gap": Color(0.7, 0.8, 0.86)}
+
+
+func set_find_hint(h: Dictionary) -> void:
+	find_hint = h
+	if _hint_mark == null:
+		_hint_mark = MeshInstance3D.new()
+		var quad := QuadMesh.new()
+		quad.size = Vector2.ONE
+		_hint_mark.mesh = quad
+		var mat := ShaderMaterial.new()
+		mat.shader = preload("res://roots/hint_mark.gdshader")
+		_hint_mark.material_override = mat
+		_hint_mark.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		_hint_mark.extra_cull_margin = 8.0
+		_glow_root.add_child(_hint_mark)
+	_hint_mark.visible = not h.is_empty()
+	if h.is_empty():
+		return
+	var mat := _hint_mark.material_override as ShaderMaterial
+	mat.set_shader_parameter("ink", HINT_INK.get(str(h["kind"]), HINT_INK["patch"]))
+	_hint_mark.position = h["pos"]
+	_hint_mark.scale = Vector3.ONE * maxf(float(h["radius"]), 0.8) * 2.4
+
+
 ## The way from the newest root tip (the growing tip during a run) to tonight's wish glow, flat;
 ## Vector3.ZERO when no glow waits (none tonight, or the root reached it).
 func wish_way() -> Vector3:
@@ -1432,6 +1462,11 @@ func open_far_view() -> bool:
 	far_view = true
 	_saved_view = [_look, _orbit_distance, _orbit_pitch, _orbit_yaw]
 	_far_pts = FieldLook.far_content(roots, ground, far_known_patches())
+	if not find_hint.is_empty():
+		# The whole ring in the frame, clear of the edges and the buttons.
+		var hr := maxf(float(find_hint["radius"]), 0.8) * 2.4
+		for o in [Vector3.ZERO, Vector3(hr, 0, 0), Vector3(-hr, 0, 0), Vector3(0, 0, hr), Vector3(0, 0, -hr)]:
+			_far_pts.append((find_hint["pos"] as Vector3) + o)
 	_orbit_yaw = _far_best_yaw()
 	_far_fit(_orbit_yaw)
 	_build_far()

@@ -138,6 +138,8 @@ static func image(kind: String) -> Image:
 		"old_root": _old_root(img)
 		"water_vein": _water_vein(img)
 		"coin": _coin(img)
+		"map_scrap": _map_scrap(img)
+		"shard": _shard(img)
 		"blossom": _blossom(img)
 		"anemone": _anemone(img)
 		"fern": _fern(img)
@@ -160,7 +162,7 @@ const KINDS: Array[String] = ["rushes", "clover", "hedgehog", "nettles", "comfre
 	"bonsai", "can", "tin", "tweezers", "wire", "trowel", "moon", "feather",
 	"leaf_ok", "leaf_water", "leaf_n", "leaf_p", "leaf_k", "leaf_burnt",
 	"butterflies", "nest", "fox", "wren", "fossil", "old_root", "water_vein", "coin",
-	"blossom", "anemone", "fern", "moss", "mushroom", "pile", "rain", "mist", "sun", "book",
+	"map_scrap", "shard", "blossom", "anemone", "fern", "moss", "mushroom", "pile", "rain", "mist", "sun", "book",
 	"cutting_juniper", "cutting_linden", "cutting_birch", "cutting_beech", "cutting_sycamore", "cutting_alder", "cutting_oak"]
 
 
@@ -802,6 +804,30 @@ static func _coin(img: Image) -> void:
 	for p in [Vector2(104, 30), Vector2(110, 96)]:
 		_stroke(img, p + Vector2(-4, 0), p + Vector2(4, 0), 1.2)
 		_stroke(img, p + Vector2(0, -4), p + Vector2(0, 4), 1.2)
+
+
+## 0.8.2.6: a torn scrap of map, a path across it and a pencil ring round a patch.
+static func _map_scrap(img: Image) -> void:
+	_curve(img, [Vector2(18, 30), Vector2(50, 24), Vector2(80, 30), Vector2(108, 22)], 1.8)
+	_curve(img, [Vector2(108, 22), Vector2(102, 50), Vector2(112, 76), Vector2(104, 100)], 1.8)
+	_curve(img, [Vector2(104, 100), Vector2(76, 106), Vector2(44, 98), Vector2(20, 104)], 1.8)
+	_curve(img, [Vector2(20, 104), Vector2(26, 76), Vector2(16, 52), Vector2(18, 30)], 1.8)
+	_curve(img, [Vector2(26, 90), Vector2(44, 70), Vector2(60, 78), Vector2(74, 56)], 1.0)
+	_ring(img, Vector2(82, 48), 11.0, 1.2)
+	_stroke(img, Vector2(79, 45), Vector2(85, 51), 1.0)
+	_stroke(img, Vector2(85, 45), Vector2(79, 51), 1.0)
+
+
+## 0.8.2.6: a curved shard of a clay drain pipe, its broken edges and the pipe's lip.
+static func _shard(img: Image) -> void:
+	_curve(img, [Vector2(20, 70), Vector2(40, 40), Vector2(76, 30), Vector2(106, 44)], 2.0)
+	_curve(img, [Vector2(30, 84), Vector2(50, 58), Vector2(80, 50), Vector2(100, 60)], 1.6)
+	_curve(img, [Vector2(20, 70), Vector2(24, 76), Vector2(30, 84)], 1.6)
+	_curve(img, [Vector2(106, 44), Vector2(100, 52), Vector2(104, 54), Vector2(100, 60)], 1.6)
+	for k in range(5):
+		var x := 40.0 + k * 13.0
+		_stroke(img, Vector2(x, 54 - k * 2.0), Vector2(x + 5, 47 - k * 2.0), 0.8)
+	_curve(img, [Vector2(16, 100), Vector2(56, 96), Vector2(112, 102)], 1.0)
 
 
 static func _blossom(img: Image) -> void:

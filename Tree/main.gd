@@ -328,7 +328,10 @@ func _handle_events() -> void:
 			_:
 				if e.begins_with("find:"):
 					var kind := e.substr(5)
-					journal.show_page("find", "A find", "I touched %s." % Underground.FIND_TEXTS.get(kind, kind), kind)
+					var body := "I touched %s. It goes in the bench's drawer." % Underground.FIND_TEXTS.get(kind, kind)
+					if str(state.finds.hint.get("from", "")) == kind and int(state.finds.hint.get("night", -1)) == state.day_number() + 1:
+						body += " " + Finds.HINT_PAGE[str(state.finds.hint["kind"])]
+					journal.show_page("find", "A find", body, kind)
 
 
 ## The first time the tree runs out: which nutrient is missing and where to find it tonight.
@@ -427,6 +430,8 @@ func _fade_dive_ui(v: float) -> void:
 func _enter_night_view() -> void:
 	# The day's wish glows underground, also on a quiet night (0.7).
 	root_view.set_wish_glows(state.wish_glows())
+	# A map scrap's or shard's mark, on the night after it was found (0.8.2.6).
+	root_view.set_find_hint(state.finds.hint_for(state.day_number()))
 	if state.roots.run_active:
 		root_view.resume_run()
 	elif state.night_empty or state.run_used:
@@ -633,6 +638,8 @@ func _back() -> void:
 			leave_bonsai()
 	elif shed_menu.is_busy():
 		shed_menu.close_boards()
+	elif in_shed and shed.drawer_look() != "":
+		shed.toggle_drawer(shed.drawer_look())
 	elif _underground and root_view.far_view:
 		root_view.leave_far_view()
 	elif not in_shed and not _transitioning:
@@ -821,6 +828,8 @@ func enter_shed(animate: bool) -> void:
 		# Only rebuilt when the bonsai changed (0.8.2.1: a full rebuild on every visit was the
 		# 80 ms PC / 108-138 ms phone frame when the house icon was tapped).
 		bonsai_view.refresh(false)
+		# The garden's finds lie in the bench's drawers (0.8.2.6).
+		shed.fill_drawers(state.finds.list())
 		shed_menu.show_menu(true)
 		ambience.set_world(true, 0.8)
 	if animate:
@@ -847,9 +856,11 @@ func leave_shed() -> void:
 		return
 	_transitioning = true
 	shed_menu.show_menu(false)
+	shed.hide_note()
 	var tw := _new_tween()
 	tw.tween_property(_fade, "color:a", 1.0, 0.35)
 	tw.tween_callback(func() -> void:
+		shed.close_drawers()
 		in_shed = false
 		shed.visible = false
 		tree_view.set_shed_open(false)
@@ -877,6 +888,17 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 	var m := event as InputEventMouseButton
 	if m == null or m.pressed or m.button_index != MOUSE_BUTTON_LEFT:
+		return
+	# 0.8.2.6: leaning over an open drawer, a tap on a find shows its note; any other tap closes
+	# the note, then the drawer (the view straightens up).
+	if shed.drawer_look() != "":
+		var fi := shed.find_at(m.position)
+		if fi >= 0:
+			shed.show_note(fi)
+		elif shed.note_text() != "":
+			shed.hide_note()
+		else:
+			shed.toggle_drawer(shed.drawer_look())
 		return
 	var item := shed.item_at(m.position)
 	if item == "":
@@ -923,7 +945,7 @@ func _update_shed_tags() -> void:
 	var at := {}
 	var below := {}
 	var shown := {}
-	var free := not (_transitioning or journal.is_open() or shed_menu.is_busy())
+	var free := not (_transitioning or journal.is_open() or shed_menu.is_busy() or shed.drawer_look() != "")
 	for item in Shed.ITEMS:
 		at[item] = shed.item_tag_position(item)
 		below[item] = shed.item_tag_below(item)

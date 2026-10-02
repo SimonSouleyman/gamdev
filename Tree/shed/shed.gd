@@ -87,9 +87,38 @@ const BONSAI_LAMP_PHONE := 1.4
 ## the drawer node of the workbench model; a tap slides one out or back.
 var drawers: Dictionary = {}
 var _drawer_open: Dictionary = {}  # name -> bool
-## How far a drawer slides out (m; the drawers are 0.44 deep).
-const DRAWER_OUT := 0.24
+## How far a drawer slides out (m; the drawers are 0.44 deep). 0.8.2.6: further, so the finds
+## lying in it show (0.24 before).
+const DRAWER_OUT := 0.32
 const DRAWER_TIME := 0.38
+## 0.8.2.6, the finds (specs/journal-drawers-loop.md D1): each drawer's things, and the view
+## leaning over the open drawer so they read on a phone. A tap on a find shows its note.
+## Each shown find: {"node": Node3D, "drawer": key, "item": Dictionary (Finds.list()'s entry)}.
+var _finds_shown: Array = []
+var _finds_key: Array = []
+## Where each kind lies in its drawer (the Contents node's frame: x across, z toward the room,
+## its floor about 0.3 by 0.37) and its turn.
+const FIND_SLOTS := {
+	"fossil": [Vector3(-0.072, 0.0, -0.115), 0.3], "coin": [Vector3(0.075, 0.0, -0.115), 0.0],
+	"old_root": [Vector3(-0.07, 0.0, 0.035), -0.12], "water_vein": [Vector3(0.075, 0.0, 0.035), 0.5],
+	"map_scrap": [Vector3(-0.072, 0.0, -0.04), 0.12], "shard": [Vector3(0.075, 0.0, -0.04), 1.45]}
+## At most this many of one kind lie in its place (more stay listed in the journal).
+const FIND_COPIES := 3
+## The lean over an open drawer: 0 the room's view .. 1 looking down into it.
+var _lean: float = 0.0
+var _lean_key: String = ""
+var _lean_xf := Transform3D()
+var _lean_fov: float = 60.0
+var _lean_tween: Tween
+var _fit_xf := Transform3D()
+var _fit_fov: float = 70.0
+const LEAN_TIME := 0.55
+const LEAN_FOV := 58.0
+## Half the width (m) of what the lean keeps on screen across, and half its depth.
+const LEAN_HALF := Vector2(0.2, 0.17)
+var _note_layer: CanvasLayer
+var _note: PaperNote
+var _note_find: int = -1
 var _shaft: MeshInstance3D
 var _sounds: Dictionary = {}  # name -> AudioStream
 var _player: AudioStreamPlayer
@@ -118,6 +147,7 @@ func _ready() -> void:
 	_build_pinboard()
 	_build_camera()
 	_build_sounds()
+	_build_note()
 
 
 ## Stands the shed at the current edge of the clearing.
@@ -846,7 +876,17 @@ func toggle_drawer(key: String) -> void:
 	if d == null:
 		return
 	var open := not bool(_drawer_open[key])
+	if open:
+		# One drawer out at a time: the other slides back first.
+		for k in _drawer_open:
+			if k != key and bool(_drawer_open[k]):
+				toggle_drawer(k)
 	_drawer_open[key] = open
+	hide_note()
+	if open and lean_on_open:
+		_lean_to(key)
+	elif not open and _lean_key == key:
+		_lean_to("")
 	var rest: Vector3 = d.get_meta("rest")
 	var to := rest + Vector3(0, 0, DRAWER_OUT if open else 0.0)
 	var busy_key := "drawer_" + key
@@ -866,6 +906,221 @@ func toggle_drawer(key: String) -> void:
 		_player.stream = _sounds["drawer"]
 		_player.pitch_scale = (1.35 if open else 1.5) + 0.06 * fposmod(_time * 7.0, 1.0)
 		_player.play()
+
+
+## Slides every drawer back at once (leaving the shed), the view upright again.
+func close_drawers() -> void:
+	for key in drawers:
+		if bool(_drawer_open[key]):
+			_drawer_open[key] = false
+			var d: Node3D = drawers[key]
+			if _busy.has("drawer_" + key) and (_busy["drawer_" + key] as Tween).is_valid():
+				(_busy["drawer_" + key] as Tween).kill()
+			d.position = d.get_meta("rest")
+	hide_note()
+	if _lean_tween != null and _lean_tween.is_valid():
+		_lean_tween.kill()
+	_lean_key = ""
+	if _lean > 0.0:
+		_lean = 0.0
+		if camera != null:
+			camera.transform = _fit_xf
+			camera.fov = _fit_fov
+
+
+# --- the finds in the drawers (0.8.2.6) -------------------------------------------------
+
+## Opening a drawer leans the view over it (tools that only want the drawer may switch it off).
+var lean_on_open: bool = true
+
+
+## The drawer the view leans over ("" when upright or leaning back).
+func drawer_look() -> String:
+	return _lean_key
+
+
+## Lays the garden's finds (Finds.list()) into their drawers: each kind in its place, up to
+## FIND_COPIES of it slightly apart. Rebuilt only when the list changed.
+func fill_drawers(list: Array) -> void:
+	var key: Array = []
+	for f in list:
+		key.append([f["kind"], f["day"], f["tree"]])
+	if key == _finds_key and not _finds_shown.is_empty():
+		return
+	_finds_key = key
+	for e in _finds_shown:
+		(e["node"] as Node).free()
+	_finds_shown.clear()
+	var copies := {}
+	for f in list:
+		var kind := str(f["kind"])
+		var c := int(copies.get(kind, 0))
+		copies[kind] = c + 1
+		if c >= FIND_COPIES or not FIND_SLOTS.has(kind):
+			continue
+		var box := drawer_contents(str(f["drawer"]))
+		if box == null:
+			continue
+		var n := FindModels.build(kind, c)
+		var slot: Array = FIND_SLOTS[kind]
+		var at: Vector3 = slot[0]
+		# A second or third one lies beside the first, a little turned (paper on paper).
+		at += Vector3([0.0, 0.018, -0.016][c], 0.0025 * c if kind == "map_scrap" else 0.0, [0.0, -0.012, 0.014][c])
+		n.position = at
+		n.rotation.y += float(slot[1]) + [0.0, 0.25, -0.2][c] * (0.4 if kind == "old_root" else 1.0)
+		box.add_child(n)
+		n.set_meta("rest", n.transform)
+		# A soft contact shadow under it (it lies, it does not float).
+		var sz := float(FindModels.SIZE[kind])
+		_blob(Vector3(0, 0.0015, 0), Vector2(sz * 1.05, sz * (0.5 if kind == "old_root" else 0.8)), 0.0, 0.45, n)
+		_finds_shown.append({"node": n, "drawer": str(f["drawer"]), "item": f})
+
+
+## The shown find under this screen point while the view leans over its open drawer (-1: none).
+func find_at(screen: Vector2) -> int:
+	if _lean_key == "":
+		return -1
+	var best := -1
+	var best_score := 1.0
+	for i in range(_finds_shown.size()):
+		var e: Dictionary = _finds_shown[i]
+		if str(e["drawer"]) != _lean_key:
+			continue
+		var n: Node3D = e["node"]
+		var at := n.global_position + Vector3(0, 0.01, 0)
+		if camera.is_position_behind(at):
+			continue
+		var r := maxf(_screen_radius(at, float(FindModels.SIZE.get(str(e["item"]["kind"]), 0.06)) * 0.6), 34.0)
+		var score := camera.unproject_position(at).distance_to(screen) / r
+		if score < best_score:
+			best_score = score
+			best = i
+	return best
+
+
+## The finds shown in a drawer (their Finds.list() entries).
+func finds_in(drawer: String) -> Array:
+	var out: Array = []
+	for e in _finds_shown:
+		if str(e["drawer"]) == drawer:
+			out.append(e["item"])
+	return out
+
+
+## Where a shown find is on screen (for tools and tests).
+func find_screen(i: int) -> Vector2:
+	return camera.unproject_position((_finds_shown[i]["node"] as Node3D).global_position + Vector3(0, 0.01, 0))
+
+
+func find_count() -> int:
+	return _finds_shown.size()
+
+
+## A tap on a find: it lifts a little and its note shows (one line and the night it was found).
+func show_note(i: int) -> void:
+	if i < 0 or i >= _finds_shown.size():
+		return
+	var e: Dictionary = _finds_shown[i]
+	var item: Dictionary = e["item"]
+	_note.text = "%s\n%s" % [Finds.note(str(item["kind"])), Finds.when_line(item)]
+	_note_find = i
+	_place_note()
+	var n: Node3D = e["node"]
+	var rest: Transform3D = n.get_meta("rest")
+	var tw := create_tween()
+	tw.tween_property(n, "position", rest.origin + Vector3(0, 0.012, 0), 0.14).set_trans(Tween.TRANS_SINE)
+	tw.tween_property(n, "position", rest.origin, 0.3).set_trans(Tween.TRANS_BOUNCE).set_ease(Tween.EASE_OUT)
+	if _sounds.has("drawer"):
+		_player.stream = _sounds["drawer"]
+		_player.pitch_scale = 2.2
+		_player.play()
+
+
+func hide_note() -> void:
+	_note_find = -1
+	if _note != null:
+		_note.text = ""
+
+
+func note_text() -> String:
+	return _note.text if _note != null else ""
+
+
+func _build_note() -> void:
+	_note_layer = CanvasLayer.new()
+	_note_layer.layer = 18
+	add_child(_note_layer)
+	_note = PaperNote.new(30, 64)
+	_note_layer.add_child(_note)
+
+
+## The note at the top of the screen, over the drawer's back (the find stays in view below it).
+func _place_note() -> void:
+	var vp := get_viewport()
+	if vp == null:
+		return
+	var size := vp.get_visible_rect().size
+	var w := minf(size.x * 0.86, 620.0)
+	_note.custom_minimum_size = Vector2(w, 0)
+	_note.size = Vector2(w, 0)
+	_note.position = Vector2((size.x - w) * 0.5, size.y * 0.08)
+
+
+## Starts the lean over `key`'s drawer ("" back upright).
+func _lean_to(key: String) -> void:
+	if key != "":
+		_lean_xf = _lean_pose(key)
+		_lean_fov = LEAN_FOV
+	_lean_key = key
+	if _lean_tween != null and _lean_tween.is_valid():
+		_lean_tween.kill()
+	if not is_inside_tree():
+		_lean = 1.0 if key != "" else 0.0
+		return
+	_lean_tween = create_tween()
+	_lean_tween.tween_property(self, "_lean", 1.0 if key != "" else 0.0, LEAN_TIME * (1.0 if key != "" else 0.8))
+	_lean_tween.tween_callback(_apply_lean.bind(true))
+
+
+## Ends the lean at once (tests and tools).
+func finish_lean() -> void:
+	if _lean_tween != null and _lean_tween.is_valid():
+		_lean_tween.kill()
+	_lean = 1.0 if _lean_key != "" else 0.0
+	_apply_lean(true)
+
+
+## The eye over the open drawer: above it and toward the room, looking down at its floor, as far
+## back as keeps LEAN_HALF on screen.
+func _lean_pose(key: String) -> Transform3D:
+	var d: Node3D = drawers[key]
+	var rest: Vector3 = d.get_meta("rest")
+	var parent := (d.get_parent() as Node3D).global_transform
+	var out := parent * Transform3D(d.basis, rest + Vector3(0, 0, DRAWER_OUT))
+	var contents := drawer_contents(key)
+	var target := out * (contents.position + Vector3(0, 0.02, -0.055))
+	var front := (out.basis * Vector3(0, 0, 1)).normalized()
+	var vp := get_viewport() if is_inside_tree() else null
+	var size := vp.get_visible_rect().size if vp != null else Vector2(720, 1600)
+	var aspect := size.x / maxf(size.y, 1.0)
+	var t := tan(deg_to_rad(LEAN_FOV * 0.5))
+	var dist := maxf(LEAN_HALF.x / (t * aspect), LEAN_HALF.y / t) * 1.05
+	var dir := (Vector3.UP * 0.9 + front * 0.44).normalized()
+	var eye := target + dir * dist
+	# In the shed's frame, like the room's eye (the camera is the shed's child).
+	var local := global_transform.affine_inverse()
+	return Transform3D(Basis(), local * eye).looking_at(local * target, Vector3.UP)
+
+
+func _apply_lean(force: bool = false) -> void:
+	if camera == null or (_lean <= 0.0 and not force):
+		return
+	var k := clampf(_lean, 0.0, 1.0)
+	k = k * k * (3.0 - 2.0 * k)
+	camera.transform = _fit_xf.interpolate_with(_lean_xf, k)
+	camera.fov = lerpf(_fit_fov, _lean_fov, k)
+	if _note_find >= 0:
+		_place_note()
 
 
 ## A woven rag rug on the strip of floor before the bench (0.8.2.2, the tighter view: the little
@@ -1159,9 +1414,12 @@ func _fit_for(aspect: float) -> void:
 				best_b = b
 				best_fov = fit.x
 				_fit_pitch = pitch
-	camera.position = EYE
-	camera.basis = best_b
-	camera.fov = best_fov
+	_fit_xf = Transform3D(best_b, EYE)
+	_fit_fov = best_fov
+	if _lean <= 0.0:
+		camera.position = EYE
+		camera.basis = best_b
+		camera.fov = best_fov
 
 
 ## The field of view (degrees) that holds these points from this eye, and where the middle of
@@ -1238,6 +1496,7 @@ func _process(delta: float) -> void:
 	_time += delta
 	# The screen may turn or change size (a PC window): the view fits it again.
 	fit_view()
+	_apply_lean()
 	# The lantern flickers a little.
 	# By night the lantern is the room's light; by day it is only a warm touch.
 	# (The phone's renderer lit the bench too brightly by day: a softer lamp there by day.)
