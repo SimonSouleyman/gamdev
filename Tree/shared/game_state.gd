@@ -33,6 +33,8 @@ var diary := Diary.new()
 var clearing := Clearing.new()
 ## The brush pile of this tree's cuttings and its hedgehog and wren (0.8, BrushPile). Mood only.
 var brush := BrushPile.new()
+## The garden's finds in the bench's drawers (0.8.2.6): kept from tree to tree.
+var finds := Finds.new()
 var phase: Phase = Phase.DAY
 ## Tonight's single run was used.
 var run_used: bool = false
@@ -114,6 +116,8 @@ static func new_tree(random_seed: int, species_id: String, previous: GameState) 
 		g.seen_pages = previous.seen_pages.duplicate()
 		# The clearing's collection is the player's: it goes on under the next tree.
 		g.clearing.found = previous.clearing.found.duplicate()
+		# The finds belong to the garden: they stay in the drawers (0.8.2.6).
+		g.finds = previous.finds
 		# Visitors come anew to each tree (the nest was already there on a new seedling).
 		for k in g.seen_pages.keys():
 			if str(k).begins_with("visitor_"):
@@ -124,6 +128,12 @@ static func new_tree(random_seed: int, species_id: String, previous: GameState) 
 		if g.bonsai != null:
 			g.bonsai.clock.time_of_day = g.sim.clock.time_of_day
 	return g
+
+
+## This tree's number in the garden: 1 for the first (the grove holds the finished ones; a
+## finished tree stays in it while it is still the current one).
+func tree_number() -> int:
+	return grove.size() + (0 if finished else 1)
 
 
 func species() -> Species:
@@ -396,6 +406,13 @@ func notify_find(f: Dictionary) -> void:
 
 func _on_find(f: Dictionary) -> void:
 	var kind := str(f["kind"])
+	# Into the bench's drawer (0.8.2.6); a map scrap or shard may mark something for the next
+	# night. Nothing else: a find never adds growth, life force or nutrients (D2).
+	var item := finds.add(kind, day_number(), sim.species.id, tree_number())
+	if Finds.HINTS.has(kind):
+		var known := ground.known_patches(roots.graph.positions, Finds.KNOWN_REACH, 0.0)
+		if not finds.give_hint(f, item, ground, roots.graph.positions, known, tree_number(), day_number()).is_empty():
+			_event("find_hint:" + kind)
 	diary.add(day_number(), str(FIND_LINES.get(kind, "Found %s." % kind)), "tree", kind if InkSketch.has(kind) else "", "find")
 	_event("find:" + kind)
 
@@ -507,6 +524,8 @@ const FIND_LINES := {
 	"old_root": "Found an old root from a long-gone tree.",
 	"water_vein": "Found a water vein that hums quietly.",
 	"coin": "Found a lost coin, green with age.",
+	"map_scrap": "Found a scrap of an old map.",
+	"shard": "Found a shard of a drain pipe.",
 }
 ## The need the tree shows at sunrise, one line with the leaf it shows (0.8.2: the day page's
 ## second place; the care page says where to steer).
@@ -698,6 +717,7 @@ func to_dict() -> Dictionary:
 		"bonsai": bonsai.to_dict() if bonsai != null else null,
 		"bonsai_resting": bonsai_resting,
 		"brush": brush.to_dict(),
+		"finds": finds.to_dict(),
 	}
 
 
@@ -733,6 +753,10 @@ static func from_dict(d_in: Dictionary) -> GameState:
 			g.grove.append({"species": str(t.get("species", "linden")), "days": int(t.get("days", 0)), "seed": int(t.get("seed", 0))})
 	for k in d.get("seen_pages", []):
 		g.seen_pages[str(k)] = true
+	if d.get("finds") is Dictionary:
+		g.finds = Finds.from_dict(d["finds"])
+	else:
+		g.finds = Finds.from_old_save(g.ground, g.diary, g.sim.species.id, g.tree_number())
 	if d.get("brush") is Dictionary:
 		g.brush = BrushPile.from_dict(d["brush"])
 	if d.get("bonsai") is Dictionary:

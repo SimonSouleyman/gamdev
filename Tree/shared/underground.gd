@@ -25,7 +25,15 @@ const FIND_TEXTS: Dictionary = {
 	"old_root": "an old root of a tree that stood here long before",
 	"water_vein": "a water vein that hums very quietly",
 	"coin": "a lost coin, green with age",
+	"map_scrap": "a scrap of an old garden map",
+	"shard": "a shard of an old clay drain pipe",
 }
+## 0.8.2.6 (specs/journal-drawers-loop.md D1): map scraps and drain-pipe shards per soil, in the
+## middle of the field (metres from the trunk, topsoil). Their own generator, so the dots, rocks
+## and older finds of a save stay where they were; an old save gets them on load (not found).
+const MAP_SCRAPS: int = 2
+const SHARDS: int = 2
+const PEOPLE_FINDS_DIST := Vector2(5.0, 16.0)
 
 var seed: int = 1
 var dot_positions: PackedVector3Array = PackedVector3Array()
@@ -520,6 +528,18 @@ func _generate_finds() -> void:
 		if patch["kind"] == Resources.Kind.WATER and -(patch["center"] as Vector3).y > 4.0:
 			finds.append({"kind": "water_vein", "position": patch["center"], "found": false})
 			break
+	var rng := RandomNumberGenerator.new()
+	rng.seed = hash([seed, "finds_0826"])
+	var far := minf(PEOPLE_FINDS_DIST.y, extent - 2.0)
+	for k in range(MAP_SCRAPS + SHARDS):
+		var p := Vector3.ZERO
+		for _try in range(8):
+			var a := rng.randf() * TAU
+			var r := rng.randf_range(PEOPLE_FINDS_DIST.x, far)
+			p = Vector3(cos(a) * r, -rng.randf_range(0.4, 1.4), sin(a) * r)
+			if not is_inside_rock(p, FIND_RADIUS):
+				break
+		finds.append({"kind": "map_scrap" if k < MAP_SCRAPS else "shard", "position": p, "found": false})
 
 
 # --- rock bands and soft veins (0.8.2) ---------------------------------------------
