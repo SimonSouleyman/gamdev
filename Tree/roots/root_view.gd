@@ -9,8 +9,9 @@ signal run_started(from_id: int)
 signal run_finished(totals: PackedFloat32Array)
 signal find_touched(find: Dictionary)
 signal dots_collected(count: int)
-## A quick swipe up once the night's root is done: back up to the tree (play test 4).
-signal swipe_up
+## A quick swipe down once the night's root is done: back up to the tree (play test 4; 0.8.2.2:
+## down, the opposite of the dive's swipe up).
+signal swipe_back
 ## The tip reached tonight's wish deposit (0.7): its patch id.
 signal wish_reached(patch: int)
 ## The far view opened (0.8.2), for the first-time hint.
@@ -773,8 +774,9 @@ func _scrap_button(text: String, size: int) -> Button:
 func _show_run_controls(on: bool) -> void:
 	joystick.visible = on
 	dive_button.visible = on
-	# Ending only makes sense once the root has started to grow.
-	end_button.visible = on and not _waiting_for_input
+	# 0.8.2.2 (specs/0.8.md "Stop at once"): ending is there from the moment the night opens,
+	# also before the root has moved (the tank then grows small roots everywhere).
+	end_button.visible = on
 
 
 func set_hud_visible(on: bool) -> void:
@@ -803,7 +805,7 @@ func _update_hud() -> void:
 		Mode.RUN:
 			_hint.text = "Move the stick (or WASD) to grow the root." if _waiting_for_input else (_note_text if _note_time > 0.0 else "")
 		Mode.DONE:
-			_hint.text = ("A quiet night below. Swipe up to wake the tree." if quiet_night else ("The new root settles. The leftover grows side roots." if roots.side_nodes_grown[0] > 0 else "The new root settles. Fine roots reach for what is near.")) if is_settling() or quiet_night else "Swipe up to wake the tree, or wait for the morning."
+			_hint.text = ("A quiet night below. Swipe down to wake the tree." if quiet_night else ("Small roots reach for the nearest dots." if roots.run_length < roots.step_length and roots.side_nodes_grown[0] > 0 else "The new root settles. The leftover grows side roots." if roots.side_nodes_grown[0] > 0 else "The new root settles. Fine roots reach for what is near.")) if is_settling() or quiet_night else "Swipe down to wake the tree, or wait for the morning."
 		_:
 			_hint.text = ""
 
@@ -816,6 +818,8 @@ func begin_pick() -> void:
 	quiet_night = false
 	_life_at_start = maxf(res.life_force, 0.001)
 	_show_run_controls(false)
+	# Before a start is picked the night can end at once too (0.8.2.2).
+	end_button.visible = can_start.call()
 	_tip.visible = false
 	_frame_overview()
 	_snap_camera()
@@ -841,7 +845,7 @@ func resume_run() -> void:
 		_life_at_start = maxf(maxf(roots.run_tank, res.life_force), 0.001)
 	else:
 		_life_at_start = maxf(res.life_force + roots.run_length * roots.base_cost_per_metre, 0.001)
-	camera.position = roots.tip_position - roots.heading * 2.4 + Vector3.UP * 0.8
+	camera.position = roots.tip_position - roots.travel * 2.4 + Vector3.UP * 0.8
 
 
 func _enter_run() -> void:
@@ -927,12 +931,11 @@ func _process_run(delta: float) -> void:
 	var dive := _dive_held()
 	if _waiting_for_input:
 		_tip.position = roots.tip_position
-		camera.position = camera.position.lerp(roots.tip_position - roots.heading * 2.4 + Vector3.UP * 0.8, 1.0 - exp(-4.0 * delta))
-		_look_at_safely(roots.tip_position + roots.heading * 1.2)
+		camera.position = camera.position.lerp(roots.tip_position - roots.travel * 2.4 + Vector3.UP * 0.8, 1.0 - exp(-4.0 * delta))
+		_look_at_safely(roots.tip_position + roots.travel * 1.2)
 		if stick.length() < 0.2 and not dive:
 			return
 		_waiting_for_input = false
-		end_button.visible = true
 	if input_enabled and scripted_stick == null and (Input.is_physical_key_pressed(KEY_E) or Input.is_physical_key_pressed(KEY_ENTER)):
 		end_early()
 		return
@@ -951,8 +954,8 @@ func _process_run(delta: float) -> void:
 	if _rebuild_timer >= REBUILD_INTERVAL:
 		_rebuild_timer = 0.0
 		_rebuild_all(false)
-	# Third-person camera behind and a little above the tip.
-	var h := roots.heading
+	# Third-person camera behind and a little above the tip (where it really travels, 0.8.2.2).
+	var h := roots.travel
 	var flat := Vector3(h.x, 0.0, h.z)
 	var back := (h * 0.5 + (flat.normalized() if flat.length_squared() > 1e-4 else -camera.global_basis.z) * 0.5).normalized()
 	var want := _outside_rocks(roots.tip_position - back * 2.4 + Vector3.UP * 0.8)
@@ -1005,11 +1008,23 @@ func release_controls() -> void:
 
 
 ## The player ends the root here: fine roots take the rest of tonight's life force.
+## 0.8.2.2: also before a start is picked (or before the root moved): the whole tank grows small
+## roots from the whole network toward the nearest dots, and there is no main root tonight.
 func end_early() -> void:
-	if mode != Mode.RUN or not roots.run_active or not input_enabled:
+	if not input_enabled:
 		return
-	roots.last_collected = PackedInt32Array()
-	roots.finish_early(ground, res)
+	if mode == Mode.PICK:
+		if not can_start.call():
+			return
+		roots.last_collected = PackedInt32Array()
+		if not roots.end_at_once(ground, res):
+			return
+		run_started.emit(-1)
+	elif mode != Mode.RUN or not roots.run_active:
+		return
+	else:
+		roots.last_collected = PackedInt32Array()
+		roots.finish_early(ground, res)
 	for i in roots.last_collected:
 		_set_dot(i)
 		_flash(ground.dot_positions[i], Resources.KIND_COLORS[ground.dot_kinds[i]], 0.5)
@@ -1228,9 +1243,8 @@ func _unhandled_input(event: InputEvent) -> void:
 				_hover.position = roots.graph.positions[id]
 	elif is_release:
 		_pressing = false
-		var swipe := _press_pos - pos
-		if mode == Mode.DONE and not is_settling() and swipe.y > 160.0 and absf(swipe.x) < swipe.y * 0.7 				and Time.get_ticks_msec() - _press_msec < 900:
-			swipe_up.emit()
+		if mode == Mode.DONE and not is_settling() 				and TreeView.is_swipe(_press_pos, pos, false, (Time.get_ticks_msec() - _press_msec) / 1000.0):
+			swipe_back.emit()
 			return
 		if _pinch_done or _touches.size() >= 2:
 			return

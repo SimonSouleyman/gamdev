@@ -113,12 +113,20 @@ func _render(view: TreeView, state: GameState) -> bool:
 		if img == null or img.is_empty():
 			sv.queue_free()
 			return false
-		# The clear sky's pixels take their opaque neighbours' colour before the resize (0.8 review:
-		# the cubic filter mixed the clear colour into the edge, a pale seam along the horizon).
-		img.fix_alpha_edges()
-		img.resize(LivePicture.LAYER_SIZE.x, LivePicture.LAYER_SIZE.y, Image.INTERPOLATE_CUBIC)
 		images[name] = img
 	sv.queue_free()
+	# The clear sky's pixels take their opaque neighbours' colour before the resize (0.8 review:
+	# the cubic filter mixed the clear colour into the edge, a pale seam along the horizon).
+	# 0.8.2.2: on a worker thread (on the phone these two were most of the long frames).
+	var task := WorkerThreadPool.add_task(func() -> void:
+		for name in images:
+			var im: Image = images[name]
+			im.fix_alpha_edges()
+			im.resize(LivePicture.LAYER_SIZE.x, LivePicture.LAYER_SIZE.y, Image.INTERPOLATE_CUBIC))
+	var tree := Engine.get_main_loop() as SceneTree
+	while not WorkerThreadPool.is_task_completed(task):
+		await tree.process_frame
+	WorkerThreadPool.wait_for_task_completion(task)
 	var shape := measure(images["day"])
 	var stamp := int(Time.get_unix_time_from_system())
 	var files := {}

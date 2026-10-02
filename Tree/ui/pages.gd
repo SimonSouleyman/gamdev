@@ -10,7 +10,7 @@ const TEXTS: Dictionary = {
 	"first_run_done": ["The first root", "The root drank what it touched; the seed grows at sunrise."],
 	"sapling": ["A sapling", "Tap: an hour of brighter sun. Faster growth, less life force for tonight.\n\nMorning boosts grow it east, noon tall, evening west; the arc shows the sun. The pills: life force and nutrients.\n\nHold a still finger: the day runs at 4x. Drag to walk, pinch to zoom."],
 	"spent": ["Nothing left to grow with", "The roots' haul is used up. The leaves still gather life force."],
-	"first_sunset": ["Sunset", "Tap the ground to dive to the roots.\n\nThe meadow hints below: rushes water, clover nitrogen, nettles phosphorus, stones rock, comfrey a potassium wish."],
+	"first_sunset": ["Sunset", "Tap the ground or swipe up to dive to the roots.\n\nThe meadow hints below: rushes water, clover nitrogen, nettles phosphorus, stones rock, comfrey a potassium wish."],
 	"pick": ["A new root", "Tonight a root can start anywhere on the old roots: tap one."],
 	"shears": ["The shears", "Touch a branch to outline what would fall; slide to choose, lift to cut.\n\nCutting is free; the tree grows into your shape. Tap the shears to put them away."],
 	"finished": ["A grown tree", "Fully grown; it dropped a seed. The shed's seed bag holds the next kind. No hurry."],

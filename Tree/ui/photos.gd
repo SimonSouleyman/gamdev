@@ -23,6 +23,26 @@ static func save_from(viewport: Viewport, day: int, tag: String, species_id: Str
 	return path
 
 
+## The same, from an image already read back, written on a worker thread (0.8.2.2: the resize and
+## the PNG and JPG encoding were most of the morning photo's hitch on the phone). Returns the path
+## the photo will have.
+static func save_image(img: Image, day: int, tag: String, species_id: String = "linden") -> String:
+	if img == null or img.is_empty():
+		return ""
+	DirAccess.make_dir_recursive_absolute(DIR)
+	DirAccess.make_dir_recursive_absolute(DIR.path_join("thumbs"))
+	var path := "%s/%s_day%03d_%s_%d.png" % [DIR, species_id, day, tag, int(Time.get_unix_time_from_system() * 1000.0)]
+	WorkerThreadPool.add_task(_encode.bind(img, path), false, "album photo")
+	return path
+
+
+static func _encode(img: Image, path: String) -> void:
+	var w := 1080
+	img.resize(w, int(float(w) * img.get_height() / img.get_width()), Image.INTERPOLATE_BILINEAR)
+	img.save_png(path)
+	_save_thumb(img, path)
+
+
 ## Small copies for the flip-book (TimeLapse), in a folder beside the photos: a month of full
 ## photos would take seconds to load and hundreds of megabytes on a phone.
 const THUMB_WIDTH := 360

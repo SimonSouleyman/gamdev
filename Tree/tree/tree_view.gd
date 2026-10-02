@@ -135,8 +135,8 @@ var _press_time: float = 0.0  # "", "orbit", "sun", "boost"
 ## Hold to fast-forward the day (specs/fast-forward.md, 0.8.2): a still finger held this long
 ## by day starts it; it runs while the finger stays down. A tap stays the boost.
 const HOLD_START := 0.6
-## The day's clock while held (tuning lever).
-const FAST_FORWARD := 4.0
+## The day's clock while held (tuning lever; 0.8.2.2: 8x, was 4x, Simon: "twice as fast").
+const FAST_FORWARD := 8.0
 ## Real seconds the speed takes to ease in from 1x to FAST_FORWARD (no hitch when it starts).
 const FAST_EASE := 0.5
 ## 0..1: how far the fast-forward has eased in (0 = the normal clock).
@@ -732,7 +732,7 @@ func _update_hud() -> void:
 	sun_arc.progress = s.clock.time_of_day / s.clock.daylight_fraction
 	match state.phase:
 		GameState.Phase.SUNSET:
-			_hint.text = "The sun has set. Tap the ground or swipe down to the roots."
+			_hint.text = "The sun has set. Tap the ground or swipe up to dive to the roots."
 		GameState.Phase.DAY:
 			if state.day_is_spent():
 				_hint.text = ("Almost nothing left to grow with today" if state.sim.nutrient_missing() and not state.sim.graph.is_full() and state.sim.resources.stock[0] >= state.sim.cost_per_node else "Nothing left to grow with today") + ". The leaves still gather life force for tonight."
@@ -1269,9 +1269,76 @@ func crown_width() -> float:
 
 ## The album's morning photo: a camera framed for the species' grown size, from the same spot
 ## every day, so the flip-book shows the tree growing (on) and back to the player's view (off).
+## How close above the meadow the dive's camera comes (it never goes under the ground).
+const DIVE_FLOOR := 0.35
+
+
 func album_pose(on: bool) -> void:
 	_album = on
 	_frame_camera(true)
+
+
+## The camera placed at once where play has it (no glide from where it was): after the shed and
+## at sunrise, behind the black (0.8.2.2).
+func snap_camera() -> void:
+	if state != null:
+		_frame_camera(false, 0.0)
+
+
+## Where the album's camera stands ([global transform, fov]), worked out without moving the
+## player's camera: its pose is taken and everything the framing touched is put back.
+func album_camera() -> Array:
+	var keep := [camera.transform, camera.fov, _focus, _distance, _framed_height, _framed_width, _framed_reach, _framed_day, dive_amount]
+	# (Taken behind the sunrise's black, while the dive's camera is still under the meadow.)
+	dive_amount = 0.0
+	album_pose(true)
+	var out := [camera.global_transform, camera.fov]
+	_album = false
+	camera.transform = keep[0]
+	camera.fov = keep[1]
+	_focus = keep[2]
+	_distance = keep[3]
+	_framed_height = keep[4]
+	_framed_width = keep[5]
+	_framed_reach = keep[6]
+	_framed_day = keep[7]
+	dive_amount = keep[8]
+	# The grass fade follows the player's camera again (k = 0: nothing moves).
+	_frame_camera(false, 0.0)
+	return out
+
+
+## The album's morning photo, drawn off screen by a camera of its own in the same world (0.8.2.2:
+## the player's camera jumped to the album pose for a frame, the "wrong camera" on the phone).
+## A coroutine; null when nothing could be drawn (headless).
+func album_photo() -> Image:
+	var pose := album_camera()
+	var main_vp := get_viewport()
+	var vp := SubViewport.new()
+	# The size the screen's picture has (the window's pixels), as the old photo had.
+	vp.size = (main_vp as Window).size if main_vp is Window else Vector2i(main_vp.get_visible_rect().size)
+	vp.render_target_update_mode = SubViewport.UPDATE_ONCE
+	vp.msaa_3d = main_vp.msaa_3d
+	vp.screen_space_aa = main_vp.screen_space_aa
+	vp.scaling_3d_mode = main_vp.scaling_3d_mode
+	vp.scaling_3d_scale = main_vp.scaling_3d_scale
+	vp.positional_shadow_atlas_size = main_vp.positional_shadow_atlas_size
+	var cam := Camera3D.new()
+	cam.environment = camera.environment
+	cam.attributes = camera.attributes
+	cam.near = camera.near
+	cam.far = camera.far
+	cam.cull_mask = camera.cull_mask
+	cam.keep_aspect = camera.keep_aspect
+	cam.fov = pose[1]
+	vp.add_child(cam)
+	add_child(vp)
+	cam.global_transform = pose[0]
+	cam.make_current()
+	await RenderingServer.frame_post_draw
+	var img := vp.get_texture().get_image()
+	vp.queue_free()
+	return img
 
 
 func _frame_camera(snap: bool, delta: float = 0.0) -> void:
@@ -1373,6 +1440,11 @@ func _frame_camera(snap: bool, delta: float = 0.0) -> void:
 	var r := Vector2(orbit.x - _focus.x, orbit.z - _focus.z).length() * lerpf(1.0, 0.6, dive_amount)
 	var a := (ALBUM_YAW if _album else _yaw) + spin
 	camera.position = Vector3(_focus.x + sin(a) * r, lerpf(orbit.y, -1.6, fall), _focus.z + cos(a) * r)
+	# 0.8.2.2 (phone: one to three flat grey frames on the dive, the ground's underside): the
+	# camera stops just above the meadow; the black fade covers the rest of the fall, and the
+	# sunrise rises from there.
+	if dive_amount > 0.0:
+		camera.position.y = maxf(camera.position.y, Terrain.height(camera.position.x, camera.position.z) + DIVE_FLOOR)
 	camera.fov *= lerpf(1.0, 0.8, dive_amount)
 	var look := Vector3(_focus.x, lerpf(_focus.y, -4.0, fall), _focus.z)
 	var d := look - camera.position
@@ -1512,9 +1584,10 @@ func _drag(pos: Vector2, rel: Vector2) -> void:
 	if _drag_mode != "orbit" and _drag_mode != "swipe" and pos.distance_to(_press_pos) > DRAG_THRESHOLD:
 		_drag_mode = "orbit"
 		state.sim.clock.boost_active = false
-		# At sunset a mostly downward drag is the dive swipe, not a turn of the camera (the pitch
+		# At sunset a mostly upward drag is the dive swipe, not a turn of the camera (the pitch
 		# it left behind made the next mornings look straight down on the tree; 0.6 review).
-		if state.phase == GameState.Phase.SUNSET and (pos - _press_pos).y > absf((pos - _press_pos).x):
+		# 0.8.2.2 (Simon): the dive is a swipe UP, the way back from the roots a swipe down.
+		if state.phase == GameState.Phase.SUNSET and -(pos - _press_pos).y > absf((pos - _press_pos).x):
 			_drag_mode = "swipe"
 	if _drag_mode == "orbit":
 		_yaw -= rel.x * 0.006
@@ -1549,9 +1622,8 @@ func _end_press(is_release: bool, pos: Vector2 = Vector2.ZERO) -> void:
 	# A short tap by day boosts the sun for one game hour; the clock keeps running.
 	if is_release and _drag_mode != "orbit" and state.phase == GameState.Phase.DAY and _press_phase == GameState.Phase.DAY and _time - _press_time < 0.6:
 		state.boost_hour()
-	# A quick swipe down at sunset dives too: the tree above, the roots below (play test 4).
-	var swipe := pos - _press_pos
-	if is_release and state.phase == GameState.Phase.SUNSET and _press_phase == GameState.Phase.SUNSET 			and swipe.y > 160.0 and absf(swipe.x) < swipe.y * 0.7 and _time - _press_time < 0.9:
+	# A quick swipe up at sunset dives too (0.8.2.2, Simon: was a swipe down; play test 4).
+	if is_release and state.phase == GameState.Phase.SUNSET and _press_phase == GameState.Phase.SUNSET 			and is_swipe(_press_pos, pos, true, _time - _press_time):
 		_drag_mode = ""
 		ground_tapped.emit()
 		return
@@ -1560,6 +1632,17 @@ func _end_press(is_release: bool, pos: Vector2 = Vector2.ZERO) -> void:
 		if _hits_ground(pos):
 			ground_tapped.emit()
 	_drag_mode = ""
+
+
+## A quick, mostly vertical swipe of at least SWIPE_MIN px within SWIPE_TIME s: up (the dive at
+## sunset) or down (back from the roots after the night). Shared by both views (0.8.2.2).
+const SWIPE_MIN := 160.0
+const SWIPE_TIME := 0.9
+
+
+static func is_swipe(from: Vector2, to: Vector2, up: bool, seconds: float) -> bool:
+	var along := (from.y - to.y) if up else (to.y - from.y)
+	return along > SWIPE_MIN and absf(to.x - from.x) < along * 0.7 and seconds < SWIPE_TIME
 
 
 func _hits_ground(pos: Vector2) -> bool:

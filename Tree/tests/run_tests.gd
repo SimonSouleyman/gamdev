@@ -74,8 +74,16 @@ func _run_all() -> void:
 		preload("res://tests/test_field_extras.gd"),
 		preload("res://tests/test_bugs_0821.gd"),
 		preload("res://tests/test_look_0821.gd"),
+		preload("res://tests/test_feedback_0822.gd"),
 	]
+	# `-- --only=root_system,feedback` runs only the suites whose file name holds one of the words.
+	var only: PackedStringArray = []
+	for a in OS.get_cmdline_user_args():
+		if a.begins_with("--only="):
+			only = a.substr(7).split(",")
 	for script in tests:
+		if not only.is_empty() and not Array(only).any(func(w: String) -> bool: return w in script.resource_path.get_file()):
+			continue
 		var suite: RefCounted = script.new()
 		suite.set("t", self)
 		for m in suite.get_method_list():

@@ -25,6 +25,10 @@ var _transitioning: bool = false
 var _autosave_timer: float = 0.0
 var _tween: Tween
 var _underground: bool = false
+## The dive's first half (the tree scene still in view): the corner pictures go with the tree
+## HUD. 0.8.2.2: they no longer wait for the end of every transition, so coming out of the shed
+## they appear with the view (they came a moment after the journal button).
+var _diving: bool = false
 var shed: Shed
 var shed_menu: ShedMenu
 var in_shed: bool = false
@@ -139,8 +143,8 @@ func _build() -> void:
 	# A cut is routine (0.8.2): the care page's "last cut" tells what it did, no diary line.
 	root_view.can_start = func() -> bool: return state.can_start_run()
 	root_view.run_started.connect(func(_id: int) -> void: state.mark_run_started())
-	# Swipe up after the night's root: straight on to the morning.
-	root_view.swipe_up.connect(func() -> void:
+	# Swipe down after the night's root: straight on to the morning (0.8.2.2: was up).
+	root_view.swipe_back.connect(func() -> void:
 		if state.phase == GameState.Phase.NIGHT and (state.night_done or state.night_empty) and not _transitioning:
 			state.night_done = true
 			state.tick(9999.0))
@@ -176,6 +180,7 @@ func start(p_state: GameState) -> void:
 	if _tween:
 		_tween.kill()
 	_transitioning = false
+	_diving = false
 	_fade.color.a = 0.0
 	tree_view.dive_amount = 0.0
 	if state.phase == GameState.Phase.NIGHT:
@@ -216,6 +221,8 @@ func _show_underground(on: bool) -> void:
 ## The simulation runs in fixed steps, so the tree grows the same at 30 fps (battery saver),
 ## 60 fps or 120 fps from the same seed.
 const SIM_STEP := 1.0 / 30.0
+## The most sim time a fast-forwarded frame may take (ms); see _process.
+const FF_BUDGET_MS := 12
 ## Wish deposits the meadow shows plants for (it is rebuilt when a new one is placed).
 var _meadow_wishes: int = -1
 var _sim_accum: float = 0.0
@@ -238,13 +245,7 @@ func _process(delta: float) -> void:
 	tree_view.input_enabled = not paused and not _transitioning
 	# The "while you were away" page lies over the game: the pictures at the right would sit on
 	# it and stay live (0.6 QA).
-	var page_up := shed_menu.is_tree_page_open()
-	journal.set_button_visible(not in_shed and not page_up)
-	_shed_button.visible = not in_shed and not _transitioning and not page_up
-	_photo_button.visible = not in_shed and not _underground and not _transitioning and not page_up and state.phase == GameState.Phase.DAY
-	_shears_button.visible = _photo_button.visible and state.sim.graph.size() > 6
-	if tree_view.prune_mode and not _shears_button.visible:
-		_set_shears(false)
+	_update_corner()
 	root_view.input_enabled = not paused and not _transitioning
 	root_view.process_mode = Node.PROCESS_MODE_DISABLED if paused else Node.PROCESS_MODE_INHERIT
 	if not paused or bonsai_live:
@@ -252,10 +253,18 @@ func _process(delta: float) -> void:
 		# same steps; the result does not depend on the speed.
 		_sim_accum += delta * time_scale * tree_view.time_speed()
 		var steps := 0
+		# 0.8.2.2: held at 8x the sim runs twice the steps of 0.8.2; past FF_BUDGET_MS of them in
+		# a frame the day runs a little slower instead of the frame rate dropping (the steps stay
+		# the same fixed steps, so the tree is the same).
+		var budget := FF_BUDGET_MS * 1000 if tree_view.time_speed() > 1.0 else 1 << 40
+		var t0 := Time.get_ticks_usec()
 		while _sim_accum >= SIM_STEP and steps < 40:
 			state.tick(SIM_STEP)
 			_sim_accum -= SIM_STEP
 			steps += 1
+			if Time.get_ticks_usec() - t0 > budget:
+				_sim_accum = minf(_sim_accum, SIM_STEP)
+				break
 		if steps == 40:
 			_sim_accum = 0.0  # a long hitch: drop the rest rather than spiral
 	_handle_events()
@@ -277,8 +286,9 @@ func _handle_events() -> void:
 	for e in state.take_events():
 		match e:
 			"sunset":
-				# The day's growth is done: the live picture shows it.
-				_refresh_live()
+				# The day's growth is done: the live picture shows it, drawn behind the dive's black
+				# (0.8.2.2: drawn here it froze the sunset for about 1.5 s on the phone).
+				_live_due = true
 				if state.is_seed() and state.day_number() == 0:
 					_page_once("planted")
 					# Each species introduces itself once, the first time it is planted from the seed bag
@@ -363,6 +373,7 @@ func _on_ground_tapped() -> void:
 
 func _dive() -> void:
 	_transitioning = true
+	_diving = true
 	Haptics.buzz("dive")
 	tree_view.hud.visible = false
 	ambience.set_world(false, 2.2)
@@ -370,10 +381,12 @@ func _dive() -> void:
 	tw.tween_property(tree_view, "dive_amount", 1.0, 1.6).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
 	tw.parallel().tween_property(_fade, "color:a", 1.0, 0.7).set_delay(0.9)
 	tw.tween_callback(func() -> void:
+		_diving = false
 		_show_underground(true)
 		tree_view.dive_amount = 0.0
 		ambience.set_world(false, 0.8)
-		_enter_night_view())
+		_enter_night_view()
+		_hold_black(tw, _live_behind_black))
 	tw.tween_property(_fade, "color:a", 0.0, 0.9)
 	tw.tween_callback(func() -> void:
 		_transitioning = false
@@ -416,7 +429,10 @@ func _rise() -> void:
 	tw.tween_callback(func() -> void:
 		_show_underground(false)
 		tree_view.dive_amount = 1.0
-		ambience.set_world(true, 2.5))
+		# The camera rises from its first frame on: placed now, not one frame late (0.8.2.2).
+		tree_view.snap_camera()
+		ambience.set_world(true, 2.5)
+		_hold_black(tw, _morning_behind_black))
 	tw.tween_property(_fade, "color:a", 0.0, 1.2)
 	tw.parallel().tween_property(tree_view, "dive_amount", 0.0, 3.0).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
 	tw.tween_callback(func() -> void:
@@ -434,12 +450,29 @@ func _new_tween() -> Tween:
 	return _tween
 
 
+## Frames the screen stays black after a switch behind the fade (0.8.2.2, phone: going back to
+## the day hitched and the hitch showed). The first frames of a scene (a slow frame, materials
+## drawn for the first time, a rebuilt mesh) used to advance the fade by their own long time, so
+## the black lifted during them; now the fade waits these frames out, however long they take.
+const BLACK_FRAMES := 3
+
+
+## Called from a tween's callback right after the switch: pauses that tween for BLACK_FRAMES,
+## after `work` (a coroutine: the album photo, the live picture) has finished behind the black.
+func _hold_black(tw: Tween, work: Callable = Callable()) -> void:
+	tw.pause()
+	if work.is_valid():
+		await work.call()
+	for _i in range(BLACK_FRAMES):
+		await get_tree().process_frame
+	if is_instance_valid(tw) and tw.is_valid() and tw == _tween:
+		tw.play()
+
+
 ## After the dawn burst (GameState wrote the diary line): the first-morning page or the daily wish.
 func _morning() -> void:
-	# A photo for the album every morning, after the dawn burst.
-	await _take_photo("morning")
-	# The night's growth, for the phone's live picture.
-	_refresh_live()
+	# (0.8.2.2: the album's morning photo and the live picture are taken behind the sunrise's
+	# black now, _rise; here they froze the morning and showed the album camera's view.)
 	# Visitors come as the tree grows (diary lines; the nest and the bench stay in view).
 	if not Visitors.arrive(state).is_empty():
 		tree_view.update_visitors()
@@ -460,6 +493,27 @@ func _refresh_live(force: bool = false) -> void:
 	if not LiveExport.enabled or ephemeral or state == null:
 		return
 	live_export.refresh(tree_view, state, force)
+
+
+## The live picture asked for at sunset (the day's growth), drawn behind the next black.
+var _live_due: bool = false
+
+
+## Behind a black screen: the live picture if one is due (it renders four layers, a long frame or
+## several on the phone). A coroutine.
+func _live_behind_black() -> void:
+	if not _live_due or not LiveExport.enabled or ephemeral or state == null:
+		return
+	_live_due = false
+	await live_export.refresh(tree_view, state)
+
+
+## Behind the sunrise's black (0.8.2.2): the album's morning photo, off screen, and the live
+## picture with the night's growth. A coroutine.
+func _morning_behind_black() -> void:
+	await _take_photo("morning", true)
+	_live_due = true
+	await _live_behind_black()
 
 
 func _apply_setting(key: String, on: bool, from_player: bool = true) -> void:
@@ -572,6 +626,18 @@ func _notification(what: int) -> void:
 			_show_away_page()
 
 
+## The journal and the pictures at the right, shown together (0.8.2.2: out of the shed the
+## shed, camera and shears came a moment after the journal); also called at each switch.
+func _update_corner() -> void:
+	var page_up := shed_menu.is_tree_page_open()
+	journal.set_button_visible(not in_shed and not page_up)
+	_shed_button.visible = not in_shed and not _diving and not page_up
+	_photo_button.visible = not in_shed and not _underground and not _diving and not page_up and state.phase == GameState.Phase.DAY
+	_shears_button.visible = _photo_button.visible and state.sim.graph.size() > 6
+	if tree_view.prune_mode and not _shears_button.visible:
+		_set_shears(false)
+
+
 ## Lets go of every finger and button the views hold (a hold's fast-forward, the stick, dive).
 func _cancel_presses() -> void:
 	if tree_view != null:
@@ -593,10 +659,14 @@ func _build_corner() -> void:
 		if not _transitioning and not journal.is_open():
 			enter_shed(true))
 	_photo_button = _picture("camera", -48.0, 1.0)
-	_photo_button.pressed.connect(func() -> void: _take_photo("camera"))
+	_photo_button.pressed.connect(func() -> void:
+		if not _transitioning:
+			_take_photo("camera"))
 	# The shears: while out, a tap cuts a branch instead of boosting the sun (play test 4).
 	_shears_button = _picture("shears", 54.0, -1.0)
 	_shears_button.pressed.connect(func() -> void:
+		if _transitioning:
+			return
 		_set_shears(not tree_view.prune_mode)
 		if tree_view.prune_mode:
 			_page_once("shears"))
@@ -698,9 +768,12 @@ func enter_shed(animate: bool) -> void:
 		_transitioning = true
 		var tw := _new_tween()
 		tw.tween_property(_fade, "color:a", 1.0, 0.35)
-		tw.tween_callback(switch)
+		tw.tween_callback(func() -> void:
+			switch.call()
+			_hold_black(tw, _live_behind_black))
 		# The room's first frames (a slow frame on the phone, materials drawn the first time)
-		# stay under the black, so the shed never flashes up blank (0.8.2.1 phone test).
+		# stay under the black, so the shed never flashes up blank (0.8.2.1 phone test; 0.8.2.2:
+		# counted in frames too, _hold_black).
 		tw.tween_interval(0.12)
 		tw.tween_property(_fade, "color:a", 0.0, 0.45)
 		tw.tween_callback(func() -> void: _transitioning = false)
@@ -725,7 +798,11 @@ func leave_shed() -> void:
 		journal.set_button_visible(true)
 		# Pages that were waiting (the first tutorial page) show now, in the game.
 		journal.release_pages()
-		_show_underground(state.phase == GameState.Phase.NIGHT))
+		_show_underground(state.phase == GameState.Phase.NIGHT)
+		_update_corner()
+		# The tree's camera stands where play left it from the first frame (0.8.2.2).
+		tree_view.snap_camera()
+		_hold_black(tw))
 	tw.tween_property(_fade, "color:a", 0.0, 0.45)
 	tw.tween_callback(func() -> void: _transitioning = false)
 
@@ -964,14 +1041,26 @@ func plant_next(species_id: String) -> void:
 
 
 ## Saves a photo of the tree for the album (without the HUD), with a camera flash.
-func _take_photo(tag: String) -> void:
+func _take_photo(tag: String, behind_black: bool = false) -> void:
 	if ephemeral or in_shed or _underground or _photo_busy:
 		return
 	_photo_busy = true
-	# Never through the black fade of a sunrise or a trip to the shed.
-	while _transitioning:
+	# Never through the black fade of a sunrise or a trip to the shed (the morning photo is taken
+	# behind the sunrise's black on purpose, off screen).
+	while _transitioning and not behind_black:
 		await get_tree().process_frame
 	if in_shed or _underground:
+		_photo_busy = false
+		return
+	# The morning photos share one camera framed for the grown tree, so the album's flip-book
+	# shows the tree growing instead of a tree re-framed to the same size every day.
+	# 0.8.2.2 (phone: a frame from the wrong camera and a hitch on the way back to the day): the
+	# album's camera draws off screen (TreeView.album_photo), so the screen never shows its pose,
+	# and the photo is written on a worker thread (Photos.save_image).
+	if tag == "morning":
+		var shot: Image = await tree_view.album_photo()
+		if not in_shed and not _underground:
+			Photos.save_image(shot, state.day_number(), tag, state.sim.species.id)
 		_photo_busy = false
 		return
 	var huds: Array = [tree_view.hud, journal, _corner]
@@ -979,16 +1068,8 @@ func _take_photo(tag: String) -> void:
 	for h in huds:
 		was.append((h as CanvasLayer).visible)
 		(h as CanvasLayer).visible = false
-	# The morning photos share one camera framed for the grown tree, so the album's flip-book
-	# shows the tree growing instead of a tree re-framed to the same size every day.
-	var album := tag == "morning"
-	if album:
-		tree_view.album_pose(true)
-		await get_tree().process_frame
 	await RenderingServer.frame_post_draw
-	Photos.save_from(get_viewport(), state.day_number(), tag, state.sim.species.id)
-	if album:
-		tree_view.album_pose(false)
+	Photos.save_image(get_viewport().get_texture().get_image(), state.day_number(), tag, state.sim.species.id)
 	for i in range(huds.size()):
 		(huds[i] as CanvasLayer).visible = was[i]
 	_photo_busy = false
