@@ -250,6 +250,7 @@ The loop on three time scales. The fun hypothesis, the one thing that must feel 
 - **Never:** streaks, login rewards, withering as a threat, shop, ads, leaderboards (section 17, design-practice.md).
 
 ## Decision log
+- 2026-10-02 (Simon, 15:44 UTC, "08"; specs/0.8.md shed view): shed layout 08 of ten: pinboard on the open door, windowsill with the bonsai on the right, workbench at the bottom, the tree visible through the door.
 - 2026-10-02 (Simon, 15:17 to 15:21 UTC, four cards and his words on the vial; specs/wish-compass-vial.md): **the wish is a place you can see**: every morning has one (no more day wishes), its plant grows large and in flower on the meadow, the journal line names only the plant. **The compass needle points to the wish**, not north. **Steering is worth about 10 days**: the soft Liebig floor drops to 0.45 (oak 0.55). **Life force is a round glass vial with green liquid**, no number; while boosted it fills slower than a pencil mark for a calm day.
 - 2026-10-02 (Simon, 11:16 UTC, "Ja, engerer Blick"; specs/0.8.md 0.8.2.2): the shed gets a tighter view, camera closer and objects closer together, so door, pinboard, windowsill and table fill the screen with little floor left; floor things with a use maybe later.
 - 2026-10-02 (Simon, 11:14 UTC; specs/0.8.md 0.8.2.2): the pull toward dots is weaker (about half, shorter reach, at most about 30 degrees, then back to the held direction); "end root here" from the start of the night; the leftover grows small roots from the whole network toward the nearest dots.
