@@ -87,6 +87,7 @@ tonight without a number.
 - **By day** the liquid rises as the leaves gather life force. While a boost runs, it rises
   visibly slower, and a faint pencil mark on the glass shows how high a calm day would have
   filled it by now. The gap between the liquid and the mark is the boost's cost.
+- **The same vial in tree and root mode** (Simon, 16:04 UTC: "life force soll natürlich im baum und im wurzel modus gleich sein"): same glass, same green, same place on screen, so the dive keeps it in view.
 - **By night** the liquid falls as the root grows. An empty vial is the end of the night (as an
   empty tank is now).
 - The **leftover** for small roots ("let roots spread") is what remains in the vial.
