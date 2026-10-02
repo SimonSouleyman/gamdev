@@ -2,18 +2,30 @@
 
 ## Progress (for resuming work)
 
-State 2026-10-02: 0.8.2 tagged (tree-v0.8.2) and on main; it is on Simon's phone (save and photo
-backups in GameDev/tree-shots/savebackup/pre-*). APKs in GameDev/tree-releases. While
-prototyping: only a short test run per version (unit tests + autoplay), Simon tests on the phone;
-balance sims run in the design thread's cloud copy. Open questions go to Simon via the coordinator.
-- 0.8.2 contains: hold to fast-forward, juniper needles, sill labels, damp-patch sign, shears view,
-  shorter journal with doodles and Kalam, seed pictures, dearer metre (layout 3), side roots and
-  thicker roots, far wishes balanced per seed (notes in docs/notes/*-0.8.2.md).
-- In progress: far view, rock bands with gaps, soft veins, first-time player check
-  (specs/root-field-extras.md) on s082-field (worktree GameDev/wt082-field). Then short test,
-  save backup, install.
-- Then 0.8.3: fungal network and the ink root drawing in the album.
-- Not yet measured: frame rate underground on the phone (day view 28 fps in 0.8.1).
+State 2026-10-02 21:20 (Simon: no more heavy work on his PC for now; a cloud thread continues the
+code; builds/installs on the PC only when Simon says so). Phone has 0.8.2.6 (save backups in
+GameDev/tree-shots/savebackup/pre-*). Prototyping rule: short test run per version, Simon tests on
+the phone; every question to Simon gets a free-text option.
+- main (tree-v0.8.2.6 + merged 0.8.2.7 work, 12717 tests green, autoplay ok, NOT yet installed):
+  root replay camera frames tonight's root; hourglass 32x (hold 16x), icon 20 % narrower; root
+  controls without stick/start button (press a root to start there, soil turns the camera,
+  drag anywhere steers); missed wish deposits keep glowing (max 4); diary only days with
+  entries; bonsai without back button, sharp note, styles picture on nail+string, no tool name
+  labels; pinboard menu cork + dark wood frame; bench objects centred and resting on the top;
+  seed-bag "stick" (upright trowel) removed; second night lamp left of the door; green circles
+  in bonsai foliage removed (notes in docs/notes/0.8.2.7*.md).
+- Open for 0.8.2.7:
+  1. Live wallpaper shows only the night sky, no tree (Simon). Branch s0827-live (WIP commit,
+     investigation unfinished; touches tree/live_export.gd, tools/live_shot.gd,
+     tests/test_live_picture.gd). Suspect: 0.8.2.2+/0.8.2.4 moved photo/live exports off screen
+     and onto worker threads; check the exported layers have tree pixels and live.json refers to
+     existing files. Confirm on the phone via adb run-as ls files/live_picture when plugged in.
+  2. Start screen: "the forest is growing" removed on branch s0827-splash (not merged); 5 tree
+     silhouette proposals rendered (tree-qa/splash-0.8.2.7/splash_sheet.png); Simon to pick 1-5
+     (recommended 1). Apply with tools/render_splash.gd --apply=N, then hook ui/splash/*.png
+     into the loading page (ui/shed_menu.gd _build_loading) and project.godot boot_splash.
+  3. Then: version 0.8.2.7 in export_presets (code 21), build, save backup, install when Simon
+     says so.
 - Choices taken as "recommended" while Simon was away:
   - Scope after 0.7: new features too (Simon tapped it), 0.8 per the design thread's spec.
   - Live picture: wallpaper and screen saver, one animation (default until he answers).

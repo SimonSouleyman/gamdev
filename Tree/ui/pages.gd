@@ -13,7 +13,7 @@ const END_ROOT_LABEL := "let roots\nspread"
 
 const TEXTS: Dictionary = {
 	"planted": ["Day 0", "A seed went in at sunset. Tap the ground to grow its first root."],
-	"first_night": ["Below the meadow", "Glowing dots feed the tree: blue dots are water, green nitrogen, orange phosphorus, violet potassium.\n\nSteer with the stick (WASD, arrows); \"dive\" (space) sinks faster. Each metre drinks life force from the vial. \"{end}\" (E) spends the rest on fine roots."],
+	"first_night": ["Below the meadow", "Glowing dots feed the tree: blue dots are water, green nitrogen, orange phosphorus, violet potassium.\n\nDrag anywhere to steer (WASD); space sinks faster. Each metre drinks life force from the vial. \"{end}\" (E) spends the rest on fine roots."],
 	"first_run_done": ["The first root", "The root drank what it touched; the seed grows at sunrise."],
 	"sapling": ["A sapling", "Tap: an hour of brighter sun. Faster growth, but the green vial (tonight's life force) fills slower than its pencil mark.\n\nMorning boosts grow it east, noon tall, evening west; the arc shows the sun.\n\nHold a still finger: the day runs at 4x. Drag to walk, pinch to zoom."],
 	"spent": ["Nothing left to grow with", "The roots' haul is used up. The leaves still gather life force."],

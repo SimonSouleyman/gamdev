@@ -196,41 +196,30 @@ func test_aiming_for_the_glow_reaches_it_and_beats_random_steering() -> void:
 	t.check(a[2] / a[0] > w[2] / maxf(1, w[0]), "and drinks more on those nights")
 
 
-## 0.8 (0.7 broken item 3): one glow at a time. A missed deposit glows faintly one more night
-## only when the new morning's wish is a day wish; a new wish's glow puts it out at once. Either
-## way the missed deposit stays in the soil as a plain deposit.
-func test_a_missed_wish_glows_one_more_night_then_fades() -> void:
-	var faint_seen := 0
-	var replaced_seen := 0
+## 0.8.2.7 (specs/wish-compass-vial.md section 5; until 0.8.2.6 one glow at a time): a missed
+## deposit keeps glowing, fainter, next to the new wish's full glow. Missing it costs nothing.
+func test_a_missed_wish_keeps_glowing_beside_the_new_one() -> void:
+	var seen := 0
 	for seed in [27, 3, 14, 42, 5, 8]:
 		var u := Underground.new(seed)
 		var roots := RootSystem.new(seed)
 		var diary := Diary.new()
-		for day in range(1, 16):
+		for day in range(1, 8):
 			var before := diary.wish_patch
 			var missed := before >= 0 and not diary.wish_reached
 			diary.new_wish(u, day, seed, roots)
 			var glows := diary.glows(u)
-			t.check(glows.size() <= 1, "seed %d day %d: never two glows at once" % [seed, day])
-			if not missed:
+			t.check(glows.size() <= 1 + Diary.MISSED_MAX, "seed %d day %d: at most today's and %d missed" % [seed, day, Diary.MISSED_MAX])
+			if not missed or diary.wish_patch == before:
 				continue
 			t.check(u.patch_amount(before) > u.patch_amount(before, true) * 0.99, "missing it cost nothing: it is all still there")
-			if diary.wish_patch >= 0:
-				replaced_seen += 1
-				t.check(glows.size() == 1 and int(glows[0]["patch"]) == diary.wish_patch and float(glows[0]["strength"]) == Diary.GLOW_TODAY, "a new wish: only its glow, at full strength")
-			else:
-				faint_seen += 1
-				t.check(glows.size() == 1 and int(glows[0]["patch"]) == before, "a day wish: yesterday's deposit still glows")
-				if glows.size() == 1:
-					t.check_near(float(glows[0]["strength"]), Diary.GLOW_YESTERDAY, 1e-4, "fainter")
-				# The morning after, it is gone (unless a new wish points at it again).
-				diary.new_wish(u, day + 100, seed, roots)
-				var later := diary.glows(u).filter(func(g: Dictionary) -> bool: return int(g["patch"]) == before and float(g["strength"]) < 1.0)
-				t.check(later.is_empty(), "then it fades")
-				break
-	# 0.8.2.5: every morning has a new wish place, so yesterday's never glows on (only an old
-	# save from a day-wish morning can still show it, faintly, as above).
-	t.check(faint_seen == 0 and replaced_seen > 0, "a new glow every morning (faint %d, replaced %d)" % [faint_seen, replaced_seen])
+			t.check(int(glows[0]["patch"]) == diary.wish_patch and float(glows[0]["strength"]) == Diary.GLOW_TODAY, "the new wish first, at full strength")
+			var old := glows.filter(func(g: Dictionary) -> bool: return int(g["patch"]) == before)
+			t.check_eq(old.size(), 1, "yesterday's still glows")
+			if old.size() == 1:
+				t.check_near(float(old[0]["strength"]), Diary.GLOW_YESTERDAY, 1e-4, "fainter")
+				seen += 1
+	t.check(seen > 10, "missed glows seen (%d)" % seen)
 
 
 func _first_morning(seed: int) -> GameState:
