@@ -200,3 +200,27 @@ func test_the_sill_keeps_its_tools_clear() -> void:
 		var tag := shed.item_tag_position("bonsai")
 		t.check(shed.item_tag_below("bonsai") and tag.y > lowest, "%s: the label hangs below the tools (%.0f > %.0f)" % [where, tag.y, lowest])
 		vp.free()
+
+
+## 0.8.2.2 (Simon: "im Schuppen sieht man noch viel Boden"; specs/0.8.md item 43): a tighter view.
+## The workbench stands nearer, so its foot meets the picture's foot and only a strip of floor
+## (with a rug) is left; the door, its frame, the pinboard and the sill stay whole on screen.
+func test_the_shed_shows_little_floor() -> void:
+	for canvas in [Vector2i(450, 1000), Vector2i(720, 1600), Vector2i(450, 800)]:
+		var vp := SubViewport.new()
+		vp.size = canvas
+		vp.disable_3d = false
+		t.root.add_child(vp)
+		var shed := Shed.new()
+		vp.add_child(shed)
+		shed.bonsai_ready = true
+		shed.camera.current = true
+		shed.fit_view()
+		var where := "%dx%d" % [canvas.x, canvas.y]
+		var foot := shed.camera.unproject_position(shed.to_global(Vector3(0.0, 0.1, Shed.BENCH_Z - 0.32)))
+		t.check(foot.y >= canvas.y * 0.9, "%s: the bench's foot at %.0f%% of the height (floor below it: %.0f%%)" % [where, foot.y / canvas.y * 100.0, 100.0 - foot.y / canvas.y * 100.0])
+		var hd := Shed.DEPTH * 0.5
+		for p in [Vector3(Shed.DOOR_W * 0.5 + 0.07, Shed.DOOR_H + 0.08, hd), Vector3(-Shed.DOOR_W * 0.5 - 0.07, Shed.DOOR_H + 0.08, hd)]:
+			var s := shed.camera.unproject_position(shed.to_global(p))
+			t.check(s.x >= 0.0 and s.x <= canvas.x and s.y >= 0.0, "%s: the door frame whole (%s)" % [where, s])
+		vp.free()

@@ -21,21 +21,23 @@ const STYLE_TEXTS := {
 }
 ## The hint for the tool in hand (0.8.1, item 18): it names the tool first, so it is always clear
 ## which one is in hand, then what to touch and how to put it back.
+## 0.8.2.2: the can, the tin and the trowel work on one tap and are never in hand.
 const TOOL_HINTS := {
-	"": "Pick up a tool from the sill. Drag to look round, pinch to come closer.",
-	"water": "In hand: the watering can. Touch the soil (it lights up), lift to water.",
-	"fertiliser": "In hand: the pellet tin. Touch the soil, lift for a spoon; the slip picks N, P or K.",
+	"": "Tap the can to water, the tin for pellets. Pick up shears, tweezers or wire. Drag to look round; tap below the sill to go back.",
 	"shears": "In hand: the shears. Touch a branch: the mark shows the cut. Lift to cut (a third at most).",
 	"pinch": "In hand: the tweezers. Touch a fresh tip (ringed), lift to pinch it.",
 	"wire": "In hand: the copper wire. Touch a branch and drag it into its new line; tap a wired one to free it.",
-	"trowel": "In hand: the trowel. On a repot day touch the pot, lift: the tree comes out.",
 }
+## The hint while the tin's slip is open.
+const TIN_HINT := "The pellet tin: tap N, P or K on the slip and a spoon of it goes on the soil."
+## The hint while the tree is out of its pot (repotting).
+const REPOT_HINT := "Out of the pot: tap the roots to trim them, then tap a pot on the slip; fresh soil fills by itself."
 ## The word on the held tool's place on the sill: tap it to put the tool back.
 const PUT_BACK := "put back"
 const PELLETS: Array[String] = ["N", "P", "K"]
 const PELLET_WORDS: Array[String] = ["leaves", "roots", "wood"]
-## The repotting slip's lower edge sits this far above the front row's tap points (canvas px).
-const REPOT_SLIP_ABOVE_TOOLS := 20.0
+## The repotting slip's lower edge sits this far above the screen's foot (canvas px).
+const REPOT_SLIP_BOTTOM := 14.0
 
 var view: BonsaiView:
 	set = _set_view
@@ -58,6 +60,9 @@ var _pellet_buttons: Array[Button] = []
 var _shown_kind: int = -1
 var _repot_slip: PanelContainer
 var _pot_buttons: Dictionary = {}  # pot id -> Button
+var _pot_flow: HFlowContainer
+var _pots_first: String = ""
+var _trim_button: Button
 var _sheet: Control
 var _sheet_box: VBoxContainer
 var _style_index: int = 0
@@ -88,10 +93,12 @@ func _set_view(v: BonsaiView) -> void:
 	v.tool_picked.connect(func(id: String) -> void:
 		_forget_said()
 		if id in ["shears", "pinch", "wire"]:
-			first_page.call(id)
-		elif id == "trowel":
-			first_page.call("repot"))
+			first_page.call(id))
 	v.tool_used.connect(_on_used)
+	# A tap below the windowsill goes back to the bench, as the note does (0.8.2.2).
+	v.back_requested.connect(func() -> void:
+		if not v.busy and not _sheet.visible:
+			back_pressed.emit())
 	v.said.connect(func(text: String) -> void:
 		_said = text
 		_said_time = 4.0)
@@ -175,7 +182,7 @@ func _build_pellet_slip() -> void:
 	var box := VBoxContainer.new()
 	box.add_theme_constant_override("separation", 2)
 	_pellet_slip.add_child(box)
-	var head := Paper.ink_label("which pellets?", 22, Paper.FAINT_INK)
+	var head := Paper.ink_label("a spoon of:", 22, Paper.FAINT_INK)
 	head.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	box.add_child(head)
 	for k in range(3):
@@ -219,11 +226,13 @@ func _draw_pellet_ring(b: Button, kind: int) -> void:
 	b.draw_style_box(sb, Rect2(Vector2(6, 6), b.size - Vector2(12, 12)))
 
 
-## Chooses the pellets the tin gives next (0 N, 1 P, 2 K).
+## A tap on a kind on the slip: a spoon of it goes on the soil at once (0 N, 1 P, 2 K; 0.8.2.2,
+## Simon: "die Pellets sollten direkt nach Auswahl gestreut werden").
 func choose_pellets(kind: int) -> void:
 	if view == null:
 		return
-	view.pellet_kind = kind
+	_forget_said()
+	view.pour_pellets(kind)
 	_show_pellet_kind()
 
 
@@ -235,12 +244,11 @@ func _show_pellet_kind() -> void:
 	_shown_kind = view.pellet_kind
 	for b in _pellet_buttons:
 		b.queue_redraw()
-	if _labels.has("fertiliser"):
-		((_labels["fertiliser"] as PanelContainer).get_child(0) as Label).text = "pellets %s" % PELLETS[_shown_kind]
 
 
-## While the tree is out of its pot: the pots to choose from, low on the screen under the tools
-## (the shears trim the root ball, the trowel puts it back; the status scrap says so).
+## While the tree is out of its pot (0.8.2.2: repotting in at most three taps, trowel, trim, pot):
+## "trim the roots" (or a tap on the roots themselves), then the pots, the current one first; a
+## tap on a pot puts the tree into it and the fresh soil fills by itself.
 func _build_repot_slip() -> void:
 	_repot_slip = PanelContainer.new()
 	_repot_slip.add_theme_stylebox_override("panel", Paper.paper_box(680, 170, 185, "all", 12.0))
@@ -252,26 +260,51 @@ func _build_repot_slip() -> void:
 	_repot_slip.rotation_degrees = -0.5
 	_repot_slip.visible = false
 	_root.add_child(_repot_slip)
-	var pots := HFlowContainer.new()
-	pots.alignment = FlowContainer.ALIGNMENT_CENTER
-	pots.add_theme_constant_override("h_separation", 8)
-	pots.add_theme_constant_override("v_separation", 6)
-	_repot_slip.add_child(pots)
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 4)
+	_repot_slip.add_child(box)
+	_trim_button = Paper.ink_button("1  trim the roots", 23)
+	_trim_button.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	_trim_button.pressed.connect(func() -> void:
+		if view != null and not view.busy:
+			view.repot_trim())
+	box.add_child(_trim_button)
+	var head := Paper.ink_label("2  a pot: fresh soil fills by itself", 21, Paper.FAINT_INK)
+	head.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	box.add_child(head)
+	_pot_flow = HFlowContainer.new()
+	_pot_flow.alignment = FlowContainer.ALIGNMENT_CENTER
+	_pot_flow.add_theme_constant_override("h_separation", 8)
+	_pot_flow.add_theme_constant_override("v_separation", 6)
+	box.add_child(_pot_flow)
 	for pid in BonsaiSim.POT_ORDER:
 		var id: String = pid
 		# Full tap size (0.7 review: 56 px tall was under a finger's 9 mm).
 		var b := Paper.ink_button(str(BonsaiSim.POTS[id]["name"]), 23)
 		b.pressed.connect(func() -> void:
 			if view != null:
-				view.repot_pick(id))
-		pots.add_child(b)
+				view.repot_into(id))
+		_pot_flow.add_child(b)
 		_pot_buttons[id] = b
-	var done := Paper.ink_button("fresh soil, and in", 23)
-	done.add_theme_color_override("font_color", Paper.RED_INK)
-	done.pressed.connect(func() -> void:
-		if view != null:
-			view.repot_finish())
-	pots.add_child(done)
+
+
+## The current pot first on the slip (it is offered first), the others in their order after it.
+func _order_pots() -> void:
+	var first := view.sim().pot if view != null and view.sim() != null else ""
+	if first == _pots_first or not _pot_buttons.has(first):
+		return
+	_pots_first = first
+	_pot_flow.move_child(_pot_buttons[first], 0)
+	var i := 1
+	for id in BonsaiSim.POT_ORDER:
+		if id != first:
+			_pot_flow.move_child(_pot_buttons[id], i)
+			i += 1
+	var b := _pot_buttons[first] as Button
+	b.text = "%s (as now)" % BonsaiSim.POTS[first]["name"]
+	for id in _pot_buttons:
+		if id != first:
+			(_pot_buttons[id] as Button).text = str(BonsaiSim.POTS[id]["name"])
 
 
 func show_hud(on: bool) -> void:
@@ -293,6 +326,9 @@ func _on_object(id: String) -> void:
 			_open_album()
 		"cuttings":
 			_open_cuttings()
+		"trowel":
+			first_page.call("repot")
+			return
 	_mark_used(id)
 
 
@@ -353,13 +389,18 @@ func _process(delta: float) -> void:
 		# A page lies over the scrap: its tool line would peek out above the page.
 		_hint.text = ""
 	elif lifted and _said_time <= 0.0:
-		_hint.text = "Out of the pot: snip the circling roots with the shears (%d%% so far), pick a pot below, then the trowel puts it back in fresh soil." % int(view.trim_share() * 100.0)
+		_hint.text = REPOT_HINT
+	elif view.tin_open and _said_time <= 0.0:
+		_hint.text = TIN_HINT
 	_repot_slip.visible = lifted and not _sheet.visible
 	if _repot_slip.visible:
+		_order_pots()
+		var trimmed := view.trim_share() >= 1.0
+		_trim_button.text = "1  roots trimmed" if trimmed else "1  trim the roots"
+		_trim_button.disabled = trimmed
 		_place_repot_slip()
-	if lifted:
-		for id in _pot_buttons:
-			(_pot_buttons[id] as Button).modulate = Color(1.0, 0.55, 0.35) if view.new_pot() == id else Color.WHITE
+	else:
+		_pots_first = ""
 	_place_labels()
 	_place_pellet_slip()
 
@@ -419,8 +460,26 @@ func _place_labels() -> void:
 					best = k
 			tag.set_meta("spot", best)
 		tag.position = spots[best].clamp(lo, hi)
+		# 0.8.2.2 (review: from the side the labels piled up): a label that would still lie over
+		# another label, wherever it goes, waits until the view turns back (not "put back", and
+		# not the thing the pointer rests on).
+		if on and not held and view.hover != id and _over_labels(Rect2(tag.position, tag.size), placed) > LABEL_CROWD * tag.size.x * tag.size.y:
+			on = false
+			tag.modulate.a = move_toward(tag.modulate.a, 0.0, 0.24)
+			tag.visible = tag.modulate.a > 0.01
 		if on:
 			placed.append(Rect2(tag.position, tag.size))
+
+
+## The share of a label that may lie over labels placed before it before it waits.
+const LABEL_CROWD := 0.15
+
+
+func _over_labels(r: Rect2, placed: Array[Rect2]) -> float:
+	var area := 0.0
+	for o in placed:
+		area += r.intersection(o).get_area()
+	return area
 
 
 ## Canvas pixels a thing's box is shrunk by before a label counts as lying on it (the hulls are
@@ -453,33 +512,29 @@ static func _area(poly: PackedVector2Array) -> float:
 	return a * 0.5
 
 
-## A thing's label word (the tin's names the pellets it gives).
+## A thing's label word.
 func _label_word(id: String) -> String:
-	if id == "fertiliser" and _shown_kind >= 0:
-		return "pellets %s" % PELLETS[_shown_kind]
 	return str(BonsaiTools.LABELS[id])
 
 
-## The repotting slip lies on the bench between the pot and the front row of tools, so the
-## shears and the trowel stay free to tap (0.7 review: with full-size pot buttons it grew taller).
+## The repotting slip lies low over the front row (nothing there is needed while the tree is out:
+## a tap on the roots trims them), clear below the lifted root ball and the pot (0.8.2.2: it lay
+## half over the can and the tin).
 func _place_repot_slip() -> void:
 	var room := _root.size
 	var h := _repot_slip.get_combined_minimum_size().y
-	var tools_top := room.y
-	for id in ["trowel", "shears", "pinch", "wire"]:
-		tools_top = minf(tools_top, view.tools.rest_point(view.camera, id).y)
-	var bottom := clampf(tools_top - REPOT_SLIP_ABOVE_TOOLS, h + 280.0, room.y - 10.0)
+	var bottom := room.y - REPOT_SLIP_BOTTOM
 	_repot_slip.offset_top = bottom - h - room.y
 	_repot_slip.offset_bottom = bottom - room.y
 
 
-## The pellet slip lies while the tin is in hand (also while it pours: a choice then is for the
-## next spoon), at the screen's edge beside the tree, clear of the crown, the tin and the status
+## The pellet slip lies while the tin is open (also while it pours: a tap then gives the next
+## spoon), at the screen's edge beside the tree, clear of the crown, the tin and the status
 ## scrap (0.8 review: it covered the crown and the tin).
 func _place_pellet_slip() -> void:
 	if view.pellet_kind != _shown_kind:
 		_show_pellet_kind()
-	var on := view.tool == "fertiliser" and not _sheet.visible
+	var on := view.tin_open and not _sheet.visible and not view.is_lifted()
 	if on and not _pellet_slip.visible:
 		_show_pellet_kind()
 	_pellet_slip.visible = on
@@ -631,21 +686,65 @@ func _sketch(c: Control, b: BonsaiSim) -> void:
 	c.draw_polyline(pot, Paper.INK, 2.5)
 
 
+## The cuttings: each with its own ink doodle (0.8.2.2, Simon: "cuttings braucht für jede Option
+## Kritzeleien"), the one on the sill named so. A tap on another asks first (0.8.2.1 review: one
+## stray tap swapped the bonsai on the sill).
 func _open_cuttings() -> void:
 	var box := _open("Cuttings")
-	_text(box, "Each finished tree on the clearing left a cutting. One bonsai stands on the sill in the light; the others rest on the shelf below and wait, just as they were.")
-	for sid in state.bonsai_choices(any_species.call()):
+	_text(box, "Each finished tree on the clearing left a cutting. One bonsai stands on the sill in the light; the others rest on the shelf below and wait, just as they were.", 24)
+	var choices := state.bonsai_choices(any_species.call())
+	# Many cuttings (all species on the test switch): smaller doodles, so the page still holds them.
+	var pic := 74 if choices.size() <= 4 else 60
+	for sid in choices:
 		var id: String = sid
 		var sp := Species.from_id(id)
 		var here := state.bonsai.species.id == id
-		var line := "%s  (on the sill)" % sp.display_name if here else sp.display_name
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 10)
+		box.add_child(row)
+		row.add_child(_cutting_doodle(id, pic))
 		if here:
-			_text(box, line, 28)
+			var l := _text(row, "%s  (on the sill)" % sp.display_name, 26)
+			l.autowrap_mode = TextServer.AUTOWRAP_OFF
+			l.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 			continue
-		var b := Paper.ink_button(line + ("  (resting)" if state.bonsai_resting.has(id) else "  (a new cutting)"), 26)
+		var b := Paper.ink_button(sp.display_name + ("  (resting)" if state.bonsai_resting.has(id) else "  (a new cutting)"), 25)
 		b.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
-		b.pressed.connect(func() -> void:
-			close_sheet()
-			if state.swap_bonsai(id, any_species.call()):
-				view.setup(state))
-		box.add_child(b)
+		b.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		b.pressed.connect(func() -> void: _ask_cutting(id))
+		row.add_child(b)
+
+
+## The doodle of a cutting, fixed size, never taking a tap.
+static func _cutting_doodle(id: String, px: int) -> TextureRect:
+	var r := TextureRect.new()
+	r.texture = InkSketch.texture(InkSketch.cutting_kind(id))
+	r.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	r.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	r.custom_minimum_size = Vector2(px, px)
+	r.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	return r
+
+
+## Asks before another cutting goes on the sill: what happens to the one there, yes or no.
+func _ask_cutting(id: String) -> void:
+	var sp := Species.from_id(id)
+	var box := _open("The %s on the sill?" % sp.display_name)
+	box.add_child(_cutting_doodle(id, 150))
+	var now := state.bonsai.plant_name()
+	var fresh := "from its resting place on the shelf" if state.bonsai_resting.has(id) else "as a new cutting"
+	_text(box, "The %s comes to the sill %s. The %s goes to rest on the shelf, just as it is, and can come back any time." % [sp.display_name, fresh, now], 25)
+	var row := HBoxContainer.new()
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	row.add_theme_constant_override("separation", 30)
+	box.add_child(row)
+	var yes := Paper.ink_button("yes, swap them", 26)
+	yes.add_theme_color_override("font_color", Paper.RED_INK)
+	yes.pressed.connect(func() -> void:
+		close_sheet()
+		if state.swap_bonsai(id, any_species.call()):
+			view.setup(state))
+	row.add_child(yes)
+	var no := Paper.ink_button("no, keep it", 26)
+	no.pressed.connect(_open_cuttings)
+	row.add_child(no)

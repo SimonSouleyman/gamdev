@@ -1,6 +1,7 @@
 extends SceneTree
 ## Minimal headless test runner (no addon needed).
 ## Run: godot --headless -s tests/run_tests.gd   (exit code 0 = all passed)
+## `-- --only=bonsai,shed` runs only the suites whose file names hold one of the words.
 
 var _failures: int = 0
 var _passes: int = 0

@@ -111,6 +111,8 @@ static func image(kind: String) -> Image:
 		"mist": _mist(img)
 		"sun": _sun_only(img)
 		"book": _book(img)
+		"cutting_juniper", "cutting_linden", "cutting_birch", "cutting_beech", "cutting_sycamore", "cutting_alder", "cutting_oak":
+			_cutting(img, kind.substr(8))
 	return img
 
 
@@ -121,7 +123,8 @@ const KINDS: Array[String] = ["rushes", "clover", "hedgehog", "nettles", "comfre
 	"bonsai", "can", "tin", "tweezers", "wire", "trowel", "moon", "feather",
 	"leaf_ok", "leaf_water", "leaf_n", "leaf_p", "leaf_k", "leaf_burnt",
 	"butterflies", "nest", "fox", "wren", "fossil", "old_root", "water_vein", "coin",
-	"blossom", "anemone", "fern", "moss", "mushroom", "pile", "rain", "mist", "sun", "book"]
+	"blossom", "anemone", "fern", "moss", "mushroom", "pile", "rain", "mist", "sun", "book",
+	"cutting_juniper", "cutting_linden", "cutting_birch", "cutting_beech", "cutting_sycamore", "cutting_alder", "cutting_oak"]
 
 
 static func has(kind: String) -> bool:
@@ -131,6 +134,11 @@ static func has(kind: String) -> bool:
 ## The seed or leaf of a species (0.8.2, item 19): the seed bag's list and the species' page.
 static func species_kind(species_id: String) -> String:
 	return "seed_" + species_id
+
+
+## A cutting of a species in its little pot (0.8.2.2: the bonsai's cuttings page, one each).
+static func cutting_kind(species_id: String) -> String:
+	return "cutting_" + species_id
 
 
 ## The hedgehog at the brush pile (0.8): side on, snout to the left, spines swept back over a
@@ -873,3 +881,77 @@ static func _book(img: Image) -> void:
 		var y := 50.0 + k * 10.0
 		_stroke(img, Vector2(22, y), Vector2(56, y - 2), 1.0)
 		_stroke(img, Vector2(72, y - 2), Vector2(106, y), 1.0)
+
+
+# 0.8.2.2: the cuttings (the bonsai's cuttings page). Each a slip of its tree in a small pot, its
+# leaves as on the seed bag's pictures, so the page reads at a glance.
+
+static func _cutting(img: Image, sid: String) -> void:
+	# A small clay pot with its rim and the soil in it, a few crumbs of grit.
+	_curve(img, [Vector2(30, 92), Vector2(98, 92)], 2.2)
+	_curve(img, [Vector2(28, 86), Vector2(100, 86), Vector2(100, 92)], 2.0)
+	_stroke(img, Vector2(28, 86), Vector2(28, 92), 2.0)
+	_curve(img, [Vector2(34, 92), Vector2(40, 122), Vector2(88, 122), Vector2(94, 92)], 2.0)
+	for p in [Vector2(46, 82), Vector2(58, 84), Vector2(84, 83)]:
+		_blob(img, p, Vector2(1.6, 1.2))
+	match sid:
+		"juniper":
+			# A sprig of scale leaves, upright with three side sprays.
+			_curve(img, [Vector2(62, 86), Vector2(60, 56), Vector2(66, 18)], 2.2, 1.2)
+			for br in [[Vector2(60, 66), Vector2(34, 46)], [Vector2(61, 52), Vector2(92, 36)], [Vector2(63, 34), Vector2(44, 16)]]:
+				var a: Vector2 = br[0]
+				var b: Vector2 = br[1]
+				_stroke(img, a, b, 1.5, 1.0)
+				var d := (b - a).normalized()
+				var n := Vector2(-d.y, d.x)
+				for k in range(5):
+					var p: Vector2 = a.lerp(b, (k + 0.6) / 5.0)
+					_stroke(img, p, p + d * 4.0 + n * 3.0, 1.0)
+					_stroke(img, p, p + d * 4.0 - n * 3.0, 1.0)
+		"linden":
+			# Two heart-shaped toothed leaves on a slanting slip.
+			_curve(img, [Vector2(64, 86), Vector2(62, 60), Vector2(70, 40)], 2.2, 1.4)
+			_leaf(img, Vector2(62, 58), Vector2(30, 30), 15.0, 3, true, true, 1.6)
+			_leaf(img, Vector2(70, 40), Vector2(96, 12), 14.0, 3, true, true, 1.6)
+		"birch":
+			# A thin slip with three small toothed, pointed leaves.
+			_curve(img, [Vector2(64, 86), Vector2(66, 50), Vector2(60, 14)], 1.8, 1.0)
+			_leaf(img, Vector2(65, 66), Vector2(40, 54), 7.0, 2, true, false, 1.4)
+			_leaf(img, Vector2(66, 46), Vector2(92, 36), 7.0, 2, true, false, 1.4)
+			_leaf(img, Vector2(62, 28), Vector2(40, 14), 6.0, 2, true, false, 1.4)
+		"beech":
+			# Two glossy oval leaves with straight parallel veins, one up, one aside.
+			_curve(img, [Vector2(64, 86), Vector2(64, 50)], 2.2, 1.4)
+			_leaf(img, Vector2(64, 52), Vector2(66, 8), 12.0, 6, false, false, 1.6)
+			_leaf(img, Vector2(64, 64), Vector2(104, 50), 10.0, 5, false, false, 1.6)
+		"sycamore":
+			# One big hand-shaped leaf of five lobes on its long stalk.
+			_curve(img, [Vector2(64, 86), Vector2(66, 66), Vector2(64, 50)], 2.0, 1.4)
+			var c := Vector2(64, 48)
+			for a in [-1.2, -0.6, 0.0, 0.6, 1.2]:
+				var tip: Vector2 = c + Vector2(sin(a), -cos(a)) * (36.0 - absf(a) * 9.0)
+				_leaf(img, c, tip, 8.5 - absf(a) * 1.5, 1, true, false, 1.5)
+		"alder":
+			# Two round leaves with a notched tip, and a tiny cone.
+			_curve(img, [Vector2(64, 86), Vector2(60, 60), Vector2(66, 36)], 2.2, 1.4)
+			_leaf(img, Vector2(60, 62), Vector2(26, 50), 14.0, 3, true, false, 1.6)
+			_leaf(img, Vector2(66, 38), Vector2(82, 6), 15.0, 3, true, false, 1.6)
+			_ring(img, Vector2(94, 52), 6.0, 1.6)
+			_stroke(img, Vector2(66, 44), Vector2(90, 48), 1.2)
+		"oak":
+			# Two wavy lobed leaves.
+			_curve(img, [Vector2(64, 86), Vector2(64, 56)], 2.2, 1.4)
+			for lf in [[Vector2(64, 58), Vector2(40, 10)], [Vector2(64, 68), Vector2(108, 44)]]:
+				var base: Vector2 = lf[0]
+				var tip: Vector2 = lf[1]
+				var along := tip - base
+				var n := Vector2(-along.y, along.x).normalized()
+				for side in [-1.0, 1.0]:
+					var pts: Array = [base]
+					for k in range(1, 6):
+						var t := k / 6.0
+						var w := (7.0 if k % 2 == 1 else 3.0) + 5.0 * sin(t * PI)
+						pts.append(base.lerp(tip, t) + n * side * w)
+					pts.append(tip)
+					_curve(img, pts, 1.6, 1.0)
+				_curve(img, [base, tip], 1.1, 0.6)
