@@ -699,12 +699,26 @@ func _build_diary_tab() -> Control:
 	return box
 
 
+## The days that show in the Diary, newest first: only those with a line (Diary.page) or a note
+## of the player's own (0.8.2.7, Simon: "days on which nothing was written should not show at
+## all"; a quiet day used to show its date alone).
+static func shown_days(diary: Diary) -> Array[int]:
+	var out: Array[int] = []
+	for day in diary.days():
+		if not diary.page(day).is_empty() or not diary.notes(day).is_empty():
+			out.append(day)
+	out.reverse()
+	return out
+
+
 ## The days, newest first: the date, then the day's one line with its doodle when something
-## happened (Diary.page), then the player's own notes in red. A quiet day shows its date only.
+## happened (Diary.page), then the player's own notes in red. Quiet days are left out.
 func _refresh_diary_text() -> void:
 	_diary_text.clear()
-	var days := state.diary.days()
-	days.reverse()
+	var days := shown_days(state.diary)
+	if days.is_empty():
+		_diary_text.append_text("[color=#%s]Nothing to write down yet.[/color]
+" % Paper.FAINT_INK.to_html(false))
 	for day in days:
 		var lines := state.diary.page(day)
 		_diary_text.append_text("[b]Day %d[/b]" % day)

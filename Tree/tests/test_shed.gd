@@ -253,3 +253,41 @@ func test_the_shed_shows_little_floor() -> void:
 			var s := shed.camera.unproject_position(shed.to_global(p))
 			t.check(s.x >= 0.0 and s.x <= canvas.x and s.y >= 0.0, "%s: the door frame whole (%s)" % [where, s])
 		vp.free()
+
+
+## 0.8.2.7 (Simon): the four things on the bench rest on its top (they sank in), do not overlap,
+## and sit round the middle of the screen with taps of at least 9 mm on a phone.
+func test_the_bench_things_rest_on_top_apart_and_centred() -> void:
+	for size: Vector2i in [Vector2i(450, 1000), Vector2i(450, 800)]:
+		var vp := SubViewport.new()
+		vp.size = size
+		vp.disable_3d = false
+		t.root.add_child(vp)
+		var shed := Shed.new()
+		vp.add_child(shed)
+		shed.camera.current = true
+		shed.fit_view()
+		var top := shed.table_top()
+		var boxes := {}
+		var mid := Vector2.ZERO
+		for k in Shed.ON_TOP:
+			var b := shed.thing_bounds(k)
+			boxes[k] = b
+			t.check_near(b.position.y, top, 0.002, "%s rests on the bench top" % k)
+			var c := shed.camera.unproject_position((shed._items[k] as Node3D).global_position)
+			mid += c / Shed.ON_TOP.size()
+			# A tap target: the pick sphere's radius on screen; 9 mm on a 68 mm wide phone.
+			var pick: Array = shed._picks[k]
+			var centre := (pick[0] as Node3D).global_position
+			var edge := shed.camera.unproject_position(centre + shed.camera.global_basis.x * float(pick[1]))
+			var r := edge.distance_to(shed.camera.unproject_position(centre))
+			t.check(2.0 * r >= size.x * 9.0 / 68.0, "%s: a tap of %.0f px across at %s" % [k, 2.0 * r, size])
+		var names := Shed.ON_TOP
+		for i in range(names.size()):
+			for j in range(i + 1, names.size()):
+				var a: AABB = boxes[names[i]]
+				var b: AABB = boxes[names[j]]
+				var apart := a.end.x <= b.position.x or b.end.x <= a.position.x or a.end.z <= b.position.z or b.end.z <= a.position.z
+				t.check(apart, "%s and %s do not overlap" % [names[i], names[j]])
+		t.check(absf(mid.x - size.x * 0.5) < size.x * 0.08, "the things sit round the screen's middle (%.0f of %d)" % [mid.x, size.x])
+		vp.free()

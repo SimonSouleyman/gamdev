@@ -48,10 +48,14 @@ const BENCH_Z := -0.05
 const PIN_AT := Vector3(-0.4, 1.38, -0.045)
 const PINBOARD_SCALE := 0.74
 const BENCH_TOP := 0.87
-## The things on the bench (bench frame, on its top): name -> [position, turn].
+## The things on the bench (bench frame, on its top; +x is screen left): name -> [position, turn].
+## 0.8.2.7 (Simon: not centred on the phone): spread round the middle of the table's visible
+## part, two at the back and two in front; each is set down so its lowest point lies on the top.
 const THINGS := {
-	"journal": [Vector3(0.2, 0.0, -0.1), 0.15], "gloves": [Vector3(-0.08, 0.0, -0.16), 1.4],
-	"album": [Vector3(0.02, 0.0, 0.13), -0.08], "seeds": [Vector3(-0.28, 0.0, 0.0), -0.3]}
+	"journal": [Vector3(0.16, 0.0, -0.19), 0.15], "gloves": [Vector3(-0.23, 0.0, -0.17), 1.4],
+	"album": [Vector3(0.06, 0.0, 0.12), -0.08], "seeds": [Vector3(-0.37, 0.0, 0.1), -0.3]}
+## The things on the bench (in THINGS) that rest on its top.
+const ON_TOP: Array[String] = ["journal", "album", "seeds", "gloves"]
 ## The lantern hanging from the roof (shed frame).
 const LAMP_AT := Vector3(-0.3, 2.06, -0.6)
 
@@ -143,6 +147,7 @@ func _ready() -> void:
 	_build_room()
 	_build_window()
 	_build_bonsai_lamp()
+	_build_door_lamp()
 	_build_bench()
 	_build_pinboard()
 	_build_camera()
@@ -383,10 +388,81 @@ func _build_bonsai_lamp() -> void:
 	_set_bonsai_lamp(0.0)
 
 
-## The bonsai lamp at `night` (0 by day .. 1 at full night).
+## 0.8.2.7 (Simon: at night the shed was too dark, the left side most): a second lamp like the
+## bonsai's, on the front wall left of the door (on screen), mostly above the picture's edge. Its
+## wide warm cone lights the pinboard, the door and the bench's left half, calmly; by night only.
+var door_lamp: SpotLight3D
+var _door_bulb: StandardMaterial3D
+## Where it hangs (shed frame x, height) and its energy at full night (phone: a little more).
+const DOOR_LAMP_X := 0.92
+const DOOR_LAMP_ENERGY := 1.4
+const DOOR_LAMP_PHONE := 2.2
+
+
+func _build_door_lamp() -> void:
+	var hd := DEPTH * 0.5
+	var iron := _mat(Color(0.1, 0.09, 0.08), 0.55)
+	var top := WINDOW_Y.y + 0.2
+	var reach := 0.17
+	var cx := DOOR_LAMP_X
+	_box(Vector3(0.05, 0.09, 0.012), Vector3(cx, top, hd - 0.01), iron)
+	_box(Vector3(0.014, 0.014, reach), Vector3(cx, top, hd - 0.01 - reach * 0.5), iron)
+	var brace := _box(Vector3(0.01, 0.01, reach * 0.75), Vector3(cx, top - 0.04, hd - 0.01 - reach * 0.36), iron)
+	brace.rotation.x = -0.45
+	var at := Vector3(cx, top - 0.09, hd - 0.01 - reach + 0.01)
+	_box(Vector3(0.004, 0.08, 0.004), at + Vector3(0, 0.05, 0), iron)
+	var enamel := _mat(Color(0.12, 0.24, 0.17), 0.35)
+	enamel.metallic_specular = 0.7
+	var shade := MeshInstance3D.new()
+	var cm := CylinderMesh.new()
+	cm.top_radius = 0.016
+	cm.bottom_radius = 0.06
+	cm.height = 0.055
+	cm.cap_bottom = false
+	cm.radial_segments = 20
+	shade.mesh = cm
+	shade.material_override = enamel
+	shade.position = at
+	shade.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_child(shade)
+	var bulb := MeshInstance3D.new()
+	var bm := SphereMesh.new()
+	bm.radius = 0.016
+	bm.height = 0.03
+	bulb.mesh = bm
+	_door_bulb = StandardMaterial3D.new()
+	_door_bulb.albedo_color = Color(1.0, 0.9, 0.7)
+	_door_bulb.emission_enabled = true
+	_door_bulb.emission = Color(1.0, 0.7, 0.36)
+	bulb.material_override = _door_bulb
+	bulb.position = at + Vector3(0, -0.012, 0)
+	bulb.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_child(bulb)
+	door_lamp = SpotLight3D.new()
+	door_lamp.light_color = Color(1.0, 0.76, 0.5)
+	door_lamp.spot_range = 3.2
+	door_lamp.spot_angle = 55.0
+	door_lamp.spot_angle_attenuation = 1.3
+	door_lamp.spot_attenuation = 1.1
+	door_lamp.light_specular = 0.25
+	door_lamp.shadow_enabled = false
+	door_lamp.position = at + Vector3(0, -0.02, 0)
+	# Down and in: toward the pinboard on the door and the bench's left half.
+	door_lamp.basis = Basis.looking_at(Vector3(0.35, 0.95, hd - 0.6) - door_lamp.position, Vector3.FORWARD)
+	add_child(door_lamp)
+	_set_bonsai_lamp(0.0)
+
+
+## The bonsai lamp (and the lamp by the door) at `night` (0 by day .. 1 at full night).
 func _set_bonsai_lamp(night: float) -> void:
 	if bonsai_lamp == null:
 		return
+	if door_lamp != null:
+		var dfull := DOOR_LAMP_PHONE if RenderingServer.get_current_rendering_method() == "gl_compatibility" else DOOR_LAMP_ENERGY
+		door_lamp.light_energy = dfull * night
+		door_lamp.visible = night > 0.01
+		_door_bulb.emission_energy_multiplier = lerpf(0.0, 2.2, night)
+		_door_bulb.albedo_color = Color(0.55, 0.5, 0.42).lerp(Color(1.0, 0.9, 0.7), night)
 	var full := BONSAI_LAMP_PHONE if RenderingServer.get_current_rendering_method() == "gl_compatibility" else BONSAI_LAMP_ENERGY
 	bonsai_lamp.light_energy = full * night
 	bonsai_lamp.visible = night > 0.01
@@ -798,9 +874,14 @@ func _build_bench() -> void:
 	_model("garden_gloves_01", Vector3.ZERO, 0.75, 0.0, gloves)
 	_register("gloves", gloves, Vector3(0, 0.03, 0), 0.1)
 	_tag("gloves", gloves, Vector3(0.0, 0.0, -0.04), true)
-	# A trowel for the feel of the place, and a watering can on the floor under the window.
-	var trowel := _model("trowel_01", Vector3(-0.31, top + 0.035, 0.2), 0.75, 0.0, bench)
-	trowel.rotation = Vector3(PI * 0.5 - 0.02, -0.6, 0.0)
+	# Each thing set down on the top: its lowest point on the table (0.8.2.7: they sank in).
+	_table_top = _top_of(table, bench)
+	for k in ON_TOP:
+		var n: Node3D = _items[k]
+		n.position.y += _table_top - thing_bounds(k).position.y
+	# 0.8.2.7: the trowel that lay behind the seed bag stood on its end (a stick poking up
+	# behind the bag); it is gone, the bonsai's sill has its own. A watering can on the floor
+	# under the window.
 	var can := Vector3(0.78, 0.05, DEPTH * 0.5 - 0.3)
 	_model("watering_can_metal_01", can, 1.1, 2.4, self)
 	# Contact shadows (0.6.1 review: the things floated): a soft dark patch under each thing on
@@ -810,7 +891,6 @@ func _build_bench() -> void:
 	_blob(ss[0] + Vector3(0, 0.004, 0), Vector2(0.2, 0.15), ss[1], 0.9, bench)
 	_blob(gs[0] + Vector3(0, 0.004, 0), Vector2(0.28, 0.2), gs[1], 0.6, bench)
 	var floor_y := 0.1015
-	_blob(Vector3(-0.31, top + 0.004, 0.2), Vector2(0.24, 0.1), -0.6, 0.6, bench)
 	_blob(Vector3(0.0, floor_y - 0.05, 0.0), Vector2(1.9, 1.1), 0.0, 0.85, bench)
 	_blob(Vector3(can.x, floor_y, can.z), Vector2(0.45, 0.45), 0.0, 0.8)
 	for side in [-1.0, 1.0]:
@@ -818,6 +898,43 @@ func _build_bench() -> void:
 	_blob(Vector3(0.0, floor_y, -DEPTH * 0.5 + 0.05), Vector2(WIDTH * 1.1, 0.5), 0.0, 0.5)
 	# The rug before the bench, where you stand (it shows only on a wider screen).
 	_build_rug(floor_y, Vector3(0.05, 0.0, BENCH_Z - 0.62), 0.04)
+
+
+## The table's top surface (bench frame), measured from the model.
+var _table_top: float = BENCH_TOP - 0.05
+
+
+func table_top() -> float:
+	return _table_top
+
+
+## The highest point of the table model's top (its drawers left out), in `frame`'s space.
+func _top_of(table: Node3D, frame: Node3D) -> float:
+	var best := -INF
+	for c in table.find_children("*", "MeshInstance3D", true, false):
+		var mi := c as MeshInstance3D
+		if String(mi.name).contains("drawer") or mi.get_parent() is MeshInstance3D:
+			continue
+		var a := frame.global_transform.affine_inverse() * mi.global_transform * mi.get_aabb()
+		best = maxf(best, a.end.y)
+	return best if best > -INF else BENCH_TOP - 0.05
+
+
+## A thing on the bench's bounds in the bench's frame (all its meshes).
+func thing_bounds(name: String) -> AABB:
+	var n: Node3D = _items[name]
+	var frame := n.get_parent() as Node3D
+	var inv := frame.global_transform.affine_inverse()
+	var acc: AABB
+	var first := true
+	for c in [n] + n.find_children("*", "MeshInstance3D", true, false):
+		var mi := c as MeshInstance3D
+		if mi == null or mi.mesh == null:
+			continue
+		var a := inv * mi.global_transform * mi.get_aabb()
+		acc = a if first else acc.merge(a)
+		first = false
+	return acc
 
 
 ## The workbench model's drawers become drawers (0.8.2.4): each gets a paper liner on its floor
@@ -1249,6 +1366,9 @@ func _ink_text(text: String, height: float) -> Label3D:
 func _seed_bag() -> Node3D:
 	var bag := Node3D.new()
 	var kraft := _paper_mat(Color(0.8, 0.64, 0.44), true)
+	# 0.8.2.7: no crease map on the bag: on its sides the triplanar creases read as black
+	# blotches close up (the paper's own grain stays).
+	kraft.normal_enabled = false
 	var body := Node3D.new()
 	body.name = "Body"
 	bag.add_child(body)
@@ -1267,7 +1387,9 @@ func _seed_bag() -> Node3D:
 	cyl.height = 0.122
 	cyl.radial_segments = 10
 	roll.mesh = cyl
-	roll.material_override = _paper_mat(Color(0.74, 0.58, 0.38), true)
+	var roll_mat := _paper_mat(Color(0.74, 0.58, 0.38), true)
+	roll_mat.normal_enabled = false
+	roll.material_override = roll_mat
 	roll.rotation.z = PI * 0.5
 	roll.position = Vector3(0, 0.012, -0.012)
 	fold.add_child(roll)

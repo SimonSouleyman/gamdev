@@ -103,6 +103,10 @@ var _bark: ShaderMaterial
 var _foliage: MultiMeshInstance3D
 ## Each pad's dark inner mass, so a pad reads as a dense cloud and not a scatter of tufts.
 var _cores: MultiMeshInstance3D
+## 0.8.2.7 (Simon: "green circles on the leaves after tapping the tree again"): the cores showed
+## through the gaps between the cards as smooth green ovals, and came back each time the shears
+## or the wire were put down (they hide while those are in hand). They stay hidden now.
+const SHOW_CORES := false
 var _spray_mat: ShaderMaterial
 var _wires: MeshInstance3D
 var _root_ball: Node3D
@@ -583,7 +587,7 @@ func _process(delta: float) -> void:
 		_spray_mat.set_shader_parameter("near_fade", _dist * 0.9 if see_wood else 0.0)
 		_fade = move_toward(_fade, 0.6 if see_wood else 0.0, delta * 3.0)
 		# The pads' dark cores go with the first cards, so the branch shows through.
-		_cores.visible = _fade < 0.15
+		_cores.visible = SHOW_CORES and _fade < 0.15
 		_spray_mat.set_shader_parameter("fade", _fade)
 	_update_camera(delta)
 	_follow_pointer(delta)
