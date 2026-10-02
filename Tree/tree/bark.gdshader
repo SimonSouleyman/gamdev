@@ -43,9 +43,16 @@ void vertex() {
 
 void fragment() {
 	if (near_fade > 0.0) {
-		float keep = near_fade_band > 0.0 ? smoothstep(near_fade * (1.0 - near_fade_band), near_fade, length(VERTEX)) : step(near_fade, length(VERTEX));
-		float dither = fract(sin(dot(floor(FRAGCOORD.xy), vec2(12.9898, 78.233))) * 43758.5453);
-		if (dither > keep) { discard; }
+		// 0.8.2.2 (phone: dotted bright streaks underground): a hard cut discards outright. The
+		// hash below is exactly 0.0 for a share of pixels (sin of a large argument, worse at the
+		// phone's precision), and "0.0 > 0.0" kept those pixels of the cut-away old roots.
+		if (near_fade_band <= 0.0) {
+			if (length(VERTEX) < near_fade) { discard; }
+		} else {
+			float keep = smoothstep(near_fade * (1.0 - near_fade_band), near_fade, length(VERTEX));
+			float dither = fract(sin(dot(floor(FRAGCOORD.xy), vec2(12.9898, 78.233))) * 43758.5453);
+			if (dither >= keep) { discard; }
+		}
 	}
 	if (use_textures) {
 		ALBEDO = texture(bark_albedo, UV).rgb * texture_tint;

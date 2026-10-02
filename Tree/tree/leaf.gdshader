@@ -36,7 +36,7 @@ void fragment() {
 		float d = length(VERTEX);
 		float keep = smoothstep(near_fade * 0.6, near_fade, d);
 		float dither = fract(sin(dot(floor(FRAGCOORD.xy), vec2(12.9898, 78.233))) * 43758.5453);
-		if (dither > keep) { discard; }
+		if (dither >= keep) { discard; }
 	}
 	vec4 tex = texture(leaf_texture, UV);
 	ALBEDO = tex.rgb * COLOR.rgb * tint_mul * vec3(0.88, 0.92, 0.78);

@@ -30,10 +30,15 @@ var turn_rate: float = 1.7
 ## no longer circles a deposit it is steered at (QA r1: constant speed, limited turn).
 var turn_slowdown: float = 0.4
 ## Gentle magnetism: a fresh deposit within this reach, ahead of the tip (heading dot above
-## MAGNET_CONE), bends the heading toward it at this rate (rad/s), less while the stick is held hard.
-var magnet_radius: float = 1.8
-var magnet_rate: float = 1.3
+## MAGNET_CONE), bends the tip toward it at this rate (rad/s), less while the stick is held hard.
+## 0.8.2.2 (Simon: "too strong, sharp curves, loses the direction"; specs/0.8.md "Gentler
+## auto-steering"): 1.2 m (was 1.8) and 0.6 rad/s (was 1.3); the pull is a bend on top of the held
+## heading, at most MAGNET_MAX_ANGLE, and eases back off at magnet_rate once the deposit is passed
+## or drunk, so the root carries on in the direction the stick held.
+var magnet_radius: float = 1.2
+var magnet_rate: float = 0.6
 const MAGNET_CONE: float = 0.3
+const MAGNET_MAX_ANGLE: float = deg_to_rad(30.0)
 ## The root drifts down on its own at this speed (m/s); diving also bends the heading down.
 var sink_speed: float = 0.07
 var dive_sink_rate: float = 1.2
@@ -51,11 +56,20 @@ var fine_radius: float = 1.6
 ## side_reach_per_life_force x leftover (at most side_reach_max) of its first-level root;
 ## side_nodes_per_life_force nodes per point of leftover, side_level3_share of them to the third.
 ## side_reach_max 3.0 (spec: about 2.5, range 1.5 to 3): at 2.5 a never-steered oak finished a
-## day later, past day 42 (tuning 10a).
+## day later, past day 42 (tuning 10a). 0.8.2.2: 2.5 (specs/0.8.md "small roots everywhere": the
+## side roots now grow from the whole root network, so the shorter reach keeps ending early behind
+## steering).
 var side_nodes_per_life_force: float = 4.0
 var side_reach_base: float = 1.0
 var side_reach_per_life_force: float = 0.05
-var side_reach_max: float = 3.0
+var side_reach_max: float = 2.5
+## The deepest root level the second level may start from (0 main, 1 fine, 2 and 3 side roots).
+## 1 (0.8.2.2): every night's main and fine roots, not the side roots of earlier nights. From side
+## roots too, the small roots crept a reach further out each night and a month of ending every
+## night at once finished 3 days behind steering (linden seed 14: day 33 vs 30; the test wants
+## 4 or more; beech seed 3 never steered: day 32, the test wants 33 or later); from main and fine
+## roots: day 36 vs 30, beech 36, linden 37.
+var side_start_level: float = 1.0
 var side_level3_share: float = 0.3
 ## Second and third level together at most this many nodes a night (never past the budget).
 var side_nodes_max: int = 250
@@ -142,7 +156,11 @@ var rng := RandomNumberGenerator.new()
 var run_active: bool = false
 var tip_id: int = -1
 var tip_position: Vector3 = Vector3.ZERO
+## The held heading: what the stick (and the dive) steer; rocks slide it as before.
 var heading: Vector3 = Vector3.DOWN
+## 0.8.2.2: the direction the tip really travels: the held heading bent by a deposit's pull and
+## around old roots (specs/0.8.md "Roots go around old roots"). It eases back onto the heading.
+var travel: Vector3 = Vector3.DOWN
 var run_start_id: int = -1
 var run_first_new_id: int = -1
 var run_length: float = 0.0
@@ -255,6 +273,7 @@ func start_run(from_id: int) -> bool:
 	run_cost_scale = 1.0
 	run_speed_scale = 1.0
 	_aim_from_start()
+	_reset_bends()
 	return true
 
 
@@ -282,6 +301,7 @@ func _restart_at_trunk() -> void:
 	run_length = 0.0
 	_stuck_time = 0.0
 	_aim_from_start()
+	_reset_bends()
 
 
 var _paced: bool = false
@@ -329,7 +349,8 @@ func advance(stick: Vector2, dive: bool, delta: float, ground: Underground, res:
 		pace_run(res.life_force)
 	_repace(res.life_force, delta)
 	_steer(stick, dive, delta)
-	_magnet(stick, delta, ground)
+	var pulled := _magnet(stick, delta, ground)
+	_avoid(pulled, delta)
 	# A hard turn slows the tip: the tighter curve reaches a deposit instead of circling it.
 	var slow := 1.0 - turn_slowdown * clampf(absf(stick.x) + maxf(0.0, absf(stick.y) - 0.2), 0.0, 1.0)
 	var want := (dive_speed if dive else speed * slow) * run_speed_scale * delta
@@ -443,17 +464,237 @@ func fresh_ahead(ground: Underground, reach: float, cone: float, clear: bool = f
 
 
 ## Gentle magnetism toward a fresh deposit within reach; the stick held hard overrules it.
-func _magnet(stick: Vector2, delta: float, ground: Underground) -> void:
+## 0.8.2.2: a bend of at most MAGNET_MAX_ANGLE on top of the held heading (the heading itself is
+## never turned), growing at magnet_rate while the deposit is ahead and easing off at the same rate
+## once it is passed or drunk. Returns the pulled direction.
+var _pull_angle: float = 0.0
+var _pull_axis: Vector3 = Vector3.ZERO
+
+
+func _magnet(stick: Vector2, delta: float, ground: Underground) -> Vector3:
+	var rate := magnet_rate * run_speed_scale * (1.0 - 0.7 * clampf(stick.length(), 0.0, 1.0)) * delta
 	var i := fresh_ahead(ground, magnet_radius, MAGNET_CONE, true)
-	if i < 0:
+	if i >= 0:
+		var want := (ground.dot_positions[i] - tip_position).normalized()
+		var axis := heading.cross(want)
+		if axis.length_squared() > 1e-8:
+			_pull_axis = axis.normalized()
+		_pull_angle = move_toward(_pull_angle, minf(MAGNET_MAX_ANGLE, heading.angle_to(want)), rate)
+	else:
+		_pull_angle = move_toward(_pull_angle, 0.0, magnet_rate * run_speed_scale * delta)
+	if _pull_angle < 1e-4 or _pull_axis == Vector3.ZERO:
+		return heading
+	# The axis stays square to the heading while the stick turns it.
+	var square := _pull_axis - heading * _pull_axis.dot(heading)
+	if square.length_squared() < 1e-8:
+		return heading
+	return _clamp_pitch(heading.rotated(square.normalized(), _pull_angle))
+
+
+## A new start: no pull, no bend, the obstacles indexed afresh.
+func _reset_bends() -> void:
+	travel = heading
+	_pull_angle = 0.0
+	_pull_axis = Vector3.ZERO
+	_avoid_dir = Vector3.ZERO
+	_obst_grid = {}
+	_obst_upto = 0
+	_avoid_segs = PackedInt32Array()
+	_start_main = int(graph.get_flag(run_start_id, "main", -1)) if run_start_id > 0 else -1
+
+
+# --- going around old roots (0.8.2.2) --------------------------------------------------
+
+## specs/0.8.md "Roots go around old roots": the tip keeps AVOID_CLEARANCE from the main roots of
+## earlier nights and the earlier part of tonight's root, looking AVOID_LOOK ahead along the held
+## (pulled) heading; when that line comes closer, the tip bends to the side that needs the smaller
+## turn (left, right, over or under; sideways first in the topsoil), keeps the distance while
+## passing and eases back onto the held heading. Fine and side roots do not block. The root the
+## night starts from (and the trunk's fan) is ignored for the first AVOID_START_FREE metres.
+## No way round within AVOID_MAX_DEG (about 2 m of soil either side at the look-ahead): the tip
+## runs on, stops at AVOID_HARD as at a rock, and the boxed-in rule (_unstick) applies.
+const AVOID_CLEARANCE: float = 0.35
+const AVOID_LOOK: float = 1.0
+const AVOID_HARD: float = 0.2
+const AVOID_STEP_DEG: float = 10.0
+const AVOID_MAX_DEG: float = 90.0
+## How fast the travel direction turns toward the free one (rad/s, with the tip's pace), on top of
+## the stick's own turn rate (so a steered turn is never delayed).
+const AVOID_TURN: float = 2.6
+## Tonight's own last metres behind the tip never count (the root cannot curl back that tight).
+const AVOID_OWN_SKIP: float = 1.5
+const AVOID_START_FREE: float = 1.0
+const _OBST_CELL: float = 1.0
+## Main-root segments (node id, to its parent) by grid cell.
+var _obst_grid: Dictionary = {}
+var _obst_upto: int = 0
+## This frame's segments near the tip.
+var _avoid_segs: PackedInt32Array = PackedInt32Array()
+var _start_main: int = -1
+
+
+func _index_obstacles() -> void:
+	if _obst_upto > graph.size():
+		_obst_grid = {}
+		_obst_upto = 0
+	for id in range(maxi(_obst_upto, 1), graph.size()):
+		var fl = graph.flags[id]
+		if fl != null and (fl as Dictionary).has("fine"):
+			continue
+		var a := Vector3i((graph.positions[id] / _OBST_CELL).floor())
+		var b := Vector3i((graph.positions[graph.parents[id]] / _OBST_CELL).floor())
+		for c in ([a] if a == b else [a, b]):
+			if not _obst_grid.has(c):
+				_obst_grid[c] = PackedInt32Array()
+			var arr: PackedInt32Array = _obst_grid[c]
+			arr.append(id)
+			_obst_grid[c] = arr
+	_obst_upto = graph.size()
+
+
+## The obstacle segments (by their child node) in the grid cells within `radius` of `p`.
+func _segments_near(p: Vector3, radius: float) -> PackedInt32Array:
+	var out := PackedInt32Array()
+	var seen := {}
+	var lo := Vector3i(((p - Vector3.ONE * radius) / _OBST_CELL).floor())
+	var hi := Vector3i(((p + Vector3.ONE * radius) / _OBST_CELL).floor())
+	# Tonight's last AVOID_OWN_SKIP metres (and the partial step at the tip) are not obstacles.
+	var own_from := graph.size() - int(ceil(AVOID_OWN_SKIP / step_length)) if run_active else graph.size()
+	var start_free := run_active and run_length < AVOID_START_FREE
+	var start_at := graph.positions[run_start_id] if run_start_id >= 0 and run_start_id < graph.size() else tip_position
+	for x in range(lo.x, hi.x + 1):
+		for y in range(lo.y, hi.y + 1):
+			for z in range(lo.z, hi.z + 1):
+				var key := Vector3i(x, y, z)
+				if not _obst_grid.has(key):
+					continue
+				for id in (_obst_grid[key] as PackedInt32Array):
+					if seen.has(id) or (id >= own_from and id >= run_first_new_id):
+						continue
+					seen[id] = true
+					if start_free:
+						if _start_main >= 0 and int(graph.get_flag(id, "main", -1)) == _start_main:
+							continue
+						if graph.positions[id].distance_to(start_at) < AVOID_START_FREE or graph.positions[graph.parents[id]].distance_to(start_at) < AVOID_START_FREE:
+							continue
+					out.append(id)
+	return out
+
+
+## Distance from `p` to the nearest of `segs`.
+func _seg_distance(p: Vector3, segs: PackedInt32Array) -> float:
+	var best := INF
+	for id in segs:
+		var c := Geometry3D.get_closest_point_to_segment(p, graph.positions[graph.parents[id]], graph.positions[id])
+		best = minf(best, p.distance_squared_to(c))
+	return sqrt(best)
+
+
+## The closest point to `p` on the nearest of `segs`.
+func _closest_on(p: Vector3, segs: PackedInt32Array) -> Vector3:
+	var best := INF
+	var out := p
+	for id in segs:
+		var c := Geometry3D.get_closest_point_to_segment(p, graph.positions[graph.parents[id]], graph.positions[id])
+		var d := p.distance_squared_to(c)
+		if d < best:
+			best = d
+			out = c
+	return out
+
+
+## The segment the line AVOID_LOOK ahead along `dir` first comes closer than `keep` to; -1 if
+## none (a candidate bend must also stay in the soil: -2 when it would leave it).
+func _blocker(dir: Vector3, keep: float, candidate: bool) -> int:
+	for k in range(1, 5):
+		var q := tip_position + dir * (AVOID_LOOK * k * 0.25)
+		if candidate and (q.y > -0.08 or q.y < -Underground.DEPTH + 0.05):
+			return -2
+		for id in _avoid_segs:
+			var c := Geometry3D.get_closest_point_to_segment(q, graph.positions[graph.parents[id]], graph.positions[id])
+			if q.distance_squared_to(c) < keep * keep:
+				return id
+	return -1
+
+
+## Distance from the tip to the nearest obstacle this frame (INF when none is near).
+func obstacle_distance() -> float:
+	return _seg_distance(tip_position, _avoid_segs) if not _avoid_segs.is_empty() else INF
+
+
+## Bends the travel direction around old roots and eases it back onto `want` (the held heading,
+## pulled by a deposit).
+func _avoid(want: Vector3, delta: float) -> void:
+	_index_obstacles()
+	_avoid_segs = _segments_near(tip_position, AVOID_LOOK + AVOID_CLEARANCE + 0.3)
+	if _avoid_segs.is_empty():
+		# Nothing near: the tip follows the held heading as before 0.8.2.2 (no lag).
+		_avoid_dir = Vector3.ZERO
+		travel = want
 		return
-	var want := (ground.dot_positions[i] - tip_position).normalized()
-	var angle := heading.angle_to(want)
-	if angle < 1e-3:
-		return
-	var turn := magnet_rate * run_speed_scale * (1.0 - 0.7 * clampf(stick.length(), 0.0, 1.0)) * delta
-	heading = _clamp_pitch(heading.slerp(want, minf(1.0, turn / angle)).normalized())
-	_update_right()
+	var target := want
+	var here := _seg_distance(tip_position, _avoid_segs)
+	# A tip already closer than the clearance (the first metre by its own start) only must not
+	# come closer still.
+	var keep := minf(AVOID_CLEARANCE, here) - 0.02
+	var b := _blocker(want, keep, false)
+	if b < 0:
+		_avoid_dir = Vector3.ZERO
+	else:
+		target = _free_bend(want, keep, b)
+	var angle := travel.angle_to(target)
+	var most := (AVOID_TURN + turn_rate) * maxf(run_speed_scale, 0.5) * delta
+	travel = target if angle <= most or angle < 1e-4 else travel.slerp(target, most / angle).normalized()
+	travel = _clamp_pitch(travel)
+
+
+## The side last bent to (a direction square to the held heading): tried first while it still
+## works, so the tip passes an old root on one side and never shakes between two.
+var _avoid_dir: Vector3 = Vector3.ZERO
+
+
+## The smallest bend off `want` whose line ahead is clear; `want` itself when none is (boxed in).
+## The way round a thin root is square to both the heading and that root (over or under a root
+## across the way, left or right of one standing up), on the side the tip already is; then the
+## plain sides (sideways first in the topsoil).
+func _free_bend(want: Vector3, keep: float, blocker: int) -> Vector3:
+	var sides: Array[Vector3] = []
+	if _avoid_dir != Vector3.ZERO:
+		var keep_side := _avoid_dir - want * _avoid_dir.dot(want)
+		if keep_side.length_squared() > 1e-4:
+			sides.append(keep_side.normalized())
+	var topsoil := tip_position.y > -Underground.TOPSOIL
+	var up := Vector3.UP - want * want.y
+	up = up.normalized() if up.length_squared() > 1e-4 else _right.cross(want).normalized()
+	var left := Vector3.UP.cross(want)
+	left = left.normalized() if left.length_squared() > 1e-4 else _right
+	if blocker >= 0:
+		var along := graph.positions[blocker] - graph.positions[graph.parents[blocker]]
+		var n := want.cross(along.normalized()) if along.length_squared() > 1e-8 else Vector3.ZERO
+		if n.length() > 0.25:
+			n = n.normalized()
+			var c := Geometry3D.get_closest_point_to_segment_uncapped(tip_position, graph.positions[graph.parents[blocker]], graph.positions[blocker])
+			var s := (tip_position - c).dot(n)
+			if absf(s) < 0.02:
+				# Square in its way: under it in the topsoil (and in the upper half), over it deeper.
+				s = -n.y if tip_position.y > -Underground.DEPTH * 0.5 else n.y
+			sides.append(n if s >= 0.0 else -n)
+			sides.append(-n if s >= 0.0 else n)
+	if topsoil:
+		sides.append_array([left, -left, -up, up])
+	else:
+		sides.append_array([left, -left, up, -up])
+	var deg := AVOID_STEP_DEG
+	while deg <= AVOID_MAX_DEG + 0.1:
+		var a := deg_to_rad(deg)
+		for side in sides:
+			var d := _clamp_pitch((want * cos(a) + side * sin(a)).normalized())
+			if _blocker(d, keep, true) == -1:
+				_avoid_dir = side
+				return d
+		deg += AVOID_STEP_DEG
+	_avoid_dir = Vector3.ZERO
+	return want
 
 
 func _clamp_pitch(h: Vector3) -> Vector3:
@@ -468,7 +709,7 @@ func _clamp_pitch(h: Vector3) -> Vector3:
 func _move(distance: float, drift: Vector3, ground: Underground) -> void:
 	if distance <= 0.0:
 		return
-	var p := tip_position + heading * distance + drift
+	var p := tip_position + travel * distance + drift
 	# Walls: rocks, the floor, the surface and the edge of the world. Resolve them together a few
 	# times, since pushing out of one rock can push into its neighbour or through the floor.
 	for _pass in range(4):
@@ -479,8 +720,7 @@ func _move(distance: float, drift: Vector3, ground: Underground) -> void:
 			if p.distance_squared_to(c) < rr * rr:
 				var n := (p - c).normalized()
 				p = c + n * rr
-				var slid := heading - n * minf(0.0, heading.dot(n))
-				heading = slid.normalized() if slid.length_squared() > 1e-4 else _right
+				_slide(n)
 				moved = true
 		# 0.8.2: the rock bands are walls like the rocks: the tip slides along their face.
 		if not ground.bands.is_empty():
@@ -488,27 +728,44 @@ func _move(distance: float, drift: Vector3, ground: Underground) -> void:
 			if out != p:
 				var n := (out - p).normalized()
 				p = out
-				var slid := heading - n * minf(0.0, heading.dot(n))
-				heading = slid.normalized() if slid.length_squared() > 1e-4 else _right
+				_slide(n)
 				moved = true
 		if p.y < -Underground.DEPTH or p.y > -0.05:
 			p.y = clampf(p.y, -Underground.DEPTH, -0.05)
 			heading = _flattened(Vector3(heading.x, 0.0, heading.z))
+			travel = _flattened(Vector3(travel.x, 0.0, travel.z))
 			moved = true
 		var flat := Vector2(p.x, p.z)
 		if flat.length() > ground.extent:
 			var n := Vector3(flat.x, 0.0, flat.y).normalized()
 			# Turn back inward a little, so the corner of floor and edge cannot trap the root.
 			heading = _flattened(heading - n * maxf(0.0, heading.dot(n)) - n * 0.3)
+			travel = _flattened(travel - n * maxf(0.0, travel.dot(n)) - n * 0.3)
 			flat = flat.normalized() * ground.extent
 			p = Vector3(flat.x, p.y, flat.y)
 			moved = true
+		# 0.8.2.2: old main roots are walls too, at AVOID_HARD (never closer than the tip already
+		# is): the bend in _avoid normally keeps the tip clear long before this.
+		if not _avoid_segs.is_empty():
+			var c := _closest_on(p, _avoid_segs)
+			var keep := minf(AVOID_HARD, _seg_distance(tip_position, _avoid_segs))
+			if p.distance_to(c) < keep - 1e-4:
+				var away := p - c
+				if away.length_squared() < 1e-10:
+					away = tip_position - c
+				if away.length_squared() > 1e-10:
+					p = c + away.normalized() * keep
+					moved = true
 		if not moved:
 			break
 	heading = _clamp_pitch(heading)
+	travel = _clamp_pitch(travel)
 	_update_right()
 	if ground.is_inside_rock(p, 0.0):
 		return  # boxed in: stay put this step (and pay nothing)
+	# Squeezed between old roots (pushed out of one into the next): stay put too.
+	if not _avoid_segs.is_empty() and _seg_distance(p, _avoid_segs) < minf(AVOID_HARD, _seg_distance(tip_position, _avoid_segs)) - 0.01:
+		return
 	_carry += p.distance_to(tip_position)
 	run_length += p.distance_to(tip_position)
 	tip_position = p
@@ -520,6 +777,15 @@ func _move(distance: float, drift: Vector3, ground: Underground) -> void:
 			return
 		graph.set_flag(id, "main", main_root_count)
 		tip_id = id
+
+
+## A wall's face (normal `n`) slides the held heading as before (0.8.2), and the travel direction
+## with it.
+func _slide(n: Vector3) -> void:
+	var slid := heading - n * minf(0.0, heading.dot(n))
+	heading = slid.normalized() if slid.length_squared() > 1e-4 else _right
+	var t := travel - n * minf(0.0, travel.dot(n))
+	travel = t.normalized() if t.length_squared() > 1e-4 else heading
 
 
 func _flattened(v: Vector3) -> Vector3:
@@ -550,8 +816,9 @@ func end_run(ground: Underground, res: Resources) -> void:
 	leftover_spent = 0.0
 	side_nodes_grown = PackedInt32Array([0, 0])
 	if run_node_count() == 0:
-		# Ended before the root grew at all: nothing to feed, the life force stays for later.
-		graph.update_radii()
+		# 0.8.2.2: ended before the root grew at all: the whole tank grows small roots from the
+		# whole network (no main root tonight).
+		_spend_at_once(ground, res)
 		return
 	leftover_spent = res.life_force
 	res.life_force = 0.0
@@ -577,6 +844,32 @@ func finish_early(ground: Underground, res: Resources) -> void:
 	end_run(ground, res)
 
 
+## 0.8.2.2 (specs/0.8.md "Stop at once"): the night ends before a start was picked: the whole tank
+## grows second- and third-level side roots from the whole root network toward the nearest fresh
+## dots; no main root tonight. False if there was nothing to spend.
+func end_at_once(ground: Underground, res: Resources) -> bool:
+	if run_active or res.life_force <= 1e-4:
+		return false
+	run_first_new_id = graph.size()
+	run_start_id = -1
+	run_length = 0.0
+	run_totals = PackedFloat32Array([0, 0, 0, 0])
+	_run_touched = {}
+	run_tank = res.life_force
+	_spend_at_once(ground, res)
+	return true
+
+
+func _spend_at_once(ground: Underground, res: Resources) -> void:
+	leftover_spent = res.life_force
+	res.life_force = 0.0
+	side_nodes_grown = PackedInt32Array([0, 0])
+	_grow_ground = ground
+	if leftover_spent > 0.0:
+		_grow_side_roots(PackedInt32Array(), graph.size(), ground, res)
+	graph.update_radii()
+
+
 ## First level: space colonization from the new path toward the dots within fine_radius.
 func _grow_fine_roots(path: PackedInt32Array, ground: Underground, res: Resources) -> void:
 	var marker_ids := PackedInt32Array()
@@ -597,26 +890,40 @@ func _grow_fine_roots(path: PackedInt32Array, ground: Underground, res: Resource
 
 ## Second and third level (0.8.2): the leftover buys side_nodes_per_life_force nodes per point
 ## (at most side_nodes_max), side_level3_share of them for the third level.
+## 0.8.2.2 (specs/0.8.md "Small roots everywhere"): the second level grows from the whole root
+## network, not only tonight's root: toward the fresh dots nearest to any root first (main, fine
+## or side, of any night), within its reach, until the nodes run out. Nodes no dot in reach can
+## use still sprout the short tips around tonight's root (or the newest root ends), so the fan shows.
 func _grow_side_roots(path: PackedInt32Array, first_fine: int, ground: Underground, res: Resources) -> void:
 	var total := mini(mini(side_nodes_max, Budgets.SIDE_ROOTS_PER_MAIN_ROOT), int(round(leftover_spent * side_nodes_per_life_force)))
 	if total <= 0:
 		return
 	var budget3 := int(round(total * side_level3_share))
 	var budget2 := total - budget3
-	# Starts: the first level's tips, and points along the new root when it has few.
-	var starts := PackedInt32Array()
-	for id in range(first_fine, graph.size()):
-		if graph.is_tip(id):
-			starts.append(id)
-	if starts.size() < SIDE_MIN_STARTS:
-		var want := SIDE_MIN_STARTS - starts.size()
-		for k in range(want):
-			starts.append(path[mini(path.size() - 1, int(float(k + 1) / float(want) * (path.size() - 1)))])
 	var reach2 := minf(side_reach_max, side_reach_base + side_reach_per_life_force * leftover_spent)
 	var first2 := graph.size()
-	var got2 := _side_level(starts, budget2, reach2, 0.18, 0.12, 2, ground)
+	var near := nearest_fresh(reach2, budget2, 0.12, ground)
+	var got2 := PackedInt32Array()
+	if not (near["markers"] as PackedVector3Array).is_empty():
+		got2 = _colonize(near["starts"], near["markers"], budget2, reach2, 0.18, 0.12, reach2, 2)
+		_collect_ids(_reached_by(got2, _fresh_near(got2, 0.18, ground), ground, 0.18), ground, res, fine_share)
+	var rest := budget2 - got2.size()
+	if rest >= SIDE_SHORT_TIPS * 4:
+		# Starts: the first level's tips, and points along the new root when it has few.
+		var starts := PackedInt32Array()
+		for id in range(first_fine, graph.size()):
+			if id < first2 and graph.is_tip(id):
+				starts.append(id)
+		if starts.size() < SIDE_MIN_STARTS and not path.is_empty():
+			var want := SIDE_MIN_STARTS - starts.size()
+			for k in range(want):
+				starts.append(path[mini(path.size() - 1, int(float(k + 1) / float(want) * (path.size() - 1)))])
+		if starts.is_empty():
+			starts = _newest_root_ends(SIDE_MIN_STARTS)
+		var more := _side_level(starts, rest, reach2, 0.18, 0.12, 2, ground)
+		_collect_ids(_reached_by(more, _fresh_near(more, 0.18, ground), ground, 0.18), ground, res, fine_share)
+		got2.append_array(more)
 	side_nodes_grown[0] = got2.size()
-	_collect_ids(_reached_by(got2, _fresh_near(got2, 0.18, ground), ground, 0.18), ground, res, fine_share)
 	if budget3 <= 0 or got2.is_empty():
 		return
 	# Third level: from along and at the tips of second-level roots at least SIDE3_MIN_LENGTH long.
@@ -648,6 +955,79 @@ func _grow_side_roots(path: PackedInt32Array, first_fine: int, ground: Undergrou
 	var got3 := _side_level(starts3, budget3, reach3, 0.12, 0.08, 3, ground)
 	side_nodes_grown[1] = got3.size()
 	_collect_ids(_reached_by(got3, _fresh_near(got3, 0.12, ground), ground, 0.12), ground, res, side3_share)
+
+
+## The fresh dots within `reach` of any root node, nearest first, as many as about `budget` nodes
+## of `step` reach (each dot costs its distance in steps): {"starts": the nearest node of each,
+## "markers": their positions, "dots": their ids}.
+func nearest_fresh(reach: float, budget: int, step: float, ground: Underground) -> Dictionary:
+	var starts := PackedInt32Array()
+	var markers := PackedVector3Array()
+	var dots := PackedInt32Array()
+	# Root nodes by cells of the reach (a dot looks at its cell and the 26 around it).
+	var cell := maxf(reach, 0.5)
+	var grid := {}
+	for id in range(graph.size()):
+		if side_start_level < 3.0 and root_level(id) > int(side_start_level):
+			continue
+		var k := Vector3i((graph.positions[id] / cell).floor())
+		if not grid.has(k):
+			grid[k] = PackedInt32Array()
+		var arr: PackedInt32Array = grid[k]
+		arr.append(id)
+		grid[k] = arr
+	var cands: Array = []
+	var r2 := reach * reach
+	for d in range(ground.dot_positions.size()):
+		if ground.dot_collected[d] != 0 or not is_fresh(d):
+			continue
+		var p := ground.dot_positions[d]
+		var k := Vector3i((p / cell).floor())
+		var best := -1
+		var best_d := r2
+		for dx in range(-1, 2):
+			for dy in range(-1, 2):
+				for dz in range(-1, 2):
+					var key := k + Vector3i(dx, dy, dz)
+					if not grid.has(key):
+						continue
+					for id in (grid[key] as PackedInt32Array):
+						var dd := graph.positions[id].distance_squared_to(p)
+						if dd < best_d:
+							best_d = dd
+							best = id
+		if best >= 0:
+			cands.append(Vector3(sqrt(best_d), d, best))
+	cands.sort_custom(func(a: Vector3, b: Vector3) -> bool: return a.x < b.x or a.x == b.x and a.y < b.y)
+	var used := 0
+	var seen := {}
+	for c in cands:
+		var cost := maxi(1, ceili(c.x / step))
+		if used + cost > budget:
+			break
+		used += cost
+		var start := int(c.z)
+		if not seen.has(start):
+			seen[start] = true
+			starts.append(start)
+		markers.append(ground.dot_positions[int(c.y)])
+		dots.append(int(c.y))
+	return {"starts": starts, "markers": markers, "dots": dots}
+
+
+## The ends of the newest main roots (the trunk's root node if there are none): where an empty
+## night's short tips sprout.
+func _newest_root_ends(n: int) -> PackedInt32Array:
+	var out := PackedInt32Array()
+	for id in range(graph.size() - 1, 0, -1):
+		if out.size() >= n:
+			break
+		var fl = graph.flags[id]
+		if (fl == null or not (fl as Dictionary).has("fine")) and graph.is_tip(id):
+			out.append(id)
+	if out.is_empty():
+		out.append(0)
+	return out
 
 
 ## One side-root level from `starts`: toward the fresh dots within `reach` of a start, and where
@@ -928,6 +1308,8 @@ static func from_dict(d: Dictionary, random_seed: int = 1) -> RootSystem:
 	r.tip_position = Vector3(tp[0], tp[1], tp[2])
 	var hd: Array = d.get("heading", [0, -1, 0])
 	r.heading = Vector3(hd[0], hd[1], hd[2])
+	r.travel = r.heading
+	r._start_main = int(r.graph.get_flag(r.run_start_id, "main", -1)) if r.run_start_id > 0 and r.run_start_id < r.graph.size() else -1
 	r.run_start_id = int(d.get("run_start_id", -1))
 	r.run_first_new_id = int(d.get("run_first_new_id", -1))
 	r.run_length = float(d.get("run_length", 0.0))

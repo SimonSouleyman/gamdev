@@ -75,11 +75,12 @@ func test_a_tap_boosts_and_a_hold_fast_forwards() -> void:
 	t.check(tv.hourglass.visible, "the hourglass shows while held")
 	t.check(tv.time_speed() < TreeView.FAST_FORWARD, "it eases in, no jump (%.2f)" % tv.time_speed())
 	_frames(tv, 0.6)
-	t.check_eq(tv.time_speed(), TreeView.FAST_FORWARD, "then 4x")
+	t.check_eq(TreeView.FAST_FORWARD, 8.0, "0.8.2.2: 8x (Simon: twice as fast)")
+	t.check_eq(tv.time_speed(), TreeView.FAST_FORWARD, "then 8x")
 	var hour := clk.clock_hour()
 	_frames(tv, 1.0)
 	var game_s := (clk.clock_hour() - hour) * clk.hour_seconds()
-	t.check_near(game_s, TreeView.FAST_FORWARD, 0.15, "a held second is four seconds of the day (%.2f)" % game_s)
+	t.check_near(game_s, TreeView.FAST_FORWARD, 0.15, "a held second is eight seconds of the day (%.2f)" % game_s)
 	tv._end_press(true, Vector2(200, 600))
 	t.check_eq(clk.boost_remaining, 0.0, "a hold never boosts")
 	t.check_eq(tv.time_speed(), 1.0, "release: the normal clock at once")
@@ -212,7 +213,7 @@ func _held_day(seed: int, speeds: Callable) -> Dictionary:
 
 
 ## Broken 2: the same seed and taps give the same tree, tank and night when held. And the held
-## day takes about a quarter of the real time.
+## day takes about an eighth of the real time (0.8.2.2: 8x).
 func test_a_held_day_grows_the_same_tree_quicker() -> void:
 	var calm := _held_day(5, func(_f: int) -> float: return 1.0)
 	# Held from 9 o'clock to sunset with the ease, released twice on the way.
@@ -228,10 +229,10 @@ func test_a_held_day_grows_the_same_tree_quicker() -> void:
 	t.check_eq(held["room"], calm["room"], "the same room for tonight's root")
 	t.check_eq(held["metres"], calm["metres"], "the same night length in metres")
 	t.check(held["real"] < calm["real"] * 0.5, "held, the day took %.0f s instead of %.0f s" % [held["real"], calm["real"]])
-	# Held all day from the morning: about a quarter of the real time (spec: about 30 s of daylight).
+	# Held all day from the morning: about an eighth of the real time (8x since 0.8.2.2).
 	var all_day := _held_day(5, func(_f: int) -> float: return TreeView.FAST_FORWARD)
 	t.check_eq(all_day["nodes"], calm["nodes"], "held all day: the same tree")
-	t.check_near(all_day["real"] / calm["real"], 0.25, 0.01, "a quarter of the time")
+	t.check_near(all_day["real"] / calm["real"], 1.0 / TreeView.FAST_FORWARD, 0.01, "an eighth of the time (%.3f)" % (all_day["real"] / calm["real"]))
 
 
 ## Broken 6: no number, timer or skip button: only the world and a small drawn hourglass.
@@ -246,7 +247,7 @@ func test_it_shows_no_number_or_skip_button() -> void:
 	for l in tv.hud.find_children("*", "Label", true, false):
 		words.append((l as Label).text.to_lower())
 	var text := " ".join(words)
-	t.check(not ("x4" in text or "4x" in text or "skip" in text or "fast" in text), "no speed or skip words in the HUD")
+	t.check(not ("x8" in text or "8x" in text or "x4" in text or "4x" in text or "skip" in text or "fast" in text), "no speed or skip words in the HUD")
 	t.check(tv._scenery.cloud_speed > 1.0, "the clouds race instead")
 	tv._end_press(true, Vector2(200, 600))
 	tv.free()

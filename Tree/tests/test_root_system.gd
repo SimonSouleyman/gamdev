@@ -393,8 +393,10 @@ func test_a_night_stays_calm_as_life_force_grows() -> void:
 func test_magnetism_pulls_the_tip_onto_a_nearby_deposit() -> void:
 	# QA r1: steering onto a dot was hard, the root circled it. A deposit just off the heading
 	# is reached with the stick at rest; without the pull the root would pass it by.
-	var dot := Vector3(0, -2.0, -1.5)
-	var heading := Vector3(sin(deg_to_rad(40.0)), 0, -cos(deg_to_rad(40.0)))
+	# 0.8.2.2: the pull is gentler (1.2 m, 0.6 rad/s, at most 30 degrees), so the deposit lies
+	# closer to the line (0.8 m beside it, the pickup reaching 0.7 m).
+	var dot := Vector3(0.8, -2.0, -1.3)
+	var heading := Vector3.FORWARD
 	var at := Vector3(0, -2.0, 0)
 	var u := _clean_ground([dot])
 	_steer_from(u, at, heading, Vector2.ZERO, 3.0)

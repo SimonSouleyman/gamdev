@@ -336,9 +336,13 @@ func steer(stick: Vector2, dive_held: bool, delta: float) -> bool:
 
 
 ## The player ends tonight's root early; the rest of the life force feeds fine roots.
+## 0.8.2.2: before a run was started, the night ends at once (RootSystem.end_at_once).
 func finish_run_early() -> void:
 	if roots.run_active:
 		roots.finish_early(ground, sim.resources)
+		_on_run_done()
+	elif can_start_run() and roots.end_at_once(ground, sim.resources):
+		run_used = true
 		_on_run_done()
 
 
