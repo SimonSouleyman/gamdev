@@ -10,7 +10,7 @@ Today ending the root at once grows the tree fastest on all six species, so the 
 **What the player should feel.** "I went for that damp patch and it paid off tomorrow." Calm
 concentration for under a minute, then rest.
 
-**Input.** The stick, hold to dive, "end root here", the start point on an old root.
+**Input.** The stick, hold to dive, "let roots spread" (was "let roots spread"), the start point on an old root.
 
 **Output.** Nutrients from dots the new root touches (first contact), fine roots from the
 leftover life force, deposits the network keeps drinking each night, and a permanent root.

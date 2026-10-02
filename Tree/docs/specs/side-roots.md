@@ -32,7 +32,7 @@ which the player barely sees.
 **What the player should feel.** "I stopped here, and look how it spreads out" or "I went all
 the way, and that root is a real anchor now". Neither feels like a mistake.
 
-**Input.** None new: steering and "end root here" as today. From 0.8.2.2 (Simon, 2026-10-02) "end root here" shows from the start of the night, and the side roots grow from the whole root network toward the nearest fresh dots, not only from tonight's root (specs/0.8.md "Gentler auto-steering, stopping at once, small roots everywhere").
+**Input.** None new: steering and "let roots spread" (was "let roots spread") as today. From 0.8.2.2 (Simon, 2026-10-02) "let roots spread" shows from the start of the night, and the side roots grow from the whole root network toward the nearest fresh dots, not only from tonight's root (specs/0.8.md "Gentler auto-steering, stopping at once, small roots everywhere").
 
 **Output.**
 1. First level, as today but fixed: along the new root, fine roots sprout toward dots within
