@@ -1178,7 +1178,7 @@ static func draw_graph_sketch(c: Control, g: PlantGraph) -> void:
 
 # --- loading page -------------------------------------------------------------------
 
-## The start page with its tree and title (also the boot splash, project.godot).
+## The start page with its tree and title (style 2, Simon 2026-10-02) (also the boot splash, project.godot).
 const SPLASH_PAGE := "res://ui/splash/boot_splash.png"
 
 
