@@ -18,11 +18,11 @@ clouds race. Never "I must skip to be efficient".
 - A finger that moves past the threshold before 0.6 s turns the camera, as today. Once the
   fast-forward runs, moving the finger does not turn the camera (one gesture, one meaning).
 
-**Output.** The day's clock runs at 16x real speed (Simon, 2026-10-02: twice as fast, twice; 4x until 0.8.2.1, 8x until 0.8.2.3). From 0.8.2.4 a sunset button (an ink sunset in the style of the other pictures) runs the rest of the day at the same speed without holding, until the sunset hold; a tap on the screen stops it. Everything that follows game time follows it:
+**Output.** The day's clock runs at 16x real speed (Simon, 2026-10-02: twice as fast, twice; 4x until 0.8.2.1, 8x until 0.8.2.3). From 0.8.2.4 a sunset button (0.8.2.5: a walnut hourglass, a real object like the other pictures) runs the rest of the day at the same speed without holding, until the sunset hold; a tap on the screen stops it. Everything that follows game time follows it:
 growth, life force, the sun on its arc, boosts already set (they burn off at their game hours, so
 the same boosted hours happen at the same times of day, only quicker), weather and visitors. The
-look says what is happening without a number: clouds and shadows race, and a small ink hourglass
-shows by the time scrap while held.
+look says what is happening without a number: clouds and shadows race, and a small ink double arrow
+(0.8.2.5; a small hourglass until then) pulses by the time scrap while it runs.
 
 **What working looks like.**
 - A day held from morning to sunset takes a quarter of the real time (192 s day, 120 s daylight:
@@ -65,4 +65,4 @@ in over about half a second.
    the Fairphone) or hitches when the hold starts.
 5. The camera turns or the sun moves by drag while the fast-forward runs.
 6. A number, timer or "skip" button appears for it; the hold shows only through the world and
-   the small hourglass.
+   the small ink double arrow.

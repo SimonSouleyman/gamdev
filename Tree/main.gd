@@ -43,6 +43,7 @@ var _shed_button: TextureButton
 var _photo_button: TextureButton
 var _shears_button: TextureButton
 ## The sunset picture (0.8.2.4): one tap runs the rest of the day quickly to the sunset hold.
+## 0.8.2.5: a walnut hourglass, the sand nearly run (Simon's pick of four; ui/icons/sunset.png).
 var _sunset_button: TextureButton
 var _shears_glow: TextureRect
 var _glow_tween: Tween
