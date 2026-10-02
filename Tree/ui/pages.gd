@@ -29,8 +29,8 @@ const TEXTS: Dictionary = {
 	"bonsai_wire": ["Wire", "Wire sets a branch's new line in four days; then take it off, or it scars."],
 	"bonsai_repot": ["Repotting", "A week fills the pot. Snip circling roots, pick a pot (bigger carries more), fresh soil."],
 	"bonsai_burn": ["Burnt tips", "Too many pellets browned a few tips. They grow on."],
-	"empty_night": ["A quiet night", "No life force was left tonight. Calm days fill the vial."],
-	"compass": ["The compass", "The needle points to what the tree wants."],
+	"empty_night": ["A quiet night", "No life force left tonight. Calm days fill the vial."],
+	"compass": ["The compass", "The needle points to the wish."],
 }
 
 ## The doodle on each page (InkSketch kinds); a species page shows its seed or leaf.
