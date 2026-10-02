@@ -689,7 +689,9 @@ func enter_shed(animate: bool) -> void:
 		shed_menu.tree_finished = state.finished
 		state.ensure_bonsai(bool(journal.settings.get("any_species", false)))
 		shed.bonsai_ready = state.bonsai != null
-		bonsai_view.refresh(true)
+		# Only rebuilt when the bonsai changed (0.8.2.1: a full rebuild on every visit was the
+		# 80 ms PC / 108-138 ms phone frame when the house icon was tapped).
+		bonsai_view.refresh(false)
 		shed_menu.show_menu(true)
 		ambience.set_world(true, 0.8)
 	if animate:
@@ -697,6 +699,9 @@ func enter_shed(animate: bool) -> void:
 		var tw := _new_tween()
 		tw.tween_property(_fade, "color:a", 1.0, 0.35)
 		tw.tween_callback(switch)
+		# The room's first frames (a slow frame on the phone, materials drawn the first time)
+		# stay under the black, so the shed never flashes up blank (0.8.2.1 phone test).
+		tw.tween_interval(0.12)
 		tw.tween_property(_fade, "color:a", 0.0, 0.45)
 		tw.tween_callback(func() -> void: _transitioning = false)
 	else:

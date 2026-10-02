@@ -101,6 +101,12 @@ const CROWN_SUN_LIFT_PHONE := 0.06
 const CROWN_SHEEN_PHONE := 0.08
 ## And a little more daylight fill there, so the calmer green does not sink into black blotches.
 const DAY_FILL_PHONE := 0.13
+## The crown's moonlit fill at full night (0.8.2.1, look review: the crown nearly vanished
+## against the black forest at night) and the wood's (young bark by day, all wood by night).
+const NIGHT_FILL := 0.24
+const NIGHT_FILL_PHONE := 0.32
+const BARK_YOUNG_FILL := 0.22
+const BARK_NIGHT_FILL := 0.3
 var _fill_set: float = -1.0
 var _births: Dictionary = {}  # node id -> time it appeared
 var _time: float = 0.0
@@ -726,7 +732,7 @@ func _update_hud() -> void:
 	sun_arc.progress = s.clock.time_of_day / s.clock.daylight_fraction
 	match state.phase:
 		GameState.Phase.SUNSET:
-			_hint.text = "The sun has set. Tap the ground or swipe down to follow the roots."
+			_hint.text = "The sun has set. Tap the ground or swipe down to the roots."
 		GameState.Phase.DAY:
 			if state.day_is_spent():
 				_hint.text = ("Almost nothing left to grow with today" if state.sim.nutrient_missing() and not state.sim.graph.is_full() and state.sim.resources.stock[0] >= state.sim.cost_per_node else "Nothing left to grow with today") + ". The leaves still gather life force for tonight."
@@ -834,9 +840,17 @@ func care_now() -> PackedFloat32Array:
 func _update_care() -> void:
 	# The crown's daylight fill (0.6.3 noon lift): full by day, gone at night.
 	var fill := (DAY_FILL_PHONE if _compat else DAY_FILL) * (1.0 - night_amount) * (1.0 - 0.6 * rain_now)
+	# 0.8.2.1: by night a faint moonlit fill instead, so the crown stays a shape against the black
+	# forest (it nearly vanished on the phone), far below the day's.
+	fill += (NIGHT_FILL_PHONE if _compat else NIGHT_FILL) * night_amount
 	if absf(fill - _fill_set) > 0.002:
 		_fill_set = fill
 		_spray_mat.set_shader_parameter("day_fill", fill)
+		# The wood the same way, and a young tree's thin bark (near black on days 1 to 6) a little
+		# lifted by day: its own colour, not a glow.
+		var young := 1.0 - smoothstep(2.0, 8.0, state.sim.height())
+		var g := BARK_YOUNG_FILL * young * (1.0 - night_amount) + BARK_NIGHT_FILL * night_amount
+		_bark_mat.set_shader_parameter("glow", Color(g, g, g * 1.1))
 	var c := care_now()
 	var names := ["thirst", "pale", "dull", "scorch"]
 	for k in range(4):
@@ -1074,6 +1088,7 @@ func _update_mood(_h: float) -> void:
 	var cam := get_viewport().get_camera_3d()
 	var eye := cam.global_position if cam != null else camera.global_position
 	_night_sky.update(eye, n, maxf(r, mist * 0.5))
+	weather_fx.night = night_amount
 	weather_fx.update(eye, -camera.global_basis.z, t, weather, r, float(season.get("fall", 0.0)))
 	# Wet leaves and grass during and after a shower; dew in the early morning.
 	var wet := r
@@ -1222,9 +1237,24 @@ var _reach_key: int = -1
 var _sectors := PackedFloat32Array()
 
 
-## About the height this species reaches when finished (the album frames it from day one).
+## About the height this species reaches when finished (the album's last frame).
 func album_height() -> float:
 	return state.sim.species.max_height * 0.85
+
+
+## The album's frame (0.8.2.1, phone test: framed for the grown tree from day one, a new sapling
+## was a speck and a forest tree behind it read as the old tree). The frame now grows in steps:
+## twice the tree's height rounded up to ALBUM_STAGES, at most the grown size. The flip-book keeps
+## one frame for days at a time and steps back a few times in a month.
+const ALBUM_STAGES: Array[float] = [2.5, 5.0, 10.0, 20.0]
+
+
+static func album_stage(tree_height: float, grown: float) -> float:
+	var want := maxf(tree_height, 0.2) * 2.0
+	for s in ALBUM_STAGES:
+		if want <= s:
+			return minf(s, grown)
+	return grown
 
 
 ## Width of the crown (living wood), for framing on a narrow screen.
@@ -1262,7 +1292,7 @@ func _frame_camera(snap: bool, delta: float = 0.0) -> void:
 	var height := frame_height(_framed_height)
 	var width := _framed_width
 	if _album:
-		height = frame_height(album_height())
+		height = album_stage(real_height, frame_height(album_height()))
 		width = height * 0.8
 	var want_focus := Vector3(0, clampf(height * 0.47, 0.25, 30.0), 0)
 	if _album:
@@ -1297,8 +1327,10 @@ func _frame_camera(snap: bool, delta: float = 0.0) -> void:
 	var want_distance := base_distance * _zoom
 	want_distance = clampf(want_distance, minf(1.5, min_distance), room + 0.5)
 	if _album:
-		# Always from the same spot at the clearing's edge; the lens holds the grown tree.
-		want_distance = room + 0.5
+		# Always from the same side, as far back as the stage needs (the clearing's edge at most):
+		# a sapling's stage is shot from a few metres, not through a long lens from the edge, which
+		# filled the photo with the forest behind it.
+		want_distance = clampf(half / tan(deg_to_rad(FRAME_FOV * 0.5)), 3.0, room + 0.5)
 	var prune_half := 0.0
 	if prune_mode:
 		# 0.8.2 (look review: the shears' view cut the crown at the top): the shears come out on
@@ -1330,7 +1362,8 @@ func _frame_camera(snap: bool, delta: float = 0.0) -> void:
 	# rather than the forest wall behind it (review: day 1 showed mostly forest).
 	var pitch := maxf(_pitch, lerpf(0.34, 0.02, clampf(height / 8.0, 0.0, 1.0)))
 	if _album:
-		pitch = 0.2
+		# A small stage from a little higher: meadow behind the sapling, not the forest wall.
+		pitch = lerpf(0.38, 0.2, clampf(height / 10.0, 0.0, 1.0))
 	var orbit := _focus + Vector3(sin(_yaw) * cos(pitch), sin(pitch), cos(_yaw) * cos(pitch)) * _distance
 	orbit.y = maxf(orbit.y, 0.25)
 	# The dive: the camera falls straight down into the ground beside the tree, turning a little

@@ -901,7 +901,9 @@ func _populate_foliage(b: BonsaiSim, pads: Array[Pad]) -> void:
 	var hunger_p := b.hunger(1)
 	var hunger_k := b.hunger(2)
 	dark = dark.lerp(Color(0.32, 0.34, 0.1), hunger_n * 0.75)
-	var core_scale := (1.0 if conifer else 0.8) * (0.85 if Budgets.PHONE else 1.0)
+	# (0.8.2.1 look review: the cores showed as dark balls in the juniper's pads and the linden
+	# cutting at phone size: smaller, and a mid green rather than near black.)
+	var core_scale := (0.78 if conifer else 0.6) * (0.85 if Budgets.PHONE else 1.0)
 	var i := 0
 	for pi in range(pads.size()):
 		var pad := pads[pi]
@@ -927,7 +929,7 @@ func _populate_foliage(b: BonsaiSim, pads: Array[Pad]) -> void:
 		# inside the needles, not as a dark plate.
 		var core := Basis(side0, up, fwd0).scaled(Vector3(pad.radius * 0.6, pad.half_height * 0.62, pad.radius * 0.6) * (core_scale if pad.members.size() >= PAD_MIN * 2 else 0.01))
 		cores.set_instance_transform(pi, Transform3D(core, pad.centre))
-		cores.set_instance_color(pi, dark.lerp(Color(0.2, 0.3, 0.1), 0.35 if conifer else 0.0).lerp(Color(0.5, 0.45, 0.25), droop * 0.5) * pad_tint)
+		cores.set_instance_color(pi, dark.lerp(Color(0.2, 0.3, 0.1), 0.6 if conifer else 0.45).lerp(Color(0.5, 0.45, 0.25), droop * 0.5) * pad_tint)
 		for m in pad.members:
 			var burnt := g.get_flag(m, "burnt") != null
 			for _k in range(per):
@@ -950,7 +952,9 @@ func _populate_foliage(b: BonsaiSim, pads: Array[Pad]) -> void:
 				var size: float
 				if conifer:
 					face = (nrm + up * 0.4 + Vector3(rng.randf_range(-0.45, 0.45), rng.randf_range(-0.2, 0.2), rng.randf_range(-0.45, 0.45))).normalized()
-					size = clampf(pad.radius * 0.44, 0.1, 0.19) * rng.randf_range(0.8, 1.2) * card_scale
+					# (0.8.2.1: smaller tufts, so a pad reads as fine scale foliage at 450 px, not as
+					# lobed leaf clumps.)
+					size = clampf(pad.radius * 0.36, 0.08, 0.15) * rng.randf_range(0.8, 1.2) * card_scale
 				else:
 					face = (nrm + up * 0.25 + Vector3(rng.randf_range(-0.3, 0.3), rng.randf_range(-0.2, 0.2), rng.randf_range(-0.3, 0.3))).normalized()
 					size = clampf(pad.radius * 0.7, 0.16, 0.3) * rng.randf_range(0.85, 1.15) * card_scale

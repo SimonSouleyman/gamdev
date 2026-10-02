@@ -13,6 +13,9 @@ uniform vec3 light_bark : source_color = vec3(0.58, 0.53, 0.47);
 uniform vec3 dark_bark : source_color = vec3(0.24, 0.2, 0.16);
 uniform float normal_strength = 1.0;
 uniform float near_fade = 0.0;
+// The share of near_fade over which the wood dissolves (0.4: from 0.6 to 1 x near_fade). 0.8.2.1
+// roots: 0, a clean cut, so a root near the run's camera goes rather than turning to sand.
+uniform float near_fade_band = 0.4;
 uniform vec3 tint_mul : source_color = vec3(1.0);
 uniform float rim_strength = 0.0;
 // Roots underground glow faintly so they read in the dark.
@@ -40,7 +43,7 @@ void vertex() {
 
 void fragment() {
 	if (near_fade > 0.0) {
-		float keep = smoothstep(near_fade * 0.6, near_fade, length(VERTEX));
+		float keep = near_fade_band > 0.0 ? smoothstep(near_fade * (1.0 - near_fade_band), near_fade, length(VERTEX)) : step(near_fade, length(VERTEX));
 		float dither = fract(sin(dot(floor(FRAGCOORD.xy), vec2(12.9898, 78.233))) * 43758.5453);
 		if (dither > keep) { discard; }
 	}

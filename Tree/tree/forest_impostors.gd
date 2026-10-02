@@ -102,7 +102,22 @@ static func material(set_name: String) -> ShaderMaterial:
 	mat.set_shader_parameter("cuts_top", top)
 	var tint: Color = TINTS[set_name]
 	mat.set_shader_parameter("tint_mul", Vector3(tint.r, tint.g, tint.b))
+	# 0.8.2.1 (look review: in autumn the card forest stayed summer green): each cell's autumn
+	# colour by its kind, alpha how far it turns (the spruce and holly stay green).
+	var fall := PackedVector4Array()
+	var table: Array = FALL_TREES if set_name == "trees" else FALL_SHRUBS
+	for cell in cells(set_name):
+		var k := int(cell["kind"])
+		fall.append(table[k] if k >= 0 and k < table.size() else Vector4(0, 0, 0, 0))
+	fall.resize(MAX_CELLS)
+	mat.set_shader_parameter("cell_fall", fall)
 	return mat
+
+
+## Autumn colours (rgb) and how far each kind turns (a), in Scenery.KINDS order (oak, beech,
+## birch, linden, spruce) and Scenery.SHRUBS order (hazel, hawthorn, elder, holly, blackthorn).
+const FALL_TREES: Array[Vector4] = [Vector4(0.62, 0.36, 0.14, 0.75), Vector4(0.8, 0.4, 0.12, 0.9), Vector4(0.95, 0.8, 0.25, 0.95), Vector4(0.9, 0.7, 0.2, 0.9), Vector4(0, 0, 0, 0)]
+const FALL_SHRUBS: Array[Vector4] = [Vector4(0.9, 0.75, 0.25, 0.85), Vector4(0.75, 0.3, 0.15, 0.8), Vector4(0.7, 0.55, 0.3, 0.6), Vector4(0, 0, 0, 0), Vector4(0.6, 0.28, 0.2, 0.7)]
 
 
 ## A unit card with its corners cut off (an octagon): UV is the card corner a vertex belongs

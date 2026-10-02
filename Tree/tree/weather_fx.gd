@@ -15,6 +15,14 @@ var _rain: GPUParticles3D
 var _leaves: GPUParticles3D
 var _last_t: float = -1.0
 var _leaf_top: float = -1.0
+var _leaf_mat: StandardMaterial3D
+## 0 by day .. 1 at night (TreeView.night_amount): the falling leaves darken with the meadow.
+## (0.8.2.1: at night they kept their full autumn red and stood out as red drops.)
+var night: float = 0.0
+var _night_set: float = -1.0
+## Crowns smaller than this drop no leaves (m high): a sapling's few leaves stay on it (0.8.2.1,
+## phone: hand-sized red leaves fell beside a day-1 sapling).
+const LEAF_MIN_TOP := 2.5
 
 
 func _ready() -> void:
@@ -29,7 +37,11 @@ func update(eye: Vector3, forward: Vector3, t: float, w: Dictionary, rain: float
 	_rain.amount_ratio = clampf(rain, 0.05, 1.0)
 	var ahead := Vector3(forward.x, 0.0, forward.z).normalized() * 6.0 if Vector2(forward.x, forward.z).length() > 0.01 else Vector3.ZERO
 	_rain.global_position = eye + ahead + Vector3(0, 7.0, 0)
-	_start(_leaves, fall > 0.02)
+	_start(_leaves, fall > 0.02 and _leaves.visible)
+	if absf(night - _night_set) > 0.02:
+		_night_set = night
+		var k := 1.0 - 0.72 * night
+		_leaf_mat.albedo_color = Color(k, k * 0.95, k * 1.05)
 	_leaves.amount_ratio = clampf(fall, 0.05, 1.0)
 	# Thunder rolls at its two moments of the afternoon, once each.
 	if t >= 0.0 and w.get("thunder", false):
@@ -49,10 +61,16 @@ func _start(p: GPUParticles3D, on: bool) -> void:
 ## Leaves fall from the crown's bounds (TreeView, after each rebuild).
 func set_crown(crown: AABB) -> void:
 	var top := crown.end.y
-	if crown.size.y < 0.3 or top < 1.0:
+	if crown.size.y < 0.3 or top < LEAF_MIN_TOP:
 		_leaves.visible = false
+		_leaves.emitting = false
 		return
 	_leaves.visible = true
+	# Leaves the size of the tree's own: smaller on a young tree.
+	var pm0 := _leaves.process_material as ParticleProcessMaterial
+	var k := clampf(top / 9.0, 0.45, 1.0)
+	pm0.scale_min = 0.8 * k
+	pm0.scale_max = 1.3 * k
 	_leaves.position = crown.get_center()
 	var pm := _leaves.process_material as ParticleProcessMaterial
 	pm.emission_box_extents = crown.size * 0.4
@@ -155,6 +173,7 @@ func _build_leaves() -> void:
 	mat.vertex_color_use_as_albedo = true
 	mat.albedo_texture = _leaf_texture()
 	mat.roughness = 0.8
+	_leaf_mat = mat
 	quad.material = mat
 	_leaves.draw_pass_1 = quad
 	_leaves.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF

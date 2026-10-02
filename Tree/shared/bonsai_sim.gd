@@ -76,7 +76,7 @@ const FRESH_DAYS: int = 1
 ## The pots (a few shapes and glazes): the volume sets the living segments it carries.
 const POTS: Dictionary = {
 	"nursery": {"name": "clay nursery pot", "nodes": 560},
-	"rectangle": {"name": "grey rectangle", "nodes": 600},
+	"rectangle": {"name": "grey rectangular pot", "nodes": 600},
 	"oval": {"name": "blue glazed oval", "nodes": 500},
 	"round": {"name": "green glazed round", "nodes": 450},
 	"cascade": {"name": "tall cream cascade pot", "nodes": 420},

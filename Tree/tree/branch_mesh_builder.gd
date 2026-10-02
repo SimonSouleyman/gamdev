@@ -19,13 +19,20 @@ var node_colors: PackedColorArray = PackedColorArray()
 var radius_mul: PackedFloat32Array = PackedFloat32Array()
 
 
+## Extra sides for wood thicker than EXTRA_SIDES_FROM (0.8.2.1 roots: seen from a metre or two
+## in a run, five-sided roots read as planks with a seam).
+var extra_sides: int = 0
+const EXTRA_SIDES_FROM := 0.028
+
+
 func sides_for(r: float) -> int:
+	var extra := extra_sides if r > EXTRA_SIDES_FROM else 0
 	if r > 0.12:
-		return 10
+		return 10 + extra
 	if r > 0.04:
-		return 7
+		return 7 + extra
 	if r > 0.015:
-		return 5
+		return 5 + extra
 	return 4
 
 

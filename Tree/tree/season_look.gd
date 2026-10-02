@@ -31,6 +31,9 @@ static func apply(view: TreeView, look: Dictionary, species_id: String) -> void:
 	spray.set_shader_parameter("autumn_hue", float(AUTUMN_HUE.get(species_id, 0.15)))
 	for mat in leaf_materials(view._scenery):
 		_set_leaf(mat, look)
+	# 0.8.2.1: the card forest and the painted far wood turn too (they stayed summer green).
+	for mat in forest_card_materials(view._scenery):
+		_set_leaf(mat, look)
 	var grass := grass_tint(look)
 	for mat in grass_materials(view):
 		mat.set_shader_parameter("season_tint", grass)
@@ -53,6 +56,22 @@ static func leaf_materials(scenery: Node) -> Array[ShaderMaterial]:
 			var mat := mesh.surface_get_material(s) as ShaderMaterial
 			if mat != null and mat.shader != null and mat.shader.resource_path.ends_with("leaf_spray.gdshader") and not out.has(mat):
 				out.append(mat)
+	return out
+
+
+## The phone forest's card sets (ForestImpostors) and the painted far wood: materials with an
+## `autumn` uniform drawn on the scenery's own nodes.
+static func forest_card_materials(scenery: Node) -> Array[ShaderMaterial]:
+	var out: Array[ShaderMaterial] = []
+	for c in scenery.get_children():
+		var g := c as GeometryInstance3D
+		if g == null:
+			continue
+		var mat := g.material_override as ShaderMaterial
+		if mat == null or mat.shader == null or out.has(mat):
+			continue
+		if mat.shader.resource_path.ends_with("forest_impostor.gdshader") or "uniform float autumn" in mat.shader.code:
+			out.append(mat)
 	return out
 
 
