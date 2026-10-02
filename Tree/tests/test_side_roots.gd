@@ -69,7 +69,8 @@ func test_far_wishes_are_balanced_on_every_seed() -> void:
 		var far_days := 0
 		for day in range(1, 41):
 			diary.new_wish(u, day, seed, roots)
-			if diary.wish_patch >= 0:
+			# 0.8.2.1: far wishes, and the running share, start on day 5 (Diary.FAR_FROM_DAY).
+			if diary.wish_patch >= 0 and day >= Diary.FAR_FROM_DAY:
 				wish_days += 1
 				if Diary.is_far(u, diary.wish_patch):
 					far_days += 1

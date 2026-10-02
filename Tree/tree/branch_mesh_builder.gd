@@ -39,9 +39,45 @@ func _r(raw: float, id: int = -1) -> float:
 ## Builds the segments of nodes `first_id` .. `end_id` - 1 (-1: to the last node). Frames are
 ## only computed for those nodes and their ancestors, so rebuilding a growing root is cheap.
 func build(g: PlantGraph, first_id: int = 1, end_id: int = -1) -> ArrayMesh:
+	var acc := new_arrays()
+	append(g, first_id, end_id, acc)
+	return mesh_from(acc)
+
+
+## Empty arrays for append (0.8.2.1: the roots' old mesh is built in pieces over a few frames
+## into one set of arrays, so it stays one surface).
+func new_arrays() -> Dictionary:
+	return {"verts": PackedVector3Array(), "normals": PackedVector3Array(), "tangents": PackedFloat32Array(),
+		"uvs": PackedVector2Array(), "indices": PackedInt32Array(), "colors": PackedColorArray(), "uv2s": PackedVector2Array()}
+
+
+## The mesh of the arrays filled by append (an empty mesh when nothing was built).
+func mesh_from(acc: Dictionary) -> ArrayMesh:
+	var indices: PackedInt32Array = acc["indices"]
+	if indices.is_empty():
+		return ArrayMesh.new()
+	var arrays := []
+	arrays.resize(Mesh.ARRAY_MAX)
+	arrays[Mesh.ARRAY_VERTEX] = acc["verts"]
+	arrays[Mesh.ARRAY_NORMAL] = acc["normals"]
+	arrays[Mesh.ARRAY_TANGENT] = acc["tangents"]
+	arrays[Mesh.ARRAY_TEX_UV] = acc["uvs"]
+	arrays[Mesh.ARRAY_INDEX] = indices
+	var colors: PackedColorArray = acc["colors"]
+	if not colors.is_empty() and colors.size() == (acc["verts"] as PackedVector3Array).size():
+		arrays[Mesh.ARRAY_COLOR] = colors
+		arrays[Mesh.ARRAY_TEX_UV2] = acc["uv2s"]
+	var mesh := ArrayMesh.new()
+	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	return mesh
+
+
+## Appends the segments of nodes `first_id` .. `end_id` - 1 to `acc` (new_arrays). Pieces
+## appended one after another give the same mesh as one build of the whole range.
+func append(g: PlantGraph, first_id: int, end_id: int, acc: Dictionary) -> void:
 	var n := g.size()
 	if n < 2:
-		return ArrayMesh.new()
+		return
 	var last := n if end_id < 0 else mini(end_id, n)
 	var first := maxi(1, first_id)
 	# The nodes to mesh plus their ancestors (for the twist-free frames), in id order.
@@ -104,14 +140,14 @@ func build(g: PlantGraph, first_id: int = 1, end_id: int = -1) -> ArrayMesh:
 			s = a.cross(Vector3.FORWARD if absf(a.dot(Vector3.FORWARD)) < 0.9 else Vector3.RIGHT)
 		side[id] = s.normalized()
 
-	var verts := PackedVector3Array()
-	var normals := PackedVector3Array()
-	var tangents := PackedFloat32Array()
-	var uvs := PackedVector2Array()
-	var indices := PackedInt32Array()
+	var verts: PackedVector3Array = acc["verts"]
+	var normals: PackedVector3Array = acc["normals"]
+	var tangents: PackedFloat32Array = acc["tangents"]
+	var uvs: PackedVector2Array = acc["uvs"]
+	var indices: PackedInt32Array = acc["indices"]
 	var tinted := node_colors.size() == n
-	var colors := PackedColorArray()
-	var uv2s := PackedVector2Array()
+	var colors: PackedColorArray = acc["colors"]
+	var uv2s: PackedVector2Array = acc["uv2s"]
 	for id in range(first, last):
 		if alive[id] == 0:
 			continue
@@ -154,21 +190,14 @@ func build(g: PlantGraph, first_id: int = 1, end_id: int = -1) -> ArrayMesh:
 			var b0 := base + stride + i
 			var b1 := base + stride + i + 1
 			indices.append_array([a0, b0, b1, a0, b1, a1])
-	if indices.is_empty():
-		return ArrayMesh.new()
-	var arrays := []
-	arrays.resize(Mesh.ARRAY_MAX)
-	arrays[Mesh.ARRAY_VERTEX] = verts
-	arrays[Mesh.ARRAY_NORMAL] = normals
-	arrays[Mesh.ARRAY_TANGENT] = tangents
-	arrays[Mesh.ARRAY_TEX_UV] = uvs
-	arrays[Mesh.ARRAY_INDEX] = indices
-	if tinted:
-		arrays[Mesh.ARRAY_COLOR] = colors
-		arrays[Mesh.ARRAY_TEX_UV2] = uv2s
-	var mesh := ArrayMesh.new()
-	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
-	return mesh
+	# Written back (the arrays are shared already; this keeps it so if that ever changes).
+	acc["verts"] = verts
+	acc["normals"] = normals
+	acc["tangents"] = tangents
+	acc["uvs"] = uvs
+	acc["indices"] = indices
+	acc["colors"] = colors
+	acc["uv2s"] = uv2s
 
 
 func _ring(center: Vector3, a: Vector3, s: Vector3, r: float, sides: int, v: float, reps: float,

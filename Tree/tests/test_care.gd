@@ -399,6 +399,10 @@ func test_neglected_roots_can_leave_the_tree_thirsty() -> void:
 		if g.ground.dot_kinds[i] == Resources.Kind.WATER:
 			g.ground.dot_amounts[i] = 0.0
 			g.ground.dot_collected[i] = 1
+			# Run dry for good: a dot the sunrise regrows is no longer one the roots reach (0.8.2.1:
+			# with the far wishes from day 5 the network differs, and 16 regrown tapped dots added
+			# 2.6 of water to the "seep alone").
+			g.roots.tapped.erase(i)
 	# 0.8.2 (notes/roots-0.8.2.md): in the wider field the seep reaches its cap (seep_day_cover,
 	# 0.65 of a calm day) on a steered tree's network, and a day-20 tree on its growth curve uses
 	# only about 0.7 of a calm day's water, so what it has left at dusk plus the seep covers it:

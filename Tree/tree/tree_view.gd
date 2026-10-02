@@ -1380,8 +1380,23 @@ func _update_hold(delta: float) -> void:
 
 # --- input ------------------------------------------------------------------
 
+## Ends a press whose release may never come: focus lost, the app paused, a cancelled touch
+## (0.8.2.1, bug 8: a hold whose release was lost kept the day at 4x until the next click).
+## A hold just stops; nothing is boosted.
+func cancel_press() -> void:
+	if _pressing:
+		_end_press(false)
+	_touches.clear()
+	_ff_amount = 0.0
+	if sun_arc != null:
+		sun_arc.cancel_drag()
+
+
 func _unhandled_input(event: InputEvent) -> void:
 	if state == null or not input_enabled:
+		return
+	if (event is InputEventScreenTouch or event is InputEventMouseButton) and event.get("canceled"):
+		cancel_press()
 		return
 	if event is InputEventScreenTouch:
 		var t := event as InputEventScreenTouch

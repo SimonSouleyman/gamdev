@@ -308,7 +308,8 @@ func test_a_far_wish_waits_two_or_three_mornings() -> void:
 	Diary.far_share = 1.0
 	var diary := Diary.new()
 	var first := -1
-	var day := 1
+	# 0.8.2.1: far wishes start on day 5 (Diary.FAR_FROM_DAY).
+	var day := Diary.FAR_FROM_DAY
 	while day < 30 and first < 0:
 		diary.new_wish(u, day, 14, roots)
 		if Diary.is_far(u, diary.wish_patch):

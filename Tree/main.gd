@@ -555,6 +555,10 @@ func _notification(what: int) -> void:
 	if what == NOTIFICATION_WM_GO_BACK_REQUEST:
 		_back()
 		return
+	# A press whose release may never arrive ends here (0.8.2.1, bug 8): alt-tab with the button
+	# held, the app sent to the background, the window losing focus.
+	if what in [NOTIFICATION_APPLICATION_FOCUS_OUT, NOTIFICATION_WM_WINDOW_FOCUS_OUT, NOTIFICATION_APPLICATION_PAUSED, NOTIFICATION_WM_CLOSE_REQUEST]:
+		_cancel_presses()
 	if what == NOTIFICATION_WM_CLOSE_REQUEST or what == NOTIFICATION_APPLICATION_PAUSED:
 		save()
 		_paused_at = Time.get_unix_time_from_system()
@@ -566,6 +570,14 @@ func _notification(what: int) -> void:
 			state.apply_offline(away)
 			tree_view.update_visitors()
 			_show_away_page()
+
+
+## Lets go of every finger and button the views hold (a hold's fast-forward, the stick, dive).
+func _cancel_presses() -> void:
+	if tree_view != null:
+		tree_view.cancel_press()
+	if root_view != null and root_view.joystick != null:
+		root_view.release_controls()
 
 
 # --- the garden shed -----------------------------------------------------------------

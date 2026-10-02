@@ -174,6 +174,7 @@ func setup(p_ground: Underground, p_roots: RootSystem, p_res: Resources) -> void
 	roots = p_roots
 	res = p_res
 	mode = Mode.IDLE
+	_reset_run_state()
 	if _content != null:
 		_content.queue_free()
 	_content = Node3D.new()
@@ -187,6 +188,39 @@ func setup(p_ground: Underground, p_roots: RootSystem, p_res: Resources) -> void
 	_build_field()
 	_leave_far(true)
 	_rebuild_all()
+
+
+## A new game or a loaded copy replaces the one shown (0.8.2.1, bug 5): nothing of the old
+## game's run or settle carries over (a settle left running made the new game's first night
+## count as settling, kept the far view shut and fired a stray run_finished).
+func _reset_run_state() -> void:
+	_settle_t = -1.0
+	_settle_step = 0.0
+	_settle_first_fine = 0
+	_settle_start = 1
+	_static_job = {}
+	_static_end = -1
+	_tips_key = []
+	_waiting_for_input = false
+	quiet_night = false
+	_run_met = {}
+	_note_time = 0.0
+	_note_text = ""
+	_touches.clear()
+	_pressing = false
+	_dragged = false
+	_pinch_done = false
+	_rebuild_timer = 0.0
+	_life_at_start = 1.0
+	_look_size = 0
+	_look_mains = -1
+	if _tip != null:
+		_tip.visible = false
+	if _hover != null:
+		_hover.visible = false
+	if joystick != null:
+		release_controls()
+		_show_run_controls(false)
 
 
 # --- world ------------------------------------------------------------------
@@ -519,7 +553,9 @@ func _rebuild_all(static_too: bool = true) -> void:
 	_update_looks()
 	var split := roots.run_first_new_id if roots.run_active else roots.graph.size()
 	if static_too:
+		_static_job = {}
 		_static_roots.mesh = _builder.build(roots.graph, 1, split)
+		_static_end = split
 	_live_roots.mesh = _builder.build(roots.graph, split) if roots.run_active else null
 
 
@@ -714,7 +750,12 @@ func start_at(node_id: int) -> bool:
 func resume_run() -> void:
 	_enter_run()
 	_waiting_for_input = false
-	_life_at_start = maxf(res.life_force + roots.run_length * roots.base_cost_per_metre, 0.001)
+	# The tank the run started with (0.8.2.1, bug 6: rebuilt from the length at the base cost the
+	# bar read about 9 % too full; the metre costs more than that). Saves before 0.8.2 lack it.
+	if roots.run_tank > 0.0:
+		_life_at_start = maxf(maxf(roots.run_tank, res.life_force), 0.001)
+	else:
+		_life_at_start = maxf(res.life_force + roots.run_length * roots.base_cost_per_metre, 0.001)
 	camera.position = roots.tip_position - roots.heading * 2.4 + Vector3.UP * 0.8
 
 
@@ -925,15 +966,59 @@ func _settle() -> void:
 	# so the thicker root or the new fan reads against the old roots (specs/side-roots.md,
 	# broken 5); the night's end (_rebuild_all) turns them into old roots.
 	_settle_start = start
-	_static_roots.mesh = _builder.build(g, 1, start)
+	# 0.8.2.1 (bug 9): the old roots' mesh already ends where tonight's root starts, so it is not
+	# rebuilt here (70 ms at day 30); the mesh for the morning, tonight's root included, is built
+	# in pieces over the settle's frames (_step_static_job) and swapped in at its end.
+	if _static_end != start or _static_roots.mesh == null:
+		_static_roots.mesh = _builder.build(g, 1, start)
+		_static_end = start
 	_live_roots.mesh = _builder.build(g, start, _settle_first_fine)
+	_static_job = {"next": 1, "end": g.size(), "size": g.size(), "acc": _builder.new_arrays()}
 	_settle_t = 0.0
 	_settle_step = 0.0
+
+
+## Nodes of the old roots' mesh built per frame while tonight's root settles (about 3 ms on
+## the PC; the whole field at day 30, 7000 nodes, takes some 25 frames of the settle's 4.6 s).
+const STATIC_PIECE := 300
+## The old roots' mesh being built over frames: {"next", "end", "size", "acc"}; empty if none.
+var _static_job: Dictionary = {}
+## The node id the old roots' mesh ends at (-1: not known).
+var _static_end: int = -1
+
+
+## Builds the next piece of the morning's old-root mesh. True when it is complete.
+func _step_static_job(nodes: int) -> bool:
+	if _static_job.is_empty():
+		return true
+	if int(_static_job["size"]) != roots.graph.size():
+		# The graph changed under it: start over.
+		_static_job = {"next": 1, "end": roots.graph.size(), "size": roots.graph.size(), "acc": _builder.new_arrays()}
+	var from := int(_static_job["next"])
+	var to := mini(from + nodes, int(_static_job["end"]))
+	if to > from:
+		_builder.append(roots.graph, from, to, _static_job["acc"])
+	_static_job["next"] = to
+	return to >= int(_static_job["end"])
+
+
+## The settle's end: the rest of the pieces (if the frames were too few), then the new mesh.
+func _finish_static_job() -> void:
+	if _static_job.is_empty() or roots.run_active:
+		_rebuild_all()
+		return
+	_update_looks()
+	_step_static_job(1 << 30)
+	_static_roots.mesh = _builder.mesh_from(_static_job["acc"])
+	_static_end = int(_static_job["end"])
+	_static_job = {}
+	_live_roots.mesh = null
 
 
 func _process_settle(delta: float) -> void:
 	_settle_t += delta
 	_settle_step += delta
+	_step_static_job(STATIC_PIECE)
 	var g := roots.graph
 	if _settle_t < SETTLE_GROW + 0.15 and _settle_step >= 0.12:
 		_settle_step = 0.0
@@ -941,7 +1026,7 @@ func _process_settle(delta: float) -> void:
 		_live_roots.mesh = _builder.build(g, _settle_start, _settle_first_fine + int(ceil((g.size() - _settle_first_fine) * k)))
 	if _settle_t >= SETTLE_GROW + SETTLE_HOLD:
 		_settle_t = -1.0
-		_rebuild_all()
+		_finish_static_job()
 		run_finished.emit(roots.run_totals)
 
 
@@ -1228,7 +1313,7 @@ func far_known_patches() -> PackedInt32Array:
 func pick_far_tip_at(screen: Vector2) -> int:
 	var best := -1
 	var best_d := 70.0
-	for id in FieldLook.main_tips(roots):
+	for id in far_tips():
 		var p := roots.graph.positions[id]
 		if camera.is_position_behind(p):
 			continue
@@ -1237,6 +1322,19 @@ func pick_far_tip_at(screen: Vector2) -> int:
 			best_d = d
 			best = id
 	return best
+
+
+## The main roots' ends, cached until the roots change (0.8.2.1, bug 9: 8 ms per tap at day 30).
+var _tips_key: Array = []
+var _tips: PackedInt32Array = PackedInt32Array()
+
+
+func far_tips() -> PackedInt32Array:
+	var key := [roots.get_instance_id(), roots.graph.size(), roots.main_root_count]
+	if key != _tips_key:
+		_tips = FieldLook.main_tips(roots)
+		_tips_key = key
+	return _tips
 
 
 ## Wheel, two-finger pinch and the trackpad's magnify: zoom the overview; past

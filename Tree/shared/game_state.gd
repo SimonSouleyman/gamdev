@@ -679,6 +679,10 @@ static func from_dict(d_in: Dictionary) -> GameState:
 	g.roots = RootSystem.from_dict(d.get("roots", {}), g.seed)
 	g.roots.species = g.sim.species
 	g.roots.fit_soil(g.ground)
+	# A save from before 0.8.2.1 made mid-run has no cap on the night's intake (bug 7): the room
+	# the tree has now is what is left of it (the night's finds are in the stock already).
+	if g.roots.run_active and not (d.get("roots", {}) as Dictionary).has("run_room"):
+		g.roots.run_room = Array(g.sim.stock_room(g.sim.find_hold_days))
 	g.diary = Diary.from_dict(d.get("diary", {}))
 	g.clearing = Clearing.from_dict(d.get("clearing", {}), g.seed)
 	g.phase = clampi(int(d.get("phase", Phase.DAY)), Phase.DAY, Phase.NIGHT) as Phase

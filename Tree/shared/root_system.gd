@@ -904,6 +904,8 @@ func to_dict() -> Dictionary:
 		"run_seconds_target": run_seconds_target,
 		"run_time": _run_time,
 		"run_tank": run_tank,
+		# 0.8.2.1 (bug 7): the cap on tonight's intake, so a game loaded mid-run keeps it.
+		"run_room": run_room.duplicate(),
 		"thickness": Array(thickness),
 	}
 
@@ -935,6 +937,9 @@ static func from_dict(d: Dictionary, random_seed: int = 1) -> RootSystem:
 	r.run_seconds_target = float(d.get("run_seconds_target", r.calm_run_seconds))
 	r._run_time = float(d.get("run_time", 0.0))
 	r.run_tank = float(d.get("run_tank", 0.0))
+	r.run_room = []
+	for v in d.get("run_room", []):
+		r.run_room.append(float(v))
 	# Old saves: every root 1.0x (no entry).
 	r.thickness = PackedFloat32Array(d.get("thickness", []))
 	r._update_right()

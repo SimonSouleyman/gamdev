@@ -22,6 +22,10 @@ var wish_reached: bool = false
 ## about half (the 0.8.1 check: seed 3 got 25 to 35 %).
 var wish_days: int = 0
 var far_days: int = 0
+## The morning today's wish was chosen, or chosen again (a missed deposit pointed at anew): a far
+## wish keeps for FAR_DAYS mornings from it (0.8.2.1, bug 3: counted from the day the deposit was
+## placed, a far one chosen again was dropped the next morning). -1: not known (an old save).
+var wish_since: int = -1
 
 ## Share of the days whose wish points at a wish deposit underground (the rest are day wishes).
 ## A static var so tools can compare with and without (strategies.gd --set=wish_share=0).
@@ -50,6 +54,10 @@ const FAR_AHEAD_MIN: float = 9.0
 const FAR_AHEAD_MAX: float = 17.0
 const FAR_REACH_NIGHTS: float = 2.5
 const FAR_DAYS: int = 3
+## Far wishes start on this morning (0.8.2.1, bug 4): the first days teach the near wish, and
+## the 0.8.2 first-time check found the far ones mattered from about day 5. Before it the running
+## far share does not count.
+const FAR_FROM_DAY: int = 5
 ## The root reached the patch when a main-root node lies within its radius plus this.
 const REACH_MARGIN: float = 0.35
 ## Glow strength of today's wish deposit and of yesterday's missed one.
@@ -87,17 +95,21 @@ func add(day: int, text: String, by: String = "tree", drawing: String = "", topi
 
 ## The game's lines shown on a day's page (at most PAGE_MAX): the day's wish, then a need, then
 ## the best of the rest (THIRD). A topic written twice keeps its last line (a reached wish after
-## the morning's wish is a find, not a repeat).
+## the morning's wish is a find, not a repeat), and a reached wish beats every other find (0.8.2.1,
+## bug 2: the clearing's lines, written at sunrise, hid the night's "wish found").
+## Lines written before 0.8.2 have no topic: topic_of reads it from their wording, and drops the
+## routine ones (bug 1: every old day showed "The old roots drew ...", and a sun).
 func page(day: int) -> Array:
 	var by_topic := {}
 	for e in entries:
 		if int(e["day"]) != day or str(e.get("by", "tree")) == "player":
 			continue
-		var t := str(e.get("topic", ""))
-		if t == "wish" or t == "care":
-			by_topic[t] = e
-		elif not by_topic.has(t):
-			by_topic[t] = e
+		var t := topic_of(e)
+		if t == ROUTINE:
+			continue
+		if t == "find" and by_topic.has(t) and is_reached_line(by_topic[t]) and not is_reached_line(e):
+			continue
+		by_topic[t] = e
 	var out: Array = []
 	for t in ["wish", "care"]:
 		if by_topic.has(t):
@@ -107,6 +119,96 @@ func page(day: int) -> Array:
 			out.append(by_topic[t])
 			break
 	return out.slice(0, PAGE_MAX)
+
+
+## The topic of a line that has none (written before 0.8.2), read from its wording: one of
+## TOPICS, "" for a plain note (shown only when nothing else fills the day), or ROUTINE for the
+## night's numbers 0.8.2 no longer writes (never shown on a page).
+const ROUTINE := "routine"
+## [words in the line (lower case), topic, drawing]; the first match wins.
+const LEGACY_LINES: Array = [
+	["the old roots drew", ROUTINE, ""],
+	["the new root grew", ROUTINE, ""],
+	["went into fine roots", ROUTINE, ""],
+	["root nodules made", ROUTINE, ""],
+	# The day's height: shown only on an old day with nothing else (a plain note).
+	[" m tall with ", "", "sapling"],
+	["died back in the crown", ROUTINE, ""],
+	["the one i wished for", "find", ""],
+	["wish found", "find", ""],
+	["today, ", "wish", ""],
+	["wish: ", "wish", ""],
+	["fossil", "find", "fossil"],
+	["old root of a tree", "find", "old_root"],
+	["water vein", "find", "water_vein"],
+	["lost coin", "find", "coin"],
+	["found ", "find", ""],
+	["anemone", "find", "anemone"],
+	["fern ", "find", "fern"],
+	["moss ", "find", "moss"],
+	["mushroom", "find", "mushroom"],
+	["hedgehog", "visitor", "hedgehog"],
+	["wren", "visitor", "wren"],
+	["butterflies", "visitor", "butterflies"],
+	["blackbird", "visitor", "nest"],
+	["a fox", "visitor", "fox"],
+	["planted", "milestone", "seed"],
+	["sprouted", "milestone", "sapling"],
+	["blossom", "milestone", "blossom"],
+	["full size", "milestone", "grown_tree"],
+	["fully grown", "milestone", "grown_tree"],
+	["juniper", "milestone", "bonsai"],
+	["cutting", "milestone", "bonsai"],
+	["brush pile", "milestone", "pile"],
+	["pile of sticks", "milestone", "pile"],
+	["fill the soil", "milestone", "moon"],
+	["no life force", "milestone", "moon"],
+	["mist", "mood", "mist"],
+	["dew ", "mood", "mist"],
+	["shower", "mood", "rain"],
+	["thunder", "mood", "rain"],
+	["rain", "mood", "rain"],
+]
+
+
+static func topic_of(e: Dictionary) -> String:
+	if e.has("topic"):
+		return str(e["topic"])
+	return str(_legacy(e)[1])
+
+
+## The drawing of a line: its own, or for a line from before 0.8.2 one read from its wording
+## (a reached wish: the plant it names).
+static func drawing_of(e: Dictionary) -> String:
+	if e.has("drawing"):
+		return str(e["drawing"])
+	if e.has("topic"):
+		return ""
+	var d := str(_legacy(e)[2])
+	if d == "":
+		d = _plant_in(str(e.get("text", "")))
+	return d
+
+
+## A root reached the day's wish ("wish found", or before 0.8.2 "the one I wished for").
+static func is_reached_line(e: Dictionary) -> bool:
+	var text := str(e.get("text", "")).to_lower()
+	return text.contains("wish found") or text.contains("the one i wished for")
+
+
+static func _legacy(e: Dictionary) -> Array:
+	var text := str(e.get("text", "")).to_lower() + " "
+	for row in LEGACY_LINES:
+		if text.contains(str(row[0])):
+			return row
+	return ["", "", ""]
+
+
+static func _plant_in(text: String) -> String:
+	for k in range(PLANTS.size()):
+		if text.contains(PLANTS[k]):
+			return DRAWINGS[k]
+	return ""
 
 
 ## The player's own notes of a day.
@@ -129,12 +231,13 @@ func days() -> Array[int]:
 ## milestone, else of the wish (its plant), else of the need (its leaf); a sun when none has one.
 func doodle(day: int) -> String:
 	var lines := page(day)
-	for i in [2, 0, 1]:
-		if i < lines.size() and lines[i].has("drawing"):
-			return str(lines[i]["drawing"])
-	for e in lines:
-		if e.has("drawing"):
-			return str(e["drawing"])
+	# The third place first (it may stand second on a day without a need), then the wish, the need.
+	for want in ["third", "wish", "care"]:
+		for e in lines:
+			var t := topic_of(e)
+			var place := t if t == "wish" or t == "care" else "third"
+			if place == want and drawing_of(e) != "":
+				return drawing_of(e)
 	return "sun"
 
 
@@ -180,7 +283,7 @@ static func plan_wish(ground: Underground, day: int, seed: int, roots: RootSyste
 		# as they would be. 0.8.2: a running share when the diary passes one (far_want).
 		var go_far := false
 		var far_rng := RandomNumberGenerator.new()
-		if ground.layout >= 3:
+		if ground.layout >= 3 and day >= FAR_FROM_DAY:
 			far_rng.seed = hash([seed, "far_wish", day])
 			var roll := far_rng.randf()
 			go_far = roll < far_share if far_want < 0.0 else far_want >= lerpf(0.25, 0.75, roll) and far_share > 0.0
@@ -470,8 +573,8 @@ func new_wish(ground: Underground, day: int, seed: int, roots: RootSystem, res: 
 	# A far wish not reached yet stays for up to FAR_DAYS mornings: it takes a root continued over
 	# two or three nights (0.8.1, item 34).
 	if wish_patch >= 0 and not wish_reached and is_far(ground, wish_patch):
-		var placed := int(ground.patches[wish_patch].get("day", day))
-		if day - placed < FAR_DAYS and _untouched(ground, roots, wish_patch):
+		var since := wish_since if wish_since >= 0 else int(ground.patches[wish_patch].get("day", day))
+		if day - since < FAR_DAYS and _untouched(ground, roots, wish_patch):
 			last_patch = -1
 			var p: Dictionary = ground.patches[wish_patch]
 			add(day, wish_entry(int(p["kind"]), p["center"], true, true), "tree", DRAWINGS[int(p["kind"])], "wish")
@@ -482,6 +585,7 @@ func new_wish(ground: Underground, day: int, seed: int, roots: RootSystem, res: 
 	wish_reached = false
 	wish_patch = -1
 	var w := plan_wish(ground, day, seed, roots, res, far_share * (wish_days + 1) - far_days)
+	wish_since = day
 	if w.has("patch"):
 		wish_patch = int(w["patch"])
 	elif int(w["kind"]) >= 0:
@@ -491,7 +595,9 @@ func new_wish(ground: Underground, day: int, seed: int, roots: RootSystem, res: 
 		last_patch = -1
 		var p: Dictionary = ground.patches[wish_patch]
 		add(day, wish_entry(int(p["kind"]), p["center"], false, is_far(ground, wish_patch)), "tree", DRAWINGS[int(p["kind"])], "wish")
-		wish_days += 1
+		# The running far share counts from FAR_FROM_DAY (no far wish before it to balance).
+		if day >= FAR_FROM_DAY or ground.layout < 3:
+			wish_days += 1
 		if is_far(ground, wish_patch):
 			far_days += 1
 	else:
@@ -545,7 +651,7 @@ func check_reached(ground: Underground, roots: RootSystem, day: int, night: int)
 
 func to_dict() -> Dictionary:
 	return {"entries": entries, "wish": wish, "wish_patch": wish_patch, "last_patch": last_patch, "wish_reached": wish_reached,
-		"wish_days": wish_days, "far_days": far_days}
+		"wish_days": wish_days, "far_days": far_days, "wish_since": wish_since}
 
 
 static func from_dict(d: Dictionary) -> Diary:
@@ -558,4 +664,5 @@ static func from_dict(d: Dictionary) -> Diary:
 	diary.wish_reached = bool(d.get("wish_reached", false))
 	diary.wish_days = int(d.get("wish_days", 0))
 	diary.far_days = int(d.get("far_days", 0))
+	diary.wish_since = int(d.get("wish_since", -1))
 	return diary
