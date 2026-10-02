@@ -161,3 +161,9 @@ Each criterion has a test in `tests/` unless marked (visual), which Simon judges
 - The leftover life force grows a second and a third level of side roots, flagged by level, at most 250 nodes a night on top of the first level's 150; no second-level node lies more than its reach (3 m) from its start, no third-level one more than 0.8 m; where no dot is in reach short tips still sprout; with less than a tenth of the tank left no side roots grow (tests).
 - The share of the tank spent on the root sets its thickness once, 1.0x to 1.5x, kept through a save, 1.0x for old saves; a thicker root seeps up to 1.25x per metre (tests).
 - The root view draws main roots by their thickness, the second level finer, the third half as thick and dimmer, all in one merged mesh (test; visual: `tools/grow_shot.gd --roots --run --side|--full --phone`).
+## 0.8.2.4 fast-forward 16x, the sunset picture, bonsai lamp, drawers, ending at once (notes/ff-0.8.2.4.md)
+- Holding runs the day at 16x, eased in, same tree as a watched day; the hourglass turns about once a second (tests/test_fast_forward.gd, tests/test_ff_0824.gd).
+- The sunset picture runs the rest of the day at the fast-forward's speed, eases into the sunset, stops at the sunset hold, never dives; a tap stops it without a boost; not offered at dusk, at night or in the day's last half hour; the same tree as a watched day (tests/test_ff_0824.gd).
+- A small lamp over the bonsai is on by night only, aimed at the bonsai, its reach short of the bench (test; visual: `tools/ff_shot.gd`).
+- Every drawer of the bench that shows on a 450x1000 screen opens and closes with a tap on its front, toward the room, with an empty place for its things (test).
+- A night ended at once grows nearly its whole small-root budget (200 or more of 250 from a tank of 60 or more), and a linden seed 14 ended at once every night finishes by day 40 and at least 4 days behind steering (specs/0.8.md item 44; test).

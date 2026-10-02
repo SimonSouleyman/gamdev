@@ -2,7 +2,9 @@ class_name Hourglass
 extends Control
 ## A small ink hourglass by the day scrap, shown only while the player holds the screen to
 ## fast-forward the day (specs/fast-forward.md, 0.8.2). No number, no word: the sand runs down
-## once per game hour, calmly.
+## once per HOURS_PER_TURN game hours, calmly (0.8.2.4: at 16x one game hour is about half a real
+## second, which made the sand flicker; two hours keep about one turn a second, as at 8x).
+const HOURS_PER_TURN := 2.0
 
 ## The day's clock hour (TreeView sets it); the sand follows its fraction.
 var hours: float = 6.0:
@@ -36,7 +38,7 @@ func _draw() -> void:
 	draw_polyline(left, ink, 1.6, true)
 	draw_polyline(right, ink, 1.6, true)
 	# The sand: what is left above shrinks, the heap below grows; a thin thread between.
-	var f := fposmod(hours, 1.0)
+	var f := fposmod(hours / HOURS_PER_TURN, 1.0)
 	var sand := Color(Paper.FAINT_INK, 0.85)
 	var up := (1.0 - f) * (mid - top - 3.0)
 	if up > 0.5:

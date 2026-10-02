@@ -8,6 +8,7 @@ extends SceneTree
 ## Strategies (nights / days):
 ##   dots           the RootBot chases deposits / calm days (no boost): the "calm" player
 ##   end_early      the root is ended after 1 m / calm days
+##   at_once        every night is ended at once, before a root starts (0.8.2.4)
 ##   straight_down  stick held down, never steered / calm days
 ##   random         the stick drifts gently at random, never aiming / calm days
 ##   boost_all      the RootBot / the sun boosted all day long
@@ -24,7 +25,7 @@ const FRAME: float = 1.0 / 30.0
 ## "clock." prefix to the DayCycle, "sim." to the GrowthSim or "species." to its Species, before
 ## the first night. --mix=, --deep=, --scatter=, --gap= try another soil (Underground.tool_arg).
 static var overrides: Dictionary = {}
-const ALL: Array = ["dots", "end_early", "straight_down", "random", "boost_all", "boost_quit"]
+const ALL: Array = ["dots", "end_early", "at_once", "straight_down", "random", "boost_all", "boost_quit"]
 
 
 func _init() -> void:
@@ -92,6 +93,9 @@ static func play(strat: String, species_id: String, seed: int, days: int, nights
 		g.dive()
 		var t := 0.0
 		var t0 := Time.get_ticks_usec()
+		if strat == "at_once":
+			# 0.8.2.4: every night ended before a start was picked (the button at once).
+			g.finish_run_early()
 		if g.can_start_run():
 			# From the tip of the last root, or from the trunk after a night the root could not grow.
 			var from := 0 if g.roots.graph.size() <= 1 or (lens.size() > 0 and lens[-1] == 0) else g.roots.graph.size() - 1

@@ -146,6 +146,20 @@ var side_nodes_grown: PackedInt32Array = PackedInt32Array([0, 0])
 
 var graph: PlantGraph
 var main_root_count: int = 0
+## 0.8.2.4: the graph's size when each night's growth began (a run's start or a night ended at
+## once), oldest first: which root ends are "the last nights'" (AT_ONCE_SPREAD_NIGHTS).
+var night_starts: PackedInt32Array = PackedInt32Array()
+## 0.8.2.4 (specs/0.8.md item 44, notes/sim-0.8.2.3-at-once.md): a night ended at once lets its
+## small roots start from older side roots too (this level instead of side_start_level), and
+## grows its whole node budget: with no fresh dot in reach, the rest spreads as short tips over
+## the root ends of the last AT_ONCE_SPREAD_NIGHTS nights. As first built (0.8.2.2), a tank of 150
+## bought only about 100 of its 250 nodes and a tree ended at once every night never finished.
+const AT_ONCE_START_LEVEL: float = 3.0
+const AT_ONCE_SPREAD_NIGHTS: int = 7
+## At most this many rounds of short tips fill an at-once night's budget.
+const AT_ONCE_FILL_ROUNDS: int = 4
+## True while a night ended at once grows (the rules above).
+var _at_once: bool = false
 ## The tree's species (set by GameState): its quirks on root cost, deposits and nodules.
 var species: Species = Species.linden()
 ## A root counts as pointing downward (oak's taproot) below this heading.y.
@@ -263,6 +277,7 @@ func start_run(from_id: int) -> bool:
 	run_active = true
 	run_start_id = from_id
 	run_first_new_id = graph.size()
+	night_starts.append(graph.size())
 	tip_id = from_id
 	tip_position = graph.positions[from_id]
 	run_length = 0.0
@@ -959,6 +974,7 @@ func end_at_once(ground: Underground, res: Resources) -> bool:
 	run_totals = PackedFloat32Array([0, 0, 0, 0])
 	_run_touched = {}
 	run_tank = res.life_force
+	night_starts.append(graph.size())
 	_begin_end(_at_once_job.bind(ground, res))
 	return true
 
@@ -974,7 +990,12 @@ func _spend_at_once(ground: Underground, res: Resources) -> void:
 	side_nodes_grown = PackedInt32Array([0, 0])
 	_grow_ground = ground
 	if leftover_spent > 0.0:
+		var keep := side_start_level
+		side_start_level = maxf(side_start_level, AT_ONCE_START_LEVEL)
+		_at_once = true
 		await _grow_side_roots(PackedInt32Array(), graph.size(), ground, res)
+		_at_once = false
+		side_start_level = keep
 	if _pause_due():
 		await _grow_on
 	graph.update_radii()
@@ -1034,9 +1055,13 @@ func _grow_side_roots(path: PackedInt32Array, first_fine: int, ground: Undergrou
 			var want := SIDE_MIN_STARTS - starts.size()
 			for k in range(want):
 				starts.append(path[mini(path.size() - 1, int(float(k + 1) / float(want) * (path.size() - 1)))])
-		if starts.is_empty():
-			starts = _newest_root_ends(SIDE_MIN_STARTS)
-		var more: PackedInt32Array = await _side_level(starts, rest, reach2, 0.18, 0.12, 2, ground)
+		var more := PackedInt32Array()
+		if _at_once:
+			more = await _fill_tips(_recent_root_ends(), rest, reach2, 0.18, 0.12, 2, ground)
+		else:
+			if starts.is_empty():
+				starts = _newest_root_ends(SIDE_MIN_STARTS)
+			more = await _side_level(starts, rest, reach2, 0.18, 0.12, 2, ground)
 		if _pause_due():
 			await _grow_on
 		_collect_ids(_reached_by(more, _fresh_near(more, 0.18, ground), ground, 0.18), ground, res, fine_share)
@@ -1070,7 +1095,11 @@ func _grow_side_roots(path: PackedInt32Array, first_fine: int, ground: Undergrou
 	if starts3.is_empty():
 		return
 	var reach3 := minf(side3_reach_max, side3_reach_base + side3_reach_per_life_force * leftover_spent)
-	var got3: PackedInt32Array = await _side_level(starts3, budget3, reach3, 0.12, 0.08, 3, ground)
+	var got3: PackedInt32Array
+	if _at_once:
+		got3 = await _fill_tips(starts3, budget3, reach3, 0.12, 0.08, 3, ground, false)
+	else:
+		got3 = await _side_level(starts3, budget3, reach3, 0.12, 0.08, 3, ground)
 	side_nodes_grown[1] = got3.size()
 	if _pause_due():
 		await _grow_on
@@ -1147,6 +1176,50 @@ func _nearest_fresh(reach: float, budget: int, step: float, ground: Underground)
 
 ## The ends of the newest main roots (the trunk's root node if there are none): where an empty
 ## night's short tips sprout.
+## 0.8.2.4: the root ends (tips) grown in the last AT_ONCE_SPREAD_NIGHTS nights, oldest first
+## (all root ends for a save from before night_starts, or a young network).
+func _recent_root_ends() -> PackedInt32Array:
+	var from := 1
+	if night_starts.size() > AT_ONCE_SPREAD_NIGHTS:
+		from = maxi(1, night_starts[night_starts.size() - 1 - AT_ONCE_SPREAD_NIGHTS])
+	var out := PackedInt32Array()
+	for id in range(from, graph.size()):
+		if graph.is_tip(id):
+			out.append(id)
+	if out.is_empty():
+		out = _newest_root_ends(SIDE_MIN_STARTS)
+	return out
+
+
+## 0.8.2.4: grows `budget` nodes of one side-root level from `starts` in up to
+## AT_ONCE_FILL_ROUNDS rounds of _side_level: toward the fresh dots in reach, and where there are
+## none, short tips. With many starts (`thin`) an even share of them is used, enough for short
+## tips of about SIDE_SHORT_TIPS each, so the tips are short roots, not single nodes.
+func _fill_tips(starts: PackedInt32Array, budget: int, reach: float, kill: float, step: float, level: int, ground: Underground, thin: bool = true) -> PackedInt32Array:
+	var got := PackedInt32Array()
+	if starts.is_empty():
+		return got
+	var per_tip := maxf(1.0, 0.65 * reach / step)
+	var use := starts
+	if thin:
+		var want := clampi(int(ceil(float(budget) / (per_tip * SIDE_SHORT_TIPS))), SIDE_MIN_STARTS, starts.size())
+		if want < starts.size():
+			use = PackedInt32Array()
+			for k in range(want):
+				use.append(starts[int(float(k) * starts.size() / want)])
+	for _round in range(AT_ONCE_FILL_ROUNDS):
+		var left := budget - got.size()
+		if left < SIDE_SHORT_TIPS:
+			break
+		var more: PackedInt32Array = await _side_level(use, left, reach, kill, step, level, ground)
+		if more.is_empty():
+			break
+		got.append_array(more)
+		if _pause_due():
+			await _grow_on
+	return got
+
+
 func _newest_root_ends(n: int) -> PackedInt32Array:
 	var out := PackedInt32Array()
 	for id in range(graph.size() - 1, 0, -1):
@@ -1401,6 +1474,7 @@ func to_dict() -> Dictionary:
 	return {
 		"graph": graph.to_json_dict(),
 		"main_root_count": main_root_count,
+		"night_starts": Array(night_starts),
 		"rng_state": str(rng.state),
 		"run_totals": run_totals,
 		"tapped": tapped.keys(),
@@ -1430,6 +1504,8 @@ static func from_dict(d: Dictionary, random_seed: int = 1) -> RootSystem:
 	if d.has("graph"):
 		r.graph = PlantGraph.from_json_dict(d["graph"])
 	r.main_root_count = int(d.get("main_root_count", 0))
+	for v in d.get("night_starts", []):
+		r.night_starts.append(int(v))
 	r.rng.state = int(str(d.get("rng_state", r.rng.state)))
 	r.run_totals = PackedFloat32Array(d.get("run_totals", [0, 0, 0, 0]))
 	for i in d.get("tapped", []):

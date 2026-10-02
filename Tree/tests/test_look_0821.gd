@@ -54,7 +54,7 @@ func test_a_new_game_after_start_over_is_clean() -> void:
 	tv.free()
 
 
-## Tap targets about 9 mm on the test phone (Paper.INK_TAP), and the run's "end root here" as tall.
+## Tap targets about 9 mm on the test phone (Paper.INK_TAP), and the run's "let roots spread" as tall.
 func test_tap_targets_are_large_enough() -> void:
 	var b := Paper.ink_button("close", 26)
 	t.check(b.get_combined_minimum_size().y >= 104.0, "an ink word's tap area is at least 104 px tall")

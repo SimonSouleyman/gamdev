@@ -2,7 +2,8 @@ extends SceneTree
 ## Renders the HUD's picture icons into ui/icons/*.png: the journal (a leather volume), the shed
 ## (a small wooden hut built here from the shed's plank textures), the shears (hand secateurs
 ## built here from swept tubes and extruded outlines), the camera (a vintage rangefinder) and the
-## hand compass (brass case and dial, the needle on its own). Warm light, transparent background,
+## hand compass (brass case and dial, the needle on its own) and the sunset (0.8.2.4: a glowing
+## sun half sunk behind a grassy hill with a small tree on it, built here). Warm light, transparent background,
 ## a soft ink edge and shadow so they sit on the paper HUD. CC0 models from Poly Haven live in
 ## tools/icon_models (a .gdignore keeps them out of the game; they are read here with GLTFDocument).
 ## Needs a window (the headless driver draws nothing):
@@ -34,7 +35,7 @@ func _initialize() -> void:
 
 
 func _run() -> void:
-	for job in ["journal", "shed", "shears", "camera", "compass"]:
+	for job in ["journal", "shed", "shears", "camera", "compass", "sunset"]:
 		if _only != "" and job != _only:
 			continue
 		await call("_icon_" + job)
@@ -602,6 +603,84 @@ func _icon_shears() -> void:
 	_stage.rotation_degrees = Vector3(0, 35, 0)
 	_frame(0, 70)
 	_save(_finish(await _capture(), 64, true), "shears_cursor")
+
+
+# --- the sunset (0.8.2.4) -------------------------------------------------------------
+
+## The sunset picture (run the rest of the day): a warm glowing sun half behind a rounded hill of
+## real grass, short rays fanned over it, and a small dark tree on the hill's shoulder.
+func _icon_sunset() -> void:
+	var s := _new_stage()
+	var glow := func(c: Color, e: float) -> StandardMaterial3D:
+		var m := StandardMaterial3D.new()
+		m.albedo_color = c
+		m.emission_enabled = true
+		m.emission = c
+		m.emission_energy_multiplier = e
+		m.roughness = 0.6
+		return m
+	# The sun: a sphere whose lower half the hill hides.
+	var sun := MeshInstance3D.new()
+	var sm := SphereMesh.new()
+	sm.radius = 0.55
+	sm.height = 1.1
+	sun.mesh = sm
+	sun.material_override = glow.call(Color(1.0, 0.45, 0.13), 0.75)
+	sun.position = Vector3(0.1, 0.0, -0.25)
+	s.add_child(sun)
+	# The rays: short tapered wedges in a fan over the horizon.
+	for i in range(7):
+		var a := deg_to_rad(18.0 + i * 24.0)
+		var ray := MeshInstance3D.new()
+		var pm := PrismMesh.new()
+		pm.size = Vector3(0.11, 0.24, 0.04)
+		ray.mesh = pm
+		ray.material_override = glow.call(Color(1.0, 0.62, 0.2), 0.9)
+		var dir := Vector3(cos(a), sin(a), 0.0)
+		ray.position = sun.position + dir * 0.8
+		# The prism's point (+y) away from the sun.
+		ray.rotation.z = a - PI * 0.5
+		s.add_child(ray)
+	# The hill: a squashed dome of grass in front.
+	var grass := StandardMaterial3D.new()
+	grass.albedo_texture = load("res://assets/ground/Grass004_1K-JPG_Color.jpg")
+	grass.normal_enabled = true
+	grass.normal_texture = load("res://assets/ground/Grass004_1K-JPG_NormalGL.jpg")
+	grass.albedo_color = Color(0.85, 0.95, 0.7)
+	grass.roughness = 0.9
+	grass.uv1_triplanar = true
+	grass.uv1_scale = Vector3.ONE * 3.0
+	var hill := MeshInstance3D.new()
+	var hm := SphereMesh.new()
+	hm.radius = 1.25
+	hm.height = 1.25
+	hm.is_hemisphere = true
+	hill.mesh = hm
+	hill.material_override = grass
+	hill.scale = Vector3(0.95, 0.36, 0.5)
+	hill.position = Vector3(0.0, -0.4, 0.2)
+	s.add_child(hill)
+	# A small tree on the left shoulder: a dark trunk and a round crown, lit warm from behind.
+	var bark := _mat(Color(0.22, 0.14, 0.08), 0.9)
+	var trunk := MeshInstance3D.new()
+	var tm := CylinderMesh.new()
+	tm.top_radius = 0.018
+	tm.bottom_radius = 0.03
+	tm.height = 0.26
+	trunk.mesh = tm
+	trunk.material_override = bark
+	trunk.position = Vector3(-0.62, 0.04, 0.3)
+	s.add_child(trunk)
+	var crown := MeshInstance3D.new()
+	var cm := SphereMesh.new()
+	cm.radius = 0.15
+	cm.height = 0.27
+	crown.mesh = cm
+	crown.material_override = _mat(Color(0.2, 0.36, 0.14), 0.85)
+	crown.position = Vector3(-0.62, 0.24, 0.3)
+	s.add_child(crown)
+	_frame(0, 8, 1.05)
+	_save(_finish(await _capture()), "sunset")
 
 
 # --- the hand compass ----------------------------------------------------------------

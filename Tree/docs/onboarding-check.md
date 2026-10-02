@@ -18,7 +18,7 @@ sapling in the dawn burst → "sapling" page → the first day → "sunset" page
 
 ## Gaps (after the current plan)
 1. **Split the long first pages.** Teach one thing per moment: the dot colours when the root
-   first nears a dot, "end root here" when half the tank is spent, boost at the first sapling,
+   first nears a dot, "let roots spread" (was "end root here") when half the tank is spent, boost at the first sapling,
    sun steering after the first boost, the pills when a nutrient first runs short. Each stays a
    journal page or a small scrap, shown once.
 2. **Let the first root start sooner.** The "first night" page could shrink to one line

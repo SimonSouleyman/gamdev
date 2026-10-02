@@ -64,6 +64,20 @@ var _glass: StandardMaterial3D
 ## (0.6 review: the shed was as bright at night as by day). Set by main while in the shed.
 var daylight: float = 1.0
 var _window_sun: SpotLight3D
+## 0.8.2.4 (Simon: "a small lamp over the bonsai so you can work on it at night"): a small enamel
+## shade on a wall bracket above the window, its warm spot a pool on the bonsai by night only.
+var bonsai_lamp: SpotLight3D
+var _bonsai_bulb: StandardMaterial3D
+## The bonsai lamp's energy at full night (the phone's renderer is dimmer: BONSAI_LAMP_PHONE).
+const BONSAI_LAMP_ENERGY := 1.0
+const BONSAI_LAMP_PHONE := 1.4
+## The bench's drawers (0.8.2.4, Simon: "if the drawers are visible, they should open"): name ->
+## the drawer node of the workbench model; a tap slides one out or back.
+var drawers: Dictionary = {}
+var _drawer_open: Dictionary = {}  # name -> bool
+## How far a drawer slides out (m; the drawers are 0.44 deep).
+const DRAWER_OUT := 0.24
+const DRAWER_TIME := 0.38
 var _shaft: MeshInstance3D
 var _sounds: Dictionary = {}  # name -> AudioStream
 var _player: AudioStreamPlayer
@@ -83,6 +97,7 @@ func _ready() -> void:
 	_floor = _planks("old_planks_02", 0.5, Color(0.75, 0.7, 0.66))
 	_build_room()
 	_build_window()
+	_build_bonsai_lamp()
 	_build_bench()
 	_build_pinboard()
 	_build_camera()
@@ -218,6 +233,97 @@ func _beam(size: Vector3, at: Vector3, mat: Material, bevel: float = 0.012, pare
 	m.position = at
 	parent.add_child(m)
 	return m
+
+
+## The small lamp over the bonsai (0.8.2.4): an iron bracket from the wall above the window, a
+## short chain, a dark green enamel shade (cream inside) with a warm bulb. Its spot lights the
+## bonsai and the sill by night; by day it is off (shed.daylight drives it in _process).
+func _build_bonsai_lamp() -> void:
+	var hd := DEPTH * 0.5
+	var cx := (WINDOW_X.x + WINDOW_X.y) * 0.5
+	var sill := WINDOW_Y.x + 0.01
+	var iron := _mat(Color(0.1, 0.09, 0.08), 0.55)
+	var top := WINDOW_Y.y + 0.2
+	var reach := 0.17
+	# The bracket: a plate on the wall and an arm out into the room with a brace under it.
+	_box(Vector3(0.05, 0.09, 0.012), Vector3(cx, top, hd - 0.01), iron)
+	_box(Vector3(0.014, 0.014, reach), Vector3(cx, top, hd - 0.01 - reach * 0.5), iron)
+	var brace := _box(Vector3(0.01, 0.01, reach * 0.75), Vector3(cx, top - 0.04, hd - 0.01 - reach * 0.36), iron)
+	brace.rotation.x = -0.45
+	var at := Vector3(cx, top - 0.09, hd - 0.01 - reach + 0.01)
+	_box(Vector3(0.004, 0.08, 0.004), at + Vector3(0, 0.05, 0), iron)
+	# The shade: dark green enamel outside, cream enamel inside, a brass cap.
+	var enamel := _mat(Color(0.12, 0.24, 0.17), 0.35)
+	enamel.metallic_specular = 0.7
+	var shade := MeshInstance3D.new()
+	var cm := CylinderMesh.new()
+	cm.top_radius = 0.016
+	cm.bottom_radius = 0.06
+	cm.height = 0.055
+	cm.cap_bottom = false
+	cm.radial_segments = 20
+	shade.mesh = cm
+	shade.material_override = enamel
+	shade.position = at
+	shade.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_child(shade)
+	var inner := MeshInstance3D.new()
+	var im := cm.duplicate() as CylinderMesh
+	im.top_radius = 0.0145
+	im.bottom_radius = 0.0585
+	im.flip_faces = true
+	inner.mesh = im
+	inner.material_override = _mat(Color(0.93, 0.89, 0.78), 0.4)
+	inner.position = at
+	add_child(inner)
+	var cap := MeshInstance3D.new()
+	var capm := CylinderMesh.new()
+	capm.top_radius = 0.008
+	capm.bottom_radius = 0.016
+	capm.height = 0.016
+	cap.mesh = capm
+	cap.material_override = _mat(Color(0.7, 0.52, 0.25), 0.35)
+	cap.position = at + Vector3(0, 0.034, 0)
+	add_child(cap)
+	# The bulb, just showing under the rim.
+	var bulb := MeshInstance3D.new()
+	var bm := SphereMesh.new()
+	bm.radius = 0.016
+	bm.height = 0.03
+	bulb.mesh = bm
+	_bonsai_bulb = StandardMaterial3D.new()
+	_bonsai_bulb.albedo_color = Color(1.0, 0.9, 0.7)
+	_bonsai_bulb.emission_enabled = true
+	_bonsai_bulb.emission = Color(1.0, 0.7, 0.36)
+	bulb.material_override = _bonsai_bulb
+	bulb.position = at + Vector3(0, -0.012, 0)
+	bulb.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_child(bulb)
+	# Its light: a warm cone onto the bonsai, a pool on the sill, falling off before the bench.
+	bonsai_lamp = SpotLight3D.new()
+	bonsai_lamp.light_color = Color(1.0, 0.76, 0.5)
+	bonsai_lamp.spot_range = 1.1
+	bonsai_lamp.spot_angle = 38.0
+	bonsai_lamp.spot_angle_attenuation = 1.6
+	bonsai_lamp.spot_attenuation = 1.2
+	bonsai_lamp.light_specular = 0.3
+	bonsai_lamp.shadow_enabled = false
+	bonsai_lamp.position = at + Vector3(0, -0.02, 0)
+	# Aimed in the shed's own frame (the shed is turned when placed).
+	bonsai_lamp.basis = Basis.looking_at(Vector3(cx, sill + 0.1, hd - 0.14) - bonsai_lamp.position, Vector3.FORWARD)
+	add_child(bonsai_lamp)
+	_set_bonsai_lamp(0.0)
+
+
+## The bonsai lamp at `night` (0 by day .. 1 at full night).
+func _set_bonsai_lamp(night: float) -> void:
+	if bonsai_lamp == null:
+		return
+	var full := BONSAI_LAMP_PHONE if RenderingServer.get_current_rendering_method() == "gl_compatibility" else BONSAI_LAMP_ENERGY
+	bonsai_lamp.light_energy = full * night
+	bonsai_lamp.visible = night > 0.01
+	_bonsai_bulb.emission_energy_multiplier = lerpf(0.0, 2.2, night)
+	_bonsai_bulb.albedo_color = Color(0.55, 0.5, 0.42).lerp(Color(1.0, 0.9, 0.7), night)
 
 
 ## A soft contact shadow: a dark blurred patch on the surface under a thing (cheap: one quad).
@@ -575,6 +681,7 @@ func _build_bench() -> void:
 	# An old cabinet workbench with drawers (Poly Haven "Wooden Table 03"), its drawers toward us.
 	var table := _model("WoodenTable_03", Vector3.ZERO, 1.0, PI, bench)
 	table.scale = Vector3(0.95, 1.0, 1.05)
+	_build_drawers(table)
 	var top := BENCH_TOP - 0.05  # bench-local height of the table top
 	# The journal: dark leather with an elastic band and a red ribbon, lying on the left.
 	var journal := _book(Vector3(0.16, 0.026, 0.22), _leather(Paper.LEATHER), Color(0.92, 0.88, 0.78), true)
@@ -624,6 +731,84 @@ func _build_bench() -> void:
 		_blob(Vector3(side * (WIDTH * 0.5 - 0.05), floor_y, 0.0), Vector2(0.5, DEPTH * 1.1), 0.0, 0.5)
 	_blob(Vector3(0.0, floor_y, -DEPTH * 0.5 + 0.05), Vector2(WIDTH * 1.1, 0.5), 0.0, 0.5)
 	_build_rug(floor_y)
+
+
+## The workbench model's drawers become drawers (0.8.2.4): each gets a paper liner on its floor
+## and an empty "Contents" node on it, the hook for what Simon puts in them later (drawer_contents).
+func _build_drawers(table: Node3D) -> void:
+	var liner := _paper_mat(Color(0.8, 0.7, 0.55), true, "beige")
+	for n in table.find_children("WoodenTable_03_drawer*", "MeshInstance3D", true, false):
+		var d := n as MeshInstance3D
+		var key := String(d.name).trim_prefix("WoodenTable_03_")
+		drawers[key] = d
+		_drawer_open[key] = false
+		d.set_meta("rest", d.position)
+		var box := d.get_aabb()
+		# The drawer's floor: the box's foot plus its bottom board; the front is at the box's +z.
+		var floor_y := box.position.y + 0.022
+		var lin := _box(Vector3(box.size.x - 0.07, 0.002, box.size.z - 0.07), Vector3(box.get_center().x, floor_y, box.get_center().z), liner, d)
+		lin.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		var contents := Node3D.new()
+		contents.name = "Contents"
+		contents.position = Vector3(box.get_center().x, floor_y + 0.002, box.get_center().z)
+		d.add_child(contents)
+
+
+## The node to put a drawer's things on (its floor's middle, in the drawer's frame; x across,
+## z from back to front, the drawer about 0.37 or 0.78 wide and 0.44 deep). Empty for now.
+func drawer_contents(key: String) -> Node3D:
+	var d: Node3D = drawers.get(key)
+	return null if d == null else d.get_node("Contents") as Node3D
+
+
+func is_drawer_open(key: String) -> bool:
+	return bool(_drawer_open.get(key, false))
+
+
+## Which drawer's front is under this screen point ("" if none).
+func drawer_at(screen: Vector2) -> String:
+	for key in drawers:
+		var d := drawers[key] as MeshInstance3D
+		var box := d.get_aabb()
+		var z := box.end.z
+		var poly := PackedVector2Array()
+		for c in [Vector2(box.position.x, box.position.y), Vector2(box.end.x, box.position.y), Vector2(box.end.x, box.end.y), Vector2(box.position.x, box.end.y)]:
+			var w := d.global_transform * Vector3(c.x, c.y, z)
+			if camera.is_position_behind(w):
+				poly = PackedVector2Array()
+				break
+			poly.append(camera.unproject_position(w))
+		if poly.size() == 4 and Geometry2D.is_point_in_polygon(screen, poly):
+			return key
+	return ""
+
+
+## Slides a drawer out (or back in) with a little overshoot, and a wooden scrape.
+func toggle_drawer(key: String) -> void:
+	var d: Node3D = drawers.get(key)
+	if d == null:
+		return
+	var open := not bool(_drawer_open[key])
+	_drawer_open[key] = open
+	var rest: Vector3 = d.get_meta("rest")
+	var to := rest + Vector3(0, 0, DRAWER_OUT if open else 0.0)
+	var busy_key := "drawer_" + key
+	if _busy.has(busy_key) and (_busy[busy_key] as Tween).is_valid():
+		(_busy[busy_key] as Tween).kill()
+	var tw := create_tween()
+	_busy[busy_key] = tw
+	if open:
+		# A small tug first (it sticks a little), then it runs out and settles.
+		tw.tween_property(d, "position", d.position + Vector3(0, 0, 0.012), 0.06).set_trans(Tween.TRANS_SINE)
+		tw.tween_property(d, "position", to, DRAWER_TIME).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	else:
+		tw.tween_property(d, "position", to, DRAWER_TIME * 0.8).set_trans(Tween.TRANS_QUAD).set_ease(Tween.EASE_IN)
+		tw.tween_property(d, "position", to + Vector3(0, 0, 0.004), 0.04)
+		tw.tween_property(d, "position", to, 0.05)
+	if _sounds.has("drawer"):
+		_player.stream = _sounds["drawer"]
+		_player.pitch_scale = (1.35 if open else 1.5) + 0.06 * fposmod(_time * 7.0, 1.0)
+		_player.play()
 
 
 ## A woven rag rug on the strip of floor before the bench (0.8.2.2, the tighter view: the little
@@ -985,6 +1170,7 @@ func _process(delta: float) -> void:
 	if _window_sun:
 		_window_sun.light_energy = 0.45 * daylight
 		_window_sun.light_color = Color(0.7, 0.78, 1.0).lerp(Color(1.0, 0.9, 0.72), daylight)
+	_set_bonsai_lamp(clampf(1.0 - daylight, 0.0, 1.0))
 	if _dust:
 		_dust.visible = daylight > 0.15
 	if _shaft:
@@ -1034,7 +1220,7 @@ func _build_sounds() -> void:
 	add_child(_player)
 	var files := {"journal": "shed_book_open.ogg", "album": "shed_book_flip.ogg", "seeds": "shed_paper_bag.wav",
 		"gloves": "shed_gloves.ogg", "options": "shed_pin.ogg", "door": "shed_door.ogg",
-		"bonsai": "shed_clay_pot.ogg"}
+		"bonsai": "shed_clay_pot.ogg", "drawer": "shed_door.ogg"}
 	for k in files:
 		var path := "res://assets/sounds/" + str(files[k])
 		if ResourceLoader.exists(path):

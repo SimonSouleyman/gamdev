@@ -42,6 +42,8 @@ var _corner: CanvasLayer
 var _shed_button: TextureButton
 var _photo_button: TextureButton
 var _shears_button: TextureButton
+## The sunset picture (0.8.2.4): one tap runs the rest of the day quickly to the sunset hold.
+var _sunset_button: TextureButton
 var _shears_glow: TextureRect
 var _glow_tween: Tween
 var _flash: ColorRect
@@ -636,6 +638,10 @@ func _update_corner() -> void:
 	_shears_button.visible = _photo_button.visible and state.sim.graph.size() > 6
 	if tree_view.prune_mode and not _shears_button.visible:
 		_set_shears(false)
+	# Only while some of the day is left (not at dusk, never at night); lit while it runs.
+	var running := tree_view.running_to_sunset()
+	_sunset_button.visible = _photo_button.visible and (running or tree_view.can_run_to_sunset())
+	_sunset_button.modulate = Color(1.3, 1.12, 0.85) if running else Color.WHITE
 
 
 ## Lets go of every finger and button the views hold (a hold's fast-forward, the stick, dive).
@@ -670,6 +676,12 @@ func _build_corner() -> void:
 		_set_shears(not tree_view.prune_mode)
 		if tree_view.prune_mode:
 			_page_once("shears"))
+	# The sunset: the rest of the day runs at the fast-forward's speed; a tap anywhere stops it.
+	_sunset_button = _picture("sunset", 156.0, 1.5)
+	_sunset_button.pressed.connect(func() -> void:
+		if _transitioning:
+			return
+		toggle_run_to_sunset())
 	# A warm glow behind the shears while they are out.
 	_shears_glow = TextureRect.new()
 	var g := GradientTexture2D.new()
@@ -697,7 +709,19 @@ func _build_corner() -> void:
 	_corner.add_child(_flash)
 
 
+## The sunset picture's tap: starts the run to the sunset, or stops one that runs.
+func toggle_run_to_sunset() -> void:
+	if tree_view.running_to_sunset():
+		tree_view.run_to_sunset(false)
+		return
+	if tree_view.prune_mode:
+		_set_shears(false)
+	tree_view.run_to_sunset(true)
+
+
 func _set_shears(on: bool) -> void:
+	if on:
+		tree_view.run_to_sunset(false)
 	tree_view.prune_mode = on
 	if not on:
 		tree_view.pruning.preview(-1)
@@ -821,6 +845,10 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 	var item := shed.item_at(m.position)
 	if item == "":
+		# The bench's drawers slide out and back (0.8.2.4); nothing opens a page.
+		var drawer := shed.drawer_at(m.position)
+		if drawer != "":
+			shed.toggle_drawer(drawer)
 		return
 	# The thing answers first (sound and a small motion), then its page opens.
 	_shed_tapped = item

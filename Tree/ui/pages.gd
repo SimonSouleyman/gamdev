@@ -4,9 +4,16 @@ extends RefCounted
 
 ## 0.8.2 (specs/0.8.md, items 21 to 24): each explanation page says only what the player needs
 ## to act, about a third of its 0.8 length, and carries one ink doodle about its topic (DOODLES).
+
+## The night's "end the root" button: its name in the page texts ({end}) and its two-line label on
+## the scrap (roots/root_view.gd). One place, so a new name is a one-line change (0.8.2.4, Simon:
+## renamed from "End root here").
+const END_ROOT_NAME := "Let roots spread"
+const END_ROOT_LABEL := "let roots\nspread"
+
 const TEXTS: Dictionary = {
 	"planted": ["Day 0", "A seed went in at sunset. Tap the ground to grow its first root."],
-	"first_night": ["Below the meadow", "Glowing dots feed the tree: blue dots are water, green nitrogen, orange phosphorus, violet potassium.\n\nSteer with the stick (WASD, arrows); \"dive\" (space) sinks faster. Each metre costs life force. \"End root here\" (E) spends the rest on fine roots."],
+	"first_night": ["Below the meadow", "Glowing dots feed the tree: blue dots are water, green nitrogen, orange phosphorus, violet potassium.\n\nSteer with the stick (WASD, arrows); \"dive\" (space) sinks faster. Each metre costs life force. \"{end}\" (E) spends the rest on fine roots."],
 	"first_run_done": ["The first root", "The root drank what it touched; the seed grows at sunrise."],
 	"sapling": ["A sapling", "Tap: an hour of brighter sun. Faster growth, less life force for tonight.\n\nMorning boosts grow it east, noon tall, evening west; the arc shows the sun. The pills: life force and nutrients.\n\nHold a still finger: the day runs at 4x. Drag to walk, pinch to zoom."],
 	"spent": ["Nothing left to grow with", "The roots' haul is used up. The leaves still gather life force."],
@@ -66,7 +73,7 @@ static func title(id: String) -> String:
 static func body(id: String) -> String:
 	if id.begins_with(SPECIES_PREFIX):
 		return Species.from_id(id.substr(SPECIES_PREFIX.length())).page_body()
-	return TEXTS[id][1]
+	return (TEXTS[id][1] as String).replace("{end}", END_ROOT_NAME)
 
 
 ## The ink doodle of a page (0.8.2, item 23).

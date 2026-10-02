@@ -135,14 +135,24 @@ var _press_time: float = 0.0  # "", "orbit", "sun", "boost"
 ## Hold to fast-forward the day (specs/fast-forward.md, 0.8.2): a still finger held this long
 ## by day starts it; it runs while the finger stays down. A tap stays the boost.
 const HOLD_START := 0.6
-## The day's clock while held (tuning lever; 0.8.2.2: 8x, was 4x, Simon: "twice as fast").
-const FAST_FORWARD := 8.0
+## The day's clock while held (tuning lever; 0.8.2.2: 8x, was 4x, Simon: "twice as fast";
+## 0.8.2.4: 16x, Simon: "doubled again").
+const FAST_FORWARD := 16.0
 ## Real seconds the speed takes to ease in from 1x to FAST_FORWARD (no hitch when it starts).
 const FAST_EASE := 0.5
 ## 0..1: how far the fast-forward has eased in (0 = the normal clock).
 var _ff_amount: float = 0.0
 ## The small ink hourglass by the day scrap, shown only while held.
 var hourglass: Hourglass
+## The sunset picture (0.8.2.4, Simon): one tap runs the rest of the day to the sunset hold with
+## the fast-forward's speed and steps; a tap anywhere (or on the picture again) stops it. It never
+## goes past the sunset hold: the dive, and so the night's root run, still waits for the player.
+var _to_sunset: bool = false
+## The picture is offered only while at least this much of the day is left (game hours).
+const SUNSET_RUN_MIN_HOURS := 0.5
+## The run slows into the sunset: its speed is at most the game seconds left over this (real s),
+## so the last game hour eases down instead of stopping at full speed.
+const SUNSET_EASE_OUT := 0.35
 var _touches: Dictionary = {}
 var _pinch_start: float = 0.0
 var _pinch_zoom: float = 1.0
@@ -773,6 +783,8 @@ func _process(delta: float) -> void:
 		_touches.clear()
 		sun_arc.cancel_drag()
 		_pinch_start = 0.0
+		# A page or the shed took over: the run to the sunset stops with it (0.8.2.4).
+		_to_sunset = false
 	_time += delta
 	_update_hold(delta)
 	_rebuild_timer += delta
@@ -1460,11 +1472,42 @@ func _frame_camera(snap: bool, delta: float = 0.0) -> void:
 ## day. main.gd multiplies the sim's real time by it; the sim itself still steps in fixed game
 ## time, so a held day grows exactly the tree a watched one does.
 func time_speed() -> float:
-	return lerpf(1.0, FAST_FORWARD, _ff_amount)
+	var speed := lerpf(1.0, FAST_FORWARD, _ff_amount)
+	if _to_sunset and state != null:
+		var clk := state.sim.clock
+		var left := (clk.daylight_fraction - clk.time_of_day) * clk.seconds_per_day
+		speed = minf(speed, maxf(2.0, left / SUNSET_EASE_OUT))
+	return speed
 
 
 func fast_forwarding() -> bool:
-	return _drag_mode == "hold" and _pressing and state != null and state.phase == GameState.Phase.DAY
+	if state == null or state.phase != GameState.Phase.DAY:
+		return false
+	return _to_sunset or (_drag_mode == "hold" and _pressing)
+
+
+## The sunset picture may start a run: by day, with the day's end still some way off.
+func can_run_to_sunset() -> bool:
+	if state == null or state.phase != GameState.Phase.DAY:
+		return false
+	var clk := state.sim.clock
+	return clk.daylight_fraction - clk.time_of_day > SUNSET_RUN_MIN_HOURS * clk.hour_seconds() / clk.seconds_per_day
+
+
+func running_to_sunset() -> bool:
+	return _to_sunset
+
+
+## Starts (or, while it runs, stops) the run to the sunset. Returns whether it runs now.
+func run_to_sunset(on: bool = true) -> bool:
+	if on and not can_run_to_sunset():
+		on = false
+	if on and prune_mode:
+		return false
+	_to_sunset = on
+	if not on:
+		_ff_amount = 0.0
+	return _to_sunset
 
 
 func _update_hold(delta: float) -> void:
@@ -1472,6 +1515,9 @@ func _update_hold(delta: float) -> void:
 	# that began by day and is still down after HOLD_START becomes the hold.
 	if _pressing and _drag_mode == "" and not prune_mode and _touches.size() < 2 			and _press_phase == GameState.Phase.DAY and state.phase == GameState.Phase.DAY 			and _time - _press_time >= HOLD_START:
 		_drag_mode = "hold"
+	# The sunset run ends at the sunset hold (or when the shears come out).
+	if _to_sunset and (state.phase != GameState.Phase.DAY or prune_mode):
+		run_to_sunset(false)
 	if fast_forwarding():
 		_ff_amount = minf(1.0, _ff_amount + delta / FAST_EASE)
 	else:
@@ -1493,6 +1539,7 @@ func cancel_press() -> void:
 		_end_press(false)
 	_touches.clear()
 	_ff_amount = 0.0
+	_to_sunset = false
 	if sun_arc != null:
 		sun_arc.cancel_drag()
 
@@ -1559,6 +1606,11 @@ func _begin_press(pos: Vector2) -> void:
 	_press_phase = state.phase
 	_press_time = _time
 	_drag_mode = ""
+	if _to_sunset:
+		# A tap while the day runs to the sunset stops it, and only that (no boost, no hold).
+		run_to_sunset(false)
+		_drag_mode = "stop"
+		return
 	# (Play test 3: no holding and no dragging the sun; a tap boosts, see _end_press.)
 	if prune_mode and state.phase == GameState.Phase.DAY:
 		# On a branch: choose where to cut. Beside the tree: move the camera along the trunk.
@@ -1568,7 +1620,7 @@ func _begin_press(pos: Vector2) -> void:
 
 
 func _drag(pos: Vector2, rel: Vector2) -> void:
-	if _drag_mode == "hold":
+	if _drag_mode == "hold" or _drag_mode == "stop":
 		# One gesture, one meaning: once the day runs fast, the finger does not turn the camera.
 		return
 	if _drag_mode == "trunk":
@@ -1598,7 +1650,7 @@ func _end_press(is_release: bool, pos: Vector2 = Vector2.ZERO) -> void:
 	if not _pressing:
 		return
 	_pressing = false
-	if _drag_mode == "trunk":
+	if _drag_mode == "trunk" or _drag_mode == "stop":
 		_drag_mode = ""
 		return
 	if _drag_mode == "hold":

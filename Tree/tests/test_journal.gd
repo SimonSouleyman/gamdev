@@ -166,7 +166,7 @@ func test_explanation_pages_are_a_third_and_keep_what_the_player_needs() -> void
 	# 0.8's pages held 904 words; about a third now.
 	t.check(words <= 904 * 0.4, "about a third of 0.8's length (%d of 904 words)" % words)
 	var night := Pages.body("first_night")
-	for need in ["blue dots are water", "green", "orange", "violet", "stick", "WASD", "dive", "life force", "End root here"]:
+	for need in ["blue dots are water", "green", "orange", "violet", "stick", "WASD", "dive", "life force", Pages.END_ROOT_NAME]:
 		t.check(night.contains(need), "the first night still says: " + need)
 	var sapling := Pages.body("sapling")
 	for need in ["Tap", "east", "west", "pinch", "life force"]:

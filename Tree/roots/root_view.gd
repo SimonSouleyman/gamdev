@@ -725,8 +725,7 @@ func _build_hud() -> void:
 
 	# End tonight's root here; the rest of the life force goes into fine roots.
 	# (0.8.2.1 look review: 56 px tall with small words, well under 9 mm on the phone.)
-	end_button = _scrap_button("end root
-here", 30)
+	end_button = _scrap_button(Pages.END_ROOT_LABEL, 30)
 	end_button.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
 	end_button.offset_left = -250
 	end_button.offset_top = -124
