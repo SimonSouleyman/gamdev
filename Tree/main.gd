@@ -717,7 +717,7 @@ func _update_corner() -> void:
 func _cancel_presses() -> void:
 	if tree_view != null:
 		tree_view.cancel_press()
-	if root_view != null and root_view.joystick != null:
+	if root_view != null and root_view.end_button != null:
 		root_view.release_controls()
 
 

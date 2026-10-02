@@ -76,6 +76,8 @@ var far_shot := false
 var full_shot := false
 var tank := 25.0
 var _end_frame := -1
+var replay_shot := false
+var _replay_done: Array = []
 
 
 func _initialize() -> void:
@@ -112,6 +114,8 @@ func _initialize() -> void:
 			tank = float(a.substr(7))
 		elif a == "--run":
 			run_shot = true
+		elif a == "--replay":
+			replay_shot = true
 		elif a == "--hint_patches":
 			hint_patches = true
 		elif a == "--dive":
@@ -422,6 +426,20 @@ func _roots_frames() -> bool:
 		rview.begin_pick()
 	if far_shot:
 		return _far_frames(g)
+	if replay_shot and frame == 56:
+		# 0.8.2.7: a finger pressed on an old root (the pick view with its HUD): it lights up.
+		rview.hud.visible = true
+		var e := InputEventMouseButton.new()
+		e.button_index = MOUSE_BUTTON_LEFT
+		e.pressed = true
+		e.position = rview.camera.unproject_position(g.roots.graph.positions[g.roots.graph.size() / 3])
+		rview._unhandled_input(e)
+	if replay_shot and frame == 59:
+		print("pick press: lit %s at %s" % [str(rview._hover.visible), str(rview._hover.position)])
+		_save_both("pick_press")
+		rview._pressing = false
+		rview._hover.visible = false
+		rview.hud.visible = false
 	if frame == 60:
 		_save_both("roots_overview")
 		# Hold the camera still from here on.
@@ -455,6 +473,8 @@ func _roots_frames() -> bool:
 	# The end-of-run camera, after the settle's grow (SETTLE_GROW) and before the night moves on.
 	if (side_shot or full_shot) and frame > 260 and _end_frame < 0 and rview.is_settling():
 		_end_frame = frame
+	if replay_shot:
+		return _replay_frames(g)
 	if _end_frame > 0 and rview._settle_t >= RootView.SETTLE_GROW + 0.3:
 		var r := g.roots
 		print("tonight: %.1f m, leftover %.0f, side nodes %d / %d, thickness %.2f" % [r.run_length, r.leftover_spent, r.side_nodes_grown[0], r.side_nodes_grown[1], r.thickness_of(r.main_root_count - 1)])
@@ -462,6 +482,38 @@ func _roots_frames() -> bool:
 		quit()
 	if frame > 6000:
 		quit()
+	return false
+
+
+## --replay (with --run and --side or --full, 0.8.2.7): the settle after the run with its HUD,
+## at its start, middle and end (replay_start/mid/end.png), and how much of tonight's root the
+## camera frames (share of its nodes on screen, inside the HUD's margins).
+func _replay_frames(g: GameState) -> bool:
+	if frame == 81:
+		rview.hud.visible = true
+	if _replay_done.size() >= 3 or frame > 9000:
+		quit()
+		return false
+	if _end_frame < 0:
+		return false
+	var marks := [["start", 0.25], ["mid", RootView.SETTLE_GROW * 0.6], ["end", RootView.SETTLE_GROW + RootView.SETTLE_HOLD - 0.15]]
+	for m in marks:
+		if not _replay_done.has(m[0]) and rview._settle_t >= float(m[1]):
+			_replay_done.append(m[0])
+			var r := g.roots
+			var vp := root.get_viewport().get_visible_rect().size
+			var inside := 0
+			var n := 0
+			for id in (rview._focus_ids if not rview._focus_ids.is_empty() else range(clampi(r.run_first_new_id, 1, r.graph.size()), r.graph.size())):
+				n += 1
+				var p := r.graph.positions[id]
+				if rview.camera.is_position_behind(p):
+					continue
+				var s := rview.camera.unproject_position(p)
+				if s.x >= 0.0 and s.x <= vp.x and s.y >= 0.0 and s.y <= vp.y:
+					inside += 1
+			print("replay %s (t %.2f s): tonight %.1f m, %d nodes, %.0f %% on screen, camera %.1f m from the look point" % [m[0], rview._settle_t, r.run_length, n, 100.0 * inside / maxf(n, 1), rview.camera.position.distance_to(rview._look_now)])
+			_save_both("replay_" + str(m[0]))
 	return false
 
 

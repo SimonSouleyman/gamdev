@@ -64,7 +64,9 @@ func test_the_sunset_picture_runs_to_the_sunset_hold_and_never_dives() -> void:
 		real += FRAME
 		guard += 1
 	t.check_eq(g.phase, GameState.Phase.SUNSET, "it ends at the sunset hold")
-	t.check_eq(fastest, TreeView.FAST_FORWARD, "at the fast-forward's speed")
+	t.check_eq(TreeView.SUNSET_RUN_SPEED, 32.0, "0.8.2.7: the hourglass runs at 32x (Simon)")
+	t.check_eq(TreeView.FAST_FORWARD, 16.0, "holding stays 16x")
+	t.check_eq(fastest, TreeView.SUNSET_RUN_SPEED, "at the hourglass's speed, twice the hold")
 	var clk := g.sim.clock
 	var day_left_calm := clk.daylight_fraction * 0.8 * clk.seconds_per_day
 	t.check(real < day_left_calm / 10.0, "quickly: %.1f s instead of %.0f s" % [real, day_left_calm])
@@ -97,7 +99,7 @@ func test_it_eases_into_the_sunset() -> void:
 		guard += 1
 	# The frames just before the sunset ran slower than full speed.
 	var tail: Array = last_speeds.slice(maxi(0, last_speeds.size() - 4))
-	t.check(float(tail[0]) < TreeView.FAST_FORWARD * 0.5, "the last frames slow down (%s)" % str(tail))
+	t.check(float(tail[0]) < TreeView.SUNSET_RUN_SPEED * 0.5, "the last frames slow down (%s)" % str(tail))
 	t.check(clk.time_of_day >= clk.daylight_fraction - 1e-4, "and land on the sunset")
 	tv.free()
 
