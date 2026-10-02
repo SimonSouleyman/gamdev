@@ -323,7 +323,7 @@ func test_a_far_wish_waits_two_or_three_mornings() -> void:
 	var ahead := Vector2(c.x - tip.x, c.z - tip.z).length()
 	t.check(ahead >= Diary.FAR_AHEAD_MIN - 0.01 and ahead <= Diary.FAR_AHEAD_MAX + 0.01, "a long drive beyond the newest tip (%.1f m)" % ahead)
 	var goal := c - (c - tip).normalized() * float(u.patches[first]["radius"]) * 0.6
-	t.check(Diary.line_cost(u, roots, tip, goal) <= roots.calm_life_force * Diary.REACH_SHARE * Diary.FAR_REACH_NIGHTS, "two or three calm nights reach it")
+	t.check(Diary.line_cost(u, roots, tip, goal) <= Diary.calm_reach(roots) * Diary.FAR_REACH_NIGHTS, "two or three calm nights reach it")
 	var text := diary.wish
 	var placed := int(u.patches[first]["day"])
 	for d in range(placed + 1, placed + Diary.FAR_DAYS):

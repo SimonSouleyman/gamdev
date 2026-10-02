@@ -363,7 +363,10 @@ func test_leftover_fine_roots_reach_only_so_far() -> void:
 	for _i in range(45):
 		r.advance(Vector2(0.3, 0), false, 1.0 / 30.0, s[0], s[2])
 	r.finish_early(s[0], s[2])
-	t.check(r._fine_reach <= r.fine_radius + r.fine_reach_max_extra + 1e-4, "the leftover widens the fine roots' reach only up to a cap (%.1f m)" % r._fine_reach)
+	# 0.8.2: the leftover no longer widens the first level; it buys side roots of a capped reach
+	# and node count (test_side_roots.gd checks the reach node by node).
+	t.check(r.side_reach_base + r.side_reach_per_life_force * r.leftover_spent > r.side_reach_max, "a big leftover hits the reach cap")
+	t.check(r.side_nodes_grown[0] + r.side_nodes_grown[1] <= r.side_nodes_max, "the side roots stay within the night's cap")
 	t.check(r.count_flagged("fine", 0) <= Budgets.FINE_ROOTS_MAX_PER_MAIN_ROOT, "within the fine-root budget")
 
 

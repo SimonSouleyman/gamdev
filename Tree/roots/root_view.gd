@@ -30,6 +30,15 @@ const SOIL_AMBIENT := Color(0.34, 0.33, 0.4)
 const SOIL_AMBIENT_ENERGY := 0.95
 ## Fine roots are drawn at least this thick (radius in m): readable from the overview.
 const ROOT_MIN_RADIUS := 0.026
+## 0.8.2 side roots (specs/side-roots.md): the second level a little finer than the fine roots,
+## the third half as thick as the second and a shade dimmer (vertex colour, which the bark shader
+## also applies to the glow rim). A main root is drawn RootSystem.thickness_of times as thick.
+const SIDE2_RADIUS := 0.8
+## Main roots are drawn this much thicker than the fine roots' floor before their own thickness,
+## so the player's root, and a thick one after a full run, read apart from the side roots.
+const MAIN_RADIUS := 1.4
+const SIDE3_RADIUS := 0.4
+const SIDE3_DIM := Color(0.62, 0.6, 0.58)
 const REBUILD_INTERVAL := 0.15
 
 var ground: Underground
@@ -241,7 +250,7 @@ func _fill_dots() -> void:
 func _set_dot(i: int) -> void:
 	var mm := _dots.multimesh
 	# The glow shrinks as a deposit is drawn down; tapped deposits keep glowing until empty.
-	var s := 0.0 if ground.dot_collected[i] != 0 else (0.16 + 0.16 * ground.fullness(i)) * (0.8 + 0.2 * ground.dot_capacity[i] / Underground.DEPOSIT_SHARES)
+	var s := 0.0 if ground.dot_collected[i] != 0 else (0.16 + 0.16 * ground.fullness(i)) * (0.8 + 0.2 * ground.dot_capacity[i] / ground.deposit_shares)
 	mm.set_instance_transform(i, Transform3D(Basis.from_scale(Vector3.ONE * s), ground.dot_positions[i]))
 	# Deposits the roots already reach are dimmed, so the player looks for fresh ones.
 	var reached := roots != null and roots.tapped.has(i)
@@ -365,8 +374,47 @@ func _build_finds() -> void:
 		_find_nodes.append(m)
 
 
+## Per-node radius and colour for the mesh builder: main roots by their thickness, side roots
+## finer, the third level dimmer. Extended as the graph grows; redone when a run ends (the
+## thickness is set then) or the graph changed under it (a load).
+var _look_size: int = 0
+var _look_mains: int = -1
+
+
+func _update_looks() -> void:
+	var g := roots.graph
+	var n := g.size()
+	var from := _look_size
+	if roots.main_root_count != _look_mains or n < _look_size or _builder.radius_mul.size() != _look_size:
+		from = 0
+	if from == n and n > 0:
+		return
+	_builder.radius_mul.resize(n)
+	_builder.node_colors.resize(n)
+	for id in range(from, n):
+		var fl = g.flags[id]
+		var mul := 1.0
+		var col := Color.WHITE
+		if fl != null:
+			var d: Dictionary = fl
+			if d.has("fine"):
+				var level := int(d.get("side", 1))
+				if level == 2:
+					mul = SIDE2_RADIUS
+				elif level >= 3:
+					mul = SIDE3_RADIUS
+					col = SIDE3_DIM
+			elif d.has("main"):
+				mul = MAIN_RADIUS * roots.thickness_of(int(d["main"]))
+		_builder.radius_mul[id] = mul
+		_builder.node_colors[id] = col
+	_look_size = n
+	_look_mains = roots.main_root_count
+
+
 ## The old roots only change between runs; during a run only the new root is rebuilt.
 func _rebuild_all(static_too: bool = true) -> void:
+	_update_looks()
 	var split := roots.run_first_new_id if roots.run_active else roots.graph.size()
 	if static_too:
 		_static_roots.mesh = _builder.build(roots.graph, 1, split)
@@ -727,6 +775,7 @@ const SETTLE_GROW := 2.8
 const SETTLE_HOLD := 1.8
 var _settle_t: float = -1.0
 var _settle_first_fine: int = 0
+var _settle_start: int = 1
 var _settle_step: float = 0.0
 
 
@@ -752,8 +801,13 @@ func _settle() -> void:
 			hi = hi.max(g.positions[id])
 		_look = (lo + hi) * 0.5
 		_orbit_distance = clampf((hi - lo).length() * 0.9 + 3.0, 4.0, 16.0)
-	_static_roots.mesh = _builder.build(g, 1, _settle_first_fine)
-	_live_roots.mesh = null
+	_update_looks()
+	# 0.8.2: tonight's root and its side roots keep the warm glow of the run while they settle,
+	# so the thicker root or the new fan reads against the old roots (specs/side-roots.md,
+	# broken 5); the night's end (_rebuild_all) turns them into old roots.
+	_settle_start = start
+	_static_roots.mesh = _builder.build(g, 1, start)
+	_live_roots.mesh = _builder.build(g, start, _settle_first_fine)
 	_settle_t = 0.0
 	_settle_step = 0.0
 
@@ -765,7 +819,7 @@ func _process_settle(delta: float) -> void:
 	if _settle_t < SETTLE_GROW + 0.15 and _settle_step >= 0.12:
 		_settle_step = 0.0
 		var k := smoothstep(0.0, SETTLE_GROW, _settle_t)
-		_static_roots.mesh = _builder.build(g, 1, _settle_first_fine + int(ceil((g.size() - _settle_first_fine) * k)))
+		_live_roots.mesh = _builder.build(g, _settle_start, _settle_first_fine + int(ceil((g.size() - _settle_first_fine) * k)))
 	if _settle_t >= SETTLE_GROW + SETTLE_HOLD:
 		_settle_t = -1.0
 		_rebuild_all()

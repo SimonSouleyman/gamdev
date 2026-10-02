@@ -37,6 +37,12 @@ var dot_amounts: PackedFloat32Array = PackedFloat32Array()
 var dot_capacity: PackedFloat32Array = PackedFloat32Array()
 ## How many first-contact shares a deposit holds.
 const DEPOSIT_SHARES: float = 1.15
+## 0.8.2 (the dearer metre): in the wider field (layout 3) every dot holds this much instead, so
+## the fewer deposits a night's dearer root reaches still keep a steered tree in its month (a
+## steered linden finished on day 32 to 35 at 1.15). Older soils keep DEPOSIT_SHARES; a 0.8.1 save
+## in the wider field gets the bigger deposits on load (their capacity is not saved).
+static var deposit_shares_wide: float = 1.5
+var deposit_shares: float = DEPOSIT_SHARES
 ## The new root's first contact takes this much, so a well-steered night pays off that night
 ## (QA round 2: at 1/4 the old roots drank more than the new one).
 const FIRST_SHARE: float = 0.2
@@ -134,6 +140,7 @@ var _grid: Dictionary = {}
 func _init(random_seed: int = 1, layout_version: int = LAYOUT) -> void:
 	seed = random_seed
 	layout = layout_version
+	deposit_shares = deposit_shares_wide if layout >= 3 else DEPOSIT_SHARES
 	_rng.seed = hash([random_seed, "underground"])
 	extent = field_extent if layout >= 3 else EXTENT
 	if layout <= 1:
@@ -439,8 +446,8 @@ func _add_dot(p: Vector3, kind: int, amount: float) -> void:
 		return
 	dot_positions.append(p)
 	dot_kinds.append(kind)
-	dot_amounts.append(amount * DEPOSIT_SHARES)
-	dot_capacity.append(amount * DEPOSIT_SHARES)
+	dot_amounts.append(amount * deposit_shares)
+	dot_capacity.append(amount * deposit_shares)
 	dot_collected.append(0)
 
 

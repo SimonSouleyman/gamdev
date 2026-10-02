@@ -369,6 +369,16 @@ func _process(delta: float) -> void:
 func _place_labels() -> void:
 	var pts := view.object_screen_points()
 	var room := _labels_layer.size
+	# 0.8.2 (look review: at a low angle the arrow's "turn" lay on the trowel): a label goes
+	# under its thing when that is clear, else above, lower, or to a side, whichever covers the
+	# least of the other things on the sill and of the labels already placed.
+	var hulls := {}
+	for id in pts:
+		var h: PackedVector2Array = view.tools.hull(view.camera, id)
+		if h.size() >= 3:
+			var inner := Geometry2D.offset_polygon(h, -LABEL_HULL_SHRINK)
+			hulls[id] = inner[0] if not inner.is_empty() else h
+	var placed: Array[Rect2] = []
 	for id in _labels:
 		var tag: PanelContainer = _labels[id]
 		var held: bool = id == view.tool
@@ -385,8 +395,62 @@ func _place_labels() -> void:
 		tag.size = tag.get_combined_minimum_size()
 		tag.pivot_offset = tag.size * 0.5
 		var at: Vector2 = view.tools.rest_point(view.camera, id) if held else pts[id]
-		var pos := at + Vector2(-tag.size.x * 0.5, 30.0 + float(BonsaiTools.LABEL_DROP.get(id, 0.0)))
-		tag.position = pos.clamp(Vector2(6, 6), Vector2(maxf(room.x - tag.size.x - 6.0, 6.0), maxf(room.y - tag.size.y - 6.0, 6.0)))
+		var lo := Vector2(6, 6)
+		var hi := Vector2(maxf(room.x - tag.size.x - 6.0, 6.0), maxf(room.y - tag.size.y - 6.0, 6.0))
+		var drop := 30.0 + float(BonsaiTools.LABEL_DROP.get(id, 0.0))
+		var w := tag.size.x
+		var h := tag.size.y
+		var spots: Array[Vector2] = [
+			at + Vector2(-w * 0.5, drop),
+			at + Vector2(-w * 0.5, -26.0 - h),
+			at + Vector2(-w * 0.5, drop + h + 6.0),
+			at + Vector2(-w - 30.0, -h * 0.5),
+			at + Vector2(30.0, -h * 0.5),
+		]
+		var best := 0
+		var best_cost := INF
+		if not held:
+			var was: int = int(tag.get_meta("spot", 0))
+			for k in range(spots.size()):
+				var r := Rect2(spots[k].clamp(lo, hi), tag.size)
+				var cost := _cover(r, id, hulls, placed) + 30.0 * k - (60.0 if k == was else 0.0)
+				if cost < best_cost:
+					best_cost = cost
+					best = k
+			tag.set_meta("spot", best)
+		tag.position = spots[best].clamp(lo, hi)
+		if on:
+			placed.append(Rect2(tag.position, tag.size))
+
+
+## Canvas pixels a thing's box is shrunk by before a label counts as lying on it (the hulls are
+## grown by a finger's edge for tapping).
+const LABEL_HULL_SHRINK := 12.0
+
+
+## How much of the other things (and of the labels placed before) a label at `r` would cover,
+## in square pixels; labels count double.
+func _cover(r: Rect2, own: String, hulls: Dictionary, placed: Array[Rect2]) -> float:
+	var box := PackedVector2Array([r.position, Vector2(r.end.x, r.position.y), r.end, Vector2(r.position.x, r.end.y)])
+	var area := 0.0
+	for id in hulls:
+		if id == own:
+			continue
+		for poly in Geometry2D.intersect_polygons(box, hulls[id]):
+			area += absf(_area(poly))
+	for o in placed:
+		var i := r.intersection(o)
+		area += 2.0 * i.get_area()
+	return area
+
+
+static func _area(poly: PackedVector2Array) -> float:
+	var a := 0.0
+	for i in range(poly.size()):
+		var p: Vector2 = poly[i]
+		var q: Vector2 = poly[(i + 1) % poly.size()]
+		a += p.x * q.y - q.x * p.y
+	return a * 0.5
 
 
 ## A thing's label word (the tin's names the pellets it gives).

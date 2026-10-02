@@ -5,8 +5,13 @@ extends RefCounted
 ## at the end of the run fine roots sprout by space colonization toward nearby dots.
 ## Pure data: the view only feeds joystick input in and reads the graph.
 
-## Life force per metre at the trunk, near the surface.
+## Life force per metre at the trunk, near the surface. 0.8.2 (the dearer metre, tuning "Dearer
+## metre in the wide field"): base_cost_wide in the wider field (layout 3; fit_soil), so a calm
+## night buys about 12 to 18 m of straight root instead of 30 to 55 m, in the same 20 to 44 s (the
+## run is paced to the tank's time). Older soils keep BASE_COST_OLD.
 var base_cost_per_metre: float = 1.0
+const BASE_COST_OLD: float = 1.0
+static var base_cost_wide: float = 2.5
 ## Extra cost per metre for each metre of horizontal distance from the trunk. 0.8.1: 0.03 in the
 ## wider root field (layout 3; fit_soil), or a 25 m drive would cost about 2.5x a metre by the
 ## trunk and far patches would never pay (specs/0.8.md, "A wider root field"). An older soil
@@ -38,16 +43,59 @@ var step_length: float = 0.25
 var collect_radius: float = 0.7
 ## Fine roots reach dots within this distance of the new main root.
 var fine_radius: float = 1.6
-## Ending early: each point of leftover life force buys this many more fine-root nodes,
-## and widens their reach, up to a cap (Simon, play test 2026-09-27).
-var fine_nodes_per_life_force: float = 6.0
-var fine_reach_per_life_force: float = 0.12
-var fine_reach_max_extra: float = 6.0
+## 0.8.2 (specs/side-roots.md): the first-level fine roots no longer grow with the leftover; they
+## sprout toward dots within fine_radius of the new root, at most Budgets.FINE_ROOTS_PER_MAIN_ROOT
+## nodes. The leftover goes into a second and a third level of side roots instead, and the share
+## of the tank spent on the root itself makes that root thicker.
+## Second level: from the first level's tips toward fresh dots within side_reach_base +
+## side_reach_per_life_force x leftover (at most side_reach_max) of its first-level root;
+## side_nodes_per_life_force nodes per point of leftover, side_level3_share of them to the third.
+## side_reach_max 3.0 (spec: about 2.5, range 1.5 to 3): at 2.5 a never-steered oak finished a
+## day later, past day 42 (tuning 10a).
+var side_nodes_per_life_force: float = 4.0
+var side_reach_base: float = 1.0
+var side_reach_per_life_force: float = 0.05
+var side_reach_max: float = 3.0
+var side_level3_share: float = 0.3
+## Second and third level together at most this many nodes a night (never past the budget).
+var side_nodes_max: int = 250
+## Third level: from second-level roots at least side3_min_length long, toward dots within
+## side3_reach_base + side3_reach_per_life_force x leftover (at most side3_reach_max).
+var side3_reach_base: float = 0.3
+var side3_reach_per_life_force: float = 0.02
+var side3_reach_max: float = 0.8
+const SIDE3_MIN_LENGTH: float = 0.5
+## Less than this share of the night's tank left: no second (or third) level at all.
+var side_min_left_share: float = 0.1
+## Where a level finds no dot in reach, each start still sprouts SIDE_SHORT_TIPS to
+## SIDE_SHORT_TIPS_MAX short tips (more with more leftover to spend), so the fan shows in the
+## sparse wide field and the leftover is seen.
+const SIDE_SHORT_TIPS: int = 2
+const SIDE_SHORT_TIPS_MAX: int = 5
+## A first level with fewer tips than this also starts the second level from points along the
+## new root (a root that ended at once still gets a small fan).
+const SIDE_MIN_STARTS: int = 4
+## Thickness: the share of the night's tank spent on the player's own root sets how thick that
+## root is drawn, 1.0x (ended at once) to 1.0 + thick_gain (tank run dry); a thicker root takes
+## 1 + seep_thick_gain x (thickness - 1) / thick_gain of the groundwater seep per metre.
+var thick_gain: float = 0.5
+var seep_thick_gain: float = 0.25
+## Per main root (index = its "main" flag): its thickness, set once at the end of its run. Old
+## saves have none (1.0).
+var thickness: PackedFloat32Array = PackedFloat32Array()
+## The life force tonight's run started with (for the thickness); saved for a mid-run save.
+var run_tank: float = 0.0
 ## Share of a deposit's capacity the tip draws on first contact, and a fine root. QA r1: fine roots
 ## drew as much as the tip, so a 2 m root whose leftover sprouted fine roots 7 m around it grew a
 ## bigger tree than steering did; now steering to a deposit pays twice.
 var tip_share: float = Underground.FIRST_SHARE
+## 0.8.2: the tip's first contact in the wider field (layout 3; fit_soil). With the dearer metre a
+## steered root touches fewer deposits a night, so each one it reaches pays more; older soils keep
+## Underground.FIRST_SHARE.
+static var tip_share_wide: float = 0.2
 var fine_share: float = 0.1
+## Third-level side roots drink at this share (0.8.2: half the fine share).
+var side3_share: float = 0.05
 ## A calm night (QA r1: runs grew to 80-110 s): life force beyond calm_life_force makes each
 ## metre dearer (by the power cost_exponent), and a long planned root grows faster, so a night's
 ## root takes about calm_run_seconds at most. The turn speeds up with it (the same curves in metres).
@@ -77,10 +125,10 @@ const MAX_SPEED_SCALE: float = 1.8
 const MIN_SPEED_SCALE: float = 0.3
 var run_cost_scale: float = 1.0
 var run_speed_scale: float = 1.0
-var _fine_budget: int = Budgets.FINE_ROOTS_PER_MAIN_ROOT
-var _fine_reach: float = 1.6
-## Life force that went into extra fine roots at the end of the last run.
+## Life force left at the end of the last run (it went into side roots, or was lost on a
+## near-empty tank), and the side-root nodes it bought (second and third level).
 var leftover_spent: float = 0.0
+var side_nodes_grown: PackedInt32Array = PackedInt32Array([0, 0])
 
 var graph: PlantGraph
 var main_root_count: int = 0
@@ -125,6 +173,13 @@ var nightly_water_factor: float = 2.0
 var seep_per_metre: float = 0.03
 ## A metre of fine root draws this share of a main root's seep.
 var fine_seep_share: float = 0.3
+## 0.8.2, the wider field (fit_soil): with the dearer metre a night's root is about 2.5x shorter,
+## so a metre seeps 2.5x as much (the seep per life force spent stays), and the fine and side
+## roots, which no longer grow with the leftover's 6 nodes a point and 7.6 m reach, seep as much
+## per metre as a main root: a tree never steered stays watered (tuning 10a). The seep cap
+## (seep_day_cover) still keeps thirst able to show.
+static var seep_per_metre_wide: float = 0.075
+static var fine_seep_share_wide: float = 1.0
 ## 0.8.1: the seep covers at most this share of a calm day's water (GameState passes the cap). In
 ## the wider field a steered tree's main roots grow to 700 m by day 20 and their seep alone covered
 ## 0.75 of its water, so a tree whose water deposits ran dry never showed thirst (care broken
@@ -140,6 +195,10 @@ func _init(random_seed: int = 1) -> void:
 ## The price of distance for this soil: the wider field (layout 3) halves it.
 func fit_soil(ground: Underground) -> void:
 	distance_cost = distance_cost_wide if ground.layout >= 3 else DISTANCE_COST_OLD
+	base_cost_per_metre = base_cost_wide if ground.layout >= 3 else BASE_COST_OLD
+	tip_share = tip_share_wide if ground.layout >= 3 else Underground.FIRST_SHARE
+	seep_per_metre = seep_per_metre_wide if ground.layout >= 3 else 0.03
+	fine_seep_share = fine_seep_share_wide if ground.layout >= 3 else 0.3
 
 
 ## Life force for one metre of root at `p`: rises with distance from the trunk and with depth.
@@ -222,6 +281,7 @@ var _paced: bool = false
 func pace_run(life_force: float) -> void:
 	_paced = true
 	_run_time = 0.0
+	run_tank = life_force
 	run_cost_scale = pow(maxf(1.0, life_force / calm_life_force), cost_exponent)
 	run_seconds_target = run_seconds_for(life_force)
 	# Birch's cheap topsoil roots reach further on the same life force.
@@ -263,7 +323,11 @@ func advance(stick: Vector2, dive: bool, delta: float, ground: Underground, res:
 	# A hard turn slows the tip: the tighter curve reaches a deposit instead of circling it.
 	var slow := 1.0 - turn_slowdown * clampf(absf(stick.x) + maxf(0.0, absf(stick.y) - 0.2), 0.0, 1.0)
 	var want := (dive_speed if dive else speed * slow) * run_speed_scale * delta
-	var drift := Vector3.DOWN * sink_speed * delta
+	# The root sinks per metre, not per second (0.8.2): a tip paced slower than the base speed (the
+	# wider field's dearer metre: 12 to 18 m in the same 20 to 44 s) would otherwise sink about
+	# three times as steeply and the continued roots ended on the floor at 10 m. A faster tip
+	# sinks as before.
+	var drift := Vector3.DOWN * sink_speed * delta * minf(1.0, run_speed_scale)
 	# Small substeps, so a long frame cannot tunnel into a rock or skip the dots it passed.
 	# Life force pays for the distance the tip really moved, never for pushing against a wall.
 	var steps := maxi(1, ceili(want / 0.1))
@@ -452,27 +516,35 @@ func _collect(p: Vector3, radius: float, ground: Underground, res: Resources) ->
 	_collect_ids(fresh, ground, res)
 
 
-## Ends the run: fine roots sprout along the new path and drink the dots they reach.
-## Ends the run. Whatever life force is left (the player ended early, or the root reached its
-## node budget) is spent too: it buys more and longer fine roots around the new root.
+## Ends the run: fine roots sprout along the new path toward the dots within fine_radius
+## (first level). Whatever life force is left (the player ended early, or the root reached its
+## node budget) goes into a second and third level of side roots (0.8.2, specs/side-roots.md);
+## what was spent on the root itself makes it thicker. All of it is set once, here.
 func end_run(ground: Underground, res: Resources) -> void:
 	if not run_active:
 		return
 	run_active = false
 	leftover_spent = 0.0
+	side_nodes_grown = PackedInt32Array([0, 0])
 	if run_node_count() == 0:
 		# Ended before the root grew at all: nothing to feed, the life force stays for later.
 		graph.update_radii()
 		return
 	leftover_spent = res.life_force
 	res.life_force = 0.0
-	_fine_budget = mini(Budgets.FINE_ROOTS_MAX_PER_MAIN_ROOT,
-		Budgets.FINE_ROOTS_PER_MAIN_ROOT + int(leftover_spent * fine_nodes_per_life_force))
-	# Leftover life force reaches a little further: the fine roots gather what lies around the new root.
-	_fine_reach = fine_radius + minf(fine_reach_max_extra, leftover_spent * fine_reach_per_life_force)
-	if run_node_count() > 0:
-		_grow_fine_roots(ground, res)
-		main_root_count += 1
+	var tank := maxf(run_tank, leftover_spent)
+	var left_share := leftover_spent / tank if tank > 1e-6 else 0.0
+	while thickness.size() <= main_root_count:
+		thickness.append(1.0)
+	thickness[main_root_count] = 1.0 + thick_gain * clampf(1.0 - left_share, 0.0, 1.0)
+	var path := PackedInt32Array()
+	for id in range(run_first_new_id, graph.size()):
+		path.append(id)
+	var first_fine := graph.size()
+	_grow_fine_roots(path, ground, res)
+	if left_share >= side_min_left_share and leftover_spent > 0.0:
+		_grow_side_roots(path, first_fine, ground, res)
+	main_root_count += 1
 	graph.update_radii()
 
 
@@ -481,70 +553,202 @@ func finish_early(ground: Underground, res: Resources) -> void:
 	end_run(ground, res)
 
 
-func _grow_fine_roots(ground: Underground, res: Resources) -> void:
-	# Space colonization on a small temporary graph holding only the new path,
-	# then the fine roots are grafted onto the real graph.
-	var path := PackedInt32Array()
-	for id in range(run_first_new_id, graph.size()):
-		path.append(id)
-	var temp := PlantGraph.new(graph.positions[run_start_id], path.size() + 1 + _fine_budget)
-	var to_real := {0: run_start_id}
-	var to_temp := {run_start_id: 0}
-	for id in path:
-		var t_id := temp.add_node(to_temp[graph.parents[id]], graph.positions[id])
-		to_temp[id] = t_id
-		to_real[t_id] = id
-	var path_temp_count := temp.size()
-
+## First level: space colonization from the new path toward the dots within fine_radius.
+func _grow_fine_roots(path: PackedInt32Array, ground: Underground, res: Resources) -> void:
 	var marker_ids := PackedInt32Array()
 	var seen := {}
 	for id in path:
-		for d in ground.dots_near(graph.positions[id], _fine_reach):
+		for d in ground.dots_near(graph.positions[id], fine_radius):
 			if not seen.has(d):
 				seen[d] = true
 				marker_ids.append(d)
-	if marker_ids.is_empty() and leftover_spent < 1.0:
+	if marker_ids.is_empty():
 		return
+	var markers := PackedVector3Array()
+	for d in marker_ids:
+		markers.append(ground.dot_positions[d])
+	var grown := _colonize(path, markers, Budgets.FINE_ROOTS_PER_MAIN_ROOT, fine_radius, 0.22, 0.14, INF, 1)
+	_collect_ids(_reached_by(grown, marker_ids, ground, 0.22), ground, res, fine_share)
+
+
+## Second and third level (0.8.2): the leftover buys side_nodes_per_life_force nodes per point
+## (at most side_nodes_max), side_level3_share of them for the third level.
+func _grow_side_roots(path: PackedInt32Array, first_fine: int, ground: Underground, res: Resources) -> void:
+	var total := mini(mini(side_nodes_max, Budgets.SIDE_ROOTS_PER_MAIN_ROOT), int(round(leftover_spent * side_nodes_per_life_force)))
+	if total <= 0:
+		return
+	var budget3 := int(round(total * side_level3_share))
+	var budget2 := total - budget3
+	# Starts: the first level's tips, and points along the new root when it has few.
+	var starts := PackedInt32Array()
+	for id in range(first_fine, graph.size()):
+		if graph.is_tip(id):
+			starts.append(id)
+	if starts.size() < SIDE_MIN_STARTS:
+		var want := SIDE_MIN_STARTS - starts.size()
+		for k in range(want):
+			starts.append(path[mini(path.size() - 1, int(float(k + 1) / float(want) * (path.size() - 1)))])
+	var reach2 := minf(side_reach_max, side_reach_base + side_reach_per_life_force * leftover_spent)
+	var first2 := graph.size()
+	var got2 := _side_level(starts, budget2, reach2, 0.18, 0.12, 2, ground)
+	side_nodes_grown[0] = got2.size()
+	_collect_ids(_reached_by(got2, _fresh_near(got2, 0.18, ground), ground, 0.18), ground, res, fine_share)
+	if budget3 <= 0 or got2.is_empty():
+		return
+	# Third level: from along and at the tips of second-level roots at least SIDE3_MIN_LENGTH long.
+	var dist := {}
+	for id in got2:
+		var p := graph.parents[id]
+		dist[id] = float(dist.get(p, 0.0)) + graph.positions[id].distance_to(graph.positions[p])
+	var long_tips := {}
+	for id in got2:
+		if graph.is_tip(id) and float(dist[id]) >= SIDE3_MIN_LENGTH:
+			long_tips[id] = true
+	# Every node on a long enough second-level root may start one: its tip, and every third node
+	# along it from 0.25 m out.
+	var on_long := {}
+	for tip in long_tips:
+		var cur: int = tip
+		while cur >= first2:
+			on_long[cur] = true
+			cur = graph.parents[cur]
+	var starts3 := PackedInt32Array()
+	for id in got2:
+		if not on_long.has(id):
+			continue
+		if long_tips.has(id) or posmod(id, 3) == 0 and float(dist[id]) >= 0.25:
+			starts3.append(id)
+	if starts3.is_empty():
+		return
+	var reach3 := minf(side3_reach_max, side3_reach_base + side3_reach_per_life_force * leftover_spent)
+	var got3 := _side_level(starts3, budget3, reach3, 0.12, 0.08, 3, ground)
+	side_nodes_grown[1] = got3.size()
+	_collect_ids(_reached_by(got3, _fresh_near(got3, 0.12, ground), ground, 0.12), ground, res, side3_share)
+
+
+## One side-root level from `starts`: toward the fresh dots within `reach` of a start, and where
+## a start has none, SIDE_SHORT_TIPS short tips into the soil. No node goes further than `reach`
+## from its start. Returns the new nodes' ids (flagged "fine" and "side" = level).
+func _side_level(starts: PackedInt32Array, budget: int, reach: float, kill: float, step: float, level: int, ground: Underground) -> PackedInt32Array:
+	var markers := PackedVector3Array()
+	var seen := {}
+	# Short tips per empty start: enough to spend about the budget (a tip grows about
+	# 0.65 x reach in steps of `step`).
+	var per_tip := maxf(1.0, 0.65 * reach / step)
+	var tips := clampi(int(round(float(budget) / (per_tip * maxf(1.0, starts.size())))), SIDE_SHORT_TIPS, SIDE_SHORT_TIPS_MAX)
+	for s in starts:
+		var at := graph.positions[s]
+		var own := 0
+		for d in ground.dots_near(at, reach):
+			if not is_fresh(d) or ground.dot_collected[d] != 0:
+				continue
+			own += 1
+			if not seen.has(d):
+				seen[d] = true
+				markers.append(ground.dot_positions[d])
+		if own > 0:
+			continue
+		# Nothing to drink in reach: a few short tips still sprout, outward and a little down.
+		var out := graph.direction_of(s)
+		for _k in range(tips):
+			var v := (out + Vector3(rng.randf_range(-1, 1), rng.randf_range(-0.9, 0.4), rng.randf_range(-1, 1))).normalized()
+			var m := at + v * rng.randf_range(0.45, 0.85) * reach
+			m.y = minf(m.y, -0.1)
+			if not ground.is_inside_rock(m, 0.05):
+				markers.append(m)
+	if markers.is_empty():
+		return PackedInt32Array()
+	return _colonize(starts, markers, budget, reach, kill, step, reach, level)
+
+
+## Space colonization on a small temporary graph holding only `starts` (copied under a resting
+## root), toward `markers`, then grafted onto the real graph. `max_from_start` drops nodes that
+## would end further than that from the start they grew from. Returns the grafted ids.
+func _colonize(starts: PackedInt32Array, markers: PackedVector3Array, budget: int, influence: float, kill: float, step: float, max_from_start: float, level: int) -> PackedInt32Array:
+	var grafted := PackedInt32Array()
+	if starts.is_empty() or budget <= 0:
+		return grafted
+	var temp := PlantGraph.new(graph.positions[starts[0]] + Vector3.UP * 50.0, starts.size() + 1 + budget)
+	temp.set_flag(0, "rest", true)
+	var to_real := {}
+	var origin := {}
+	for s in starts:
+		var t := temp.add_node(0, graph.positions[s])
+		to_real[t] = s
+		origin[t] = graph.positions[s]
+	var first_new := temp.size()
 	var sc := SpaceColonization.new(rng)
-	sc.influence_radius = _fine_reach
-	sc.kill_distance = 0.22
-	sc.step_length = 0.14
+	sc.influence_radius = influence
+	sc.kill_distance = kill
+	sc.step_length = step
 	sc.bias_direction = Vector3.DOWN
 	sc.bias_strength = 0.1
 	sc.jitter = 0.15
-	for d in marker_ids:
-		sc.add_marker(ground.dot_positions[d])
+	sc.markers = markers
 	var guard := 0
-	# Leftover life force also sends fine roots out into the soil where no dot waits.
-	# Only where there is nothing to drink: then the leftover still shows as more roots.
-	var extra := int(leftover_spent * 2.0) if marker_ids.size() < 10 else 0
-	for i in range(extra):
-		var anchor := graph.positions[path[rng.randi() % path.size()]]
-		var v := Vector3(rng.randf_range(-1, 1), rng.randf_range(-1, 0.4), rng.randf_range(-1, 1)).normalized()
-		var m := anchor + v * rng.randf_range(0.5, _fine_reach)
-		m.y = minf(m.y, -0.1)
-		if not ground.is_inside_rock(m, 0.05):
-			sc.add_marker(m)
 	while not sc.markers.is_empty() and not temp.is_full() and guard < 120:
 		if sc.step(temp) == 0:
 			break
 		guard += 1
-
-	for t_id in range(path_temp_count, temp.size()):
-		var real := graph.add_node(to_real[temp.parents[t_id]], temp.positions[t_id])
+	for t_id in range(first_new, temp.size()):
+		var tp := temp.parents[t_id]
+		if not to_real.has(tp):
+			continue  # its parent was dropped
+		var o: Vector3 = origin[tp]
+		if temp.positions[t_id].distance_to(o) > max_from_start:
+			continue
+		var real := graph.add_node(to_real[tp], temp.positions[t_id])
 		if real < 0:
 			break
 		graph.set_flag(real, "fine", main_root_count)
+		if level > 1:
+			graph.set_flag(real, "side", level)
 		to_real[t_id] = real
-	# Dots whose markers were consumed were reached by a fine root.
-	var left := {}
-	for m in sc.markers:
-		left[m] = true
-	var reached := PackedInt32Array()
-	for d in marker_ids:
-		if not left.has(ground.dot_positions[d]):
-			reached.append(d)
-	_collect_ids(reached, ground, res, fine_share)
+		origin[t_id] = o
+		grafted.append(real)
+	return grafted
+
+
+## Fresh dots within `radius` of the nodes `ids`.
+func _fresh_near(ids: PackedInt32Array, radius: float, ground: Underground) -> PackedInt32Array:
+	var out := PackedInt32Array()
+	var seen := {}
+	for id in ids:
+		for d in ground.dots_near(graph.positions[id], radius):
+			if not seen.has(d) and is_fresh(d) and ground.dot_collected[d] == 0:
+				seen[d] = true
+				out.append(d)
+	return out
+
+
+## Of the dots `candidates`, those a node of `ids` came within `radius` of (a root reached them).
+func _reached_by(ids: PackedInt32Array, candidates: PackedInt32Array, ground: Underground, radius: float) -> PackedInt32Array:
+	var out := PackedInt32Array()
+	if ids.is_empty():
+		return out
+	var want := {}
+	for d in candidates:
+		want[d] = true
+	var r2 := radius * radius * 1.05
+	for id in ids:
+		var p := graph.positions[id]
+		for d in ground.dots_near(p, radius):
+			if want.has(d) and ground.dot_positions[d].distance_squared_to(p) <= r2:
+				want.erase(d)
+				out.append(d)
+	return out
+
+
+## The level a root node belongs to: 0 a main root, 1 a fine root, 2 or 3 a side root.
+func root_level(id: int) -> int:
+	if graph.get_flag(id, "fine", -1) < 0:
+		return 0
+	return int(graph.get_flag(id, "side", 1))
+
+
+## How thick a main root is drawn and how much seep it takes (1.0 for old saves).
+func thickness_of(main: int) -> float:
+	return thickness[main] if main >= 0 and main < thickness.size() else 1.0
 
 
 func _collect_ids(ids: PackedInt32Array, ground: Underground, res: Resources, share: float = -1.0) -> void:
@@ -600,12 +804,23 @@ func drink_tapped(ground: Underground, res: Resources, room: PackedFloat32Array 
 	return totals
 
 
-## Metres of root that groundwater seeps into: main roots in full, fine roots by fine_seep_share.
+## Metres of root that groundwater seeps into: main roots in full (a thicker root more, 0.8.2),
+## fine and second-level roots by fine_seep_share, third-level roots by half of that.
 func seep_length() -> float:
 	var total := 0.0
+	var per_main := PackedFloat32Array()
+	for k in range(thickness.size()):
+		per_main.append(1.0 + seep_thick_gain * (thickness[k] - 1.0) / maxf(thick_gain, 1e-6))
 	for id in range(1, graph.size()):
 		var metres := graph.positions[id].distance_to(graph.positions[graph.parents[id]])
-		total += metres if graph.get_flag(id, "fine", -1) < 0 else metres * fine_seep_share
+		var fl = graph.flags[id]
+		if fl == null or not (fl as Dictionary).has("fine"):
+			var main := int((fl as Dictionary).get("main", -1)) if fl != null else -1
+			total += metres * (per_main[main] if main >= 0 and main < per_main.size() else 1.0)
+		elif int((fl as Dictionary).get("side", 1)) >= 3:
+			total += metres * fine_seep_share * 0.5
+		else:
+			total += metres * fine_seep_share
 	return total
 
 
@@ -661,6 +876,8 @@ func to_dict() -> Dictionary:
 		"paced": _paced,
 		"run_seconds_target": run_seconds_target,
 		"run_time": _run_time,
+		"run_tank": run_tank,
+		"thickness": Array(thickness),
 	}
 
 
@@ -690,5 +907,8 @@ static func from_dict(d: Dictionary, random_seed: int = 1) -> RootSystem:
 	r._paced = bool(d.get("paced", false))
 	r.run_seconds_target = float(d.get("run_seconds_target", r.calm_run_seconds))
 	r._run_time = float(d.get("run_time", 0.0))
+	r.run_tank = float(d.get("run_tank", 0.0))
+	# Old saves: every root 1.0x (no entry).
+	r.thickness = PackedFloat32Array(d.get("thickness", []))
 	r._update_right()
 	return r

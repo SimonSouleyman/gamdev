@@ -77,6 +77,7 @@ void fragment() {
 	EMISSION = glow * ALBEDO;
 	if (glow_rim.r + glow_rim.g + glow_rim.b > 0.0) {
 		float edge = 1.0 - abs(dot(normalize(NORMAL), normalize(VIEW)));
-		EMISSION += glow_rim * (0.35 + 0.65 * edge * edge);
+		// Vertex colours dim the rim too (0.8.2: the third-level side roots are a shade dimmer).
+		EMISSION += glow_rim * (0.35 + 0.65 * edge * edge) * COLOR.rgb;
 	}
 }

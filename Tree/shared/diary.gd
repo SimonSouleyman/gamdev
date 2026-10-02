@@ -6,7 +6,8 @@ extends RefCounted
 ## tip (Underground.wish_deposits): it glows at night, and reaching it writes a line with a small ink drawing (docs/notes/wish-0.7.md).
 
 ## Each: {"day": int, "text": String, "by": "tree" | "player"}, plus "drawing": String (an ink
-## sketch the journal draws beside the line: "rushes" or "clover") on a reached wish.
+## sketch, InkSketch kind) and from 0.8.2 "topic": String (TOPICS; a line without one is a plain
+## note, shown only when nothing else fills the day's third place).
 var entries: Array = []
 var wish: String = ""
 ## The wish deposit (index into Underground.patches) today's wish points at, or -1.
@@ -16,6 +17,11 @@ var wish_patch: int = -1
 var last_patch: int = -1
 ## Today's wish deposit was reached (the diary line is written once).
 var wish_reached: bool = false
+## Mornings whose wish pointed underground, and of them those at a far wish (0.8.2): the far draw
+## keeps a running share of far_share instead of an independent coin per day, so every seed gets
+## about half (the 0.8.1 check: seed 3 got 25 to 35 %).
+var wish_days: int = 0
+var far_days: int = 0
 
 ## Share of the days whose wish points at a wish deposit underground (the rest are day wishes).
 ## A static var so tools can compare with and without (strategies.gd --set=wish_share=0).
@@ -57,11 +63,79 @@ const DAY_WISHES: Array[String] = [
 ]
 
 
-func add(day: int, text: String, by: String = "tree", drawing: String = "") -> void:
+## A shorter journal (0.8.2, specs/0.8.md items 21 and 22): a day page holds at most
+## PAGE_MAX of the game's lines, each about eight words: the day's wish, a need the tree shows,
+## and one find, visitor or milestone (a mood line, then a plain note, only when there is none).
+## Routine lines (numbers, "the tree grew") are no longer written. The player's own notes are
+## theirs and always show, below.
+const PAGE_MAX: int = 3
+## A game line stays at or under this many words (one line on the phone; tests check the width).
+const MAX_WORDS: int = 9
+const TOPICS: Array[String] = ["wish", "care", "find", "visitor", "milestone", "mood"]
+## The third place of a day page, in order of preference.
+const THIRD: Array[String] = ["find", "visitor", "milestone", "mood", ""]
+
+
+func add(day: int, text: String, by: String = "tree", drawing: String = "", topic: String = "") -> void:
 	var e := {"day": day, "text": text, "by": by}
 	if drawing != "":
 		e["drawing"] = drawing
+	if topic != "":
+		e["topic"] = topic
 	entries.append(e)
+
+
+## The game's lines shown on a day's page (at most PAGE_MAX): the day's wish, then a need, then
+## the best of the rest (THIRD). A topic written twice keeps its last line (a reached wish after
+## the morning's wish is a find, not a repeat).
+func page(day: int) -> Array:
+	var by_topic := {}
+	for e in entries:
+		if int(e["day"]) != day or str(e.get("by", "tree")) == "player":
+			continue
+		var t := str(e.get("topic", ""))
+		if t == "wish" or t == "care":
+			by_topic[t] = e
+		elif not by_topic.has(t):
+			by_topic[t] = e
+	var out: Array = []
+	for t in ["wish", "care"]:
+		if by_topic.has(t):
+			out.append(by_topic[t])
+	for t in THIRD:
+		if by_topic.has(t):
+			out.append(by_topic[t])
+			break
+	return out.slice(0, PAGE_MAX)
+
+
+## The player's own notes of a day.
+func notes(day: int) -> Array:
+	return entries.filter(func(e: Dictionary) -> bool: return int(e["day"]) == day and str(e.get("by", "tree")) == "player")
+
+
+## Days that have a page, in order.
+func days() -> Array[int]:
+	var out: Array[int] = []
+	for e in entries:
+		var d := int(e["day"])
+		if not out.has(d):
+			out.append(d)
+	out.sort()
+	return out
+
+
+## The one doodle of a day's page (0.8.2, item 23): the drawing of its find, visitor or
+## milestone, else of the wish (its plant), else of the need (its leaf); a sun when none has one.
+func doodle(day: int) -> String:
+	var lines := page(day)
+	for i in [2, 0, 1]:
+		if i < lines.size() and lines[i].has("drawing"):
+			return str(lines[i]["drawing"])
+	for e in lines:
+		if e.has("drawing"):
+			return str(e["drawing"])
+	return "sun"
 
 
 func lines_for_day(day: int) -> Array:
@@ -87,7 +161,11 @@ static func make_wish(ground: Underground, day: int, seed: int, roots: RootSyste
 ## The deposit goes AHEAD_MIN to AHEAD_MAX beyond the newest root tip, outward from the trunk
 ## where it can, never into rock, and only where a straight root from that tip costs at most
 ## REACH_SHARE of a calm tank. Its kind is what the tree lacks most (0.8: any of the four).
-static func plan_wish(ground: Underground, day: int, seed: int, roots: RootSystem = null, res: Resources = null) -> Dictionary:
+## `far_want` (0.8.2, from new_wish): how many far mornings the running share still owes
+## (far_share x the underground mornings so far, this one included, minus the far ones); a far
+## wish is tried when it is at least a seeded threshold between 0.25 and 0.75. Below 0 (a bare
+## plan without a diary): the independent coin of 0.8.1.
+static func plan_wish(ground: Underground, day: int, seed: int, roots: RootSystem = null, res: Resources = null, far_want: float = -1.0) -> Dictionary:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = hash([seed, "wish", day])
 	var underground := rng.randf() < underground_share
@@ -98,10 +176,19 @@ static func plan_wish(ground: Underground, day: int, seed: int, roots: RootSyste
 		var kind := wish_kind(sys, res, coin)
 		var size := Underground.wish_size(kind, rng, ground.layout)
 		var tip := newest_tip(sys)
+		# The far draw (layout 3): a separate stream, so the near wishes of the wider field stay
+		# as they would be. 0.8.2: a running share when the diary passes one (far_want).
+		var go_far := false
+		var far_rng := RandomNumberGenerator.new()
+		if ground.layout >= 3:
+			far_rng.seed = hash([seed, "far_wish", day])
+			var roll := far_rng.randf()
+			go_far = roll < far_share if far_want < 0.0 else far_want >= lerpf(0.25, 0.75, roll) and far_share > 0.0
 		# An earlier wish deposit of the same kind, missed and still untouched, lies ahead: the
 		# wish points at it again instead of adding another (0.8, B4: missed deposits piled up
-		# to 20 fresh patches in reach by the month's last week).
-		var again := missed_ahead(ground, sys, kind, sys.graph.positions[tip])
+		# to 20 fresh patches in reach by the month's last week). A missed far one only when the
+		# far draw allows it (0.8.2, so a far wish ignored for days does not tip the share).
+		var again := missed_ahead(ground, sys, kind, sys.graph.positions[tip], go_far or far_want < 0.0)
 		if again >= 0:
 			var p: Dictionary = ground.patches[again]
 			return {"text": wish_text_at(kind, p["center"]), "kind": kind, "patch": again,
@@ -111,12 +198,8 @@ static func plan_wish(ground: Underground, day: int, seed: int, roots: RootSyste
 		if untouched_wishes(ground, sys) >= MISSED_MAX and untouched_wishes(ground, sys, kind) > 0:
 			return {"text": DAY_WISHES[pick % DAY_WISHES.size()], "kind": -1}
 		var center := Vector3.INF
-		if ground.layout >= 3:
-			# A separate draw, so the near wishes of the wider field stay as they would be.
-			var far_rng := RandomNumberGenerator.new()
-			far_rng.seed = hash([seed, "far_wish", day])
-			if far_rng.randf() < far_share:
-				center = place_far(ground, sys, sys.graph.positions[tip], float(size["radius"]), far_rng)
+		if go_far:
+			center = place_far(ground, sys, sys.graph.positions[tip], float(size["radius"]), far_rng)
 		var far := center != Vector3.INF
 		if center == Vector3.INF:
 			center = place_ahead(ground, sys, sys.graph.positions[tip], float(size["radius"]), rng)
@@ -182,13 +265,13 @@ static func _untouched(ground: Underground, sys: RootSystem, pid: int) -> bool:
 
 ## The nearest earlier wish deposit of `kind` that no root has found yet, AHEAD_MIN - 2 to
 ## AHEAD_MAX + 2 m from `from` and within REACH_SHARE of a calm tank in a straight line; -1 if none.
-static func missed_ahead(ground: Underground, sys: RootSystem, kind: int, from: Vector3) -> int:
+static func missed_ahead(ground: Underground, sys: RootSystem, kind: int, from: Vector3, allow_far: bool = true) -> int:
 	var best := -1
 	var best_d := INF
-	var tank := sys.calm_life_force * REACH_SHARE
+	var tank := calm_reach(sys)
 	for pid in ground.wish_patch_ids():
 		var p: Dictionary = ground.patches[pid]
-		if int(p["kind"]) != kind:
+		if int(p["kind"]) != kind or not allow_far and bool(p.get("far", false)):
 			continue
 		var c: Vector3 = p["center"]
 		var d := Vector2(c.x - from.x, c.z - from.z).length()
@@ -209,7 +292,7 @@ static func missed_ahead(ground: Underground, sys: RootSystem, kind: int, from: 
 static func place_ahead(ground: Underground, sys: RootSystem, from: Vector3, radius: float, rng: RandomNumberGenerator) -> Vector3:
 	var flat := Vector2(from.x, from.z)
 	var base := flat.angle() if flat.length() > 0.8 else rng.randf() * TAU
-	var tank := sys.calm_life_force * REACH_SHARE
+	var tank := calm_reach(sys)
 	for i in range(PLACE_TRIES):
 		var spread := lerpf(0.5, PI, float(i) / (PLACE_TRIES - 1))
 		var a := base + rng.randf_range(-spread, spread)
@@ -234,7 +317,7 @@ static func place_ahead(ground: Underground, sys: RootSystem, from: Vector3, rad
 static func place_far(ground: Underground, sys: RootSystem, from: Vector3, radius: float, rng: RandomNumberGenerator) -> Vector3:
 	var flat := Vector2(from.x, from.z)
 	var base := flat.angle() if flat.length() > 0.8 else rng.randf() * TAU
-	var tank := sys.calm_life_force * REACH_SHARE * FAR_REACH_NIGHTS
+	var tank := calm_reach(sys) * FAR_REACH_NIGHTS
 	for i in range(PLACE_TRIES):
 		var spread := lerpf(0.4, PI, float(i) / (PLACE_TRIES - 1))
 		var a := base + rng.randf_range(-spread, spread)
@@ -277,18 +360,28 @@ static func wish_text_at(kind: int, center: Vector3) -> String:
 	return "Today, find what feeds the clover in the %s." % where
 
 
+## The plants over the deposits, for the day page's short lines.
+const PLANTS: Array[String] = ["rushes", "clover", "nettles", "comfrey"]
+
+
+## The day page's wish line (0.8.2): short, with where it points. A day wish keeps its gist.
+static func wish_entry(kind: int, center: Vector3, kept: bool = false) -> String:
+	if kind < 0:
+		return ""
+	var where := Underground.compass(center)
+	return ("Still: the %s in the %s." if kept else "Wish: the %s in the %s.") % [PLANTS[kind], where]
+
+
+const DAY_WISH_LINES: Array[String] = [
+	"Wish: boost early, grow eastward.",
+	"Wish: see the tree from every side.",
+	"Wish: a calm sun, a long root tonight.",
+]
+
+
 ## The line the diary gets when a root reaches a wish deposit.
 static func reached_text(ground: Underground, patch_id: int, night: int) -> String:
-	var patch: Dictionary = ground.patches[patch_id]
-	var where := Underground.compass(patch["center"])
-	match int(patch["kind"]):
-		Resources.Kind.WATER:
-			return "Night %d: the root found the damp patch under the rushes in the %s, the one I wished for." % [night, where]
-		Resources.Kind.PHOSPHORUS:
-			return "Night %d: the root found what feeds the nettles in the %s, the one I wished for." % [night, where]
-		Resources.Kind.POTASSIUM:
-			return "Night %d: the root found the deep soil under the comfrey in the %s, the one I wished for." % [night, where]
-	return "Night %d: the root found what feeds the clover in the %s, the one I wished for." % [night, where]
+	return "Night %d: wish found, the %s." % [night, PLANTS[int(ground.patches[patch_id]["kind"])]]
 
 
 ## The ink sketch beside a reached wish's line: what grows (or lies) above the deposit.
@@ -306,7 +399,7 @@ static func reachable(ground: Underground, patch_id: int, roots: RootSystem = nu
 	var c: Vector3 = patch["center"]
 	var r := float(patch["radius"])
 	var sys := roots if roots != null else RootSystem.new()
-	var tank := sys.calm_life_force * REACH_SHARE
+	var tank := calm_reach(sys)
 	for start in nearest_starts(sys, c, 6):
 		var to := c - start
 		if to.length() <= r:
@@ -315,6 +408,14 @@ static func reachable(ground: Underground, patch_id: int, roots: RootSystem = nu
 		if line_cost(ground, sys, start, goal) <= tank:
 			return true
 	return false
+
+
+## The line cost a wish may ask of one calm night: REACH_SHARE of a calm tank, in the old soil's
+## metres (0.8.2: the wider field's dearer metre, RootSystem.base_cost_wide, would otherwise
+## shrink it to about 8 m, below the near wish's 5.5 to 8.5 m from a deep tip, and most near
+## wishes became day wishes; a calm night still drives about 10 m straight from its start).
+static func calm_reach(sys: RootSystem) -> float:
+	return sys.calm_life_force * REACH_SHARE * sys.base_cost_per_metre / RootSystem.BASE_COST_OLD
 
 
 ## Life force for a straight root from `a` to `b`, or INF if it passes through rock.
@@ -369,11 +470,15 @@ func new_wish(ground: Underground, day: int, seed: int, roots: RootSystem, res: 
 		var placed := int(ground.patches[wish_patch].get("day", day))
 		if day - placed < FAR_DAYS and _untouched(ground, roots, wish_patch):
 			last_patch = -1
+			var p: Dictionary = ground.patches[wish_patch]
+			add(day, wish_entry(int(p["kind"]), p["center"], true), "tree", DRAWINGS[int(p["kind"])], "wish")
+			wish_days += 1
+			far_days += 1
 			return
 	last_patch = wish_patch if wish_patch >= 0 and not wish_reached else -1
 	wish_reached = false
 	wish_patch = -1
-	var w := plan_wish(ground, day, seed, roots, res)
+	var w := plan_wish(ground, day, seed, roots, res, far_share * (wish_days + 1) - far_days)
 	if w.has("patch"):
 		wish_patch = int(w["patch"])
 	elif int(w["kind"]) >= 0:
@@ -381,6 +486,13 @@ func new_wish(ground: Underground, day: int, seed: int, roots: RootSystem, res: 
 	wish = str(w["text"]) if wish_patch >= 0 else DAY_WISHES[day % DAY_WISHES.size()]
 	if wish_patch >= 0:
 		last_patch = -1
+		var p: Dictionary = ground.patches[wish_patch]
+		add(day, wish_entry(int(p["kind"]), p["center"]), "tree", DRAWINGS[int(p["kind"])], "wish")
+		wish_days += 1
+		if is_far(ground, wish_patch):
+			far_days += 1
+	else:
+		add(day, DAY_WISH_LINES[maxi(0, DAY_WISHES.find(wish))], "tree", "sun", "wish")
 
 
 ## The deposits that glow tonight: [{"patch", "center", "radius", "strength"}].
@@ -418,7 +530,7 @@ func check_reached(ground: Underground, roots: RootSystem, day: int, night: int)
 		var p := glow_at(ground, g.positions[id])
 		if p < 0:
 			continue
-		add(day, reached_text(ground, p, night), "tree", drawing_for(ground, p))
+		add(day, reached_text(ground, p, night), "tree", drawing_for(ground, p), "find")
 		if p == wish_patch:
 			wish_reached = true
 		ground.mark_wish_reached(p)
@@ -429,15 +541,18 @@ func check_reached(ground: Underground, roots: RootSystem, day: int, night: int)
 
 
 func to_dict() -> Dictionary:
-	return {"entries": entries, "wish": wish, "wish_patch": wish_patch, "last_patch": last_patch, "wish_reached": wish_reached}
+	return {"entries": entries, "wish": wish, "wish_patch": wish_patch, "last_patch": last_patch, "wish_reached": wish_reached,
+		"wish_days": wish_days, "far_days": far_days}
 
 
 static func from_dict(d: Dictionary) -> Diary:
 	var diary := Diary.new()
 	for e in d.get("entries", []):
-		diary.add(int(e.get("day", 0)), str(e.get("text", "")), str(e.get("by", "tree")), str(e.get("drawing", "")))
+		diary.add(int(e.get("day", 0)), str(e.get("text", "")), str(e.get("by", "tree")), str(e.get("drawing", "")), str(e.get("topic", "")))
 	diary.wish = str(d.get("wish", ""))
 	diary.wish_patch = int(d.get("wish_patch", -1))
 	diary.last_patch = int(d.get("last_patch", -1))
 	diary.wish_reached = bool(d.get("wish_reached", false))
+	diary.wish_days = int(d.get("wish_days", 0))
+	diary.far_days = int(d.get("far_days", 0))
 	return diary

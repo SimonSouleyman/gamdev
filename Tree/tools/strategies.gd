@@ -151,7 +151,9 @@ static func play(strat: String, species_id: String, seed: int, days: int, nights
 			least = mini(least, g.sim.living_nodes() - before)
 		if nights:
 			var st := g.sim.resources.stock
-			print("  %s day %d: night %ds, root %dm, h %.1f, nodes %d, lf %.1f, stock [%.0f %.0f %.0f %.0f]" % [strat, day + 1, secs[-1], lens[-1], g.sim.height(), g.sim.living_nodes(), g.sim.resources.life_force, st[0], st[1], st[2], st[3]])
+			var rt := g.roots.run_totals
+			print("  %s day %d: night %ds, root %dm, h %.1f, nodes %d, lf %.1f, stock [%.0f %.0f %.0f %.0f], run drank [%.1f %.1f %.1f %.1f], left %.0f, side nodes %d/%d, thick %.2f" % [strat, day + 1, secs[-1], lens[-1], g.sim.height(), g.sim.living_nodes(), g.sim.resources.life_force, st[0], st[1], st[2], st[3],
+				rt[0], rt[1], rt[2], rt[3], g.roots.leftover_spent, g.roots.side_nodes_grown[0], g.roots.side_nodes_grown[1], g.roots.thickness_of(g.roots.main_root_count - 1)])
 		if day + 1 in [10, 20, 30]:
 			heights[day + 1] = g.sim.height()
 		if g.finished:

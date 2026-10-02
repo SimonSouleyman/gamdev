@@ -8,8 +8,12 @@ const TREE_MAX_NODES: int = 3000
 const ROOT_MAX_NODES_PER_MAIN_ROOT: int = 400
 ## Max automatic fine-root nodes that may sprout around one main root.
 const FINE_ROOTS_PER_MAIN_ROOT: int = 150
-## Upper limit when the run ends early and the leftover life force feeds more fine roots.
+## Room kept per main root for its fine and side roots (the root graph is sized with it).
 const FINE_ROOTS_MAX_PER_MAIN_ROOT: int = 600
+## 0.8.2: the leftover's second- and third-level side roots never take more than this many nodes
+## a night (specs/side-roots.md: about 250, RootSystem.side_nodes_max), on top of the first
+## level; together within FINE_ROOTS_MAX_PER_MAIN_ROOT.
+const SIDE_ROOTS_PER_MAIN_ROOT: int = 300
 ## Max nutrient dots kept in memory for the underground at once.
 const NUTRIENT_DOTS_LOADED: int = 4000
 ## The forest around the clearing (rendering budgets: every tree is instanced from a few variants).

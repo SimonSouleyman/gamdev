@@ -54,6 +54,9 @@ const POT_LOOKS := {
 }
 const JUNIPER_COLOR := "res://lookdev/bonsai/juniper_spray_color.png"
 const JUNIPER_NORMAL := "res://lookdev/bonsai/juniper_spray_normal.png"
+## The juniper atlas is read one and a half mips sharper (0.8.2, look review: at phone size the
+## tufts blurred into lobed leaf cards).
+const JUNIPER_DETAIL_BIAS := -1.5
 ## The roster's leaf sprays, a mipmapped copy of the crown atlas (make_juniper.py writes it).
 const LEAF_COLOR := "res://lookdev/bonsai/leaf_spray_small_color.png"
 const LEAF_NORMAL := "res://lookdev/bonsai/leaf_spray_small_normal.png"
@@ -660,6 +663,7 @@ func _apply_species(sp: Species) -> void:
 		_spray_mat.set_shader_parameter("spray_color", _mipmapped(JUNIPER_COLOR))
 		_spray_mat.set_shader_parameter("spray_normal", _mipmapped(JUNIPER_NORMAL))
 		_spray_mat.set_shader_parameter("translucency", Color(0.22, 0.3, 0.08))
+		_spray_mat.set_shader_parameter("detail_bias", JUNIPER_DETAIL_BIAS)
 	else:
 		_spray_mat.set_shader_parameter("spray_color", _mipmapped(LEAF_COLOR))
 		_spray_mat.set_shader_parameter("spray_normal", _mipmapped(LEAF_NORMAL))

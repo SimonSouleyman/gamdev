@@ -26,6 +26,10 @@ extends SceneTree
 ## sunset hold that far into the night instead of noon; --yaw=<radians> and --pitch= one view only;
 ## --hud keeps the real HUD in the photos and prints where the tree sits on screen (0.8.1 framing);
 ## --run (with --roots): also a photo during a run tonight, the live root among the old ones.
+## 0.8.2 side roots, with --run: --tank=<life force> for tonight's run (default 25); --side ends
+## the run early at the run photo and photographs the end-of-run camera once the second and third
+## level have grown (roots_side.png); --full lets the run spend the whole tank and photographs the
+## thicker root the same way (roots_full.png).
 ## --settle=<frames> waits before the first photo; --face_moon turns the view toward the moon; --look_up=<radians> tilts the camera toward the sky; --tag=<name> prefixes the file names.
 
 var shots_dir := ""
@@ -59,6 +63,10 @@ var marks := false
 var hint_patches := false
 var keep_hud := false
 var run_shot := false
+var side_shot := false
+var full_shot := false
+var tank := 25.0
+var _end_frame := -1
 
 
 func _initialize() -> void:
@@ -85,6 +93,12 @@ func _initialize() -> void:
 			marks = true
 		elif a == "--hud":
 			keep_hud = true
+		elif a == "--side":
+			side_shot = true
+		elif a == "--full":
+			full_shot = true
+		elif a.begins_with("--tank="):
+			tank = float(a.substr(7))
 		elif a == "--run":
 			run_shot = true
 		elif a == "--hint_patches":
@@ -368,11 +382,25 @@ func _roots_frames() -> bool:
 			quit()
 			return false
 		# --run: tonight's root from the newest tip, steered ahead and a little down.
-		g.sim.resources.life_force = maxf(g.sim.resources.life_force, 25.0)
+		g.sim.resources.life_force = maxf(g.sim.resources.life_force, tank)
 		rview.scripted_stick = Vector2(0.35, 0.2)
 		rview.start_at(g.roots.graph.size() - 1)
 	if run_shot and frame == 260:
 		_save_both("roots_run")
+		if side_shot and rview.mode == RootView.Mode.RUN:
+			rview.end_early()
+		elif not full_shot:
+			quit()
+			return false
+	# The end-of-run camera, after the settle's grow (SETTLE_GROW) and before the night moves on.
+	if (side_shot or full_shot) and frame > 260 and _end_frame < 0 and rview.is_settling():
+		_end_frame = frame
+	if _end_frame > 0 and rview._settle_t >= RootView.SETTLE_GROW + 0.3:
+		var r := g.roots
+		print("tonight: %.1f m, leftover %.0f, side nodes %d / %d, thickness %.2f" % [r.run_length, r.leftover_spent, r.side_nodes_grown[0], r.side_nodes_grown[1], r.thickness_of(r.main_root_count - 1)])
+		_save_both("roots_side" if side_shot else "roots_full")
+		quit()
+	if frame > 6000:
 		quit()
 	return false
 

@@ -98,7 +98,7 @@ static func new_game(random_seed: int, species_id: String = "linden") -> GameSta
 	g.sim.clock.time_of_day = g.sim.clock.daylight_fraction
 	g.sim.resources.life_force = SEED_LIFE_FORCE
 	g.phase = Phase.SUNSET
-	g.diary.add(0, "I planted a %s seed in the clearing as the sun went down." % g.tree_name())
+	g.diary.add(0, "I planted a %s seed." % g.tree_name(), "tree", "seed", "milestone")
 	g._events.append("sunset")
 	return g
 
@@ -252,7 +252,6 @@ func _tick_loop(delta: float) -> void:
 					morning_timer += delta
 					if morning_timer >= MORNING_DELAY:
 						morning_timer = -1.0
-						write_morning_line()
 						_event("morning")
 				# Also when one nutrient is gone while the others still carry growth (QA round 3: the
 				# player was never told which one was missing).
@@ -298,10 +297,10 @@ func dive() -> bool:
 	_event("dive")
 	if roots_full:
 		night_empty = true
-		diary.add(day_number(), "Night %d: the roots fill the soil now; I only looked around below." % (day_number() + 1))
+		diary.add(day_number(), "Night %d: the roots fill the soil now." % (day_number() + 1), "tree", "moon", "milestone")
 		_event("night_empty")
 	elif night_empty:
-		diary.add(day_number(), "Night %d: no life force was left for a root. I only looked around below." % (day_number() + 1))
+		diary.add(day_number(), "Night %d: no life force left for a root." % (day_number() + 1), "tree", "moon", "milestone")
 		_event("night_empty")
 	return true
 
@@ -390,17 +389,13 @@ func notify_find(f: Dictionary) -> void:
 
 func _on_find(f: Dictionary) -> void:
 	var kind := str(f["kind"])
-	diary.add(day_number(), "Found %s." % Underground.FIND_TEXTS.get(kind, kind))
+	diary.add(day_number(), str(FIND_LINES.get(kind, "Found %s." % kind)), "tree", kind if InkSketch.has(kind) else "", "find")
 	_event("find:" + kind)
 
 
 func _on_run_done() -> void:
 	night_done = true
-	var t := roots.run_totals
-	diary.add(day_number(), "Night %d: the new root grew %.0f m and drank water %.1f, nitrogen %.1f, phosphorus %.1f, potassium %.1f." % [
-		day_number() + 1, roots.run_length, t[0], t[1], t[2], t[3]])
-	if roots.leftover_spent > 1.0 and roots.count_flagged("fine", roots.main_root_count - 1) > 0:
-		diary.add(day_number(), "The rest of the night's life force (%.0f) went into fine roots around it." % roots.leftover_spent)
+	# The night's totals are routine numbers: no diary line from 0.8.2 (the pills show them).
 	# The root reached the glowing wish deposit: a line with a small ink drawing (0.7).
 	var reached := diary.check_reached(ground, roots, day_number(), day_number() + 1)
 	if reached >= 0:
@@ -417,15 +412,15 @@ func wish_glows() -> Array:
 func _finish() -> void:
 	finished = true
 	grove.append({"species": sim.species.id, "days": day_number(), "seed": seed})
-	diary.add(day_number(), "The %s has grown to its full size. It dropped a seed; the seed bag in the shed is ready for the next tree." % tree_name())
+	diary.add(day_number(), "Fully grown; a new seed waits.", "tree", "grown_tree", "milestone")
 	_event("finished")
 	# The first finished tree opens bonsai mode: a juniper waits on the shed's windowsill.
 	if bonsai == null:
 		ensure_bonsai()
-		diary.add(day_number(), "A young juniper stands on the windowsill in the shed now, a bonsai to shape for as long as I like.")
+		diary.add(day_number(), "A juniper waits on the windowsill.", "tree", "bonsai", "milestone")
 		_event("bonsai")
 	else:
-		diary.add(day_number(), "I took a cutting of the %s for the windowsill." % tree_name())
+		diary.add(day_number(), "I took a cutting of the %s." % tree_name(), "tree", "bonsai", "milestone")
 
 
 func _sunrise() -> void:
@@ -440,33 +435,27 @@ func _sunrise() -> void:
 	# The old roots drank from the deposits they reach all night, as far as the tree has room.
 	var seep_cap := sim.day_capacity() * sim.node_cost() * sim.species.needs[Resources.Kind.WATER] * roots.seep_day_cover
 	var drawn := roots.drink_tapped(ground, sim.resources, sim.stock_room(), seep_cap)
-	var total_drawn := drawn[0] + drawn[1] + drawn[2] + drawn[3]
-	if total_drawn > 0.5:
-		diary.add(day_number(), "The old roots drew water %.1f, nitrogen %.1f, phosphorus %.1f, potassium %.1f from the soil overnight." % [drawn[0], drawn[1], drawn[2], drawn[3]])
 	# Species quirks on the night: root nodules (alder), the leaves' water, shaded twigs.
-	var fixed := roots.nodule_nitrogen(sim.resources, sim.stock_room()[Resources.Kind.NITROGEN])
-	if fixed > 0.5:
-		diary.add(day_number(), "The root nodules made nitrogen %.1f overnight." % fixed)
+	roots.nodule_nitrogen(sim.resources, sim.stock_room()[Resources.Kind.NITROGEN])
 	if not was_seed:
 		sim.drink_upkeep()
-		var died := sim.shade_dieback(day_number())
-		last_dieback = died
-		if died > 0:
-			diary.add(day_number(), "%d shaded twig%s died back in the crown." % [died, "" if died == 1 else "s"])
+		# The count of twigs that died back is on the care page (no routine diary line).
+		last_dieback = sim.shade_dieback(day_number())
 	# The ground under the crown changes with its shade: diary lines for what comes up first.
 	if not was_seed:
 		for k in clearing.update(sim, day_number()):
-			diary.add(day_number(), Clearing.FIRST_LINES[k])
+			diary.add(day_number(), Clearing.FIRST_LINES[k], "tree", k, "find")
 			_event("clearing:" + k)
 	if sim.species.in_blossom(day_number()) and not sim.species.in_blossom(day_number() - 1):
-		diary.add(day_number(), "The %s is in blossom. The bees have come, and the leaves are busier than ever." % tree_name())
+		diary.add(day_number(), "In blossom: the bees have come.", "tree", "blossom", "milestone")
 		_event("blossom")
 	# Yesterday's cuttings lie on the brush pile now (0.8).
 	if brush.sunrise(day_number()):
-		diary.add(day_number(), PILE_LINE)
+		diary.add(day_number(), PILE_LINE, "tree", "pile", "milestone")
 	sim.start_dawn_burst()
 	if was_seed and not sim.nutrients_spent():
-		diary.add(day_number(), "The seed sprouted at dawn.")
+		diary.add(day_number(), "The seed sprouted at dawn.", "tree", "sapling", "milestone")
+	_care_line()
 	# A missed wish deposit glows faintly one more night; the new wish may place a deposit ahead
 	# of the newest root tip, of what the tree is shorter of (Diary.plan_wish).
 	diary.new_wish(ground, day_number(), seed, roots, sim.resources)
@@ -477,9 +466,38 @@ func _sunrise() -> void:
 
 # --- the brush pile (0.8) -------------------------------------------------------
 
-const HEDGEHOG_LINE := "At dusk a hedgehog snuffled out of the brush pile at the edge of the clearing and back in again. It has moved into my cuttings."
-const WREN_LINE := "A wren sang from the brush pile, loud for such a small bird."
-const PILE_LINE := "The branches I cut lie on a pile of sticks at the edge of the clearing now."
+const HEDGEHOG_LINE := "A hedgehog lives in my brush pile."
+const WREN_LINE := "A wren sang loudly from the brush pile."
+const PILE_LINE := "My cut branches lie on a brush pile now."
+## A find's diary line (0.8.2: one short line; the find's page says more).
+const FIND_LINES := {
+	"fossil": "Found a fossil shell pressed into a stone.",
+	"old_root": "Found an old root from a long-gone tree.",
+	"water_vein": "Found a water vein that hums quietly.",
+	"coin": "Found a lost coin, green with age.",
+}
+## The need the tree shows at sunrise, one line with the leaf it shows (0.8.2: the day page's
+## second place; the care page says where to steer).
+const CARE_LINES: Array[String] = [
+	"Thirsty: the leaves hang.",
+	"Pale leaves: short of nitrogen.",
+	"Dark leaves: short of phosphorus.",
+	"Brown edges: short of potassium.",
+]
+const CARE_LEAVES: Array[String] = ["leaf_water", "leaf_n", "leaf_p", "leaf_k"]
+
+
+## The strongest need the night left, as the day page's care line (none on the first days, when
+## the tree is grown, or when it lacks nothing).
+func _care_line() -> void:
+	if finished or is_seed() or day_number() <= 1:
+		return
+	var best := -1
+	for k in range(4):
+		if sim.care_need[k] >= Care.SHOW_MIN and (best < 0 or sim.care_need[k] > sim.care_need[best]):
+			best = k
+	if best >= 0:
+		diary.add(day_number(), CARE_LINES[best], "tree", CARE_LEAVES[best], "care")
 
 
 ## A branch of the tree was cut (tree/pruning.gd): it goes onto the brush pile at sunrise.
@@ -496,11 +514,11 @@ func _brush_visitors() -> void:
 	if brush.hedgehog_due(day, share, Almanac.today(), seed):
 		brush.hedgehog_day = day
 		if first_time("visitor_hedgehog"):
-			diary.add(day, HEDGEHOG_LINE, "tree", "hedgehog")
+			diary.add(day, HEDGEHOG_LINE, "tree", "hedgehog", "visitor")
 	if brush.wren_due(day, share, seed):
 		brush.wren_day = day
 		if first_time("visitor_wren"):
-			diary.add(day, WREN_LINE)
+			diary.add(day, WREN_LINE, "tree", "wren", "visitor")
 
 
 ## The weather of the current game day (design doc section 17: mood only).
@@ -517,13 +535,7 @@ func _weather_note(part: String) -> void:
 		return
 	var line := Almanac.diary_line(weather_today(), part)
 	if line != "":
-		diary.add(day_number(), line)
-
-
-## Called by the tree view at the end of the dawn burst, for the morning diary line.
-func write_morning_line() -> void:
-	var tips := sim.tip_count()
-	diary.add(day_number(), "The %s is %.1f m tall with %d leaf cluster%s." % [tree_name(), sim.height(), tips, "" if tips == 1 else "s"])
+		diary.add(day_number(), line, "tree", "mist" if part == "morning" else "rain", "mood")
 
 
 # --- care (0.6.3) -------------------------------------------------------------

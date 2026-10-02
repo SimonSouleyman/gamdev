@@ -28,6 +28,8 @@ const BIRDS := 5
 
 var _rng := RandomNumberGenerator.new()
 var _clouds: Array[MeshInstance3D] = []
+## The day's clock speed (TreeView.time_speed): held to fast-forward, the clouds race (0.8.2).
+var cloud_speed: float = 1.0
 var _cloud_mats: Array[ShaderMaterial] = []
 var _cloud_coverage: Array[float] = []
 var _butterflies: MultiMeshInstance3D
@@ -858,7 +860,7 @@ func update(delta: float, day: bool, h: float, sun_color: Color, tree_height: fl
 	var bright := 0.35 + 0.75 * clampf(h * 2.5, 0.0, 1.0) if day else 0.3
 	for i in range(_clouds.size()):
 		var c := _clouds[i]
-		c.position.x += delta * 1.2
+		c.position.x += delta * 1.2 * cloud_speed
 		if c.position.x > 280.0:
 			c.position.x = -280.0
 		_cloud_mats[i].set_shader_parameter("sun_color", cloud_col)

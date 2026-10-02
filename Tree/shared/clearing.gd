@@ -30,10 +30,10 @@ const NOTES := {
 	"mushroom": "come up after rain or a damp night and are gone a few days later",
 }
 const FIRST_LINES := {
-	"anemone": "Wood anemones are flowering in the shade of my crown, where the meadow grass has thinned.",
-	"fern": "A fern has unrolled in the deep shade under the crown.",
-	"moss": "Moss is creeping over the shaded ground below me.",
-	"mushroom": "Mushrooms came up in the shade after the damp.",
+	"anemone": "Wood anemones flower in my shade.",
+	"fern": "A fern unrolled in the deep shade.",
+	"moss": "Moss creeps over the shaded ground.",
+	"mushroom": "Mushrooms came up after the rain.",
 }
 ## Days the ground has lain in the crown's shade before a kind comes up: the change takes time,
 ## so the collection fills over the tree's month (anemones first, moss last).

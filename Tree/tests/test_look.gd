@@ -56,3 +56,19 @@ func test_roots_read_in_the_dark() -> void:
 func test_the_night_is_brighter_but_still_night() -> void:
 	t.check(NightSky.MOON_BASE > 0.14 and NightSky.MOON_BASE + NightSky.MOON_LIT < 1.0, "moonlight brighter than 0.8, far below the sun")
 	t.check(TreeView.NIGHT_EXPOSURE_LIFT > 0.0 and TreeView.NIGHT_EXPOSURE_LIFT <= 0.6, "the eye adapts a little, not to daylight")
+
+
+## 0.8.2 (look review, hud_shears): with the shears out the whole crown is in view, its top
+## below the HUD and its foot above the hint, from a sapling to a grown tree.
+func test_the_shears_view_holds_the_whole_crown() -> void:
+	for aspect in [450.0 / 1000.0, 720.0 / 1600.0, 450.0 / 800.0]:
+		for c in [[0.8, 0.7], [4.4, 2.6], [6.0, 4.5], [14.6, 9.0], [25.4, 20.0]]:
+			var h: float = c[0]
+			var w: float = c[1]
+			var half := TreeView.prune_frame(h, w, aspect)
+			var focus := h * TreeView.PRUNE_FOCUS
+			var top := 0.5 - (h - focus) / (2.0 * half)
+			var foot := 0.5 + focus / (2.0 * half)
+			t.check(top >= TreeView.FRAME_TOP - 0.001, "%.1f m: the crown's top is not cut (%.2f)" % [h, top])
+			t.check(foot <= TreeView.PRUNE_BASE + 0.001, "%.1f m: the foot is above the hint (%.2f)" % [h, foot])
+			t.check(w * 0.5 <= half * aspect * (1.0 - 2.0 * TreeView.FRAME_SIDE) + 0.001, "%.1f m: the crown fits across" % h)

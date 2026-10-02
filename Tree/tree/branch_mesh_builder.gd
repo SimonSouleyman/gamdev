@@ -14,6 +14,9 @@ var bark_tiling: float = 1.2
 ## Optional, one per graph node (the bonsai: deadwood, shari, wire scars): written as vertex
 ## colours, with the angle around the wood (0..1) in UV2.x so a shader can draw a strip.
 var node_colors: PackedColorArray = PackedColorArray()
+## Optional, one per graph node: the drawn radius (after min_radius) is multiplied by it (0.8.2
+## roots: a thicker main root for a full run, finer side roots).
+var radius_mul: PackedFloat32Array = PackedFloat32Array()
 
 
 func sides_for(r: float) -> int:
@@ -26,8 +29,11 @@ func sides_for(r: float) -> int:
 	return 4
 
 
-func _r(raw: float) -> float:
-	return maxf(min_radius, raw * radius_scale)
+func _r(raw: float, id: int = -1) -> float:
+	var r := maxf(min_radius, raw * radius_scale)
+	if id >= 0 and id < radius_mul.size():
+		r *= radius_mul[id]
+	return r
 
 
 ## Builds the segments of nodes `first_id` .. `end_id` - 1 (-1: to the last node). Frames are
@@ -110,7 +116,7 @@ func build(g: PlantGraph, first_id: int = 1, end_id: int = -1) -> ArrayMesh:
 		if alive[id] == 0:
 			continue
 		var p := g.parents[id]
-		var r_top := _r(g.radii[id])
+		var r_top := _r(g.radii[id], id)
 		var is_tip := main_child[id] < 0
 		if is_tip:
 			r_top *= 0.55
@@ -121,7 +127,7 @@ func build(g: PlantGraph, first_id: int = 1, end_id: int = -1) -> ArrayMesh:
 		if main_child[p] == id:
 			bottom_axis = axis[p]
 			bottom_side = side[p]
-			r_bottom = _r(g.radii[p])
+			r_bottom = _r(g.radii[p], p)
 		else:
 			# A side branch starts from its own ring, only a little thicker than itself.
 			bottom_axis = dir_in[id]
@@ -129,7 +135,7 @@ func build(g: PlantGraph, first_id: int = 1, end_id: int = -1) -> ArrayMesh:
 			if s.length_squared() < 1e-6:
 				s = side[id]
 			bottom_side = s.normalized()
-			r_bottom = minf(_r(g.radii[p]), _r(g.radii[id]) * 1.35)
+			r_bottom = minf(_r(g.radii[p], p), _r(g.radii[id], id) * 1.35)
 		var base := verts.size()
 		# One bark repeat count per segment, so the texture never shears between its two rings.
 		var reps := maxf(1.0, round(r_bottom * 20.0))
