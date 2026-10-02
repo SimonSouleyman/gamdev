@@ -83,10 +83,10 @@ var hud: CanvasLayer
 var joystick: ThumbStick
 var dive_button: Button
 var end_button: Button
-var _life_label: Label
+## Tonight's life force, the green vial (ui/vial.gd), and the scrap with tonight's haul.
+var vial: Vial
+var _scrap: Panel
 var _hint: PaperNote
-var _life_bar: ColorRect
-var _life_bar_bg: ColorRect
 ## Tonight's catch: "tonight:" and each kind's coloured dot with its amount (0.8.1: plain dots in
 ## play, no shapes).
 var _counts: HBoxContainer
@@ -656,42 +656,30 @@ func _build_hud() -> void:
 	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	hud.add_child(root)
 
-	# The readouts sit on a scrap of journal paper, like the day's.
-	var scrap := Panel.new()
-	scrap.add_theme_stylebox_override("panel", Paper.paper_box(256, 96, 64, "all", 12.0))
-	scrap.set_anchors_preset(Control.PRESET_TOP_WIDE)
-	scrap.offset_left = 22
-	scrap.offset_right = -160
-	scrap.offset_top = 22
-	scrap.offset_bottom = 140
-	scrap.rotation_degrees = -0.6
-	scrap.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	root.add_child(scrap)
-	_life_bar_bg = ColorRect.new()
-	_life_bar_bg.color = Color(Paper.INK, 0.15)
-	_life_bar_bg.position = Vector2(40, 40)
-	_life_bar_bg.size = Vector2(640, 18)
-	_life_bar_bg.set_anchors_preset(Control.PRESET_TOP_WIDE)
-	_life_bar_bg.offset_left = 40
-	_life_bar_bg.offset_right = -180
-	_life_bar_bg.offset_top = 40
-	_life_bar_bg.offset_bottom = 58
-	_life_bar_bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	root.add_child(_life_bar_bg)
-	_life_bar = ColorRect.new()
-	_life_bar.color = Color(0.78, 0.55, 0.12, 0.9)
-	_life_bar.size = Vector2(0, 18)
-	_life_bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_life_bar_bg.add_child(_life_bar)
-	_life_label = _label(24, Vector2(40, 64))
-	root.add_child(_life_label)
+	# Tonight's life force is the green vial from the day, falling as the root grows (0.8.2.5);
+	# tonight's haul sits on a scrap of journal paper beside it.
+	vial = Vial.new()
+	vial.position = Vector2(14, 12)
+	vial.size = TreeView.VIAL_SIZE
+	root.add_child(vial)
+	_scrap = Panel.new()
+	_scrap.add_theme_stylebox_override("panel", Paper.paper_box(256, 96, 64, "all", 12.0))
+	_scrap.set_anchors_preset(Control.PRESET_TOP_WIDE)
+	_scrap.offset_left = TreeView.VIAL_SIZE.x + 14
+	_scrap.offset_right = -170
+	_scrap.offset_top = 22
+	_scrap.offset_bottom = 104
+	_scrap.rotation_degrees = -0.6
+	_scrap.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	root.add_child(_scrap)
+	var tonight := _label(24, Vector2(16, 4))
+	tonight.text = "tonight:"
+	_scrap.add_child(tonight)
 	_counts = HBoxContainer.new()
-	_counts.position = Vector2(40, 98)
+	_counts.position = Vector2(16, 40)
 	_counts.add_theme_constant_override("separation", 6)
 	_counts.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	root.add_child(_counts)
-	_counts.add_child(_label(24, Vector2.ZERO))
-	(_counts.get_child(0) as Label).text = "tonight: "
+	_scrap.add_child(_counts)
 	for k in range(4):
 		_counts.add_child(TreeView.ink_dot(Resources.KIND_COLORS[k]))
 		var l := _label(24, Vector2.ZERO)
@@ -788,12 +776,10 @@ func set_hud_visible(on: bool) -> void:
 func _update_hud() -> void:
 	if res == null:
 		return
-	var frac := clampf(res.life_force / maxf(_life_at_start, 0.001), 0.0, 1.0)
-	_life_bar.size = Vector2(_life_bar_bg.size.x * frac, _life_bar_bg.size.y)
-	# Whole numbers, as in tree mode (0.8.2.1 look review: the far view read "67.1").
-	_life_label.text = "life force %d" % roundi(res.life_force)
+	vial.track_night(res.life_force, _life_at_start)
 	var t := roots.run_totals
 	_counts.visible = mode == Mode.RUN or mode == Mode.DONE and not quiet_night
+	_scrap.visible = _counts.visible
 	var words := ["water", "N", "P", "K"]
 	for k in range(4):
 		_count_labels[k].text = "%s %.1f%s" % [words[k], t[k], "  " if k < 3 else ""]

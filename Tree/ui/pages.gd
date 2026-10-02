@@ -13,9 +13,9 @@ const END_ROOT_LABEL := "let roots\nspread"
 
 const TEXTS: Dictionary = {
 	"planted": ["Day 0", "A seed went in at sunset. Tap the ground to grow its first root."],
-	"first_night": ["Below the meadow", "Glowing dots feed the tree: blue dots are water, green nitrogen, orange phosphorus, violet potassium.\n\nSteer with the stick (WASD, arrows); \"dive\" (space) sinks faster. Each metre costs life force. \"{end}\" (E) spends the rest on fine roots."],
+	"first_night": ["Below the meadow", "Glowing dots feed the tree: blue dots are water, green nitrogen, orange phosphorus, violet potassium.\n\nSteer with the stick (WASD, arrows); \"dive\" (space) sinks faster. Each metre drinks life force from the vial. \"{end}\" (E) spends the rest on fine roots."],
 	"first_run_done": ["The first root", "The root drank what it touched; the seed grows at sunrise."],
-	"sapling": ["A sapling", "Tap: an hour of brighter sun. Faster growth, less life force for tonight.\n\nMorning boosts grow it east, noon tall, evening west; the arc shows the sun. The pills: life force and nutrients.\n\nHold a still finger: the day runs at 4x. Drag to walk, pinch to zoom."],
+	"sapling": ["A sapling", "Tap: an hour of brighter sun. Faster growth, but the green vial (tonight's life force) fills slower than its pencil mark.\n\nMorning boosts grow it east, noon tall, evening west; the arc shows the sun.\n\nHold a still finger: the day runs at 4x. Drag to walk, pinch to zoom."],
 	"spent": ["Nothing left to grow with", "The roots' haul is used up. The leaves still gather life force."],
 	"first_sunset": ["Sunset", "Tap the ground or swipe up to dive to the roots.\n\nThe meadow hints below: rushes water, clover nitrogen, nettles phosphorus, stones rock, comfrey a potassium wish."],
 	"pick": ["A new root", "Tonight a root can start anywhere on the old roots: tap one."],
@@ -29,7 +29,7 @@ const TEXTS: Dictionary = {
 	"bonsai_wire": ["Wire", "Wire sets a branch's new line in four days; then take it off, or it scars."],
 	"bonsai_repot": ["Repotting", "A week fills the pot. Snip circling roots, pick a pot (bigger carries more), fresh soil."],
 	"bonsai_burn": ["Burnt tips", "Too many pellets browned a few tips. They grow on."],
-	"empty_night": ["A quiet night", "No life force was left tonight. Calm days fill the tank."],
+	"empty_night": ["A quiet night", "No life force was left tonight. Calm days fill the vial."],
 }
 
 ## The doodle on each page (InkSketch kinds); a species page shows its seed or leaf.
