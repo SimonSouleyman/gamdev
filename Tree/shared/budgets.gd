@@ -61,3 +61,6 @@ const TREE_MARKERS: int = 2000
 ## root starts while one more full root fits the graph (RootSystem.has_room_for_root), and real
 ## roots use far less than their full budget, so a slow tree keeps its nights (sim-0.6.3).
 const MAX_MAIN_ROOTS: int = 45
+## 0.8.2 far view: at most this many root segments in its one line mesh (three-sided tubes, 18
+## vertices each, about 110k at most); a longer network is drawn with longer segments.
+const FAR_VIEW_SEGMENTS: int = 6000

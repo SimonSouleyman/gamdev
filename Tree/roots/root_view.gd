@@ -13,6 +13,8 @@ signal dots_collected(count: int)
 signal swipe_up
 ## The tip reached tonight's wish deposit (0.7): its patch id.
 signal wish_reached(patch: int)
+## The far view opened (0.8.2), for the first-time hint.
+signal far_view_opened
 
 enum Mode { IDLE, PICK, RUN, DONE }
 
@@ -107,6 +109,51 @@ var _glow_nodes: Array = []
 var _warm_dots: Dictionary = {}
 var _glow_root: Node3D
 
+## 0.8.2 (specs/root-field-extras.md 1): the far view. Pinching out past NORMAL_MAX_DISTANCE while
+## choosing the start, on a quiet night or after the run pulls the camera back over the whole field;
+## pinching in or back returns. Never during the run.
+const NORMAL_MAX_DISTANCE := 30.0
+## The far camera: a high three-quarter view (pitch, radians) framing the field with this margin
+## at FAR_HFOV degrees across the screen (portrait widens the vertical angle to keep that).
+const FAR_PITCH := 1.0
+const FAR_FIELD_MARGIN := 1.08
+const FAR_HFOV := 62.0
+## A rich patch counts as known within this distance of any root (the run's fog shows dots to
+## about this far beside the root), or under its own meadow sign.
+static var known_reach: float = 8.0
+const FAR_FOG := 0.004
+const FAR_SOIL := Color(0.105, 0.09, 0.08)
+const FAR_BAND := Color(0.02, 0.018, 0.016)
+## The roots' line thickness as a share of the far camera's distance (about 3 to 4 px on a phone).
+const FAR_ROOT_SHARE := 0.0045
+## The camera eases at this rate (1/s), slower while it pulls back or flies down.
+const CAM_RATE := 3.0
+const CAM_RATE_FAR := 1.1
+var far_view: bool = false
+## Set by main: the first-time line "pinch out to see the whole field" is still wanted.
+var far_hint: bool = false
+## Set by main: called with "band" or "vein" the first time the tip meets one; true shows a line.
+var first_note: Callable = func(_id: String) -> bool: return false
+var _note_text: String = ""
+var _note_time: float = 0.0
+var _run_met: Dictionary = {}
+var _far_roots: MeshInstance3D
+var _far_clouds: MultiMeshInstance3D
+var _far_trunk: MeshInstance3D
+var _bands: MeshInstance3D
+var _veins: MeshInstance3D
+var _band_mat: Material
+var _band_far_mat: StandardMaterial3D
+var _saved_view: Array = []
+var _cam_rate: float = CAM_RATE
+var _cam_slow_t: float = 0.0
+var _look_now: Vector3 = Vector3(0, -1.5, 0)
+var _fov_tween: Tween
+var _touches: Dictionary = {}
+var _pinch_from: float = 0.0
+var _pinch_zoom: float = 0.0
+var _pinch_done: bool = false
+
 
 func _ready() -> void:
 	_builder.radius_scale = 0.75
@@ -137,6 +184,8 @@ func setup(p_ground: Underground, p_roots: RootSystem, p_res: Resources) -> void
 	# Fractured boulders instead of spheres (visuals thread).
 	RockLook.apply_roots(self)
 	_build_finds()
+	_build_field()
+	_leave_far(true)
 	_rebuild_all()
 
 
@@ -219,6 +268,59 @@ func _build_world() -> void:
 
 	_glow_root = Node3D.new()
 	add_child(_glow_root)
+
+	# 0.8.2: the bands and veins (one mesh each), and the far view's own roots, patch clouds and
+	# trunk mark (one mesh or MultiMesh each), hidden until it opens.
+	_bands = MeshInstance3D.new()
+	_bands.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_child(_bands)
+	_band_far_mat = StandardMaterial3D.new()
+	_band_far_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	_band_far_mat.albedo_color = FAR_BAND
+	_veins = MeshInstance3D.new()
+	_veins.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	var vm := StandardMaterial3D.new()
+	vm.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	vm.vertex_color_use_as_albedo = true
+	vm.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	vm.albedo_color = Color(1, 1, 1, 0.16)
+	vm.cull_mode = BaseMaterial3D.CULL_DISABLED
+	vm.depth_draw_mode = BaseMaterial3D.DEPTH_DRAW_DISABLED
+	_veins.material_override = vm
+	add_child(_veins)
+	_far_roots = MeshInstance3D.new()
+	_far_roots.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	var fm := StandardMaterial3D.new()
+	fm.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	fm.vertex_color_use_as_albedo = true
+	_far_roots.material_override = fm
+	_far_roots.visible = false
+	add_child(_far_roots)
+	_far_clouds = MultiMeshInstance3D.new()
+	var cm := MultiMesh.new()
+	cm.transform_format = MultiMesh.TRANSFORM_3D
+	cm.use_colors = true
+	var cq := QuadMesh.new()
+	cq.size = Vector2.ONE
+	cm.mesh = cq
+	_far_clouds.multimesh = cm
+	var cmat := ShaderMaterial.new()
+	cmat.shader = preload("res://roots/far_cloud.gdshader")
+	_far_clouds.material_override = cmat
+	_far_clouds.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_far_clouds.extra_cull_margin = 60.0
+	_far_clouds.visible = false
+	add_child(_far_clouds)
+	_far_trunk = _glow_sphere(0.5, Color(0.95, 0.8, 0.55), 1.5)
+	var trunk := CylinderMesh.new()
+	trunk.top_radius = 0.35
+	trunk.bottom_radius = 0.5
+	trunk.height = 1.6
+	trunk.radial_segments = 8
+	_far_trunk.mesh = trunk
+	_far_trunk.position = Vector3(0, 0.3, 0)
+	_far_trunk.visible = false
+	add_child(_far_trunk)
 
 
 func _glow_sphere(r: float, color: Color, energy: float) -> MeshInstance3D:
@@ -571,12 +673,16 @@ func _update_hud() -> void:
 	for k in range(4):
 		_count_labels[k].text = "%s %.1f%s" % [words[k], t[k], "  " if k < 3 else ""]
 	match mode:
+		Mode.PICK when far_view:
+			_hint.text = "Tap a root's end to start there. Pinch in to come back."
+		Mode.DONE when far_view:
+			_hint.text = "Pinch in to come back."
 		Mode.PICK:
-			_hint.text = "Tap a point on a root to start tonight's root." if roots.graph.size() > 1 else ""
+			_hint.text = ("Tap a point on a root to start tonight's root." + ("\nPinch out to see the whole field." if far_hint else "")) if roots.graph.size() > 1 else ""
 		Mode.RUN:
-			_hint.text = "Move the stick (or WASD) to grow the root." if _waiting_for_input else ""
+			_hint.text = "Move the stick (or WASD) to grow the root." if _waiting_for_input else (_note_text if _note_time > 0.0 else "")
 		Mode.DONE:
-			_hint.text = ("A quiet night below. Swipe up to wake the tree." if quiet_night else "The new root settles. Fine roots reach for what is near.") if is_settling() or quiet_night else "Swipe up to wake the tree, or wait for the morning."
+			_hint.text = ("A quiet night below. Swipe up to wake the tree." if quiet_night else ("The new root settles. The leftover grows side roots." if roots.side_nodes_grown[0] > 0 else "The new root settles. Fine roots reach for what is near.")) if is_settling() or quiet_night else "Swipe up to wake the tree, or wait for the morning."
 		_:
 			_hint.text = ""
 
@@ -584,6 +690,7 @@ func _update_hud() -> void:
 # --- modes ------------------------------------------------------------------
 
 func begin_pick() -> void:
+	_leave_far(true)
 	mode = Mode.PICK
 	quiet_night = false
 	_life_at_start = maxf(res.life_force, 0.001)
@@ -612,9 +719,13 @@ func resume_run() -> void:
 
 
 func _enter_run() -> void:
+	_leave_far(false)
 	mode = Mode.RUN
 	quiet_night = false
 	_waiting_for_input = true
+	_run_met = {}
+	_note_time = 0.0
+	_touches.clear()
 	_life_at_start = maxf(res.life_force, 0.001)
 	_hover.visible = false
 	_tip.visible = true
@@ -626,6 +737,7 @@ func _enter_run() -> void:
 
 ## A night without life force, or after the run: the camera just looks around.
 func begin_idle_overview() -> void:
+	_leave_far(true)
 	mode = Mode.DONE
 	_show_run_controls(false)
 	_tip.visible = false
@@ -644,12 +756,13 @@ func _frame_overview() -> void:
 
 
 func _snap_camera() -> void:
+	_look_now = _look
 	camera.position = _orbit_position()
 	camera.look_at(_look, Vector3.UP)
 
 
 func _orbit_position() -> Vector3:
-	return _look + Vector3(sin(_orbit_yaw) * cos(_orbit_pitch), sin(_orbit_pitch), cos(_orbit_yaw) * cos(_orbit_pitch)) * _orbit_distance
+	return _look_now + Vector3(sin(_orbit_yaw) * cos(_orbit_pitch), sin(_orbit_pitch), cos(_orbit_yaw) * cos(_orbit_pitch)) * _orbit_distance
 
 
 # --- frame ------------------------------------------------------------------
@@ -667,10 +780,15 @@ func _process(delta: float) -> void:
 			# From the overview the whole underground glows; up close only the near dots do.
 			(_dots.material_override as ShaderMaterial).set_shader_parameter("fog_far", _orbit_distance + 12.0)
 			if not _pressing:
-				_orbit_yaw += delta * 0.08
+				_orbit_yaw += delta * (0.03 if far_view else 0.08)
+			# 0.8.2: the look point eases too, slower while the far view pulls back or returns.
+			_cam_slow_t = maxf(0.0, _cam_slow_t - delta)
+			_cam_rate = CAM_RATE_FAR if _cam_slow_t > 0.0 else CAM_RATE
+			var ease := 1.0 - exp(-_cam_rate * delta)
+			_look_now = _look_now.lerp(_look, ease)
 			var target := _orbit_position()
-			camera.position = camera.position.lerp(target, 1.0 - exp(-3.0 * delta))
-			_look_at_safely(_look)
+			camera.position = camera.position.lerp(target, ease)
+			_look_at_safely(_look_now)
 	_update_hud()
 
 
@@ -697,6 +815,7 @@ func _process_run(delta: float) -> void:
 	for f in roots.last_finds:
 		_on_find(f)
 	_check_wish_reached()
+	_check_soil_notes(delta)
 	_tip.position = roots.tip_position
 	_rebuild_timer += delta
 	if _rebuild_timer >= REBUILD_INTERVAL:
@@ -897,6 +1016,8 @@ func _flash(p: Vector3, color: Color, size: float = 0.5) -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	if not input_enabled or mode != Mode.PICK and mode != Mode.DONE:
 		return
+	if _zoom_input(event):
+		return
 	var pos := Vector2.ZERO
 	var is_press := false
 	var is_release := false
@@ -905,12 +1026,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		pos = (event as InputEventMouseButton).position
 		is_press = event.pressed
 		is_release = not event.pressed
-	elif event is InputEventMouseButton and mode == Mode.PICK:
-		var b := (event as InputEventMouseButton).button_index
-		if b == MOUSE_BUTTON_WHEEL_UP:
-			_orbit_distance = maxf(3.0, _orbit_distance * 0.9)
-		elif b == MOUSE_BUTTON_WHEEL_DOWN:
-			_orbit_distance = minf(30.0, _orbit_distance * 1.1)
+	elif event is InputEventMouseButton:
 		return
 	elif event is InputEventMouseMotion:
 		pos = (event as InputEventMouseMotion).position
@@ -927,10 +1043,11 @@ func _unhandled_input(event: InputEvent) -> void:
 			var rel := (event as InputEventMouseMotion).relative
 			if pos.distance_to(_press_pos) > 12.0:
 				_dragged = true
-			if _dragged:
-				_orbit_yaw -= rel.x * 0.006
-				_orbit_pitch = clampf(_orbit_pitch + rel.y * 0.004, -0.6, 1.2)
-		elif mode == Mode.PICK:
+			if _dragged and _touches.size() < 2:
+				_orbit_yaw -= rel.x * (0.004 if far_view else 0.006)
+				if not far_view:
+					_orbit_pitch = clampf(_orbit_pitch + rel.y * 0.004, -0.6, 1.2)
+		elif mode == Mode.PICK and not far_view:
 			var id := pick_node_at(pos)
 			_hover.visible = id >= 0
 			if id >= 0:
@@ -941,7 +1058,13 @@ func _unhandled_input(event: InputEvent) -> void:
 		if mode == Mode.DONE and not is_settling() and swipe.y > 160.0 and absf(swipe.x) < swipe.y * 0.7 				and Time.get_ticks_msec() - _press_msec < 900:
 			swipe_up.emit()
 			return
-		if not _dragged and mode == Mode.PICK:
+		if _pinch_done or _touches.size() >= 2:
+			return
+		if not _dragged and mode == Mode.PICK and far_view:
+			var tip := pick_far_tip_at(pos)
+			if tip >= 0:
+				start_at(tip)
+		elif not _dragged and mode == Mode.PICK:
 			var id := pick_node_at(pos)
 			if id >= 0:
 				start_at(id)
@@ -960,3 +1083,249 @@ func pick_node_at(screen: Vector2) -> int:
 			best_d = d
 			best = id
 	return best
+
+
+# --- the far view (0.8.2) --------------------------------------------------------------
+
+## The rock bands and soft veins of this soil (one mesh each).
+func _build_field() -> void:
+	_bands.mesh = FieldLook.band_mesh(ground)
+	if _band_mat == null:
+		var mat := RockLook.material(0.0, 0.45)
+		mat.set_shader_parameter("stone_a", Color(0.4, 0.37, 0.34))
+		mat.set_shader_parameter("stone_b", Color(0.25, 0.23, 0.21))
+		mat.set_shader_parameter("void_fill", 0.35)
+		_band_mat = mat
+	_bands.material_override = _band_mat
+	_bands.visible = _bands.mesh != null
+	_veins.mesh = FieldLook.vein_mesh(ground)
+	_veins.visible = _veins.mesh != null
+
+
+## The far view may open now: choosing the start, a quiet night, or after the run has settled.
+func can_far_view() -> bool:
+	return roots != null and (mode == Mode.PICK or mode == Mode.DONE and not is_settling())
+
+
+## The far camera's vertical angle: FAR_HFOV across the screen, wider in portrait.
+func far_fov() -> float:
+	var aspect := _aspect()
+	if aspect >= 1.0:
+		return 62.0
+	return clampf(rad_to_deg(2.0 * atan(tan(deg_to_rad(FAR_HFOV) * 0.5) / aspect)), 62.0, 112.0)
+
+
+## The far camera's distance: the whole field (its radius, with a margin) across the screen.
+func far_distance() -> float:
+	var half_w := tan(deg_to_rad(far_fov()) * 0.5) * _aspect()
+	return maxf(ground.extent * FAR_FIELD_MARGIN / maxf(half_w, 0.1), 20.0)
+
+
+func _aspect() -> float:
+	var vp := get_viewport().get_visible_rect().size if is_inside_tree() else Vector2(720, 1280)
+	return vp.x / maxf(vp.y, 1.0)
+
+
+## Opens the far view. False when it may not open now (during the run, or while settling).
+func open_far_view() -> bool:
+	if far_view or not can_far_view():
+		return false
+	far_view = true
+	_saved_view = [_look, _orbit_distance, _orbit_pitch]
+	_build_far()
+	_show_far(true)
+	_look = Vector3(0.0, -2.0, 0.0)
+	_orbit_pitch = FAR_PITCH
+	_orbit_distance = far_distance()
+	_cam_slow_t = 2.5
+	_tween_fov(far_fov(), 1.6)
+	_hover.visible = false
+	far_view_opened.emit()
+	_update_hud()
+	return true
+
+
+## Back to the normal camera (pinch in, back, a far tap that starts the run).
+func leave_far_view() -> void:
+	_leave_far(false)
+
+
+func _leave_far(instant: bool) -> void:
+	if not far_view:
+		return
+	far_view = false
+	_show_far(false)
+	if _saved_view.size() == 3:
+		_look = _saved_view[0]
+		_orbit_distance = _saved_view[1]
+		_orbit_pitch = _saved_view[2]
+	if instant:
+		if _fov_tween:
+			_fov_tween.kill()
+		camera.fov = 62.0
+	else:
+		_cam_slow_t = 2.0
+		_tween_fov(62.0, 1.4)
+	_update_hud()
+
+
+func _tween_fov(to: float, secs: float) -> void:
+	if _fov_tween:
+		_fov_tween.kill()
+	if not is_inside_tree():
+		camera.fov = to
+		return
+	_fov_tween = create_tween()
+	_fov_tween.tween_property(camera, "fov", to, secs).set_trans(Tween.TRANS_SINE)
+
+
+## What shows in the far view: the roots as lines, the known patches as clouds, the bands dark,
+## the veins, the wish glow and the trunk; the dots, boulders, finds and the near roots hide.
+func _show_far(on: bool) -> void:
+	_dots.visible = not on
+	_static_roots.visible = not on
+	_live_roots.visible = not on
+	if _content != null:
+		_content.visible = not on
+	_far_roots.visible = on and _far_roots.mesh != null
+	_far_clouds.visible = on
+	_far_trunk.visible = on
+	_bands.material_override = _band_far_mat if on else _band_mat
+	var env := camera.environment
+	env.fog_density = FAR_FOG if on else 0.05
+	env.background_color = FAR_SOIL if on else SOIL_COLOR
+	env.fog_light_color = FAR_SOIL if on else SOIL_COLOR
+	camera.far = 220.0 if on else 60.0
+	for n in _glow_nodes:
+		var mat := (n as MeshInstance3D).material_override as ShaderMaterial
+		mat.set_shader_parameter("floor_until", 150.0 if on else 45.0)
+		mat.set_shader_parameter("gone_at", 200.0 if on else 60.0)
+		mat.set_shader_parameter("far_grow", 1.4 if on else 3.0)
+
+
+## The far view's meshes, from the save: main roots by night, and the known patches.
+func _build_far() -> void:
+	_far_roots.mesh = FieldLook.far_roots_mesh(roots, far_distance() * FAR_ROOT_SHARE)
+	var known := far_known_patches()
+	var mm := _far_clouds.multimesh
+	mm.instance_count = known.size()
+	for k in range(known.size()):
+		var p: Dictionary = ground.patches[known[k]]
+		var full := clampf(ground.patch_amount(known[k]) / maxf(ground.patch_amount(known[k], true), 1e-3), 0.0, 1.0)
+		var size := float(p["radius"]) * 3.2
+		mm.set_instance_transform(k, Transform3D(Basis.from_scale(Vector3.ONE * size), p["center"]))
+		var col: Color = Resources.KIND_COLORS[int(p["kind"])]
+		mm.set_instance_color(k, Color(col, 0.35 + 0.45 * full))
+
+
+## The rich patches the far view shows (Underground.known_patches with known_reach and the
+## clearing's edge).
+func far_known_patches() -> PackedInt32Array:
+	return ground.known_patches(roots.graph.positions, known_reach, Terrain.edge)
+
+
+## The nearest end of a main root to a screen point in the far view (70 px), or -1.
+func pick_far_tip_at(screen: Vector2) -> int:
+	var best := -1
+	var best_d := 70.0
+	for id in FieldLook.main_tips(roots):
+		var p := roots.graph.positions[id]
+		if camera.is_position_behind(p):
+			continue
+		var d := camera.unproject_position(p).distance_to(screen)
+		if d < best_d:
+			best_d = d
+			best = id
+	return best
+
+
+## Wheel, two-finger pinch and the trackpad's magnify: zoom the overview; past
+## NORMAL_MAX_DISTANCE the far view opens, zooming in closes it. True when the event was used.
+func _zoom_input(event: InputEvent) -> bool:
+	if event is InputEventMouseButton and (event as InputEventMouseButton).pressed:
+		var b := (event as InputEventMouseButton).button_index
+		if b == MOUSE_BUTTON_WHEEL_UP:
+			if far_view:
+				leave_far_view()
+			else:
+				_orbit_distance = maxf(3.0, _orbit_distance * 0.9)
+			return true
+		if b == MOUSE_BUTTON_WHEEL_DOWN:
+			if not far_view:
+				if _orbit_distance >= NORMAL_MAX_DISTANCE * 0.999:
+					open_far_view()
+				else:
+					_orbit_distance = minf(NORMAL_MAX_DISTANCE, _orbit_distance * 1.1)
+			return true
+	if event is InputEventMagnifyGesture:
+		var f := (event as InputEventMagnifyGesture).factor
+		if far_view:
+			if f > 1.02:
+				leave_far_view()
+		elif f < 1.0 and _orbit_distance >= NORMAL_MAX_DISTANCE * 0.999:
+			open_far_view()
+		else:
+			_orbit_distance = clampf(_orbit_distance / maxf(f, 0.01), 3.0, NORMAL_MAX_DISTANCE)
+		return true
+	if event is InputEventScreenTouch:
+		var t := event as InputEventScreenTouch
+		if t.pressed:
+			_touches[t.index] = t.position
+			if _touches.size() == 1:
+				_pinch_done = false
+		else:
+			_touches.erase(t.index)
+		if _touches.size() == 2:
+			var pts := _touches.values()
+			_pinch_from = (pts[0] as Vector2).distance_to(pts[1])
+			_pinch_zoom = _orbit_distance
+			_pinch_done = true
+		return false
+	if event is InputEventScreenDrag:
+		var d := event as InputEventScreenDrag
+		if not _touches.has(d.index):
+			return false
+		_touches[d.index] = d.position
+		if _touches.size() == 2 and _pinch_from > 0.0:
+			var pts := _touches.values()
+			var now := maxf((pts[0] as Vector2).distance_to(pts[1]), 1.0)
+			var ratio := _pinch_from / now
+			if far_view:
+				if ratio < 0.8:
+					leave_far_view()
+					_pinch_from = now
+					_pinch_zoom = _orbit_distance
+			elif _pinch_zoom * ratio > NORMAL_MAX_DISTANCE * 1.15:
+				open_far_view()
+				_pinch_from = now
+			else:
+				_orbit_distance = clampf(_pinch_zoom * ratio, 3.0, NORMAL_MAX_DISTANCE)
+			return true
+	return false
+
+
+# --- first meetings with the field (0.8.2 first-time check) --------------------------------
+
+const NOTE_SECONDS := 5.0
+const NOTES := {
+	"band": "Rock: find its gap, go round, or dive under.",
+	"vein": "Soft soil: the root grows cheaper here.",
+}
+
+
+## The first time the tip meets a rock band or a soft vein, one line says what it is.
+func _check_soil_notes(delta: float) -> void:
+	_note_time = maxf(0.0, _note_time - delta)
+	if ground.bands.is_empty() and ground.veins.is_empty():
+		return
+	var met := ""
+	if not _run_met.has("band") and ground.band_at(roots.tip_position, 0.3) >= 0:
+		met = "band"
+	elif not _run_met.has("vein") and ground.vein_at(roots.tip_position) >= 0:
+		met = "vein"
+	if met == "":
+		return
+	_run_met[met] = true
+	if first_note.call(met):
+		_note_text = NOTES[met]
+		_note_time = NOTE_SECONDS

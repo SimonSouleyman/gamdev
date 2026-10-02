@@ -101,6 +101,9 @@ func _hints_match(u: Underground, old_soil: bool) -> void:
 					var c := u.rock_centers[r]
 					if Vector2(c.x - p.x, c.z - p.z).length() < 0.01 and -c.y - u.rock_radii[r] < 1.2:
 						rock = true
+				# 0.8.2: a rock band under the clearing shows a line of stones (it reaches the meadow).
+				if u.band_at(Vector3(p.x, -0.5, p.z)) >= 0:
+					rock = true
 				t.check(rock, "shallow rock below stones")
 	for k in ["rushes", "clover", "nettles", "moss"]:
 		t.check(kinds.has(k), "meadow shows %s" % k)

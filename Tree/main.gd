@@ -147,6 +147,12 @@ func _build() -> void:
 	root_view.run_finished.connect(func(_t: PackedFloat32Array) -> void: state.notify_run_done())
 	root_view.find_touched.connect(func(f: Dictionary) -> void: state.notify_find(f))
 	root_view.dots_collected.connect(func(n: int) -> void: ambience.play_collect(n))
+	# 0.8.2 first-time lines: the far view's hint until it was opened once, and one line the
+	# first time a root meets a rock band or a soft vein.
+	root_view.far_view_opened.connect(func() -> void:
+		state.first_time("far_view")
+		root_view.far_hint = false)
+	root_view.first_note = func(id: String) -> bool: return state.first_time("note_" + id)
 	journal.page_closed.connect(_on_page_closed)
 	journal.opened_changed.connect(_on_journal_opened)
 	journal.setting_changed.connect(_apply_setting)
@@ -386,6 +392,7 @@ func _enter_night_view() -> void:
 		root_view.quiet_night = state.night_empty
 		root_view.begin_idle_overview()
 	else:
+		root_view.far_hint = state.roots.main_root_count >= FAR_HINT_NIGHTS and not state.seen_pages.has("far_view")
 		root_view.begin_pick()
 		if state.roots.graph.size() <= 1:
 			# The very first night: the root starts at the seed once the page is read.
@@ -395,6 +402,11 @@ func _enter_night_view() -> void:
 				root_view.start_at(0)
 		else:
 			_page_once("pick")
+
+
+## 0.8.2: the far view's one-line hint shows on the pick nights from this many roots on (by then
+## the roots reach past the overview's frame), until the player has opened it once.
+const FAR_HINT_NIGHTS := 4
 
 
 func _rise() -> void:
@@ -530,6 +542,8 @@ func _back() -> void:
 			leave_bonsai()
 	elif shed_menu.is_busy():
 		shed_menu.close_boards()
+	elif _underground and root_view.far_view:
+		root_view.leave_far_view()
 	elif not in_shed and not _transitioning:
 		enter_shed(true)
 	elif in_shed and not _transitioning and Budgets.PHONE:

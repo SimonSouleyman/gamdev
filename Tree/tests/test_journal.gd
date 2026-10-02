@@ -35,6 +35,8 @@ func _all_game_lines() -> Array[String]:
 		for where in [Vector3(5, -1, -5), Vector3(-5, -1, 5), Vector3(0, -1, -6)]:
 			out.append(Diary.wish_entry(kind, where))
 			out.append(Diary.wish_entry(kind, where, true))
+			out.append(Diary.wish_entry(kind, where, false, true))
+			out.append(Diary.wish_entry(kind, where, true, true))
 	out.append_array(Diary.DAY_WISH_LINES)
 	for kind in range(4):
 		ground.patches.append({"kind": kind, "center": Vector3(5, -1, 5), "radius": 1.0})
