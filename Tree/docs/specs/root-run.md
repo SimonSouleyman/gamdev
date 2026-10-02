@@ -10,7 +10,9 @@ Today ending the root at once grows the tree fastest on all six species, so the 
 **What the player should feel.** "I went for that damp patch and it paid off tomorrow." Calm
 concentration for under a minute, then rest.
 
-**Input.** The stick, hold to dive, "let roots spread" (was "let roots spread"), the start point on an old root.
+**Input.** An invisible floating stick, swipe up to dive, "let roots spread" (was "end root here"), the start point on an old root.
+
+**Controls (Simon, 2026-10-02, 20:31 UTC; next build).** The start button at the bottom right goes away; "let roots spread" is the only button left in root mode. The drawn stick on the left goes away too: the stick is invisible. The first tap anywhere on the screen starts the root. From then on, touching anywhere and dragging steers in the direction of the drag (the touch point is the stick's centre, the drag is its tilt); lifting the finger keeps the held heading, as now. Simon: "Das ist intuitiver."
 
 **Output.** Nutrients from dots the new root touches (first contact), fine roots from the
 leftover life force, deposits the network keeps drinking each night, and a permanent root.
