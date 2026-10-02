@@ -28,6 +28,13 @@ var _ring_mat: ShaderMaterial
 var _ring_left: float = 0.0
 var _light: float = 1.0
 var _t: float = 0.0
+## The flowers (0.8.2.6, the morning moment): 0 in bud (sunrise until the morning moment), 1 open.
+## They open over BLOOM_SECONDS at the moment (open_flowers); the butterflies come with them.
+const BLOOM_SECONDS: float = 2.0
+var bloom: float = 1.0
+var _bloom_from: float = 1.0
+var _bloom_t: float = -1.0
+var _stand_mat: ShaderMaterial
 var _edge: float = INF
 
 
@@ -85,8 +92,34 @@ func _build_stand(kind: int) -> void:
 		_:
 			_stand(st, r * 0.75, 11, _comfrey)
 	st.generate_normals()
-	var m := _add(st.commit(), _plant_material(), Vector3.ZERO)
+	if _stand_mat == null:
+		var sh := Shader.new()
+		sh.code = STAND_SHADER
+		_stand_mat = ShaderMaterial.new()
+		_stand_mat.shader = sh
+	_stand_mat.set_shader_parameter("bloom", bloom)
+	var m := _add(st.commit(), _stand_mat, Vector3.ZERO)
 	m.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+
+
+## The flowers open or closed at once (a load, a new morning).
+func set_open(on: bool) -> void:
+	bloom = 1.0 if on else 0.0
+	_bloom_t = -1.0
+	if _stand_mat != null:
+		_stand_mat.set_shader_parameter("bloom", bloom)
+
+
+func bloom_running() -> bool:
+	return _bloom_t >= 0.0
+
+
+## The morning moment: the flowers open over BLOOM_SECONDS (with a little brightening as they do).
+func open_flowers() -> void:
+	if bloom >= 1.0:
+		return
+	_bloom_from = bloom
+	_bloom_t = 0.0
 
 
 ## `count` plants within `radius` of the place, each made by `make` at the origin and set down
@@ -195,6 +228,7 @@ func _place_butterfly(b: Node3D) -> void:
 
 
 ## A soft shimmer over the stand by day: a faint warm haze with a few motes drifting up.
+## (0.8.2.6: without fog; the haze added the fog's colour over the whole quad, a pale rectangle.)
 var _shimmer_mat: ShaderMaterial
 
 
@@ -253,9 +287,18 @@ func _process(delta: float) -> void:
 	if patch_id < 0:
 		return
 	_t += delta
-	var day := _light > 0.35
+	if _bloom_t >= 0.0:
+		_bloom_t += delta
+		var k := clampf(_bloom_t / BLOOM_SECONDS, 0.0, 1.0)
+		bloom = lerpf(_bloom_from, 1.0, smoothstep(0.0, 1.0, k))
+		if _stand_mat != null:
+			_stand_mat.set_shader_parameter("bloom", bloom)
+			_stand_mat.set_shader_parameter("glow", sin(k * PI))
+		if k >= 1.0:
+			_bloom_t = -1.0
+	var day := _light > 0.35 and bloom > 0.6
 	if _shimmer_mat != null:
-		_shimmer_mat.set_shader_parameter("strength", smoothstep(0.3, 0.8, _light))
+		_shimmer_mat.set_shader_parameter("strength", smoothstep(0.3, 0.8, _light) * bloom)
 	for b in _butterflies:
 		b.visible = day
 		if day:
@@ -268,9 +311,29 @@ func _process(delta: float) -> void:
 		_ring.visible = _ring_left > 0.0
 
 
+## The stand: the meadow's plant material (vertex colours, two-sided, a little backlight), with
+## the flowers (the colours that are not leaf green: pink and white heads, brown tufts, violet
+## bells, nettle tassels) shown in bud, green and dark, until `bloom` opens them.
+const STAND_SHADER := """
+shader_type spatial;
+render_mode cull_disabled;
+uniform float bloom = 1.0;
+uniform float glow = 0.0;
+void fragment() {
+	vec3 c = COLOR.rgb;
+	float tassel = (1.0 - smoothstep(0.02, 0.05, abs(c.r - c.g))) * step(0.28, c.r);
+	float flower = clamp((max(c.r, c.b) - c.g) * 8.0 + step(2.4, c.r + c.g + c.b) + tassel, 0.0, 1.0);
+	vec3 bud = vec3(0.2, 0.3, 0.12);
+	ALBEDO = mix(c, bud, flower * (1.0 - bloom)) * (1.0 + 0.35 * glow * flower);
+	ROUGHNESS = 0.85;
+	BACKLIGHT = vec3(0.25, 0.3, 0.12);
+}
+"""
+
+
 const SHIMMER_SHADER := """
 shader_type spatial;
-render_mode unshaded, blend_add, depth_draw_never, cull_disabled, shadows_disabled;
+render_mode unshaded, blend_add, depth_draw_never, cull_disabled, shadows_disabled, fog_disabled;
 uniform float strength = 1.0;
 void vertex() {
 	// Always facing the camera.

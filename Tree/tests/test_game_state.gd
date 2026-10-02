@@ -340,9 +340,10 @@ func test_visitors_come_once_as_the_tree_grows() -> void:
 			g.tick(0.25)
 		while g.phase == GameState.Phase.DAY:
 			g.tick(0.5)
+	# (0.8.2.6: they come at the late-morning moment of a day; arrive() brings any still due.)
 	var first := Visitors.arrive(g)
-	t.check(first.has("butterflies"), "butterflies have come (%s, %.1f m)" % [str(first), g.sim.height()])
-	t.check(g.sim.height() < 8.0 or first.has("nest"), "a tall tree gets a nest")
+	t.check(Visitors.has_come(g, "butterflies"), "butterflies have come (%s, %.1f m)" % [str(first), g.sim.height()])
+	t.check(g.sim.height() < 8.0 or Visitors.has_come(g, "nest"), "a tall tree gets a nest")
 	t.check(not Visitors.arrive(g).has("butterflies"), "each visitor comes once")
 
 

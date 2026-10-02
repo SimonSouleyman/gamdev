@@ -226,6 +226,102 @@ func apply_season() -> void:
 	_forest_leaf_mats = SeasonLook.leaf_materials(_scenery)
 	_wet_set = -1.0
 	_dew_set = -1.0
+	_wind_set = -1.0
+
+
+# --- the day's moments (0.8.2.6, specs/journal-drawers-loop.md G2, G3) -------------
+
+## The morning glow along last night's new roots.
+var root_glow: RootGlow
+## Real seconds the fast-forward still runs at normal speed for a moment (Moments.SLOW_SECONDS).
+var _moment_left: float = 0.0
+## The moment shown last (tests, tools) and its note on the scrap.
+var last_moment: String = ""
+var _note: String = ""
+var _note_left: float = 0.0
+const NOTE_SECONDS := 4.5
+## The weather turn: its kind (Moments.TURNS) and real seconds since it began (-1: none).
+var turn_kind: String = ""
+var _turn_t: float = -1.0
+var _wind_set: float = -1.0
+## The dawn burst sparkles brighter for this long at the morning reveal.
+var _reveal_left: float = 0.0
+
+
+## A moment of the day: a fast-forward runs at normal speed for Moments.SLOW_SECONDS, then eases
+## in again; and the moment shows (the flowers open, the visitor's line, the weather turns).
+func moment(m: String, note: String = "") -> void:
+	last_moment = m
+	_moment_left = Moments.SLOW_SECONDS
+	_ff_amount = 0.0
+	match m:
+		Moments.MORNING:
+			refresh_wish()
+			wish_plant.open_flowers()
+		Moments.VISITOR:
+			if note != "":
+				_note = note
+				_note_left = NOTE_SECONDS
+		Moments.WEATHER:
+			turn_kind = Moments.turn_kind(state.seed, state.day_number(), bool(state.weather_today().get("rain", false)))
+			_turn_t = 0.0
+
+
+## Seconds the moment's normal speed still lasts (0: none).
+func moment_slow_left() -> float:
+	return _moment_left
+
+
+## The first view of a morning (main._rise, as the black lifts): last night's new roots glow
+## through the soil for Moments.GLOW_SECONDS and the dawn burst's new twigs sparkle. False when
+## no roots grew last night.
+func morning_reveal() -> bool:
+	_reveal_left = Moments.GLOW_SECONDS
+	var g := state.sim.graph
+	for id in range(maxi(1, state.sim.dawn_size), g.size()):
+		if id < _built_size:
+			_births[id] = _time
+	var nr := state.night_roots
+	if nr.x < 0:
+		return false
+	return root_glow.show_roots(Moments.night_segments(state.roots, nr.x, nr.y))
+
+
+## Behind the sunrise's black (main._rise): the camera turns, if need be, until last night's new
+## roots lie within FACE_NIGHT of straight ahead, beyond the tree, so the morning glow is seen.
+const FACE_NIGHT := deg_to_rad(30.0)
+
+
+func face_night_roots() -> void:
+	var nr := state.night_roots
+	if nr.x < 0:
+		return
+	var mid := Moments.night_middle(state.roots, nr.x, nr.y)
+	if mid.length() < 0.5:
+		return
+	# The camera stands at (sin yaw, cos yaw) from the tree: opposite the roots to look at them.
+	var want := atan2(-mid.x, -mid.y)
+	var off := wrapf(want - _yaw, -PI, PI)
+	if absf(off) > FACE_NIGHT:
+		_yaw += off - signf(off) * FACE_NIGHT
+
+
+func _update_moments(delta: float) -> void:
+	_note_left = maxf(0.0, _note_left - delta)
+	_reveal_left = maxf(0.0, _reveal_left - delta)
+	if _turn_t >= 0.0:
+		_turn_t += delta
+		if _turn_t > Moments.TURN_IN + Moments.TURN_HOLD + Moments.TURN_OUT:
+			_turn_t = -1.0
+	# Not while the clearing is not shown (the shed, the night).
+	if state.phase != GameState.Phase.DAY:
+		_turn_t = -1.0
+		root_glow.stop()
+
+
+## The weather turn's strength now, 0..1 (0 when none).
+func turn_amount() -> float:
+	return Moments.turn_amount(_turn_t) if _turn_t >= 0.0 else 0.0
 
 
 # --- world ------------------------------------------------------------------
@@ -252,6 +348,9 @@ func refresh_wish() -> void:
 	var d := state.diary
 	var pid := d.wish_patch if not d.wish_reached else -1
 	wish_plant.show_wish(state.ground, pid, Terrain.edge)
+	# In bud from sunrise until the morning moment (0.8.2.6), open the rest of the day.
+	if not wish_plant.bloom_running():
+		wish_plant.set_open(state.phase != GameState.Phase.DAY or state.sim.clock.clock_hour() >= float(Moments.HOURS[Moments.MORNING]))
 
 
 ## At sunset, a small ink ring is drawn around the wish plant for a moment (0.8.2.5).
@@ -397,6 +496,8 @@ func _build_world() -> void:
 	add_child(_meadow)
 	wish_plant = WishPlant.new()
 	add_child(wish_plant)
+	root_glow = RootGlow.new()
+	add_child(root_glow)
 	_understory = Understory.new()
 	add_child(_understory)
 	_scenery = Scenery.new()
@@ -755,6 +856,9 @@ func _update_hud() -> void:
 				_hint.text = ("Almost nothing left to grow with today" if state.sim.nutrient_missing() and not state.sim.graph.is_full() and state.sim.resources.stock[0] >= state.sim.cost_per_node else "Nothing left to grow with today") + ". The leaves still gather life force for tonight."
 			elif prune_mode:
 				_hint.text = "Touch a branch to see where the shears would cut; lift the finger to cut."
+			elif _note_left > 0.0:
+				# The day's visitor (0.8.2.6 moment): its line for a few seconds.
+				_hint.text = _note
 			elif _care_words() != "":
 				# What the crown shows, in the same words as the care page (0.6.3 review: the line
 				# named a need the tree did not show).
@@ -794,6 +898,7 @@ func _process(delta: float) -> void:
 		_to_sunset = false
 	_time += delta
 	_update_hold(delta)
+	_update_moments(delta)
 	_rebuild_timer += delta
 	_update_care()
 	if _rebuild_timer >= REBUILD_INTERVAL and (state.sim.graph.size() != _built_size or _care_changed() or marks_key() != _built_marks):
@@ -919,14 +1024,19 @@ func _update_twinkles() -> void:
 			_births.erase(id)
 	# Only every fourth new segment glows, and softly: many fast-flickering yellow points read
 	# as screen flicker (Simon, 0.5.1).
-	alive = alive.filter(func(id: int) -> bool: return id % 4 == 0)
+	# At the morning reveal (0.8.2.6) every second one, a little larger: the dawn burst shows.
+	var every := 2 if _reveal_left > 0.0 else 4
+	# None right in front of the lens (a camera rising past the sapling saw one fill the picture).
+	var eye := camera.global_position
+	alive = alive.filter(func(id: int) -> bool: return id % every == 0 and eye.distance_squared_to(g.positions[id]) > 1.0)
+	var big := 1.4 if _reveal_left > 0.0 else 1.0
 	var mm := _twinkles.multimesh
 	mm.instance_count = alive.size()
 	for i in range(alive.size()):
 		var id: int = alive[i]
 		var age := (_time - float(_births[id])) / TWINKLE_SECONDS
 		var flicker := 0.85 + 0.15 * sin(_time * 2.0 + id * 1.7)
-		var s := 0.22 * (1.0 - age) * flicker + 0.04
+		var s := (0.22 * (1.0 - age) * flicker + 0.04) * big
 		mm.set_instance_transform(i, Transform3D(Basis.from_scale(Vector3.ONE * s), g.positions[id]))
 		mm.set_instance_color(i, Color(1.0, 0.92, 0.6, (1.0 - age) * flicker * 0.6))
 
@@ -1076,6 +1186,10 @@ func _update_mood(_h: float) -> void:
 	weather = state.weather_today()
 	var t := clock.time_of_day / clock.daylight_fraction if state.phase == GameState.Phase.DAY else -1.0
 	rain_now = Almanac.rain_amount(weather, t) if t >= 0.0 else 0.0
+	# The afternoon's weather turn (0.8.2.6): look only.
+	var turn := turn_amount()
+	if turn_kind == "shower":
+		rain_now = maxf(rain_now, 0.7 * turn)
 	var mist := Almanac.mist_amount(weather, t) if t >= 0.0 else 0.0
 	var dew := Almanac.dew_amount(weather, t) if t >= 0.0 else 0.0
 	var r := rain_now
@@ -1114,6 +1228,17 @@ func _update_mood(_h: float) -> void:
 		_env.fog_light_color = _env.fog_light_color.lerp(Color(0.36, 0.4, 0.43), r * 0.7)
 		_env.adjustment_saturation *= 1.0 - 0.25 * r
 	# Mist: the haze comes down into the clearing, soft and pale, and lifts as the morning goes on.
+	if turn_kind == "cloud" and turn > 0.0:
+		# A cloud passes over the sun: the light dims and the shadows soften, then it comes back.
+		_sun_light.light_energy *= 1.0 - 0.5 * turn
+		_sun_light.shadow_opacity *= 1.0 - 0.6 * turn
+		_env.ambient_light_energy *= 1.0 - 0.15 * turn
+	var wind := 1.0 + (1.8 * turn if turn_kind == "breeze" else 0.6 * turn)
+	if absf(wind - _wind_set) > 0.03:
+		_wind_set = wind
+		_spray_mat.set_shader_parameter("wind_strength", wind)
+		for mat in _grass_mats:
+			mat.set_shader_parameter("wind_strength", wind)
 	var m := maxf(mist, r * 0.25)
 	_env.fog_depth_begin = lerpf(_fog_begin, 4.0, m)
 	_env.fog_depth_end = lerpf(_fog_end, _fog_begin + 40.0, m)
@@ -1565,7 +1690,11 @@ func _update_hold(delta: float) -> void:
 	# The sunset run ends at the sunset hold (or when the shears come out).
 	if _to_sunset and (state.phase != GameState.Phase.DAY or prune_mode):
 		run_to_sunset(false)
-	if fast_forwarding():
+	if _moment_left > 0.0:
+		# A moment: normal speed for a little while, then the speed eases in again.
+		_moment_left = maxf(0.0, _moment_left - delta)
+		_ff_amount = 0.0
+	elif fast_forwarding():
 		_ff_amount = minf(1.0, _ff_amount + delta / FAST_EASE)
 	else:
 		# Stops on release, at the sunset hold, and when a page or the shed takes the input.

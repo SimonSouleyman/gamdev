@@ -42,6 +42,14 @@ var night_done: bool = false
 var night_empty: bool = false
 ## Tonight's root reached a deposit: the morning's page says so once (0.8.2.5, Diary.DRANK_LINE).
 var drank: bool = false
+## The best thing tonight's roots reached (0.8.2.6, G3): "wish", "rich:<kind>" (a rich patch, by
+## Resources.Kind) or "find:<kind>", "" for none. The morning's diary line names it (Diary.morning_line).
+var night_best: String = ""
+## Last night's new root nodes [from, to) for the morning glow (TreeView.morning_reveal), set at
+## sunrise after a night whose roots grew; (-1, -1) otherwise. Not saved: shown at the rise.
+var night_roots: Vector2i = Vector2i(-1, -1)
+## Today's visitor (0.8.2.6 moment): a first-time visitor's id, or "wren", or "" (none yet).
+var today_visitor: String = ""
 var _empty_timer: float = 0.0
 ## One-time journal pages already shown (the tutorial lives in the journal).
 var seen_pages: Dictionary = {}
@@ -246,7 +254,9 @@ func _tick_loop(delta: float) -> void:
 				if bool(weather_today().get("rain", false)) and day_number() > 0:
 					after_rain()
 				_event("sunset")
+				_brush_visitors()
 			else:
+				var hour_before := clock.clock_hour()
 				sim.tick(delta)
 				if not finished and sim.is_finished():
 					_finish()
@@ -260,7 +270,9 @@ func _tick_loop(delta: float) -> void:
 				if not _spent_announced and (sim.nutrients_spent() or sim.nutrient_missing()):
 					_spent_announced = true
 					_event("spent")
-			_brush_visitors()
+				_brush_visitors()
+				for m in Moments.crossed(hour_before, clock.clock_hour()):
+					_moment(m)
 		Phase.SUNSET:
 			# Time holds until the player taps the ground; the hedgehog may still come out.
 			_brush_visitors()
@@ -291,6 +303,7 @@ func dive() -> bool:
 	run_used = false
 	night_done = false
 	drank = false
+	night_best = ""
 	_empty_timer = 0.0
 	roots.run_totals = PackedFloat32Array([0, 0, 0, 0])
 	roots.run_room = Array(sim.stock_room(sim.find_hold_days))
@@ -397,6 +410,8 @@ func notify_find(f: Dictionary) -> void:
 func _on_find(f: Dictionary) -> void:
 	var kind := str(f["kind"])
 	diary.add(day_number(), str(FIND_LINES.get(kind, "Found %s." % kind)), "tree", kind if InkSketch.has(kind) else "", "find")
+	if phase == Phase.NIGHT:
+		_note_best("find:" + kind)
 	_event("find:" + kind)
 
 
@@ -407,17 +422,26 @@ func _on_run_done() -> void:
 	var reached := diary.check_reached(ground, roots, day_number(), day_number() + 1)
 	if reached >= 0:
 		_event("wish:%d" % reached)
-	drank = run_reached_deposit()
+		_note_best("wish")
+	var patch := run_reached_patch()
+	drank = patch >= 0
+	if drank:
+		_note_best("rich:%d" % int(ground.patches[patch]["kind"]))
 	_event("run_done")
 
 
 ## Tonight's main root came within reach of a deposit (any patch but the starter one at the
 ## trunk): its dots were in the root's collect radius.
 func run_reached_deposit() -> bool:
+	return run_reached_patch() >= 0
+
+
+## The deposit tonight's main root reached (the first in the soil's order), or -1.
+func run_reached_patch() -> int:
 	var g := roots.graph
 	var main := roots.main_root_count - 1
 	if main < 0 or roots.run_first_new_id < 0:
-		return false
+		return -1
 	for pid in range(ground.patches.size()):
 		var p: Dictionary = ground.patches[pid]
 		var c: Vector3 = p["center"]
@@ -427,7 +451,40 @@ func run_reached_deposit() -> bool:
 		reach *= reach
 		for id in range(maxi(1, roots.run_first_new_id), g.size()):
 			if g.positions[id].distance_squared_to(c) <= reach and g.get_flag(id, "main", -1) == main:
-				return true
+				return pid
+	return -1
+
+
+## The best of the night so far: a wish beats a rich patch, a rich patch beats a find (the
+## spec's order); the first of equals stays.
+const BEST_RANK := {"wish": 3, "rich": 2, "find": 1}
+
+
+func _note_best(what: String) -> void:
+	var rank := int(BEST_RANK.get(what.get_slice(":", 0), 0))
+	var have := int(BEST_RANK.get(night_best.get_slice(":", 0), 0)) if night_best != "" else 0
+	if rank > have:
+		night_best = what
+
+
+## A moment of the day (Moments): the visitor comes; every moment is told to the scenes.
+func _moment(m: String) -> void:
+	if day_number() < 1:
+		return
+	if m == Moments.VISITOR:
+		var came := Visitors.arrive(self)
+		today_visitor = came[0] if not came.is_empty() else ("wren" if brush.wren_day == day_number() else "")
+		if today_visitor == "":
+			return  # nobody came: nothing to show, no slow-down
+	_event("moment:" + m)
+
+
+## A moment was crossed since the scenes last looked (main.gd stops a fast-forwarded frame's steps
+## there, so the slow-down starts on the moment).
+func moment_due() -> bool:
+	for e in _events:
+		if e.begins_with("moment:"):
+			return true
 	return false
 
 
@@ -459,6 +516,13 @@ func _sunrise() -> void:
 	night_empty = false
 	_spent_announced = false
 	var was_seed := sim.graph.size() <= 2
+	# Last night's new roots glow at the first view (0.8.2.6, G3): after a night whose roots grew.
+	night_roots = Vector2i(-1, -1)
+	if run_used and not night_empty and not roots.night_starts.is_empty():
+		var from := roots.night_starts[roots.night_starts.size() - 1]
+		if roots.graph.size() > from:
+			night_roots = Vector2i(from, roots.graph.size())
+	today_visitor = ""
 	ground.regrow(REGROW_SHARE, day_number())
 	# The old roots drank from the deposits they reach all night, as far as the tree has room.
 	var seep_cap := sim.day_capacity() * sim.node_cost() * sim.species.needs[Resources.Kind.WATER] * roots.seep_day_cover
@@ -484,10 +548,15 @@ func _sunrise() -> void:
 	if was_seed and not sim.nutrients_spent():
 		diary.add(day_number(), "The seed sprouted at dawn.", "tree", "sapling", "milestone")
 	_care_line()
-	# The night's root reached a deposit: one short line (0.8.2.5; the page's third place).
-	if drank and not was_seed:
-		diary.add(day_number(), Diary.DRANK_LINE, "tree", "fine_roots", "drank")
+	# The best thing the night reached: one short line (0.8.2.6, G3; was "The roots drank well."
+	# in 0.8.2.5). An old save with only the drank flag names a rich patch.
+	if night_best == "" and drank:
+		night_best = "rich"
+	if night_best != "" and not was_seed:
+		var kind := night_best.get_slice(":", 1) if night_best.begins_with("find:") else ""
+		diary.add(day_number(), Diary.morning_line(night_best), "tree", kind if InkSketch.has(kind) else "fine_roots", "drank")
 	drank = false
+	night_best = ""
 	# A missed wish deposit glows faintly one more night; the new wish may place a deposit ahead
 	# of the newest root tip, of what the tree is shorter of (Diary.plan_wish).
 	diary.new_wish(ground, day_number(), seed, roots, sim.resources)
@@ -687,6 +756,7 @@ func to_dict() -> Dictionary:
 		"night_done": night_done,
 		"night_empty": night_empty,
 		"drank": drank,
+		"night_best": night_best,
 		"seen_pages": seen_pages.keys(),
 		"pending_pages": pending_pages,
 		"empty_timer": _empty_timer,
@@ -726,6 +796,7 @@ static func from_dict(d_in: Dictionary) -> GameState:
 	g.night_done = bool(d.get("night_done", false))
 	g.night_empty = bool(d.get("night_empty", false))
 	g.drank = bool(d.get("drank", false))
+	g.night_best = str(d.get("night_best", ""))
 	g.pending_pages = Array(d.get("pending_pages", []))
 	g.finished = bool(d.get("finished", false))
 	for t in d.get("grove", []):
