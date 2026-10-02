@@ -63,6 +63,14 @@ final class LiveData {
                     d.recycle();
                     return null;
                 }
+                // 0.8.2.7 (Simon: the wallpaper showed only its night sky): a layer without its
+                // meadow is a blank render; it is never shown (the last good picture or the
+                // sapling stays).
+                if (!hasGround(d.layers[i])) {
+                    Log.w(TAG, "live picture layer " + LiveScene.LAYERS[i] + " is blank, not shown");
+                    d.recycle();
+                    return null;
+                }
             }
             d.clouds = new Bitmap[d.cloudNames.length];
             for (int i = 0; i < d.cloudNames.length; i++) {
@@ -153,6 +161,24 @@ final class LiveData {
         } catch (Exception e) {
             return null;
         }
+    }
+
+    /** The meadow fills the layer's bottom tenth (LiveExport.check_layer, GROUND_MIN_SHARE). */
+    static boolean hasGround(Bitmap b) {
+        int w = b.getWidth();
+        int h = b.getHeight();
+        int step = Math.max(1, w / 135);
+        int hits = 0;
+        int n = 0;
+        for (int y = (int) (h * 0.9); y < h; y += step) {
+            for (int x = 0; x < w; x += step) {
+                n++;
+                if (Color.alpha(b.getPixel(x, y)) > 127) {
+                    hits++;
+                }
+            }
+        }
+        return n > 0 && hits * 2 >= n;
     }
 
     void recycle() {

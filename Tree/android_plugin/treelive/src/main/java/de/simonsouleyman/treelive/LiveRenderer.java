@@ -35,6 +35,8 @@ final class LiveRenderer {
     private final Context ctx;
     private LiveData data;
     private long lastCheck = -CHECK_MS;
+    /** The file date of the game's picture last found unusable (0: none). */
+    private long rejected;
     private long lastMoment = -MOMENT_MS;
     private LiveScene.Moment moment;
     private final long startMs = System.currentTimeMillis();
@@ -69,7 +71,12 @@ final class LiveRenderer {
         if (data != null && data.stamp != 0 && onDisk == data.stamp) {
             return;
         }
+        if (data != null && onDisk == rejected) {
+            // The same unusable picture as last time: not decoded again each minute.
+            return;
+        }
         LiveData fresh = onDisk > 0 ? LiveData.fromFiles(ctx) : null;
+        rejected = fresh == null ? onDisk : 0;
         if (fresh == null && data == null) {
             // No picture from the game yet (or it cannot be read): the young sapling.
             fresh = LiveData.fromAssets(ctx);
