@@ -311,6 +311,9 @@ func show_hud(on: bool) -> void:
 	visible = on
 	if not on:
 		close_sheet()
+	else:
+		# The scraps' words are written before their first frame (0.8.2.4: one showed blank).
+		_process(0.0)
 
 
 func is_busy() -> bool:

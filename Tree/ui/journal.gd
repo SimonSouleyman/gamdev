@@ -37,6 +37,9 @@ var _page_shown_at: float = 0.0
 var _pages_torn: int = 0
 
 var _book: Control
+## The dim around the open book; solid once it is open (the world under it then stops drawing).
+var _book_dim: ColorRect
+const BOOK_DIM := 0.78
 var _book_page: PanelContainer
 var _tabs: Dictionary = {}  # name -> Control (content)
 var _tab_buttons: Dictionary = {}
@@ -69,6 +72,23 @@ func _ready() -> void:
 	_build_open_button()
 	_build_page()
 	_build_book()
+
+
+## 0.8.2.4 (phone: opening the book froze for 0.49 s): the day pages' ink doodles were drawn on
+## the first open. They are drawn ahead on worker threads now, a few seconds apart, while the
+## book is shut (InkSketch.warm).
+var _warm_t: float = 0.0
+
+
+func _process(delta: float) -> void:
+	_warm_t -= delta
+	if _warm_t > 0.0 or state == null or _book.visible:
+		return
+	_warm_t = 3.0
+	var kinds: Array = []
+	for day in state.diary.days():
+		kinds.append(state.diary.doodle(day))
+	InkSketch.warm(kinds)
 
 
 func is_book_open() -> bool:
@@ -132,6 +152,7 @@ func clear_pages() -> void:
 	_page.visible = false
 	_page_id = ""
 	_book.visible = false
+	_world_back()
 
 
 ## Puts the open and queued pages aside without marking them read (entering the shed).
@@ -279,6 +300,11 @@ func set_button_visible(on: bool) -> void:
 	_open_button.visible = on
 
 
+## The button itself (main.gd fades it out with the HUD at the dive's start).
+func open_button() -> Control:
+	return _open_button
+
+
 func set_button_enabled(on: bool) -> void:
 	_open_button.disabled = not on
 
@@ -296,9 +322,10 @@ func _build_book() -> void:
 	_book.mouse_filter = Control.MOUSE_FILTER_STOP
 	add_child(_book)
 	var dim := ColorRect.new()
-	dim.color = Color(0.05, 0.04, 0.02, 0.78)
+	dim.color = Color(0.05, 0.04, 0.02, BOOK_DIM)
 	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
 	_book.add_child(dim)
+	_book_dim = dim
 
 	# The leather cover, a little larger than the page.
 	var cover := Panel.new()
@@ -701,15 +728,30 @@ func open_diary() -> void:
 	_book.modulate.a = 0.0
 	_book_page.scale = Vector2(0.9, 0.96)
 	_book_page.pivot_offset = Vector2(0, _book_page.size.y * 0.5)
+	_book_dim.color.a = BOOK_DIM
 	var tw := create_tween().set_parallel(true)
 	tw.tween_property(_book, "modulate:a", 1.0, 0.2)
 	tw.tween_property(_book_page, "scale", Vector2.ONE, 0.3).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	# 0.8.2.4 (phone: about 15 fps the whole time the book was open, the world drawn under it):
+	# once open, the dim around the book closes to solid and the world under it stops drawing.
+	tw.chain().tween_property(_book_dim, "color:a", 1.0, 0.25)
+	tw.chain().tween_callback(func() -> void:
+		if _book.visible:
+			get_viewport().disable_3d = true)
 	opened_changed.emit(true)
 
 
 func close_diary() -> void:
 	_book.visible = false
+	_world_back()
 	opened_changed.emit(is_open())
+
+
+## The world draws again under the closing book.
+func _world_back() -> void:
+	if is_inside_tree():
+		get_viewport().disable_3d = false
+	_book_dim.color.a = BOOK_DIM
 
 
 func _add_note() -> void:

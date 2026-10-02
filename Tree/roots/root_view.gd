@@ -856,6 +856,7 @@ func _enter_run() -> void:
 	mode = Mode.RUN
 	quiet_night = false
 	_waiting_for_input = true
+	_look_ahead = roots.travel * 1.2
 	_run_met = {}
 	_note_time = 0.0
 	_touches.clear()
@@ -939,7 +940,8 @@ func _process_run(delta: float) -> void:
 	if _waiting_for_input:
 		_tip.position = roots.tip_position
 		camera.position = camera.position.lerp(roots.tip_position - roots.travel * 2.4 + Vector3.UP * 0.8, 1.0 - exp(-4.0 * delta))
-		_look_at_safely(roots.tip_position + roots.travel * 1.2)
+		_look_ahead = roots.travel * 1.2
+		_look_at_safely(roots.tip_position + _look_ahead)
 		if stick.length() < 0.2 and not dive:
 			return
 		_waiting_for_input = false
@@ -952,6 +954,11 @@ func _process_run(delta: float) -> void:
 		_after_grown = _after_advance.bind(false, delta)
 		return
 	_after_advance(alive, delta)
+
+
+## How fast the run camera's look ahead follows the tip's travel (1/s).
+const RUN_LOOK_RATE := 5.0
+var _look_ahead: Vector3 = Vector3.ZERO
 
 
 ## What follows the tip's step: the dots it drank light up, the camera follows; at the run's
@@ -977,7 +984,11 @@ func _after_advance(alive: bool, delta: float) -> void:
 	var back := (h * 0.5 + (flat.normalized() if flat.length_squared() > 1e-4 else -camera.global_basis.z) * 0.5).normalized()
 	var want := _outside_rocks(roots.tip_position - back * 2.4 + Vector3.UP * 0.8)
 	camera.position = _outside_roots(_outside_rocks(camera.position.lerp(want, 1.0 - exp(-4.0 * delta))))
-	_look_at_safely(roots.tip_position + h * 1.2)
+	# 0.8.2.4 (phone: the camera stuttered through a row of dots): each drunk dot lets the pull
+	# go or turns it to the next dot, so the tip's travel changes its turn at once, and the look
+	# point 1.2 m ahead with it. The look ahead now eases, so the camera's turn ramps.
+	_look_ahead = _look_ahead.lerp(h * 1.2, 1.0 - exp(-RUN_LOOK_RATE * delta))
+	_look_at_safely(roots.tip_position + _look_ahead)
 	if not alive:
 		# end_run() already grew the fine roots and collected their dots.
 		for i in roots.last_collected:
@@ -1177,7 +1188,9 @@ func _look_at_safely(target: Vector3) -> void:
 	var d := target - camera.position
 	if d.length_squared() < 1e-6:
 		return
-	var up := Vector3.UP if absf(d.normalized().dot(Vector3.UP)) < 0.98 else Vector3.FORWARD
+	# Straight up or down: keep the screen's top where it was (0.8.2.4: a fixed FORWARD could
+	# roll the picture half round for a frame).
+	var up := Vector3.UP if absf(d.normalized().dot(Vector3.UP)) < 0.98 else camera.global_basis.y
 	camera.look_at(target, up)
 
 
