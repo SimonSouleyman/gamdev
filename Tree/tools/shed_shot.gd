@@ -166,6 +166,21 @@ func _process(_d: float) -> bool:
 	return false
 
 
+## Bonsai mode in the quick look (with --sill): the glide to the sill, the view there, and back.
+func _quick_bonsai(name: String) -> void:
+	main.journal.clear_pages()
+	main.open_shed_item("bonsai")
+	await create_timer(1.4).timeout
+	main.journal.clear_pages()
+	await _wait(4)
+	_shot(name)
+	main.leave_bonsai()
+	await create_timer(1.2).timeout
+	main.journal.clear_pages()
+	await _wait(4)
+	_shot(name + "_back")
+
+
 func _grown_game() -> GameState:
 	# A tree grown for a few days, at mid-morning.
 	var g := GameState.new_game(42, species)
@@ -244,6 +259,7 @@ func _run() -> void:
 		_shot("shed_away")
 		main.shed_menu.close_boards()
 		await _wait(4)
+		await _quick_bonsai("shed_bonsai")
 	if quick:
 		# On to the night: the window goes dark and the lantern lights the room.
 		while main.state.phase == GameState.Phase.DAY:
@@ -255,6 +271,19 @@ func _run() -> void:
 		await _wait(20)
 		_shot("shed_night")
 		print("shed night: phase %d, night %.2f, shed daylight %.2f" % [main.state.phase, main.tree_view.night_amount, main.shed.daylight])
+		if sill:
+			main._apply_setting("clearer_print", true)
+			main.journal.set_setting("clearer_print", true)
+			await _wait(10)
+			_shot("shed_night_clearer_print")
+			main._apply_setting("clearer_print", false)
+			main.journal.set_setting("clearer_print", false)
+			main.open_shed_item("options")
+			await _wait(12)
+			_shot("shed_night_options")
+			main.shed_menu.close_boards()
+			await _wait(4)
+			await _quick_bonsai("shed_night_bonsai")
 		quit()
 		return
 	# Two photos for the album, into a tool folder (never the player's album).

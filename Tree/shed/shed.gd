@@ -5,9 +5,9 @@ extends Node3D
 ## open toward the tree, so the player's real tree, grown so far, is the big picture in the doorway.
 ## 0.6 (design doc section 17, item 3): the workbench stands in the middle of the view and the
 ## things on it ARE the menu: the journal, the photo album, the seed bag and a pair of garden
-## gloves; the pinboard on the wall holds the options (0.8.1: the flower pot with the seedling left
-## the bench, its page is the journal's first). Each answers
-## a tap with a real sound and a small motion before its page opens. Beside the bench a small
+## gloves; the pinboard (0.8.2.5: on the open door's inside) holds the options (0.8.1: the
+## flower pot with the seedling left the bench, its page is the journal's first). Each answers a
+## tap with a real sound and a small motion before its page opens. Beside the bench a small
 ## window with a sill waits for the bonsai (section 16): `bonsai_spot`.
 ## Real CC0 models from Poly Haven where they fit (workbench, gloves, clay pot, watering can,
 ## trowel; assets/CREDITS.md), the books and the seed bag built here from the real leather,
@@ -27,21 +27,33 @@ static var origin := Vector3(0.0, 0.0, 15.5)
 const WIDTH := 3.2
 const DEPTH := 2.8
 const WALL_H := 2.4
-## (0.8.1, item 26: the door, the window and the pinboard closer together, 0.8 to 0.7 m and
-## 5 cm nearer the door, so the phone's narrow view shows them larger. 0.8.2.2, the tighter view:
-## 0.66 m, the window 2 cm nearer still.)
-const DOOR_W := 0.66
+## 0.8.2.5, the shed's layout (Simon picked proposal 08 of ten, "Pinnwand an der offenen Tür,
+## Fensterbank rechts, Werkbank unten"): the door a little left of the middle (seen from inside),
+## its leaf open into the room with the pinboard on its inside; the window with the sill right of
+## the doorway; the workbench low across the picture's foot.
+## The door's middle along the front wall (shed frame x; +x is the screen's left) and its size.
+const DOOR_X := 0.18
+const DOOR_W := 0.78
 const DOOR_H := 2.05
-## The small window in the front wall, left of the door as seen from inside (local +x).
-const WINDOW_X := Vector2(0.43, 0.71)
-const WINDOW_Y := Vector2(1.2, 1.72)
-## The workbench's middle (shed frame z). 0.8.2.2 (Simon: "im Schuppen sieht man noch viel Boden"):
-## it stands 0.32 m nearer the eye, so it fills the picture's foot where the empty floor was.
-const BENCH_Z := 0.08
-## The pinboard right of the door (shed frame x) and its size.
-const PINBOARD_X := -(DOOR_W * 0.5 + 0.235)
-const PINBOARD_SCALE := 0.66
+## The leaf hangs on the doorway's +x post and stands turned this far into the room.
+const DOOR_TURN := -0.86
+## The small window in the front wall, right of the door as seen from inside (local -x).
+const WINDOW_X := Vector2(-0.8, -0.5)
+const WINDOW_Y := Vector2(1.18, 1.7)
+## The workbench's foot (shed frame) and its middle's z.
+const BENCH_AT := Vector3(0.0, 0.05, -0.05)
+const BENCH_Z := -0.05
+## The pinboard on the door leaf (in the leaf's frame: x along the leaf from the hinge, z out of
+## its inside face) and its size.
+const PIN_AT := Vector3(-0.4, 1.38, -0.045)
+const PINBOARD_SCALE := 0.74
 const BENCH_TOP := 0.87
+## The things on the bench (bench frame, on its top): name -> [position, turn].
+const THINGS := {
+	"journal": [Vector3(0.2, 0.0, -0.1), 0.15], "gloves": [Vector3(-0.08, 0.0, -0.16), 1.4],
+	"album": [Vector3(0.02, 0.0, 0.13), -0.08], "seeds": [Vector3(-0.28, 0.0, 0.0), -0.3]}
+## The lantern hanging from the roof (shed frame).
+const LAMP_AT := Vector3(-0.3, 2.06, -0.6)
 
 var camera: Camera3D
 ## Where the bonsai will stand: on the windowsill beside the workbench (design doc 16 A).
@@ -87,6 +99,10 @@ var _boards: SurfaceTool
 ## Dust drifting in the window light by day.
 var _dust: GPUParticles3D
 var _blob_mat: StandardMaterial3D
+## The door leaf's hinge (the pinboard hangs on it).
+var _door_leaf: Node3D
+## The window's frame (the bonsai's spot and the sill's light hang in it).
+var _win: Node3D
 
 
 func _ready() -> void:
@@ -163,6 +179,28 @@ func _wall(size: Vector3, at: Vector3, wall: int) -> void:
 		var warm := _hash(i + 17, wall + 5) - 0.5
 		_st_box(_boards, c, bsize, Color(v * (1.0 + warm * 0.1), v, v * (1.0 - warm * 0.14)))
 
+
+## A wall of boards with rectangular openings ([from, to, bottom, top] along its axis); `w`: 0 the
+## front wall (+Z), 1 the left (+X), 2 the right (-X), 3 the back.
+func _wall_with_holes(w: int, seed: int, holes: Array, t: float) -> void:
+	var along_x := w == 0 or w == 3
+	var half := (WIDTH if along_x else DEPTH) * 0.5
+	var out := (DEPTH if along_x else WIDTH) * 0.5 * (1.0 if w == 0 or w == 1 else -1.0)
+	holes.sort_custom(func(a: Array, b: Array) -> bool: return float(a[0]) < float(b[0]))
+	var piece := func(u0: float, u1: float, y0: float, y1: float) -> void:
+		if u1 - u0 < 0.004 or y1 - y0 < 0.004:
+			return
+		var mid := (u0 + u1) * 0.5
+		var size := Vector3(u1 - u0, y1 - y0, t) if along_x else Vector3(t, y1 - y0, u1 - u0)
+		var at := Vector3(mid, (y0 + y1) * 0.5, out) if along_x else Vector3(out, (y0 + y1) * 0.5, mid)
+		_wall(size, at, seed)
+	var cursor := -half
+	for h in holes:
+		piece.call(cursor, float(h[0]), 0.0, WALL_H)
+		piece.call(float(h[0]), float(h[1]), 0.0, float(h[2]))
+		piece.call(float(h[0]), float(h[1]), float(h[3]), WALL_H)
+		cursor = float(h[1])
+	piece.call(cursor, half, 0.0, WALL_H)
 
 func _jit(i: int, wall: int) -> float:
 	return (_hash(i, wall * 7 + 3) - 0.5) * 0.05
@@ -411,7 +449,8 @@ func _mat(c: Color, rough: float = 0.8) -> StandardMaterial3D:
 
 ## A real model from assets/shed (Poly Haven glTF, origin at its foot).
 func _model(id: String, at: Vector3, scale_by: float, turn: float, parent: Node3D) -> Node3D:
-	var n: Node3D = (load("res://assets/shed/%s/%s_1k.gltf" % [id, id]) as PackedScene).instantiate()
+	var path := "res://assets/shed/%s_1k.gltf" % id if id.contains("/") else "res://assets/shed/%s/%s_1k.gltf" % [id, id]
+	var n: Node3D = (load(path) as PackedScene).instantiate()
 	n.position = at
 	n.scale = Vector3.ONE * scale_by
 	n.rotation.y = turn
@@ -431,21 +470,15 @@ func _build_room() -> void:
 	# depth, with dark gaps between them. All boards are one mesh, one draw call.
 	_boards = SurfaceTool.new()
 	_boards.begin(Mesh.PRIMITIVE_TRIANGLES)
-	_wall(Vector3(WIDTH, WALL_H, t), Vector3(0, WALL_H * 0.5, -hd), 0)
-	_wall(Vector3(t, WALL_H, DEPTH), Vector3(-hw, WALL_H * 0.5, 0), 1)
-	_wall(Vector3(t, WALL_H, DEPTH), Vector3(hw, WALL_H * 0.5, 0), 2)
-	# The front wall around the open door (centred) and the window (local +x).
+	# The front wall around the open door and the window; the other three plain.
 	var dx := DOOR_W * 0.5
-	var right_w := hw - dx
-	_wall(Vector3(right_w, WALL_H, t), Vector3(-dx - right_w * 0.5, WALL_H * 0.5, hd), 3)
-	# Left of the door: beside, below and above the window opening.
-	var wx0 := WINDOW_X.x
-	var wx1 := WINDOW_X.y
-	_wall(Vector3(wx0 - dx, WALL_H, t), Vector3((dx + wx0) * 0.5, WALL_H * 0.5, hd), 3)
-	_wall(Vector3(hw - wx1, WALL_H, t), Vector3((wx1 + hw) * 0.5, WALL_H * 0.5, hd), 3)
-	_wall(Vector3(wx1 - wx0, WINDOW_Y.x, t), Vector3((wx0 + wx1) * 0.5, WINDOW_Y.x * 0.5, hd), 3)
-	_wall(Vector3(wx1 - wx0, WALL_H - WINDOW_Y.y, t), Vector3((wx0 + wx1) * 0.5, (WALL_H + WINDOW_Y.y) * 0.5, hd), 3)
-	_wall(Vector3(DOOR_W, WALL_H - DOOR_H, t), Vector3(0, DOOR_H + (WALL_H - DOOR_H) * 0.5, hd), 3)
+	var wall_of := {0: 3, 1: 2, 2: 1, 3: 0}
+	for w in [0, 1, 2, 3]:
+		var holes: Array = []
+		if w == 0:
+			holes.append([DOOR_X - dx, DOOR_X + dx, 0.0, DOOR_H])
+			holes.append([WINDOW_X.x, WINDOW_X.y, WINDOW_Y.x, WINDOW_Y.y])
+		_wall_with_holes(w, wall_of[w], holes, t)
 	var boards := MeshInstance3D.new()
 	boards.name = "Boards"
 	boards.mesh = _boards.commit()
@@ -456,20 +489,19 @@ func _build_room() -> void:
 	# Door frame: thick bevelled posts and lintel standing proud of the wall, and a thin casing
 	# around them, so the doorway has depth.
 	var frame := _planks("old_planks_02", 1.2, Color(0.52, 0.42, 0.34))
+	var ox := DOOR_X
 	for x in [-dx - 0.035, dx + 0.035]:
-		_beam(Vector3(0.07, DOOR_H, 0.16), Vector3(x, DOOR_H * 0.5, hd), frame)
-		_beam(Vector3(0.05, DOOR_H + 0.06, 0.025), Vector3(x + signf(x) * 0.055, DOOR_H * 0.5 + 0.03, hd - 0.09), frame)
-	_beam(Vector3(DOOR_W + 0.14, 0.08, 0.16), Vector3(0, DOOR_H + 0.04, hd), frame)
-	_beam(Vector3(DOOR_W + 0.26, 0.06, 0.025), Vector3(0, DOOR_H + 0.1, hd - 0.09), frame)
+		_beam(Vector3(0.07, DOOR_H, 0.16), Vector3(ox + x, DOOR_H * 0.5, hd), frame)
+		_beam(Vector3(0.05, DOOR_H + 0.06, 0.025), Vector3(ox + x + signf(x) * 0.055, DOOR_H * 0.5 + 0.03, hd - 0.09), frame)
+	_beam(Vector3(DOOR_W + 0.14, 0.08, 0.16), Vector3(ox, DOOR_H + 0.04, hd), frame)
+	_beam(Vector3(DOOR_W + 0.26, 0.06, 0.025), Vector3(ox, DOOR_H + 0.1, hd - 0.09), frame)
 	# A worn threshold board.
-	_beam(Vector3(DOOR_W + 0.1, 0.03, 0.2), Vector3(0, 0.115, hd), frame)
-	var hinge := Node3D.new()
-	hinge.position = Vector3(-dx, 0, hd + 0.05)
-	hinge.rotation.y = -1.9
-	add_child(hinge)
-	_box(Vector3(DOOR_W, 2.0, 0.05), Vector3(DOOR_W * 0.5, 1.0, 0), _wood, hinge)
+	_beam(Vector3(DOOR_W + 0.1, 0.03, 0.2), Vector3(ox, 0.115, hd), frame)
+	# The leaf, on the +x post, stands open into the room (the pinboard hangs on its inside).
+	var hinge := _door_leaf_at(Vector3(ox + dx, 0, hd + 0.05), 1.0, DOOR_TURN, DOOR_W)
 	_items["door"] = hinge
-	_pick("door", Vector3(0, 1.25, hd), 0.5)
+	_door_leaf = hinge
+	_pick("door", Vector3(ox, 1.25, hd), 0.5 * DOOR_W / 0.66)
 	# The gable ends above the front and back walls.
 	for z in [-hd, hd]:
 		var tri := MeshInstance3D.new()
@@ -508,9 +540,8 @@ func _build_room() -> void:
 		_lamp_base = 2.0
 		_lamp.omni_range = 5.5
 	_lamp_range = _lamp.omni_range
-	# Over the bench (0.8.1: with the eye further back it hung large in the picture's top; here it
-	# shows small above the doorway and still lights the bench).
-	_lamp.position = Vector3(-0.3, WALL_H - 0.35, BENCH_Z - 0.45)
+	# Over the bench, near the eye (it shows small at the picture's top and lights the bench).
+	_lamp.position = LAMP_AT
 	add_child(_lamp)
 	var glass := MeshInstance3D.new()
 	var s := SphereMesh.new()
@@ -529,46 +560,63 @@ func _build_room() -> void:
 	_box(Vector3(0.01, 0.3, 0.01), glass.position + Vector3(0, 0.2, 0), _mat(Color(0.15, 0.12, 0.1)))
 
 
+## A door leaf hung at `at` (its hinge post; `side` -1: the leaf reaches toward +X when shut),
+## turned open by `turn`. Returns the hinge (the leaf's frame: x along the leaf, y up).
+func _door_leaf_at(at: Vector3, side: float, turn: float, w: float) -> Node3D:
+	var hinge := Node3D.new()
+	hinge.position = at
+	hinge.rotation.y = turn
+	add_child(hinge)
+	_box(Vector3(w, 2.0, 0.05), Vector3(w * 0.5 * (-side if side > 0.0 else 1.0), 1.0, 0), _wood, hinge)
+	return hinge
+
+
 ## The small window beside the workbench: a frame with a cross bar, old glass, a deep sill
 ## inside (empty, for the bonsai) and daylight falling in across the sill and the bench.
 func _build_window() -> void:
+	# Built in the front wall's frame.
+	_win = Node3D.new()
+	_win.name = "Window"
+	add_child(_win)
 	var hd := DEPTH * 0.5
-	var cx := (WINDOW_X.x + WINDOW_X.y) * 0.5
-	var cy := (WINDOW_Y.x + WINDOW_Y.y) * 0.5
-	var w := WINDOW_X.y - WINDOW_X.x
-	var h := WINDOW_Y.y - WINDOW_Y.x
+	var wx := WINDOW_X
+	var wy := WINDOW_Y
+	var cx := (wx.x + wx.y) * 0.5
+	var cy := (wy.x + wy.y) * 0.5
+	var w := wx.y - wx.x
+	var h := wy.y - wy.x
 	# A deep bevelled frame with a casing proud of the wall and thin glazing bars set back.
 	var frame := _planks("old_planks_02", 1.4, Color(0.62, 0.5, 0.4))
-	for y in [WINDOW_Y.x, WINDOW_Y.y]:
-		_beam(Vector3(w + 0.1, 0.055, 0.14), Vector3(cx, y, hd), frame)
-		_beam(Vector3(w + 0.2, 0.045, 0.022), Vector3(cx, y + signf(y - cy) * 0.035, hd - 0.08), frame)
-	for x in [WINDOW_X.x, WINDOW_X.y]:
-		_beam(Vector3(0.055, h, 0.14), Vector3(x, cy, hd), frame)
-		_beam(Vector3(0.045, h + 0.12, 0.022), Vector3(x + signf(x - cx) * 0.035, cy, hd - 0.08), frame)
-	_beam(Vector3(w, 0.026, 0.04), Vector3(cx, cy, hd + 0.01), frame, 0.006)
-	_beam(Vector3(0.026, h, 0.04), Vector3(cx, cy, hd + 0.01), frame, 0.006)
+	for y in [wy.x, wy.y]:
+		_beam(Vector3(w + 0.1, 0.055, 0.14), Vector3(cx, y, hd), frame, 0.012, _win)
+		_beam(Vector3(w + 0.2, 0.045, 0.022), Vector3(cx, y + signf(y - cy) * 0.035, hd - 0.08), frame, 0.012, _win)
+	for x in [wx.x, wx.y]:
+		_beam(Vector3(0.055, h, 0.14), Vector3(x, cy, hd), frame, 0.012, _win)
+		_beam(Vector3(0.045, h + 0.12, 0.022), Vector3(x + signf(x - cx) * 0.035, cy, hd - 0.08), frame, 0.012, _win)
+	_beam(Vector3(w, 0.026, 0.04), Vector3(cx, cy, hd + 0.01), frame, 0.006, _win)
+	_beam(Vector3(0.026, h, 0.04), Vector3(cx, cy, hd + 0.01), frame, 0.006, _win)
 	# Old, slightly dusty glass.
 	var glass := StandardMaterial3D.new()
 	glass.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	glass.albedo_color = Color(0.85, 0.9, 0.85, 0.12)
 	glass.roughness = 0.15
 	_glass = glass
-	_box(Vector3(w, h, 0.005), Vector3(cx, cy, hd + 0.02), glass)
+	_box(Vector3(w, h, 0.005), Vector3(cx, cy, hd + 0.02), glass, _win)
 	# The sill: a deep worn board inside the window, reaching into the room far enough for the
 	# bonsai's tools in a row before the pot (0.7), on two small brackets.
-	var sill_top := WINDOW_Y.x + 0.01
-	_box(Vector3(w + 0.24, 0.035, 0.44), Vector3(cx, sill_top - 0.0175, hd - 0.2), _planks("wood_table_worn", 0.9, Color(0.85, 0.8, 0.74)))
+	var sill_top := wy.x + 0.01
+	_box(Vector3(w + 0.24, 0.035, 0.44), Vector3(cx, sill_top - 0.0175, hd - 0.2), _planks("wood_table_worn", 0.9, Color(0.85, 0.8, 0.74)), _win)
 	for bx in [-0.16, 0.16]:
-		_box(Vector3(0.035, 0.12, 0.3), Vector3(cx + bx, sill_top - 0.095, hd - 0.17), frame)
+		_box(Vector3(0.035, 0.12, 0.3), Vector3(cx + bx, sill_top - 0.095, hd - 0.17), frame, _win)
 	bonsai_spot = Node3D.new()
 	bonsai_spot.name = "bonsai_spot"
 	bonsai_spot.position = Vector3(cx, sill_top, hd - 0.1)
-	add_child(bonsai_spot)
-	_pick("bonsai", bonsai_spot.position + Vector3(0.0, 0.2, -0.04), 0.17)
+	_win.add_child(bonsai_spot)
+	_pick("bonsai", bonsai_spot.position + Vector3(0.0, 0.2, -0.04), 0.17, _win)
 	var tag := Node3D.new()
 	# 0.8.2 (look review): the label hangs under the sill's front edge, not over the tools on it.
 	tag.position = bonsai_spot.position + BONSAI_TAG
-	add_child(tag)
+	_win.add_child(tag)
 	_tag_anchors["bonsai"] = [tag, true]
 	# Daylight through the window: a soft spot from outside, and a faint shaft of dusty air.
 	var sun := SpotLight3D.new()
@@ -579,10 +627,11 @@ func _build_window() -> void:
 	sun.spot_angle_attenuation = 0.5
 	sun.spot_attenuation = 0.8
 	sun.shadow_enabled = not Budgets.PHONE
-	add_child(sun)
+	_win.add_child(sun)
 	_window_sun = sun
 	sun.position = Vector3(cx + 0.25, cy + 0.9, hd + 1.1)
-	sun.look_at(to_global(Vector3(cx - 0.3, BENCH_TOP, BENCH_Z + 0.2)), Vector3.UP)
+	var aim := Vector3(cx - 0.3, BENCH_TOP, hd - 1.2)
+	sun.basis = Basis.looking_at(aim - sun.position, Vector3.UP)
 	var shaft := MeshInstance3D.new()
 	var q := QuadMesh.new()
 	q.size = Vector2(w * 0.95, 1.25)
@@ -591,7 +640,7 @@ func _build_window() -> void:
 	sm.shader = _shaft_shader()
 	shaft.material_override = sm
 	shaft.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	add_child(shaft)
+	_win.add_child(shaft)
 	_shaft = shaft
 	shaft.position = Vector3(cx - 0.05, cy - 0.28, hd - 0.42)
 	shaft.rotation = Vector3(-0.55, PI, 0.0)
@@ -638,7 +687,7 @@ func _build_dust(at: Vector3, extents: Vector3) -> void:
 	q.material = m
 	p.draw_pass_1 = q
 	p.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	add_child(p)
+	_win.add_child(p)
 	_dust = p
 
 
@@ -676,38 +725,45 @@ void fragment() {
 func _build_bench() -> void:
 	var bench := Node3D.new()
 	bench.name = "Workbench"
-	bench.position = Vector3(0.0, 0.05, BENCH_Z)
+	bench.position = BENCH_AT
 	add_child(bench)
 	# An old cabinet workbench with drawers (Poly Haven "Wooden Table 03"), its drawers toward us.
 	var table := _model("WoodenTable_03", Vector3.ZERO, 1.0, PI, bench)
 	table.scale = Vector3(0.95, 1.0, 1.05)
 	_build_drawers(table)
 	var top := BENCH_TOP - 0.05  # bench-local height of the table top
+	var spot := func(name: String) -> Array:
+		var p: Vector3 = THINGS[name][0]
+		return [Vector3(p.x, top + p.y, p.z), float(THINGS[name][1])]
 	# The journal: dark leather with an elastic band and a red ribbon, lying on the left.
 	var journal := _book(Vector3(0.16, 0.026, 0.22), _leather(Paper.LEATHER), Color(0.92, 0.88, 0.78), true)
-	journal.position = Vector3(0.17, top, -0.08)
-	journal.rotation.y = 0.25
+	var js: Array = spot.call("journal")
+	journal.position = js[0]
+	journal.rotation.y = js[1]
 	bench.add_child(journal)
 	_register("journal", journal, Vector3(0, 0.02, 0), 0.12)
 	_tag("journal", journal, Vector3(0.0, 0.0, -0.08), true)
 	# The photo album: bigger, green cloth over boards, a paper label on the cover.
 	var album := _book(Vector3(0.28, 0.045, 0.22), _leather(Color(0.2, 0.3, 0.19), 6.0), Color(0.78, 0.7, 0.58), false)
-	album.position = Vector3(-0.04, top, 0.13)
-	album.rotation.y = -0.12
+	var als: Array = spot.call("album")
+	album.position = als[0]
+	album.rotation.y = als[1]
 	bench.add_child(album)
 	_register("album", album, Vector3(0, 0.03, 0), 0.14)
 	_tag("album", album, Vector3(0.0, 0.06, 0.1), false)
 	# The seed bag: a kraft paper sack, the top rolled over, a few seeds spilled beside it.
 	var seeds := _seed_bag()
-	seeds.position = Vector3(-0.21, top, -0.04)
-	seeds.rotation.y = -0.35
+	var ss: Array = spot.call("seeds")
+	seeds.position = ss[0]
+	seeds.rotation.y = ss[1]
 	bench.add_child(seeds)
 	_register("seeds", seeds, Vector3(0, 0.09, 0), 0.1)
 	_tag("seeds", seeds, Vector3(0.0, 0.2, 0.0), false)
 	# Garden gloves lying at the front edge: put them on and go outside.
 	var gloves := Node3D.new()
-	gloves.position = Vector3(-0.03, top, -0.17)
-	gloves.rotation.y = 1.45
+	var gs: Array = spot.call("gloves")
+	gloves.position = gs[0]
+	gloves.rotation.y = gs[1]
 	bench.add_child(gloves)
 	_model("garden_gloves_01", Vector3.ZERO, 0.75, 0.0, gloves)
 	_register("gloves", gloves, Vector3(0, 0.03, 0), 0.1)
@@ -715,22 +771,23 @@ func _build_bench() -> void:
 	# A trowel for the feel of the place, and a watering can on the floor under the window.
 	var trowel := _model("trowel_01", Vector3(-0.31, top + 0.035, 0.2), 0.75, 0.0, bench)
 	trowel.rotation = Vector3(PI * 0.5 - 0.02, -0.6, 0.0)
-	_model("watering_can_metal_01", Vector3(0.78, 0.05, DEPTH * 0.5 - 0.3), 1.1, 2.4, self)
+	var can := Vector3(0.78, 0.05, DEPTH * 0.5 - 0.3)
+	_model("watering_can_metal_01", can, 1.1, 2.4, self)
 	# Contact shadows (0.6.1 review: the things floated): a soft dark patch under each thing on
 	# the bench, under the bench and the can on the floor, and along the foot of the walls.
-	var y := top + 0.004
-	_blob(Vector3(0.17, y, -0.08), Vector2(0.24, 0.3), 0.25, 0.8, bench)
-	_blob(Vector3(-0.04, y, 0.13), Vector2(0.38, 0.31), -0.12, 0.8, bench)
-	_blob(Vector3(-0.21, y, -0.04), Vector2(0.2, 0.15), -0.35, 0.9, bench)
-	_blob(Vector3(-0.03, y, -0.17), Vector2(0.28, 0.2), 1.45, 0.6, bench)
-	_blob(Vector3(-0.31, y, 0.2), Vector2(0.24, 0.1), -0.6, 0.6, bench)
+	_blob(js[0] + Vector3(0, 0.004, 0), Vector2(0.24, 0.3), js[1], 0.8, bench)
+	_blob(als[0] + Vector3(0, 0.004, 0), Vector2(0.38, 0.31), als[1], 0.8, bench)
+	_blob(ss[0] + Vector3(0, 0.004, 0), Vector2(0.2, 0.15), ss[1], 0.9, bench)
+	_blob(gs[0] + Vector3(0, 0.004, 0), Vector2(0.28, 0.2), gs[1], 0.6, bench)
 	var floor_y := 0.1015
-	_blob(Vector3(0.0, floor_y, BENCH_Z), Vector2(1.9, 1.1), 0.0, 0.85)
-	_blob(Vector3(0.78, floor_y, DEPTH * 0.5 - 0.3), Vector2(0.45, 0.45), 0.0, 0.8)
+	_blob(Vector3(-0.31, top + 0.004, 0.2), Vector2(0.24, 0.1), -0.6, 0.6, bench)
+	_blob(Vector3(0.0, floor_y - 0.05, 0.0), Vector2(1.9, 1.1), 0.0, 0.85, bench)
+	_blob(Vector3(can.x, floor_y, can.z), Vector2(0.45, 0.45), 0.0, 0.8)
 	for side in [-1.0, 1.0]:
 		_blob(Vector3(side * (WIDTH * 0.5 - 0.05), floor_y, 0.0), Vector2(0.5, DEPTH * 1.1), 0.0, 0.5)
 	_blob(Vector3(0.0, floor_y, -DEPTH * 0.5 + 0.05), Vector2(WIDTH * 1.1, 0.5), 0.0, 0.5)
-	_build_rug(floor_y)
+	# The rug before the bench, where you stand (it shows only on a wider screen).
+	_build_rug(floor_y, Vector3(0.05, 0.0, BENCH_Z - 0.62), 0.04)
 
 
 ## The workbench model's drawers become drawers (0.8.2.4): each gets a paper liner on its floor
@@ -813,7 +870,7 @@ func toggle_drawer(key: String) -> void:
 
 ## A woven rag rug on the strip of floor before the bench (0.8.2.2, the tighter view: the little
 ## floor left in the picture's foot is a place to stand, not bare boards).
-func _build_rug(floor_y: float) -> void:
+func _build_rug(floor_y: float, at: Vector3, turn: float) -> void:
 	var rug := MeshInstance3D.new()
 	var pm := PlaneMesh.new()
 	pm.size = Vector2(1.5, 0.9)
@@ -821,8 +878,8 @@ func _build_rug(floor_y: float) -> void:
 	var m := ShaderMaterial.new()
 	m.shader = _rug_shader()
 	rug.material_override = m
-	rug.position = Vector3(0.05, floor_y + 0.002, BENCH_Z - 0.62)
-	rug.rotation.y = 0.04
+	rug.position = Vector3(at.x, floor_y + 0.002, at.z)
+	rug.rotation.y = turn
 	rug.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(rug)
 
@@ -868,10 +925,10 @@ func _tag(name: String, node: Node3D, offset: Vector3, below: bool) -> void:
 	_tag_anchors[name] = [a, below]
 
 
-func _pick(name: String, at: Vector3, radius: float) -> void:
+func _pick(name: String, at: Vector3, radius: float, parent: Node3D = self) -> void:
 	var c := Node3D.new()
 	c.position = at
-	add_child(c)
+	parent.add_child(c)
 	_picks[name] = [c, radius]
 
 
@@ -986,15 +1043,14 @@ func _seed_bag() -> Node3D:
 	return bag
 
 
-## The pinboard on the front wall, right of the door: cork in a wooden frame, the option notes
+## The pinboard on the inside of the open door's leaf: cork in a wooden frame, the option notes
 ## pinned on it and "options" written on a strip below them.
 func _build_pinboard() -> void:
-	var hd := DEPTH * 0.5
 	var board := Node3D.new()
-	board.position = Vector3(PINBOARD_X, 1.45, hd - 0.06)
+	board.position = PIN_AT
 	board.rotation.y = PI
 	board.scale = Vector3.ONE * PINBOARD_SCALE
-	add_child(board)
+	_door_leaf.add_child(board)
 	var cork := _mat(Color(0.62, 0.46, 0.3), 0.95)
 	cork.normal_enabled = true
 	cork.normal_texture = preload("res://lookdev/paper/textures/leather_normal.png")
@@ -1034,19 +1090,19 @@ func _build_camera() -> void:
 	_place_camera(3.0)
 
 
-## The eye stands at the back of the shed: the workbench in the middle of the view, the tree
-## in the doorway above it, the window with its sill on the left and the pinboard on the right.
-## 0.8.1 (item 26): the field of view fits the screen's shape, so on the phone's tall 20:9 screen
-## the sill with the bonsai and the pinboard are whole and reachable too (they were cut at the
-## sides), and the eye tilts so the picture's top edge meets the wall's top: a thin strip of
-## ceiling, the room below it (see fit_view()). 0.8.2.2 (the tighter view, specs/0.8.md item 43):
-## the eye stands 0.4 m further back by the back wall and 8 cm toward the window, which narrows
-## the field of view the front wall needs (92 to 76 degrees on a 450 x 1000 screen); with the
-## bench nearer the floor left under it is a strip of about 6 % (was 21 %). tools/shed_frame.gd
-## prints the numbers.
-const EYE := Vector3(0.08, 1.62, -1.3)
-## The picture's top edge meets the front wall this high (just under the rafters).
-const TOP_Y := WALL_H + 0.06
+## The eye stands near the back wall facing the door, tilted down onto the bench: the bench across
+## the picture's foot, the open door with the pinboard on its leaf above it on the left, the tree in
+## the doorway, the window with the bonsai's sill on the right (0.8.2.5, layout 08).
+## The field of view fits the screen's shape (0.8.1, item 26): the narrowest that holds must_see()
+## with a margin, so on the phone's tall 20:9 screen the sill, the pinboard and every thing are
+## whole and reachable; the tilt and a small turn are chosen with it (see fit_view()).
+const EYE := Vector3(-0.05, 1.64, -1.3)
+## The preferred tilt (degrees) and how far the eye may turn from facing the door (radians).
+const PITCH := -20.0
+const YAW_RANGE := 0.2
+## Where the middle of what must be seen sits on screen, -1 bottom .. 1 top (a little below the
+## middle: the wall above shows more than the floor).
+const VMID := -0.05
 ## The view never gets narrower than this (a wide screen keeps about the old look).
 const MIN_FOV := 62.0
 ## A margin of this share of the half width (and height) on each side of the screen.
@@ -1068,31 +1124,8 @@ const BONSAI_TAG := Vector3(0.0, -0.05, -0.33)
 const SILL_TOOLS_EDGE := 0.27
 
 
-## What must be whole on screen (shed frame): the bonsai's pot and crown on the sill with its
-## label, the sill's tools with a margin, the pinboard's corners and its label, the things on the
-## bench with theirs.
-static func must_see() -> Array[Vector3]:
-	var cx := (WINDOW_X.x + WINDOW_X.y) * 0.5
-	var sill := WINDOW_Y.x + 0.01
-	var hd := DEPTH * 0.5
-	var pin := PINBOARD_X
-	var pw := 0.25 * PINBOARD_SCALE + 0.015
-	var ph := 0.3 * PINBOARD_SCALE + 0.01
-	return [
-		Vector3(cx + 0.14, sill, hd - 0.28), Vector3(cx - 0.14, sill, hd - 0.28), Vector3(cx, sill + 0.45, hd - 0.14),
-		Vector3(cx + 0.12, sill + 0.08, hd - 0.26),
-		# The watering can (top and foot) and the trowel's end of the front row, with room.
-		Vector3(cx + SILL_TOOLS_EDGE, sill + 0.14, hd - 0.05), Vector3(cx + SILL_TOOLS_EDGE, sill, hd - 0.36),
-		# The bonsai's label under the sill's edge.
-		Vector3(cx, sill + BONSAI_TAG.y - 0.12, hd - 0.1 + BONSAI_TAG.z),
-		Vector3(pin - pw, 1.45 - ph, hd - 0.06), Vector3(pin - pw, 1.45 + ph, hd - 0.06), Vector3(pin + pw, 1.45 - ph, hd - 0.06),
-		Vector3(pin, 1.45 + ph + 0.12, hd - 0.06),
-		Vector3(0.33, 0.88, BENCH_Z - 0.2), Vector3(-0.33, 0.88, BENCH_Z - 0.2), Vector3(0.0, 0.88, BENCH_Z - 0.24),
-	]
-
-
-## The view for this screen's shape: the field of view that holds must_see(), and the tilt that
-## puts the picture's top at TOP_Y on the front wall (or as near as the things allow).
+## The view for this screen's shape: the field of view that holds must_see(), with the turn and
+## tilt nearest the preferred ones.
 func fit_view() -> void:
 	var vp := get_viewport()
 	if vp == null or camera == null:
@@ -1104,46 +1137,96 @@ func fit_view() -> void:
 	_fit_for(aspect)
 
 
-## Fits the view to a screen of this shape (width over height).
+## Fits the view to a screen of this shape (width over height): from EYE, the turn and tilt nearest
+## its own that hold every thing, label, the door and the sill whole, with the narrowest field of view.
 func _fit_for(aspect: float) -> void:
 	_fit_aspect = aspect
+	var yaw0 := PI
+	var pitch0 := deg_to_rad(PITCH)
+	var pts := must_see()
 	var best := INF
+	var best_b := Basis()
 	var best_fov := MIN_FOV
-	for i in range(61):
-		var pitch := deg_to_rad(lerpf(-35.0, 5.0, i / 60.0))
-		var fov := _fov_at(pitch, aspect)
-		# Where the top edge meets the front wall.
-		var up_ray := Basis(Vector3.RIGHT, pitch) * Vector3(0, tan(deg_to_rad(fov * 0.5)), -1)
-		var t := (DEPTH * 0.5 - EYE.z) / maxf(-up_ray.z, 1e-3)
-		var top := EYE.y + up_ray.y * t
-		# Under the wall's top is fine only if nothing is cut; a little above costs less than below.
-		var cost := absf(top - TOP_Y) + (0.0 if top >= TOP_Y else 0.5) + fov * 0.002
-		if cost < best:
-			best = cost
-			_fit_pitch = pitch
-			best_fov = fov
+	for i in range(41):
+		var yaw := yaw0 + YAW_RANGE * (i / 20.0 - 1.0)
+		for j in range(71):
+			var pitch := pitch0 + deg_to_rad(j - 35.0)
+			var b := Basis(Vector3.UP, yaw) * Basis(Vector3.RIGHT, pitch)
+			var fit := _fit_of(b, EYE, pts, aspect)
+			var cost := fit.x + absf(yaw - yaw0) * 8.0 + absf(fit.y - VMID) * 25.0 + absf(rad_to_deg(pitch - pitch0)) * 0.02
+			if cost < best:
+				best = cost
+				best_b = b
+				best_fov = fit.x
+				_fit_pitch = pitch
 	camera.position = EYE
-	# Facing the door (+Z in the shed's frame), tilted down.
-	camera.basis = Basis(Vector3.UP, PI) * Basis(Vector3.RIGHT, _fit_pitch)
+	camera.basis = best_b
 	camera.fov = best_fov
 
 
-## The vertical field of view (degrees) that shows must_see() on a screen of this shape.
-func fov_for(aspect: float) -> float:
-	_fit_aspect = -1.0
-	fit_view()
-	return camera.fov
-
-
-func _fov_at(pitch: float, aspect: float) -> float:
-	var basis := Basis(Vector3.UP, PI) * Basis(Vector3.RIGHT, pitch)
-	var inv := Transform3D(basis, EYE).affine_inverse()
+## The field of view (degrees) that holds these points from this eye, and where the middle of
+## their height sits on screen (-1 bottom .. 1 top).
+func _fit_of(b: Basis, eye: Vector3, pts: Array[Vector3], aspect: float) -> Vector2:
+	var inv := Transform3D(b, eye).affine_inverse()
 	var need := tan(deg_to_rad(MIN_FOV * 0.5))
-	for p in must_see():
+	var lo := INF
+	var hi := -INF
+	for p in pts:
 		var c := inv * p
-		if c.z < -0.01:
-			need = maxf(need, maxf(absf(c.x) / -c.z / aspect, absf(c.y) / -c.z) / (1.0 - VIEW_MARGIN))
-	return clampf(rad_to_deg(atan(need)) * 2.0, MIN_FOV, 100.0)
+		if c.z > -0.05:
+			return Vector2(179.0, 0.0)
+		var ty := c.y / -c.z
+		lo = minf(lo, ty)
+		hi = maxf(hi, ty)
+		need = maxf(need, maxf(absf(c.x) / -c.z / aspect, absf(ty)) / (1.0 - VIEW_MARGIN))
+	var fov := clampf(rad_to_deg(atan(need)) * 2.0, MIN_FOV, 179.0)
+	var t := tan(deg_to_rad(fov * 0.5))
+	return Vector2(fov, (lo + hi) * 0.5 / t)
+
+
+## What must be whole on screen (shed frame): each thing's tap circle and its label, the pinboard's
+## corners and label, the doorway, the sill with the bonsai, its tools with a margin and its label.
+func must_see() -> Array[Vector3]:
+	var pts: Array[Vector3] = []
+	for k in ["journal", "album", "seeds", "gloves"]:
+		var c := _in_shed(_picks[k][0] as Node3D)
+		var r := float(_picks[k][1]) * 0.8
+		for d in [Vector3(r, 0, 0), Vector3(-r, 0, 0), Vector3(0, r, 0), Vector3(0, -r * 0.5, 0), Vector3(0, 0, r), Vector3(0, 0, -r)]:
+			pts.append(c + d)
+	for k in ITEMS:
+		var a := _in_shed(_tag_anchors[k][0] as Node3D)
+		pts.append(a)
+		pts.append(a + Vector3(0, -0.07 if bool(_tag_anchors[k][1]) else 0.07, 0))
+	var bx := _xf_in_shed(_items["options"] as Node3D)
+	for cx in [-0.27, 0.27]:
+		for cy in [-0.31, 0.31]:
+			pts.append(bx * Vector3(cx, cy, 0.0))
+	var hd := DEPTH * 0.5
+	var dx := DOOR_W * 0.5 + 0.08
+	for x in [-dx, dx]:
+		for y in [0.2, DOOR_H + 0.12]:
+			pts.append(Vector3(DOOR_X + x, y, hd))
+	var sx := _xf_in_shed(bonsai_spot)
+	for p in [Vector3(0.14, 0, -0.18), Vector3(-0.14, 0, -0.18), Vector3(0, 0.45, -0.04), Vector3(0.12, 0.08, -0.16),
+			Vector3(SILL_TOOLS_EDGE, 0.14, 0.05), Vector3(SILL_TOOLS_EDGE, 0, -0.26), Vector3(-0.2, 0, -0.26)]:
+		pts.append(sx * p)
+	# The lamp over the bonsai.
+	pts.append(_in_shed(bonsai_lamp) + Vector3(0, 0.05, 0))
+	return pts
+
+
+## A node's transform in the shed's own frame (built up from its parents, in the tree or not).
+func _xf_in_shed(n: Node3D) -> Transform3D:
+	var xf := n.transform
+	var p := n.get_parent()
+	while p != null and p != self:
+		xf = (p as Node3D).transform * xf
+		p = p.get_parent()
+	return xf
+
+
+func _in_shed(n: Node3D) -> Vector3:
+	return _xf_in_shed(n).origin
 
 
 func frame_tree(tree_height: float, env: Environment) -> void:

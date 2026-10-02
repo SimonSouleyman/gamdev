@@ -265,7 +265,8 @@ func test_the_visible_drawers_open_and_close() -> void:
 		(shed._busy["drawer_" + key] as Tween).custom_step(5.0)
 		t.check(not shed.is_drawer_open(key), "%s closes" % key)
 		t.check(d.position.is_equal_approx(rest), "%s back in place" % key)
-	t.check(opened >= 4, "every visible drawer opens (%d)" % opened)
+	# (0.8.2.5, layout 08: the bench stands low, its upper row of drawers shows.)
+	t.check(opened >= 2, "every visible drawer opens (%d)" % opened)
 	t.check_eq(shed.drawer_at(Vector2(225, 80)), "", "a tap on the wall is no drawer")
 	(pair[0] as Node).free()
 
