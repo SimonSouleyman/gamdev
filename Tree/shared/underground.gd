@@ -125,6 +125,41 @@ static var rocks3: Array = [9, 60]
 ## wish (item 34).
 const FAR_RING: float = 12.0
 
+## 0.8.2 (specs/root-field-extras.md 2): rock bands and soft soil veins in the wider field, so the
+## straight line to a far patch is not always the way. `bands_version` 0: none (layouts 1 and 2,
+## and every layout-3 save from before 0.8.2, which keeps its soil dot for dot); 1: the 0.8.2 bands
+## and veins. Saved with the soil. They are placed after the rest of the soil from their own
+## seeded generators, so the soil around them is the same as without them (dots that would lie in
+## a band are moved to its face).
+const BANDS_VERSION: int = 1
+static var game_bands: int = BANDS_VERSION
+var bands_version: int = 0
+## Each band: {"points": PackedVector2Array (its centre line, x/z, every BAND_STEP), "open":
+## PackedByteArray (per segment, 1 = the gap), "half": half its thickness, "bottom": its depth (it
+## rises to the meadow), "lo"/"hi": Vector2 bounds with the half thickness, "target": the far patch
+## whose straight line from the trunk it was placed across}.
+var bands: Array = []
+## Each vein: {"points": PackedVector3Array (centre line), "radius", "lo"/"hi": Vector3 bounds,
+## "target": the far patch it points at}.
+var veins: Array = []
+## Tuning (docs/notes/field-0.8.2.md). Bands: how many, centre-line length, thickness, the clear
+## opening of the gap, depth. Veins: how many, length, width, and the cost of a metre inside.
+static var band_count: int = 3
+static var band_length: Vector2 = Vector2(8.0, 14.0)
+static var band_thick: Vector2 = Vector2(1.0, 2.0)
+static var band_gap: float = 2.0
+static var band_bottom: float = 4.0
+## The most far patches whose straight line the bands may block together, as a share.
+static var band_block_share: float = 0.4
+static var vein_count: int = 2
+static var vein_length: Vector2 = Vector2(8.0, 14.0)
+## A vein starts at least this far from the trunk (in the middle ring's way), so it helps the
+## patch it points at and not every patch in its direction.
+static var vein_start_min: float = 7.0
+static var vein_width: Vector2 = Vector2(1.0, 1.5)
+static var vein_cost: float = 0.6
+const BAND_STEP: float = 0.5
+
 ## A normal rich topsoil patch in layout 1 (the wish deposit is WISH_SIZE times one): [dots,
 ## radius, amount per dot]. Water 20 to 32 dots in 0.9 to 1.5 m, nitrogen 22 to 36 in 0.8 to 1.4 m,
 ## phosphorus 16 to 26 in 0.7 to 1.2 m; potassium sits by the rocks, 8 dots a rock.
@@ -137,7 +172,9 @@ var _rng := RandomNumberGenerator.new()
 var _grid: Dictionary = {}
 
 
-func _init(random_seed: int = 1, layout_version: int = LAYOUT) -> void:
+## `bands`: the bands' version (BANDS_VERSION); -1 = what a new game gets (game_bands in the
+## wider field, none in the older soils).
+func _init(random_seed: int = 1, layout_version: int = LAYOUT, bands_ver: int = -1) -> void:
 	seed = random_seed
 	layout = layout_version
 	deposit_shares = deposit_shares_wide if layout >= 3 else DEPOSIT_SHARES
@@ -149,6 +186,11 @@ func _init(random_seed: int = 1, layout_version: int = LAYOUT) -> void:
 		_generate_v2()
 	else:
 		_generate_v3()
+	if layout >= 3:
+		bands_version = game_bands if bands_ver < 0 else bands_ver
+	if bands_version >= 1:
+		_generate_bands()
+		_generate_veins()
 	_build_grid()
 
 
@@ -307,6 +349,16 @@ static func tool_arg(a: String) -> bool:
 	elif a.begins_with("--deep3="):
 		var d3 := a.substr(8).split(",")
 		deep_water3 = [int(d3[0]), int(d3[1]), int(d3[2])]
+	elif a.begins_with("--bands="):
+		game_bands = int(a.substr(8))
+	elif a.begins_with("--band_count="):
+		band_count = int(a.substr(13))
+	elif a.begins_with("--band_gap="):
+		band_gap = float(a.substr(11))
+	elif a.begins_with("--vein_count="):
+		vein_count = int(a.substr(13))
+	elif a.begins_with("--vein_cost="):
+		vein_cost = float(a.substr(12))
 	elif a.begins_with("--ring="):
 		# --ring=index:kinds, the kinds as digits by Resources.Kind (--ring=0:21021).
 		var rk := a.substr(7).split(":")
@@ -470,6 +522,385 @@ func _generate_finds() -> void:
 			break
 
 
+# --- rock bands and soft veins (0.8.2) ---------------------------------------------
+
+## The rich topsoil patches of the middle and far rings (not wishes, not the deep water veins).
+func far_patch_ids() -> PackedInt32Array:
+	var out := PackedInt32Array()
+	for i in range(patches.size()):
+		var p: Dictionary = patches[i]
+		var c: Vector3 = p["center"]
+		if bool(p.get("wish", false)) or -c.y > PATCH_MAX_DEPTH or Vector2(c.x, c.z).length() < FAR_RING:
+			continue
+		out.append(i)
+	return out
+
+
+func _shuffled(ids: PackedInt32Array, rng: RandomNumberGenerator) -> PackedInt32Array:
+	var a := ids.duplicate()
+	for i in range(a.size() - 1, 0, -1):
+		var j := rng.randi_range(0, i)
+		var tmp := a[i]
+		a[i] = a[j]
+		a[j] = tmp
+	return a
+
+
+## About band_count curved walls, each across the straight line from the trunk to a different far
+## patch (a third of them), 2 to 4 m short of its edge, with one gap off that line; clear of every
+## rich patch and of each other, so no patch is ever closed in. Dots and finds that would lie in a
+## band move to its face; potassium gathers along both faces, as by a rock.
+func _generate_bands() -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = hash([seed, "bands"])
+	var far := far_patch_ids()
+	# A band also shadows patches behind it; at most this many straight lines end up blocked
+	# (broken 3: never more than about half).
+	var most := ceili(far.size() * band_block_share)
+	for pid in _shuffled(far, rng):
+		if bands.size() >= band_count:
+			break
+		for _try in range(12):
+			var b := _try_band(pid, rng)
+			if b.is_empty():
+				continue
+			bands.append(b)
+			var blocked := 0
+			for q in far:
+				if straight_blocked(q):
+					blocked += 1
+			if blocked <= most:
+				break
+			bands.pop_back()
+	if bands.is_empty():
+		return
+	for i in range(dot_positions.size()):
+		dot_positions[i] = _out_of_bands(dot_positions[i])
+	for f in finds:
+		f["position"] = _out_of_bands(f["position"])
+	for b in bands:
+		var pts: PackedVector2Array = b["points"]
+		var open: PackedByteArray = b["open"]
+		var n := int(_band_length(b) / 1.4)
+		for k in range(n):
+			var s := rng.randi_range(0, open.size() - 1)
+			if open[s] != 0:
+				continue
+			var at := pts[s].lerp(pts[s + 1], rng.randf())
+			var t := (pts[s + 1] - pts[s]).normalized()
+			var side := 1.0 if k % 2 == 0 else -1.0
+			var off := Vector2(-t.y, t.x) * side * (float(b["half"]) + rng.randf_range(0.15, 0.5))
+			var depth := rng.randf_range(0.4, minf(float(b["bottom"]) - 0.3, 3.5))
+			_add_dot(Vector3(at.x + off.x, -depth, at.y + off.y), Resources.Kind.POTASSIUM, 1.2)
+
+
+func _try_band(pid: int, rng: RandomNumberGenerator) -> Dictionary:
+	var c: Vector3 = patches[pid]["center"]
+	var flat := Vector2(c.x, c.z)
+	var dist := flat.length()
+	var dir := flat / dist
+	var cross := dist - float(patches[pid]["radius"]) - rng.randf_range(2.0, 4.0)
+	var length := rng.randf_range(band_length.x, band_length.y)
+	var half := rng.randf_range(band_thick.x, band_thick.y) * 0.5
+	# Signed radius of curvature: the wall bends toward the trunk or away from it.
+	var bend := rng.randf_range(10.0, 22.0) * (1.0 if rng.randf() < 0.5 else -1.0)
+	# Where along the band the straight line crosses, and the gap off to one side of it (its clear
+	# opening band_gap between the two rounded faces).
+	var s0 := rng.randf_range(-0.2, 0.2) * length
+	var gap_u := band_gap + 2.0 * half
+	var keep := 1.2 + gap_u * 0.5
+	var lo_l := -length * 0.5 + gap_u * 0.5 + 1.0
+	var hi_l := s0 - keep
+	var lo_r := s0 + keep
+	var hi_r := length * 0.5 - gap_u * 0.5 - 1.0
+	var g := 0.0
+	if hi_l - lo_l >= hi_r - lo_r:
+		if hi_l < lo_l:
+			return {}
+		g = rng.randf_range(lo_l, hi_l)
+	else:
+		if hi_r < lo_r:
+			return {}
+		g = rng.randf_range(lo_r, hi_r)
+	if cross < 9.0:
+		return {}
+	var x := dir * cross
+	var centre := x - dir * bend
+	var steps := ceili(length / BAND_STEP)
+	var pts := PackedVector2Array()
+	for i in range(steps + 1):
+		var u := -length * 0.5 + length * float(i) / steps
+		pts.append(centre + dir.rotated((u - s0) / bend) * bend)
+	var open := PackedByteArray()
+	# A segment that overlaps the gap is open, so the clear opening is never less than band_gap.
+	for i in range(steps):
+		var ua := -length * 0.5 + length * float(i) / steps
+		var ub := -length * 0.5 + length * float(i + 1) / steps
+		open.append(1 if ub > g - gap_u * 0.5 and ua < g + gap_u * 0.5 else 0)
+	# Clear of the trunk, the field's edge, every rich patch and the other bands.
+	for p in pts:
+		var r := p.length()
+		if r < 6.0 or r > extent - 1.0 - half:
+			return {}
+		for q in patches:
+			var qc: Vector3 = q["center"]
+			if -qc.y <= PATCH_MAX_DEPTH + 0.5 and p.distance_to(Vector2(qc.x, qc.z)) < float(q["radius"]) + half + 0.8:
+				return {}
+		for ob in bands:
+			for op in (ob["points"] as PackedVector2Array):
+				if p.distance_to(op) < half + float(ob["half"]) + 4.0:
+					return {}
+	var lo := pts[0]
+	var hi := pts[0]
+	for p in pts:
+		lo = lo.min(p)
+		hi = hi.max(p)
+	return {"points": pts, "open": open, "half": half, "bottom": band_bottom + rng.randf_range(-0.5, 0.5),
+		"lo": lo - Vector2.ONE * half, "hi": hi + Vector2.ONE * half, "target": pid}
+
+
+## Length of a band's centre line, gap included.
+func _band_length(b: Dictionary) -> float:
+	var pts: PackedVector2Array = b["points"]
+	var total := 0.0
+	for i in range(pts.size() - 1):
+		total += pts[i].distance_to(pts[i + 1])
+	return total
+
+
+## About vein_count tubes of soft soil, each pointing at a far patch whose straight line no band
+## blocks, ending 0.6 to 1.4 m short of its edge, from vein_start_min or more from the trunk; clear
+## of the bands and of each other.
+func _generate_veins() -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = hash([seed, "veins"])
+	var targets := {}
+	for b in bands:
+		targets[int(b["target"])] = true
+	for pid in _shuffled(far_patch_ids(), rng):
+		if veins.size() >= vein_count:
+			break
+		if targets.has(pid):
+			continue
+		var c: Vector3 = patches[pid]["center"]
+		if line_blocked(Vector3(0, c.y, 0), c):
+			continue
+		for _try in range(12):
+			var v := _try_vein(pid, rng)
+			if not v.is_empty():
+				veins.append(v)
+				break
+
+
+func _try_vein(pid: int, rng: RandomNumberGenerator) -> Dictionary:
+	var c: Vector3 = patches[pid]["center"]
+	var flat := Vector2(c.x, c.z)
+	var vdir := (flat / flat.length()).rotated(rng.randf_range(-0.45, 0.45))
+	var length := rng.randf_range(vein_length.x, vein_length.y)
+	var radius := rng.randf_range(vein_width.x, vein_width.y) * 0.5
+	var end := flat - vdir * (float(patches[pid]["radius"]) + rng.randf_range(0.6, 1.4))
+	var start := end - vdir * length
+	var d_end := clampf(-c.y, 0.7, 1.8)
+	var d_start := clampf(d_end + rng.randf_range(-0.4, 0.6), 0.6, 2.0)
+	var bow := rng.randf_range(-1.5, 1.5)
+	var side := Vector2(-vdir.y, vdir.x)
+	var steps := ceili(length / BAND_STEP)
+	var pts := PackedVector3Array()
+	for i in range(steps + 1):
+		var k := float(i) / steps
+		var p2 := start.lerp(end, k) + side * bow * sin(PI * k)
+		pts.append(Vector3(p2.x, -lerpf(d_start, d_end, k), p2.y))
+	for p in pts:
+		var r := Vector2(p.x, p.z).length()
+		if r < vein_start_min or r > extent - 1.0 - radius:
+			return {}
+		if band_at(p, radius + 1.0) >= 0:
+			return {}
+		for ov in veins:
+			for op in (ov["points"] as PackedVector3Array):
+				if p.distance_to(op) < radius + float(ov["radius"]) + 4.0:
+					return {}
+	var lo := pts[0]
+	var hi := pts[0]
+	for p in pts:
+		lo = lo.min(p)
+		hi = hi.max(p)
+	return {"points": pts, "radius": radius, "lo": lo - Vector3.ONE * radius, "hi": hi + Vector3.ONE * radius, "target": pid}
+
+
+## The straight line from the trunk to a patch (at its depth, up to its edge) passes a band.
+func straight_blocked(pid: int) -> bool:
+	if bands.is_empty():
+		return false
+	var c: Vector3 = patches[pid]["center"]
+	var flat := Vector2(c.x, c.z)
+	var end := flat.length() - float(patches[pid]["radius"])
+	var n := ceili(end / 0.2)
+	for i in range(n + 1):
+		var p2 := flat.normalized() * end * float(i) / n
+		if band_at(Vector3(p2.x, c.y, p2.y)) >= 0:
+			return true
+	return false
+
+
+## The nearest point of a band's rock (its closed segments) to `p2`, horizontally:
+## [distance, closest point, segment] or [INF, ...] when the band is all gap.
+func _band_closest(b: Dictionary, p2: Vector2) -> Array:
+	var pts: PackedVector2Array = b["points"]
+	var open: PackedByteArray = b["open"]
+	var best := INF
+	var best_q := Vector2.ZERO
+	var best_s := -1
+	for s in range(open.size()):
+		if open[s] != 0:
+			continue
+		var q := Geometry2D.get_closest_point_to_segment(p2, pts[s], pts[s + 1])
+		var d := p2.distance_to(q)
+		if d < best:
+			best = d
+			best_q = q
+			best_s = s
+	return [best, best_q, best_s]
+
+
+## The band `p` lies in (within `margin` of its rock), or -1.
+func band_at(p: Vector3, margin: float = 0.0) -> int:
+	var p2 := Vector2(p.x, p.z)
+	for i in range(bands.size()):
+		var b: Dictionary = bands[i]
+		var lo: Vector2 = b["lo"]
+		var hi: Vector2 = b["hi"]
+		if p2.x < lo.x - margin or p2.y < lo.y - margin or p2.x > hi.x + margin or p2.y > hi.y + margin:
+			continue
+		if -p.y > float(b["bottom"]) + margin:
+			continue
+		if float(_band_closest(b, p2)[0]) < float(b["half"]) + margin:
+			return i
+	return -1
+
+
+## `p` moved out of every band by `margin`: sideways to the nearer face, or down below the band
+## when that is shorter. Unchanged outside the bands.
+func band_push(p: Vector3, margin: float = 0.0) -> Vector3:
+	for b in bands:
+		var p2 := Vector2(p.x, p.z)
+		var lo: Vector2 = b["lo"]
+		var hi: Vector2 = b["hi"]
+		if p2.x < lo.x - margin or p2.y < lo.y - margin or p2.x > hi.x + margin or p2.y > hi.y + margin:
+			continue
+		var bottom := float(b["bottom"])
+		if -p.y > bottom + margin:
+			continue
+		var cl := _band_closest(b, p2)
+		var d := float(cl[0])
+		var want := float(b["half"]) + margin
+		if d >= want:
+			continue
+		var down := bottom + margin + p.y
+		if down < want - d:
+			p.y = -(bottom + margin)
+			continue
+		var q: Vector2 = cl[1]
+		var n := (p2 - q) / d if d > 1e-4 else _segment_normal(b, int(cl[2]), p2)
+		var out := q + n * want
+		p.x = out.x
+		p.z = out.y
+	return p
+
+
+func _segment_normal(b: Dictionary, s: int, p2: Vector2) -> Vector2:
+	var pts: PackedVector2Array = b["points"]
+	var t := (pts[s + 1] - pts[s]).normalized()
+	var n := Vector2(-t.y, t.x)
+	# Toward the trunk's side, so a pushed dot or root stays on the near side.
+	return n if n.dot(-pts[s]) >= 0.0 else -n
+
+
+func _out_of_bands(p: Vector3) -> Vector3:
+	if band_at(p, 0.1) < 0:
+		return p
+	return band_push(p, 0.2)
+
+
+## The soft vein `p` lies in, or -1.
+func vein_at(p: Vector3, margin: float = 0.0) -> int:
+	for i in range(veins.size()):
+		var v: Dictionary = veins[i]
+		var lo: Vector3 = v["lo"]
+		var hi: Vector3 = v["hi"]
+		if p.x < lo.x - margin or p.y < lo.y - margin or p.z < lo.z - margin or p.x > hi.x + margin or p.y > hi.y + margin or p.z > hi.z + margin:
+			continue
+		var pts: PackedVector3Array = v["points"]
+		var r := float(v["radius"]) + margin
+		for s in range(pts.size() - 1):
+			if p.distance_squared_to(Geometry3D.get_closest_point_to_segment(p, pts[s], pts[s + 1])) < r * r:
+				return i
+	return -1
+
+
+## What a metre of root costs here relative to the plain soil: vein_cost in a soft vein.
+func soil_factor(p: Vector3) -> float:
+	if veins.is_empty():
+		return 1.0
+	return vein_cost if vein_at(p) >= 0 else 1.0
+
+
+## A straight line from `a` to `b` passes through a rock or a band (sampled every `step`).
+func line_blocked(a: Vector3, b: Vector3, step: float = 0.2, margin: float = 0.0) -> bool:
+	var n := maxi(1, ceili(a.distance_to(b) / step))
+	for i in range(n + 1):
+		if is_inside_rock(a.lerp(b, float(i) / n), margin):
+			return true
+	return false
+
+
+## Rich patches the player has come near (0.8.2 far view, specs/root-field-extras.md 1): a root
+## node within `reach` of the patch's edge, or the patch's own meadow sign over it (a topsoil patch
+## under the clearing, `edge` its radius; a far patch's sign moved to the clearing's edge only
+## tells the way, not the place). The deep veins count only by reach.
+func known_patches(root_positions: PackedVector3Array, reach: float, edge: float = INF) -> PackedInt32Array:
+	var out := PackedInt32Array()
+	const CELL_K := 2.0
+	var cells := {}
+	for p in root_positions:
+		var key := Vector3i(floori(p.x / CELL_K), floori(p.y / CELL_K), floori(p.z / CELL_K))
+		if not cells.has(key):
+			cells[key] = PackedVector3Array()
+		var arr: PackedVector3Array = cells[key]
+		arr.append(p)
+		cells[key] = arr
+	var rim := edge - EDGE_INSET
+	for i in range(patches.size()):
+		var c: Vector3 = patches[i]["center"]
+		var r := float(patches[i]["radius"])
+		if -c.y <= HINT_MAX_DEPTH and Vector2(c.x, c.z).length() <= rim:
+			out.append(i)
+			continue
+		var want := reach + r
+		var lo := Vector3i(floori((c.x - want) / CELL_K), floori((c.y - want) / CELL_K), floori((c.z - want) / CELL_K))
+		var hi := Vector3i(floori((c.x + want) / CELL_K), floori((c.y + want) / CELL_K), floori((c.z + want) / CELL_K))
+		var hit := false
+		for x in range(lo.x, hi.x + 1):
+			for y in range(lo.y, hi.y + 1):
+				for z in range(lo.z, hi.z + 1):
+					var key := Vector3i(x, y, z)
+					if not cells.has(key):
+						continue
+					for q in (cells[key] as PackedVector3Array):
+						if q.distance_squared_to(c) <= want * want:
+							hit = true
+							break
+					if hit:
+						break
+				if hit:
+					break
+			if hit:
+				break
+		if hit:
+			out.append(i)
+	return out
+
+
 ## Random point with depth in [min_depth, max_depth] and horizontal distance
 ## in [min_dist, max_dist] from the trunk (the soil's extent when negative). Layout 3 spreads it
 ## evenly over the ring's area; layouts 1 and 2 keep their old draw, dot for dot.
@@ -583,11 +1014,16 @@ func is_inside_rock(p: Vector3, margin: float = 0.0) -> bool:
 	return rock_at(p, margin) >= 0
 
 
+## The rock `p` lies in: a boulder's index, or rock_centers.size() + a band's index (0.8.2); -1.
 func rock_at(p: Vector3, margin: float = 0.0) -> int:
 	for r in range(rock_centers.size()):
 		var rr := rock_radii[r] + margin
 		if p.distance_squared_to(rock_centers[r]) < rr * rr:
 			return r
+	if not bands.is_empty():
+		var b := band_at(p, margin)
+		if b >= 0:
+			return rock_centers.size() + b
 	return -1
 
 
@@ -650,6 +1086,14 @@ func surface_hints(edge: float = INF) -> Array:
 		var top := -rock_centers[i].y - rock_radii[i]
 		if top < 1.2:
 			out.append({"kind": "stones", "position": Vector3(rock_centers[i].x, 0.0, rock_centers[i].z), "radius": rock_radii[i]})
+	# 0.8.2: a rock band under the clearing shows as a line of stones along it.
+	for b in bands:
+		var pts: PackedVector2Array = b["points"]
+		var open: PackedByteArray = b["open"]
+		for s in range(0, open.size(), 3):
+			if open[s] != 0 or pts[s].length() > edge - 1.0:
+				continue
+			out.append({"kind": "stones", "position": Vector3(pts[s].x, 0.0, pts[s].y), "radius": float(b["half"]) * 0.8})
 	# Moss grows on the shady north side (-Z) of the trunk.
 	out.append({"kind": "moss", "position": Vector3(0, 0, -0.12), "radius": 0.15})
 	return out
@@ -681,12 +1125,13 @@ func to_dict() -> Dictionary:
 		wishes.append(row)
 	return {"seed": seed, "layout": layout, "collected": Marshalls.raw_to_base64(dot_collected),
 		"amounts": Marshalls.raw_to_base64(dot_amounts.to_byte_array()), "finds_found": found,
-		"wish_deposits": wishes}
+		"wish_deposits": wishes, "bands": bands_version}
 
 
 static func from_dict(d: Dictionary) -> Underground:
 	# A save from before 0.8 has no layout: its soil is layout 1.
-	var u := Underground.new(int(d.get("seed", 1)), int(d.get("layout", 1)))
+	# A save from before 0.8.2 has no bands entry: its soil keeps no bands or veins.
+	var u := Underground.new(int(d.get("seed", 1)), int(d.get("layout", 1)), int(d.get("bands", 0)))
 	# The wish deposits placed so far, in the same order, so their dot ids come out the same.
 	for w in d.get("wish_deposits", []):
 		if w is Array and (w as Array).size() >= 7:

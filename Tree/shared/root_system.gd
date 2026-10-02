@@ -192,8 +192,15 @@ func _init(random_seed: int = 1) -> void:
 	graph = PlantGraph.new(Vector3.ZERO, Budgets.MAX_MAIN_ROOTS * (Budgets.ROOT_MAX_NODES_PER_MAIN_ROOT + Budgets.FINE_ROOTS_MAX_PER_MAIN_ROOT) + 1)
 
 
+## The soil the roots grow in (fit_soil): its soft veins make a metre cheaper (0.8.2).
+var soil: Underground = null
+## The soil tonight's fine and side roots grow in (end_run): none grows into rock.
+var _grow_ground: Underground = null
+
+
 ## The price of distance for this soil: the wider field (layout 3) halves it.
 func fit_soil(ground: Underground) -> void:
+	soil = ground
 	distance_cost = distance_cost_wide if ground.layout >= 3 else DISTANCE_COST_OLD
 	base_cost_per_metre = base_cost_wide if ground.layout >= 3 else BASE_COST_OLD
 	tip_share = tip_share_wide if ground.layout >= 3 else Underground.FIRST_SHARE
@@ -213,6 +220,9 @@ func cost_per_metre(p: Vector3, dir: Vector3 = Vector3.ZERO) -> float:
 	var cost := base_cost_per_metre * (1.0 + distance_cost * horizontal + depth_term)
 	if depth < Underground.TOPSOIL:
 		cost *= species.topsoil_root_cost
+	# 0.8.2: a soft vein's crumbly soil (Underground.vein_cost).
+	if soil != null:
+		cost *= soil.soil_factor(p)
 	return cost
 
 
@@ -412,7 +422,9 @@ func is_fresh(i: int) -> bool:
 
 
 ## The nearest fresh deposit within `reach` of the tip and ahead of it (heading dot > `cone`); -1 if none.
-func fresh_ahead(ground: Underground, reach: float, cone: float) -> int:
+## `clear`: only one whose straight line from the tip passes no rock or band (0.8.2: the
+## magnetism never pulls a tip into rock).
+func fresh_ahead(ground: Underground, reach: float, cone: float, clear: bool = false) -> int:
 	var best := -1
 	var best_d := reach
 	for i in ground.dots_near(tip_position, reach):
@@ -423,6 +435,8 @@ func fresh_ahead(ground: Underground, reach: float, cone: float) -> int:
 		if d < 1e-3 or heading.dot(to / d) < cone:
 			continue
 		if d < best_d:
+			if clear and ground.line_blocked(tip_position, ground.dot_positions[i], 0.2, 0.08):
+				continue
 			best_d = d
 			best = i
 	return best
@@ -430,7 +444,7 @@ func fresh_ahead(ground: Underground, reach: float, cone: float) -> int:
 
 ## Gentle magnetism toward a fresh deposit within reach; the stick held hard overrules it.
 func _magnet(stick: Vector2, delta: float, ground: Underground) -> void:
-	var i := fresh_ahead(ground, magnet_radius, MAGNET_CONE)
+	var i := fresh_ahead(ground, magnet_radius, MAGNET_CONE, true)
 	if i < 0:
 		return
 	var want := (ground.dot_positions[i] - tip_position).normalized()
@@ -465,6 +479,15 @@ func _move(distance: float, drift: Vector3, ground: Underground) -> void:
 			if p.distance_squared_to(c) < rr * rr:
 				var n := (p - c).normalized()
 				p = c + n * rr
+				var slid := heading - n * minf(0.0, heading.dot(n))
+				heading = slid.normalized() if slid.length_squared() > 1e-4 else _right
+				moved = true
+		# 0.8.2: the rock bands are walls like the rocks: the tip slides along their face.
+		if not ground.bands.is_empty():
+			var out := ground.band_push(p, 0.08)
+			if out != p:
+				var n := (out - p).normalized()
+				p = out
 				var slid := heading - n * minf(0.0, heading.dot(n))
 				heading = slid.normalized() if slid.length_squared() > 1e-4 else _right
 				moved = true
@@ -540,6 +563,7 @@ func end_run(ground: Underground, res: Resources) -> void:
 	var path := PackedInt32Array()
 	for id in range(run_first_new_id, graph.size()):
 		path.append(id)
+	_grow_ground = ground
 	var first_fine := graph.size()
 	_grow_fine_roots(path, ground, res)
 	if left_share >= side_min_left_share and leftover_spent > 0.0:
@@ -696,6 +720,9 @@ func _colonize(starts: PackedInt32Array, markers: PackedVector3Array, budget: in
 			continue  # its parent was dropped
 		var o: Vector3 = origin[tp]
 		if temp.positions[t_id].distance_to(o) > max_from_start:
+			continue
+		# Side and fine roots do not grow into rock either (0.8.2: the bands are rock too).
+		if _grow_ground != null and _grow_ground.is_inside_rock(temp.positions[t_id]):
 			continue
 		var real := graph.add_node(to_real[tp], temp.positions[t_id])
 		if real < 0:

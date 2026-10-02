@@ -28,3 +28,17 @@ sapling in the dawn burst → "sapling" page → the first day → "sunset" page
    for the "while you were away" page.
 4. **Care signals and the 0.7 nightly glow need their own first-time moments** when they land,
    in the same one-thing-at-a-time way.
+
+# After 0.8.2: the first-time check (2026-10-02, specs/root-field-extras.md 5)
+
+Simulated from the code's flow on a fresh install (no tester yet); details and the table in
+`docs/notes/field-0.8.2.md`. What happened:
+- Hold to fast-forward: one line, at the right moment (the first day), but the last line of a
+  page that teaches four things.
+- Side roots: taught on the first-night page before any root grows (too early); the settle line
+  now says "The leftover grows side roots." when it happens (fixed in 0.8.2).
+- The wider field: nothing said that a far wish may take a root over two nights; the far wish's
+  diary line now says "far" (fixed in 0.8.2).
+- The far view, rock bands and soft veins: one line each, when they first matter (the far view's
+  line from the 4th pick night until it is opened; the band and vein lines on first contact).
+- Still open: the long first pages (gaps 1 and 2 above).

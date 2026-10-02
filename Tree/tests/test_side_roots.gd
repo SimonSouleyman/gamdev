@@ -5,6 +5,7 @@ extends RefCounted
 var t
 
 const FRAME := 1.0 / 30.0
+const Strategies = preload("res://tools/strategies.gd")
 
 
 ## A run from the trunk on `life` life force in the wide field (layout 3, fit_soil), steered

@@ -30,6 +30,10 @@ extends SceneTree
 ## the run early at the run photo and photographs the end-of-run camera once the second and third
 ## level have grown (roots_side.png); --full lets the run spend the whole tank and photographs the
 ## thicker root the same way (roots_full.png).
+## 0.8.2 field extras, with --roots: --far photographs the far view (far_view.png with its HUD
+## line, far_view_bare.png without), then a rock band (field_band.png) and a soft vein
+## (field_vein.png) from a few metres, as a player would meet them, and prints the far view's draw
+## calls and primitives against the normal overview's.
 ## --settle=<frames> waits before the first photo; --face_moon turns the view toward the moon; --look_up=<radians> tilts the camera toward the sky; --tag=<name> prefixes the file names.
 
 var shots_dir := ""
@@ -64,6 +68,7 @@ var hint_patches := false
 var keep_hud := false
 var run_shot := false
 var side_shot := false
+var far_shot := false
 var full_shot := false
 var tank := 25.0
 var _end_frame := -1
@@ -93,6 +98,8 @@ func _initialize() -> void:
 			marks = true
 		elif a == "--hud":
 			keep_hud = true
+		elif a == "--far":
+			far_shot = true
 		elif a == "--side":
 			side_shot = true
 		elif a == "--full":
@@ -362,6 +369,8 @@ func _roots_frames() -> bool:
 		rview.setup(g.ground, g.roots, g.sim.resources)
 		rview.hud.visible = false
 		rview.begin_pick()
+	if far_shot:
+		return _far_frames(g)
 	if frame == 60:
 		_save_both("roots_overview")
 		# Hold the camera still from here on.
@@ -403,6 +412,51 @@ func _roots_frames() -> bool:
 	if frame > 6000:
 		quit()
 	return false
+
+
+## --far: the far view, then a band and a vein close up.
+func _far_frames(g: GameState) -> bool:
+	if frame == 58:
+		_print_info("overview")
+	if frame == 60:
+		_save_both("field_overview")
+		print("far view opens: ", rview.open_far_view(), ", %d known patches of %d, distance %.1f m, fov %.0f" % [rview.far_known_patches().size(), g.ground.patches.size(), rview.far_distance(), rview.far_fov()])
+		rview.hud.visible = true
+	if frame == 238:
+		_print_info("far view")
+	if frame == 240:
+		_save_both("far_view")
+		rview.hud.visible = false
+	if frame == 250:
+		_save_both("far_view_bare")
+		rview.leave_far_view()
+		rview.mode = RootView.Mode.IDLE
+		var b: Dictionary = g.ground.bands[0]
+		var pts: PackedVector2Array = b["points"]
+		var mid := pts[pts.size() / 2]
+		var n := mid.normalized()
+		var look := Vector3(mid.x, -1.6, mid.y)
+		rview.camera.position = look - Vector3(n.x, 0.0, n.y) * (float(b["half"]) + 4.5) + Vector3.UP * 0.4 + Vector3(-n.y, 0, n.x) * 2.0
+		rview.camera.look_at(look, Vector3.UP)
+		(rview._dots.material_override as ShaderMaterial).set_shader_parameter("fog_far", 15.0)
+	if frame == 300:
+		_save_both("field_band")
+		var v: Dictionary = g.ground.veins[0]
+		var vp: PackedVector3Array = v["points"]
+		var mid := vp[vp.size() / 2]
+		var along := (vp[vp.size() / 2 + 2] - vp[vp.size() / 2 - 2]).normalized()
+		rview.camera.position = mid - along * 3.5 + along.cross(Vector3.UP).normalized() * 1.8 + Vector3.UP * 0.8
+		rview.camera.look_at(mid + along * 2.0, Vector3.UP)
+	if frame == 350:
+		_save_both("field_vein")
+		quit()
+	return false
+
+
+func _print_info(label: String) -> void:
+	RenderingServer.force_draw(false)
+	var info := _render_info()
+	print("%s %s: draw calls %d, primitives %d, objects %d" % [RenderingServer.get_current_rendering_method(), label, info[0], info[1], info[4]])
 
 
 ## Where the most kinds lie within 3 m of a dot (the first such spot in the topsoil).

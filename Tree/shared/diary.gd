@@ -365,11 +365,14 @@ const PLANTS: Array[String] = ["rushes", "clover", "nettles", "comfrey"]
 
 
 ## The day page's wish line (0.8.2): short, with where it points. A day wish keeps its gist.
-static func wish_entry(kind: int, center: Vector3, kept: bool = false) -> String:
+## `far`: a far wish says so (0.8.2 first-time check: nothing told the player that this one may
+## take a root continued over two nights).
+static func wish_entry(kind: int, center: Vector3, kept: bool = false, far: bool = false) -> String:
 	if kind < 0:
 		return ""
 	var where := Underground.compass(center)
-	return ("Still: the %s in the %s." if kept else "Wish: the %s in the %s.") % [PLANTS[kind], where]
+	var line := ("Still: the %s, far in the %s." if kept else "Wish: the %s, far in the %s.") if far else ("Still: the %s in the %s." if kept else "Wish: the %s in the %s.")
+	return line % [PLANTS[kind], where]
 
 
 const DAY_WISH_LINES: Array[String] = [
@@ -471,7 +474,7 @@ func new_wish(ground: Underground, day: int, seed: int, roots: RootSystem, res: 
 		if day - placed < FAR_DAYS and _untouched(ground, roots, wish_patch):
 			last_patch = -1
 			var p: Dictionary = ground.patches[wish_patch]
-			add(day, wish_entry(int(p["kind"]), p["center"], true), "tree", DRAWINGS[int(p["kind"])], "wish")
+			add(day, wish_entry(int(p["kind"]), p["center"], true, true), "tree", DRAWINGS[int(p["kind"])], "wish")
 			wish_days += 1
 			far_days += 1
 			return
@@ -487,7 +490,7 @@ func new_wish(ground: Underground, day: int, seed: int, roots: RootSystem, res: 
 	if wish_patch >= 0:
 		last_patch = -1
 		var p: Dictionary = ground.patches[wish_patch]
-		add(day, wish_entry(int(p["kind"]), p["center"]), "tree", DRAWINGS[int(p["kind"])], "wish")
+		add(day, wish_entry(int(p["kind"]), p["center"], false, is_far(ground, wish_patch)), "tree", DRAWINGS[int(p["kind"])], "wish")
 		wish_days += 1
 		if is_far(ground, wish_patch):
 			far_days += 1
