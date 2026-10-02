@@ -250,3 +250,51 @@ func _clear() -> void:
 		return
 	for f in d.get_files():
 		d.remove(f)
+
+
+## 0.8.2.7 (phone: the wallpaper showed only its night sky): a picture whose layers read back
+## blank was written all the same. The check that now guards each layer, and what the phone gets.
+const FALLBACK := "res://android_plugin/treelive/src/main/assets/live_fallback"
+
+
+func test_written_layers_show_the_tree_and_name_real_files() -> void:
+	# The bundled sapling is a real export (tools/live_shot.gd --fallback): it passes.
+	t.check_eq(LiveExport.verify_dir(FALLBACK), "", "the bundled picture shows its tree and names files that exist")
+	var meta := LivePicture.read_meta(FALLBACK)
+	for name in LivePicture.LAYERS:
+		var img := Image.load_from_file(ProjectSettings.globalize_path(FALLBACK.path_join(meta["layers"][name])))
+		t.check_eq(LiveExport.check_layer(img, meta["crown_top"], meta["horizon_y"]), "", "layer %s: ground and tree" % name)
+		# Opaque tree pixels above the horizon, near the trunk's column.
+		var hits := 0
+		for y in range(int(float(meta["crown_top"]) * img.get_height()), int(float(meta["horizon_y"]) * img.get_height()) - 4, 2):
+			for x in range(0, img.get_width(), 2):
+				if img.get_pixel(x, y).a > 0.5:
+					hits += 1
+		t.check(hits > 50, "layer %s has tree pixels above the horizon (%d)" % [name, hits])
+	# A copy on disk to break.
+	_clear()
+	DirAccess.make_dir_recursive_absolute(DIR)
+	for f in DirAccess.get_files_at(FALLBACK):
+		if not f.ends_with(".import"):
+			DirAccess.copy_absolute(ProjectSettings.globalize_path(FALLBACK.path_join(f)), ProjectSettings.globalize_path(DIR.path_join(f)))
+	t.check_eq(LiveExport.verify_dir(DIR), "", "the copy passes")
+	var day_file: String = meta["layers"]["day"]
+	var day := Image.load_from_file(ProjectSettings.globalize_path(DIR.path_join(day_file)))
+	# A blank read-back (all clear): refused, as the phone would show only its sky.
+	var blank := Image.create(day.get_width(), day.get_height(), false, Image.FORMAT_RGBA8)
+	t.check(LiveExport.check_layer(blank, 0.2, 0.7).contains("blank"), "a clear layer is refused")
+	t.check(LiveExport.check_layer(null, 0.2, 0.7) != "", "no image is refused")
+	blank.save_webp(ProjectSettings.globalize_path(DIR.path_join(day_file)), true, 0.9)
+	t.check(LiveExport.verify_dir(DIR) != "", "a written blank layer is found")
+	# Ground but no tree above the horizon: refused.
+	var bare := day.duplicate() as Image
+	bare.fill_rect(Rect2i(0, 0, bare.get_width(), int(float(meta["horizon_y"]) * bare.get_height()) - 2), Color(0, 0, 0, 0))
+	t.check(LiveExport.check_layer(bare, meta["crown_top"], meta["horizon_y"]).contains("no tree"), "a layer without its tree is refused")
+	# A tree that stands below the horizon (a young one in the grass) needs no pixels above it.
+	t.check_eq(LiveExport.check_layer(bare, float(meta["horizon_y"]) + 0.02, meta["horizon_y"]), "", "a tree below the horizon is not asked for above it")
+	# The meta naming a file that is not there: found.
+	day.save_webp(ProjectSettings.globalize_path(DIR.path_join(day_file)), true, 0.9)
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(DIR.path_join(meta["layers"]["night"])))
+	t.check(LiveExport.verify_dir(DIR).contains("missing"), "a layer the meta names but is gone is found")
+	_clear()
+	t.check(LiveExport.verify_dir(DIR) != "", "no picture at all is found")

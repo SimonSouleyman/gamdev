@@ -21,6 +21,10 @@ const WEBP_QUALITY := 0.9
 var dir: String = LivePicture.DIR
 var busy: bool = false
 var _last_signature: String = ""
+## Why the last refresh wrote nothing ("" after a good one); also printed (logcat tag godot).
+var last_error: String = ""
+## A layer read back blank is drawn again this many times before the refresh gives up.
+const RETRIES := 2
 
 
 ## The lights, one per layer: where the light comes from (toward the light), its colour and
@@ -41,13 +45,23 @@ const LIGHTS := {
 func refresh(view: TreeView, state: GameState, force: bool = false) -> bool:
 	if busy or view == null or state == null:
 		return false
+	# A seed has no tree to show yet: the last picture (or the phone's sapling) stays until the
+	# first shoot is up (0.8.2.7: a planting wrote a meadow without a tree).
+	if state.is_seed():
+		return false
 	var sig := LivePicture.signature(state.sim.species.id, state.sim.graph.size(), state.sim.height(), state.day_number(), view.season)
 	if not force and sig == _last_signature:
 		return false
 	busy = true
+	last_error = ""
 	var ok := await _render(view, state)
 	if ok:
 		_last_signature = sig
+		print("live picture: written (day %d, %d nodes)" % [state.day_number(), state.sim.graph.size()])
+	else:
+		if last_error == "":
+			last_error = "not written"
+		print("live picture: kept the last one (%s)" % last_error)
 	busy = false
 	return ok
 
@@ -95,6 +109,7 @@ func _render(view: TreeView, state: GameState) -> bool:
 	env.fog_light_energy = 0.72
 	var foot := cam.unproject_position(Vector3.ZERO)
 	var ground_y := clampf(foot.y / float(size.y), 0.05, 1.0)
+	var expect := expected_shape(cam, Vector2(size), state.sim.height())
 	var images := {}
 	for name in LivePicture.LAYERS:
 		var l: Dictionary = LIGHTS[name]
@@ -107,11 +122,25 @@ func _render(view: TreeView, state: GameState) -> bool:
 		env.tonemap_exposure = l["exposure"]
 		env.adjustment_saturation = l["saturation"]
 		env.fog_light_color = l["haze"]
-		sv.render_target_update_mode = SubViewport.UPDATE_ONCE
-		await RenderingServer.frame_post_draw
-		var img := sv.get_texture().get_image()
-		if img == null or img.is_empty():
+		# 0.8.2.7 (phone: the wallpaper showed only its sky): a layer read back blank was written
+		# all the same, and the phone drew the transparent layers over its sky. Now each layer is
+		# read two frames after its draw and checked (ground and, if it stands above the horizon,
+		# the tree); a blank one is drawn again, and if it stays blank nothing is written: the
+		# last good picture stays, and the next trigger tries again.
+		var img: Image = null
+		var why := ""
+		for attempt in range(RETRIES + 1):
+			sv.render_target_update_mode = SubViewport.UPDATE_ONCE
+			await RenderingServer.frame_post_draw
+			await RenderingServer.frame_post_draw
+			img = sv.get_texture().get_image()
+			why = check_layer(img, expect["tree_top"], expect["horizon"])
+			if why == "":
+				break
+			print("live picture: layer %s %s (try %d)" % [name, why, attempt + 1])
+		if why != "":
 			sv.queue_free()
+			last_error = "%s: %s" % [name, why]
 			return false
 		images[name] = img
 	sv.queue_free()
@@ -135,6 +164,81 @@ func _render(view: TreeView, state: GameState) -> bool:
 	var meta := LivePicture.make_meta(state.sim.species.id, state.day_number(), state.sim.height(), files,
 		ground_y, minf(shape["crown_top"], ground_y - 0.02), shape["horizon_y"], shape["ground_color"], stamp)
 	return await write(dir, images, meta)
+
+
+## Where the camera shows the tree's top and the horizon, as shares of the layer's height.
+static func expected_shape(cam: Camera3D, size: Vector2, height: float) -> Dictionary:
+	var top := cam.unproject_position(Vector3(0, maxf(height, 0.0), 0)).y / size.y
+	var ahead := -cam.global_transform.basis.z
+	ahead.y = 0.0
+	ahead = ahead.normalized() if ahead.length() > 0.001 else Vector3.FORWARD
+	var far := cam.global_position + ahead * 1000.0
+	var horizon := cam.unproject_position(Vector3(far.x, 0.0, far.z)).y / size.y
+	return {"tree_top": top, "horizon": horizon}
+
+
+## Above the horizon only the tree is opaque (the sky is clear); a tree whose top stands at least
+## TREE_ABOVE of the height above the horizon must show at least TREE_MIN_SHARE of the samples
+## there opaque. Below the horizon the meadow is solid: at least GROUND_MIN_SHARE of the samples
+## in the bottom tenth.
+const TREE_ABOVE := 0.03
+const TREE_MIN_SHARE := 0.002
+const GROUND_MIN_SHARE := 0.5
+
+
+## "" when a layer read back from the renderer shows the ground and (if it reaches above the
+## horizon) the tree; else what is missing. `tree_top` and `horizon` as shares of the height
+## (expected_shape). Samples every few pixels, cheap enough for the main thread.
+static func check_layer(img: Image, tree_top: float, horizon: float) -> String:
+	if img == null or img.is_empty():
+		return "is empty"
+	var w := img.get_width()
+	var h := img.get_height()
+	var step := maxi(1, w / 135)
+	var ground := 0
+	var ground_n := 0
+	for y in range(int(h * 0.9), h, step):
+		for x in range(0, w, step):
+			ground_n += 1
+			if img.get_pixel(x, y).a > 0.5:
+				ground += 1
+	if ground_n == 0 or float(ground) / ground_n < GROUND_MIN_SHARE:
+		return "is blank (no ground: %d of %d)" % [ground, ground_n]
+	if horizon - tree_top >= TREE_ABOVE:
+		var tree := 0
+		var tree_n := 0
+		for y in range(maxi(0, int(tree_top * h)), mini(h, int((horizon - 0.01) * h)), step):
+			for x in range(0, w, step):
+				tree_n += 1
+				if img.get_pixel(x, y).a > 0.5:
+					tree += 1
+		if tree_n > 0 and float(tree) / tree_n < TREE_MIN_SHARE:
+			return "has no tree (%d of %d above the horizon)" % [tree, tree_n]
+	return ""
+
+
+## Checks a written picture as the phone reads it: "" when the meta parses, every layer and
+## cloud it names lies beside it and decodes at the meta's size, and each layer shows the ground
+## and the tree above the horizon (crown_top to horizon_y); else what is wrong. Tools and tests.
+static func verify_dir(from_dir: String) -> String:
+	var meta := LivePicture.read_meta(from_dir)
+	if meta.is_empty():
+		return "no readable %s" % LivePicture.META
+	var size: Vector2i = meta["size"]
+	for name in LivePicture.LAYERS:
+		var path := from_dir.path_join(str(meta["layers"][name]))
+		if not FileAccess.file_exists(path):
+			return "layer %s: %s is missing" % [name, meta["layers"][name]]
+		var img := Image.load_from_file(ProjectSettings.globalize_path(path))
+		if img == null or img.get_size() != size:
+			return "layer %s does not decode at %s" % [name, size]
+		var why := check_layer(img, float(meta["crown_top"]), float(meta["horizon_y"]))
+		if why != "":
+			return "layer %s %s" % [name, why]
+	for f in meta["clouds"]:
+		if not FileAccess.file_exists(from_dir.path_join(f)):
+			return "cloud %s is missing" % f
+	return ""
 
 
 ## Where the tree stands in the layer: its foot at FOOT, its top no higher than TOP, its crown no

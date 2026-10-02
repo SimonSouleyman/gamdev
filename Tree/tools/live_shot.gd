@@ -84,6 +84,12 @@ func _run() -> void:
 		quit(1)
 		return
 	print(JSON.stringify(LivePicture.read_meta(dir)))
+	# As the phone reads them: every named file there, each layer with its ground and tree.
+	var why := LiveExport.verify_dir(dir)
+	print("layers verified: %s" % ("ok" if why == "" else why))
+	if why != "":
+		quit(1)
+		return
 	if fallback:
 		await _write_fallback()
 	await _photograph(dir)
