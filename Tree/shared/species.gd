@@ -61,6 +61,11 @@ var water_upkeep: float = 1.0
 var topsoil_root_cost: float = 1.0
 ## Share of the depth surcharge a root pays while it points downward (oak: taproot).
 var down_depth_cost: float = 1.0
+## The soft Liebig floor (GrowthSim.growth_floor): growth with a needed N, P or K used up, as a
+## share of full speed. 0.8.2.5 (specs/wish-compass-vial.md item 3, Simon "Mehr Unterschied"):
+## 0.45, so a never-steered tree finishes about 10 days after a steered one; oak 0.55 (at 0.45 its
+## never-steered tree finished on day 45). 0.8 to 0.8.2.4: 0.6 for all.
+var liebig_floor: float = 0.45
 ## Pruning a shoot tip makes it fork into two new shoots (sycamore: twin buds).
 var twin_buds: bool = false
 ## Nitrogen the root nodules make each night, per metre of root (alder).
@@ -207,6 +212,7 @@ static func oak() -> Species:
 	s.finish_nodes = 1970
 	s.target_days = 35
 	s.down_depth_cost = 0.5
+	s.liebig_floor = 0.55
 	s.bark_tint = Color(0.27, 0.24, 0.21)
 	s.leaf_tint = Color(0.9, 0.97, 0.8)
 	s.look_text = "A massive short trunk with deeply furrowed bark, gnarled zigzag branches, a wide crown of lobed leaves."

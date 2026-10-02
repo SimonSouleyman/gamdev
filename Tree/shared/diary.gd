@@ -27,9 +27,11 @@ var far_days: int = 0
 ## placed, a far one chosen again was dropped the next morning). -1: not known (an old save).
 var wish_since: int = -1
 
-## Share of the days whose wish points at a wish deposit underground (the rest are day wishes).
-## A static var so tools can compare with and without (strategies.gd --set=wish_share=0).
-static var underground_share: float = 0.6
+## Share of the days whose wish points at a wish deposit underground. 0.8.2.5 (specs/
+## wish-compass-vial.md, item 1): 1.0, every morning has a wish place; the day wishes are gone.
+## A static var so tools can compare with and without (strategies.gd --set=wish_share=0); below
+## 1.0 a morning without a place has no wish at all.
+static var underground_share: float = 1.0
 ## A wish deposit counts as reachable when the straight line to it from some root node is free
 ## of rock and costs at most this share of a full calm tank (RootSystem.calm_life_force).
 const REACH_SHARE: float = 0.6
@@ -64,13 +66,6 @@ const REACH_MARGIN: float = 0.35
 const GLOW_TODAY: float = 1.0
 const GLOW_YESTERDAY: float = 0.45
 
-const DAY_WISHES: Array[String] = [
-	"Today, grow the crown toward the morning sun: boost early, when it stands in the east.",
-	"Today, look at the tree from every side before the sun sets.",
-	"Today, let the sun shine calmly and save life force for a long root.",
-]
-
-
 ## A shorter journal (0.8.2, specs/0.8.md items 21 and 22): a day page holds at most
 ## PAGE_MAX of the game's lines, each about eight words: the day's wish, a need the tree shows,
 ## and one find, visitor or milestone (a mood line, then a plain note, only when there is none).
@@ -79,9 +74,13 @@ const DAY_WISHES: Array[String] = [
 const PAGE_MAX: int = 3
 ## A game line stays at or under this many words (one line on the phone; tests check the width).
 const MAX_WORDS: int = 9
-const TOPICS: Array[String] = ["wish", "care", "find", "visitor", "milestone", "mood"]
+## "drank" (0.8.2.5, specs/wish-compass-vial.md item 3): the morning after a night whose root
+## reached a deposit, DRANK_LINE. It takes the third place when no find, visitor or milestone
+## fills it, ahead of the weather.
+const TOPICS: Array[String] = ["wish", "care", "find", "visitor", "milestone", "drank", "mood"]
 ## The third place of a day page, in order of preference.
-const THIRD: Array[String] = ["find", "visitor", "milestone", "mood", ""]
+const THIRD: Array[String] = ["find", "visitor", "milestone", "drank", "mood", ""]
+const DRANK_LINE := "The roots drank well."
 
 
 func add(day: int, text: String, by: String = "tree", drawing: String = "", topic: String = "") -> void:
@@ -259,8 +258,9 @@ static func make_wish(ground: Underground, day: int, seed: int, roots: RootSyste
 	return str(plan_wish(ground, day, seed, roots, res)["text"])
 
 
-## The morning's wish, not yet placed: {"text", "kind" (-1 for a day wish), and for a wish
-## underground "center", "radius", "count", "from" (the newest root tip it continues from)}.
+## The morning's wish, not yet placed: {"text", "kind" (-1: no wish place, only when
+## underground_share is below 1 or the soil holds no deposit at all), "center", "radius",
+## "count", "from" (the newest root tip it continues from), or "patch" for a deposit wished for again}.
 ## The deposit goes AHEAD_MIN to AHEAD_MAX beyond the newest root tip, outward from the trunk
 ## where it can, never into rock, and only where a straight root from that tip costs at most
 ## REACH_SHARE of a calm tank. Its kind is what the tree lacks most (0.8: any of the four).
@@ -272,7 +272,8 @@ static func plan_wish(ground: Underground, day: int, seed: int, roots: RootSyste
 	var rng := RandomNumberGenerator.new()
 	rng.seed = hash([seed, "wish", day])
 	var underground := rng.randf() < underground_share
-	var pick := rng.randi()
+	# (Drawn so the stream stays as it was: it picked the day wish before 0.8.2.5.)
+	rng.randi()
 	var coin := rng.randi() % 2
 	if underground:
 		var sys := roots if roots != null else RootSystem.new()
@@ -296,10 +297,12 @@ static func plan_wish(ground: Underground, day: int, seed: int, roots: RootSyste
 			var p: Dictionary = ground.patches[again]
 			return {"text": wish_text_at(kind, p["center"]), "kind": kind, "patch": again,
 				"center": p["center"], "radius": p["radius"], "from": tip}
-		# Enough missed deposits lie waiting already, one of them of this kind: a day wish
-		# instead of one more (a kind the tree lacks and no missed deposit holds still gets one).
+		# Enough missed deposits lie waiting already, one of them of this kind: the wish points at
+		# the nearest of them instead of adding one more (0.8.2.5: was a day wish).
 		if untouched_wishes(ground, sys) >= MISSED_MAX and untouched_wishes(ground, sys, kind) > 0:
-			return {"text": DAY_WISHES[pick % DAY_WISHES.size()], "kind": -1}
+			var waiting := fallback_patch(ground, sys, kind)
+			if waiting >= 0:
+				return _again(ground, waiting, tip, true)
 		var center := Vector3.INF
 		if go_far:
 			center = place_far(ground, sys, sys.graph.positions[tip], float(size["radius"]), far_rng)
@@ -309,7 +312,63 @@ static func plan_wish(ground: Underground, day: int, seed: int, roots: RootSyste
 		if center != Vector3.INF:
 			return {"text": wish_text_at(kind, center), "kind": kind, "center": center,
 				"radius": size["radius"], "count": size["count"], "from": tip, "far": far}
-	return {"text": DAY_WISHES[pick % DAY_WISHES.size()], "kind": -1}
+		# No new place in reach (rock all round, the field's rim): a deposit already in the soil.
+		var other := fallback_patch(ground, sys, kind)
+		if other >= 0:
+			return _again(ground, other, tip, true)
+	return {"text": "", "kind": -1}
+
+
+## A wish for a deposit already in the soil. `fallback`: chosen because no new one could be
+## placed (it does not count in the running far share, which is about new wishes).
+static func _again(ground: Underground, pid: int, tip: int, fallback: bool = false) -> Dictionary:
+	var p: Dictionary = ground.patches[pid]
+	return {"text": wish_text_at(int(p["kind"])), "kind": int(p["kind"]), "patch": pid,
+		"center": p["center"], "radius": p["radius"], "from": tip, "fallback": fallback}
+
+
+## A deposit to wish for when no new one can be placed (0.8.2.5: every morning has a wish place):
+## the nearest wish deposit of `kind` no root found yet, else of any kind, else the nearest
+## deposit of `kind` with most of its dots still fresh, else of any kind; never the starter patch
+## at the trunk, never deeper than the meadow shows. -1 only when the soil holds none.
+static func fallback_patch(ground: Underground, sys: RootSystem, kind: int) -> int:
+	var from := sys.graph.positions[newest_tip(sys)]
+	var wishes := ground.wish_patch_ids()
+	for want in [kind, -1]:
+		var best := _nearest(ground, from, func(pid: int) -> bool:
+			return wishes.has(pid) and (want < 0 or int(ground.patches[pid]["kind"]) == want) and _untouched(ground, sys, pid))
+		if best >= 0:
+			return best
+	for want in [kind, -1]:
+		var best := _nearest(ground, from, func(pid: int) -> bool:
+			return (want < 0 or int(ground.patches[pid]["kind"]) == want) and _fresh(ground, sys, pid))
+		if best >= 0:
+			return best
+	return -1
+
+
+static func _nearest(ground: Underground, from: Vector3, ok: Callable) -> int:
+	var best := -1
+	var best_d := INF
+	for pid in range(ground.patches.size()):
+		var c: Vector3 = ground.patches[pid]["center"]
+		if Vector2(c.x, c.z).length() < 2.0 or -c.y > Underground.HINT_MAX_DEPTH:
+			continue
+		var d := from.distance_to(c)
+		if d < best_d and ok.call(pid):
+			best = pid
+			best_d = d
+	return best
+
+
+## Most of a deposit's dots wait fresh (any deposit, not only a wish deposit).
+static func _fresh(ground: Underground, sys: RootSystem, pid: int) -> bool:
+	var dots := ground.patch_dots(pid)
+	var fresh := 0
+	for i in dots:
+		if sys.is_fresh(i) and ground.dot_collected[i] == 0:
+			fresh += 1
+	return dots.size() > 0 and fresh >= UNTOUCHED_SHARE * dots.size()
 
 
 ## The kind the tree lacks most: the lowest stock for its need, of the kinds the species needs
@@ -451,38 +510,30 @@ static func wish_text(ground: Underground, patch_id: int) -> String:
 	return wish_text_at(int(patch["kind"]), patch["center"])
 
 
-static func wish_text_at(kind: int, center: Vector3) -> String:
-	var where := Underground.compass(center)
+## 0.8.2.5: the plant only, no direction; the meadow shows the place, the compass points to it.
+static func wish_text_at(kind: int, _center: Vector3 = Vector3.ZERO) -> String:
 	match kind:
 		Resources.Kind.WATER:
-			return "Today, reach the damp patch with the rushes in the %s." % where
+			return "Today, reach the damp patch under the rushes."
 		Resources.Kind.PHOSPHORUS:
-			return "Today, find what feeds the nettles in the %s." % where
+			return "Today, find what feeds the nettles."
 		Resources.Kind.POTASSIUM:
-			return "Today, reach the deep soil under the comfrey in the %s." % where
-	return "Today, find what feeds the clover in the %s." % where
+			return "Today, reach the deep soil under the comfrey."
+	return "Today, find what feeds the clover."
 
 
 ## The plants over the deposits, for the day page's short lines.
 const PLANTS: Array[String] = ["rushes", "clover", "nettles", "comfrey"]
 
 
-## The day page's wish line (0.8.2): short, with where it points. A day wish keeps its gist.
-## `far`: a far wish says so (0.8.2 first-time check: nothing told the player that this one may
-## take a root continued over two nights).
-static func wish_entry(kind: int, center: Vector3, kept: bool = false, far: bool = false) -> String:
+## The day page's wish line (0.8.2): short. `far`: a far wish says so (0.8.2 first-time check:
+## nothing told the player that this one may take a root continued over two nights). 0.8.2.5: no
+## direction ("Wish: the clover."); the meadow shows the place, the compass points to it.
+static func wish_entry(kind: int, _center: Vector3 = Vector3.ZERO, kept: bool = false, far: bool = false) -> String:
 	if kind < 0:
 		return ""
-	var where := Underground.compass(center)
-	var line := ("Still: the %s, far in the %s." if kept else "Wish: the %s, far in the %s.") if far else ("Still: the %s in the %s." if kept else "Wish: the %s in the %s.")
-	return line % [PLANTS[kind], where]
-
-
-const DAY_WISH_LINES: Array[String] = [
-	"Wish: boost early, grow eastward.",
-	"Wish: see the tree from every side.",
-	"Wish: a calm sun, a long root tonight.",
-]
+	var line := ("Still: the %s, far away." if kept else "Wish: the %s, far away.") if far else ("Still: the %s." if kept else "Wish: the %s.")
+	return line % PLANTS[kind]
 
 
 ## The line the diary gets when a root reaches a wish deposit.
@@ -586,22 +637,28 @@ func new_wish(ground: Underground, day: int, seed: int, roots: RootSystem, res: 
 	wish_patch = -1
 	var w := plan_wish(ground, day, seed, roots, res, far_share * (wish_days + 1) - far_days)
 	wish_since = day
+	var fallback := bool(w.get("fallback", false))
 	if w.has("patch"):
 		wish_patch = int(w["patch"])
 	elif int(w["kind"]) >= 0:
 		wish_patch = ground.add_wish_deposit(day, int(w["kind"]), w["center"], float(w["radius"]), int(w["count"]), bool(w.get("far", false)))
-	wish = str(w["text"]) if wish_patch >= 0 else DAY_WISHES[day % DAY_WISHES.size()]
+		# The soil's dot budget is full: a deposit already there (0.8.2.5: never a day wish).
+		if wish_patch < 0:
+			wish_patch = fallback_patch(ground, roots, int(w["kind"]))
+			fallback = true
+	wish = wish_text(ground, wish_patch) if wish_patch >= 0 else ""
 	if wish_patch >= 0:
 		last_patch = -1
 		var p: Dictionary = ground.patches[wish_patch]
 		add(day, wish_entry(int(p["kind"]), p["center"], false, is_far(ground, wish_patch)), "tree", DRAWINGS[int(p["kind"])], "wish")
-		# The running far share counts from FAR_FROM_DAY (no far wish before it to balance).
+		# The running far share counts from FAR_FROM_DAY (no far wish before it to balance), and
+		# not a fallback (0.8.2.5: those mornings were day wishes before).
+		if fallback:
+			return
 		if day >= FAR_FROM_DAY or ground.layout < 3:
 			wish_days += 1
 		if is_far(ground, wish_patch):
 			far_days += 1
-	else:
-		add(day, DAY_WISH_LINES[maxi(0, DAY_WISHES.find(wish))], "tree", "sun", "wish")
 
 
 ## The deposits that glow tonight: [{"patch", "center", "radius", "strength"}].

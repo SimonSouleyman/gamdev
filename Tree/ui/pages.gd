@@ -17,7 +17,7 @@ const TEXTS: Dictionary = {
 	"first_run_done": ["The first root", "The root drank what it touched; the seed grows at sunrise."],
 	"sapling": ["A sapling", "Tap: an hour of brighter sun. Faster growth, but the green vial (tonight's life force) fills slower than its pencil mark.\n\nMorning boosts grow it east, noon tall, evening west; the arc shows the sun.\n\nHold a still finger: the day runs at 4x. Drag to walk, pinch to zoom."],
 	"spent": ["Nothing left to grow with", "The roots' haul is used up. The leaves still gather life force."],
-	"first_sunset": ["Sunset", "Tap the ground or swipe up to dive to the roots.\n\nThe meadow hints below: rushes water, clover nitrogen, nettles phosphorus, stones rock, comfrey a potassium wish."],
+	"first_sunset": ["Sunset", "Tap the ground or swipe up to dive.\n\nThe meadow hints below: rushes water, clover nitrogen, nettles phosphorus, stones rock, comfrey potassium."],
 	"pick": ["A new root", "Tonight a root can start anywhere on the old roots: tap one."],
 	"shears": ["The shears", "Touch a branch to outline what would fall; slide to choose, lift to cut.\n\nCutting is free; the tree grows into your shape. Tap the shears to put them away."],
 	"finished": ["A grown tree", "Fully grown; it dropped a seed. The shed's seed bag holds the next kind. No hurry."],
@@ -30,6 +30,7 @@ const TEXTS: Dictionary = {
 	"bonsai_repot": ["Repotting", "A week fills the pot. Snip circling roots, pick a pot (bigger carries more), fresh soil."],
 	"bonsai_burn": ["Burnt tips", "Too many pellets browned a few tips. They grow on."],
 	"empty_night": ["A quiet night", "No life force was left tonight. Calm days fill the vial."],
+	"compass": ["The compass", "The needle points to what the tree wants."],
 }
 
 ## The doodle on each page (InkSketch kinds); a species page shows its seed or leaf.
@@ -39,6 +40,7 @@ const DOODLES: Dictionary = {
 	"finished": "grown_tree", "bonsai": "bonsai", "bonsai_water": "can", "bonsai_fertiliser": "tin",
 	"bonsai_shears": "shears", "bonsai_pinch": "tweezers", "bonsai_wire": "wire",
 	"bonsai_repot": "trowel", "bonsai_burn": "leaf_burnt", "empty_night": "moon",
+	"compass": "clover",
 }
 
 
