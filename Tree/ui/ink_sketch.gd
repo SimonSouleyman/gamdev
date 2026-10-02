@@ -14,10 +14,47 @@ static var _cache: Dictionary = {}
 ## sizes of the day pages and the seed bag (0.8.2; drawn at SIZE, shown at 56 to 104 px).
 static func texture(kind: String) -> Texture2D:
 	if not _cache.has(kind):
-		var img := _bolder(image(kind))
-		img.generate_mipmaps()
+		var img: Image = null
+		if _warming.has(kind):
+			# Drawn (or being drawn) on a worker thread by warm(): wait for it.
+			WorkerThreadPool.wait_for_task_completion(int(_warming[kind]))
+			_warming.erase(kind)
+			_mutex.lock()
+			img = _warmed.get(kind)
+			_warmed.erase(kind)
+			_mutex.unlock()
+		if img == null:
+			img = _journal_image(kind)
 		_cache[kind] = ImageTexture.create_from_image(img)
 	return _cache[kind]
+
+
+## Draws these kinds' doodles ahead on worker threads (0.8.2.4: the journal's first open drew
+## them all on the main thread, 0.49 s on the phone); texture() picks them up.
+static var _warming: Dictionary = {}
+static var _warmed: Dictionary = {}
+static var _mutex := Mutex.new()
+
+
+static func warm(kinds: Array) -> void:
+	for kind in kinds:
+		var k := str(kind)
+		if k == "" or _cache.has(k) or _warming.has(k) or not has(k):
+			continue
+		_warming[k] = WorkerThreadPool.add_task(_warm_one.bind(k), false, "ink sketch")
+
+
+static func _warm_one(kind: String) -> void:
+	var img := _journal_image(kind)
+	_mutex.lock()
+	_warmed[kind] = img
+	_mutex.unlock()
+
+
+static func _journal_image(kind: String) -> Image:
+	var img := _bolder(image(kind))
+	img.generate_mipmaps()
+	return img
 
 
 ## Each pixel takes the strongest ink of its neighbours (a max over 3 x 3, done as a row pass

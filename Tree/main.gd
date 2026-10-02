@@ -181,8 +181,10 @@ func start(p_state: GameState) -> void:
 	# A new game or a load in the middle of a dive or sunrise: stop that transition.
 	if _tween:
 		_tween.kill()
+	_fade_dive_ui(1.0)
 	_transitioning = false
 	_diving = false
+	tree_view.rising = false
 	_fade.color.a = 0.0
 	tree_view.dive_amount = 0.0
 	if state.phase == GameState.Phase.NIGHT:
@@ -375,12 +377,21 @@ func _on_ground_tapped() -> void:
 
 func _dive() -> void:
 	_transitioning = true
-	_diving = true
 	Haptics.buzz("dive")
-	tree_view.hud.visible = false
 	ambience.set_world(false, 2.2)
 	var tw := _new_tween()
 	tw.tween_property(tree_view, "dive_amount", 1.0, 1.6).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
+	# 0.8.2.4 (phone: the HUD vanished in one frame, the journal button stayed through the dive):
+	# the HUD, the corner pictures and the journal button fade out together, then hide.
+	_dive_ui = []
+	for c in tree_view.hud.get_children() + [_shed_button, _photo_button, _shears_button, journal.open_button()]:
+		if c is CanvasItem:
+			_dive_ui.append([c, (c as CanvasItem).modulate.a])
+	tw.parallel().tween_method(_fade_dive_ui, 1.0, 0.0, DIVE_UI_FADE)
+	tw.parallel().tween_callback(func() -> void:
+		_diving = true
+		tree_view.hud.visible = false
+		_fade_dive_ui(1.0)).set_delay(DIVE_UI_FADE)
 	tw.parallel().tween_property(_fade, "color:a", 1.0, 0.7).set_delay(0.9)
 	tw.tween_callback(func() -> void:
 		_diving = false
@@ -393,6 +404,18 @@ func _dive() -> void:
 	tw.tween_callback(func() -> void:
 		_transitioning = false
 		save())
+
+
+## How long the day's HUD takes to fade out at the dive's start (s).
+const DIVE_UI_FADE := 0.35
+## [CanvasItem, its alpha] for each thing that fades out at the dive's start.
+var _dive_ui: Array = []
+
+
+func _fade_dive_ui(v: float) -> void:
+	for e in _dive_ui:
+		if is_instance_valid(e[0]):
+			(e[0] as CanvasItem).modulate.a = float(e[1]) * v
 
 
 func _enter_night_view() -> void:
@@ -431,6 +454,8 @@ func _rise() -> void:
 	tw.tween_callback(func() -> void:
 		_show_underground(false)
 		tree_view.dive_amount = 1.0
+		# 0.8.2.4: the sunrise rises from above the grass, outside the crown (TreeView.rising).
+		tree_view.rising = true
 		# The camera rises from its first frame on: placed now, not one frame late (0.8.2.2).
 		tree_view.snap_camera()
 		ambience.set_world(true, 2.5)
@@ -439,6 +464,7 @@ func _rise() -> void:
 	tw.parallel().tween_property(tree_view, "dive_amount", 0.0, 3.0).set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
 	tw.tween_callback(func() -> void:
 		_transitioning = false
+		tree_view.rising = false
 		save()
 		# 0.8: the game keeps its last three sunrise saves, quietly (never a note or a reminder).
 		if not ephemeral:
@@ -632,7 +658,7 @@ func _notification(what: int) -> void:
 ## shed, camera and shears came a moment after the journal); also called at each switch.
 func _update_corner() -> void:
 	var page_up := shed_menu.is_tree_page_open()
-	journal.set_button_visible(not in_shed and not page_up)
+	journal.set_button_visible(not in_shed and not page_up and not _diving)
 	_shed_button.visible = not in_shed and not _diving and not page_up
 	_photo_button.visible = not in_shed and not _underground and not _diving and not page_up and state.phase == GameState.Phase.DAY
 	_shears_button.visible = _photo_button.visible and state.sim.graph.size() > 6
@@ -907,6 +933,14 @@ func enter_bonsai() -> void:
 	in_bonsai = true
 	shed_menu.show_menu(false)
 	bonsai_view.enter(shed.camera)
+	# 0.8.2.4 (phone: the paper scraps, one still blank, came before the camera): the HUD comes
+	# when the camera has arrived, with its words already written.
+	_transitioning = true
+	while in_bonsai and not bonsai_view.arrived():
+		await get_tree().process_frame
+	_transitioning = false
+	if not in_bonsai:
+		return
 	bonsai_hud.show_hud(true)
 	_page_once("bonsai")
 	if state.bonsai.repot_due:
@@ -970,12 +1004,11 @@ func _bonsai_photo() -> void:
 	_photo_busy = true
 	while bonsai_view.busy or _transitioning:
 		await get_tree().process_frame
-	var was := bonsai_hud.visible
-	bonsai_hud.visible = false
-	await RenderingServer.frame_post_draw
+	# 0.8.2.4: drawn off screen and written on a worker thread (the phone froze 0.95 s here and
+	# then showed one frame upside down, without the paper scraps, while the screen was read).
+	var shot: Image = await Photos.shoot(bonsai_view.camera, Photos.screen_size(self))
 	if in_bonsai:
-		Photos.save_from(get_viewport(), state.bonsai.day(), "bonsai", state.bonsai.species.id)
-	bonsai_hud.visible = was and in_bonsai
+		Photos.save_image(shot, state.bonsai.day(), "bonsai", state.bonsai.species.id)
 	_photo_busy = false
 
 
@@ -1091,15 +1124,10 @@ func _take_photo(tag: String, behind_black: bool = false) -> void:
 			Photos.save_image(shot, state.day_number(), tag, state.sim.species.id)
 		_photo_busy = false
 		return
-	var huds: Array = [tree_view.hud, journal, _corner]
-	var was: Array = []
-	for h in huds:
-		was.append((h as CanvasLayer).visible)
-		(h as CanvasLayer).visible = false
-	await RenderingServer.frame_post_draw
-	Photos.save_image(get_viewport().get_texture().get_image(), state.day_number(), tag, state.sim.species.id)
-	for i in range(huds.size()):
-		(huds[i] as CanvasLayer).visible = was[i]
+	# 0.8.2.4: off screen too, by a copy of the player's camera (no screen read-back: that showed
+	# a flipped frame on the phone's GL renderer, and the HUD blinked out for the photo).
+	var img: Image = await Photos.shoot(tree_view.camera, Photos.screen_size(self))
+	Photos.save_image(img, state.day_number(), tag, state.sim.species.id)
 	_photo_busy = false
 	if tag == "camera":
 		_flash.color.a = 0.8

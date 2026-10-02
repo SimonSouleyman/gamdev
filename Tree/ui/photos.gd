@@ -36,6 +36,45 @@ static func save_image(img: Image, day: int, tag: String, species_id: String = "
 	return path
 
 
+## What `cam` sees, drawn off screen by a copy of it in the same world (a coroutine: the image
+## comes after the next drawn frame). 0.8.2.4: the bonsai's milestone photo and the camera scrap
+## read the screen back instead. On the phone's GL renderer that showed one frame upside down
+## (the screen drawn flipped while it was read), and the bonsai's PNG was encoded on the main
+## thread, the 0.95 s freeze before it. The screen is never read now; save with save_image.
+static func shoot(cam: Camera3D, size: Vector2i) -> Image:
+	var main_vp := cam.get_viewport()
+	var vp := SubViewport.new()
+	vp.size = size
+	vp.render_target_update_mode = SubViewport.UPDATE_ONCE
+	vp.msaa_3d = main_vp.msaa_3d
+	vp.scaling_3d_mode = main_vp.scaling_3d_mode
+	vp.scaling_3d_scale = main_vp.scaling_3d_scale
+	vp.positional_shadow_atlas_size = main_vp.positional_shadow_atlas_size
+	var c := Camera3D.new()
+	c.environment = cam.environment
+	c.attributes = cam.attributes
+	c.near = cam.near
+	c.far = cam.far
+	c.fov = cam.fov
+	c.cull_mask = cam.cull_mask
+	c.keep_aspect = cam.keep_aspect
+	vp.add_child(c)
+	# Under the camera: the SubViewport draws the world its parent's viewport draws.
+	cam.add_child(vp)
+	c.global_transform = cam.global_transform
+	c.make_current()
+	await RenderingServer.frame_post_draw
+	var img := vp.get_texture().get_image()
+	vp.queue_free()
+	return img
+
+
+## The screen's size in pixels (the size the photos had when they were read from the screen).
+static func screen_size(node: Node) -> Vector2i:
+	var vp := node.get_viewport()
+	return (vp as Window).size if vp is Window else Vector2i(vp.get_visible_rect().size)
+
+
 static func _encode(img: Image, path: String) -> void:
 	var w := 1080
 	img.resize(w, int(float(w) * img.get_height() / img.get_width()), Image.INTERPOLATE_BILINEAR)

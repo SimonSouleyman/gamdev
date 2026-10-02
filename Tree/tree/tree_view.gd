@@ -186,6 +186,7 @@ func _ready() -> void:
 func setup(p_state: GameState) -> void:
 	state = p_state
 	_mood_day = -1
+	_light_snap = true
 	apply_species(state.sim.species)
 	_clearing = -1.0
 	refresh_clearing()
@@ -806,13 +807,20 @@ func _process(delta: float) -> void:
 var _perf_rebuild_ms: float = 0.0
 var _perf_timer: float = 0.0
 var _perf_worst: float = 0.0
+var _perf_last: int = 0
 
 
 func _perf_log(delta: float) -> void:
 	if not OS.is_debug_build() or OS.has_feature("editor"):
 		return
 	_perf_timer += delta
-	_perf_worst = maxf(_perf_worst, delta)
+	# 0.8.2.4: the wall clock between frames, not delta. Godot caps a frame's delta (about
+	# 150 ms on the phone), so the log showed 150 ms for the 0.95 s freezes. This also counts the
+	# switch frames (the shed, the dive, the bonsai), since the tree view always processes.
+	var now := Time.get_ticks_usec()
+	if _perf_last > 0 and now - _perf_last < 10000000:  # (not the time spent in the background)
+		_perf_worst = maxf(_perf_worst, (now - _perf_last) / 1000000.0)
+	_perf_last = now
 	if _perf_timer >= 5.0:
 		print("perf: fps %d, worst frame %.0f ms, slowest rebuild %.0f ms, nodes %d, clearing %.0f m" % [Engine.get_frames_per_second(), _perf_worst * 1000.0, _perf_rebuild_ms, state.sim.graph.size(), _clearing])
 		_perf_timer = 0.0
@@ -921,6 +929,22 @@ func twinkle_count() -> int:
 	return _twinkles.multimesh.instance_count
 
 
+## How long the light takes from the last daylight to the evening's (and back), in seconds.
+const SUNSET_EASE := 0.8
+## How fast the night falls once the player dives before the dusk has deepened (seconds).
+const NIGHT_EASE := 0.9
+var _day_w: float = 1.0
+## The next frame sets the light at once (setup, snap_camera: behind a black screen).
+var _light_snap: bool = true
+
+
+## 1 while the sun is up, 0 after it set, eased over SUNSET_EASE (smoothstepped).
+func _day_weight(h: float) -> float:
+	var want := 1.0 if h > 0.0 else 0.0
+	_day_w = want if _light_snap else move_toward(_day_w, want, get_process_delta_time() / SUNSET_EASE)
+	return smoothstep(0.0, 1.0, _day_w)
+
+
 func _update_sun() -> void:
 	var clock := state.sim.clock
 	var dir := clock.sun_direction()
@@ -939,7 +963,10 @@ func _update_sun() -> void:
 	_sun_light.visible = true
 	_sun_light.look_at_from_position(light_dir * 20.0, Vector3.ZERO, Vector3.UP if absf(light_dir.y) < 0.99 else Vector3.FORWARD)
 	# A low sun still lights the clearing warmly (dawn burst, evening): at least 0.9.
-	_sun_light.light_energy = maxf(0.9, 0.45 + 1.4 * minf(clock.light_level(), 1.6)) if h > 0.0 else 0.55
+	# 0.8.2.4 (phone: dusk turned to night in one frame): the day's light eases into the
+	# evening's over SUNSET_EASE seconds instead of switching when the sun touches the horizon.
+	var dw := _day_weight(h)
+	_sun_light.light_energy = lerpf(0.55, maxf(0.9, 0.45 + 1.4 * minf(clock.light_level(), 1.6)), dw)
 	_sun_light.shadow_enabled = h > 0.03
 	_sun_light.shadow_blur = 2.5
 	_sun_light.shadow_opacity = 0.8
@@ -952,8 +979,8 @@ func _update_sun() -> void:
 	# A low sun: a bright golden sky and haze, the ground in raking light (the reference photos).
 	_sky_mat.energy_multiplier = 1.5 + 1.7 * (1.0 - k) + (0.35 if clock.boost_active else 0.0)
 	# After sunset the haze stays cool blue-grey; only while the sun is up does it warm.
-	var warm := 0.25 * (1.0 - k) if h > 0.0 else 0.0
-	_env.fog_light_color = (Color(0.45, 0.55, 0.5) if h > 0.0 else Color(0.32, 0.38, 0.48)).lerp(_sun_light.light_color * 0.9, warm)
+	var warm := 0.25 * (1.0 - k) * dw
+	_env.fog_light_color = Color(0.32, 0.38, 0.48).lerp(Color(0.45, 0.55, 0.5), dw).lerp(_sun_light.light_color * 0.9, warm)
 	_env.fog_sun_scatter = 0.08 * (1.0 - k)
 	# The eye adapts: a low sun and the dusk are exposed brighter, so the tree stays readable.
 	_env.tonemap_exposure = 1.1 + 0.3 * (1.0 - k)
@@ -966,14 +993,13 @@ func _update_sun() -> void:
 	# Golden hour (visuals thread): less sun glare in the haze, real sun and shade by day, a sun
 	# that stays warm until it is well up, and haze that takes its colour.
 	_env.fog_sun_scatter *= 0.35
-	if h > 0.0:
-		# Less flat fill by day, but never a black dawn.
-		_env.ambient_light_energy *= lerpf(0.95, 0.6, smoothstep(0.0, 0.2, h))
-		_sun_light.light_energy *= 1.45
-		var golden := 1.0 - smoothstep(0.03, 0.55, h)
-		_sun_light.light_color = Color(1.0, 0.95, 0.88).lerp(Color(1.0, 0.7, 0.4), golden)
-		_sun_light.light_energy *= 1.0 + 0.25 * golden
-		_env.fog_light_color = _env.fog_light_color.lerp(Color(0.85, 0.7, 0.5), golden * (0.2 if _compat else 0.5))
+	# (By day; weighted by dw, so the evening takes over gradually.)
+	# Less flat fill by day, but never a black dawn.
+	_env.ambient_light_energy *= lerpf(1.0, lerpf(0.95, 0.6, smoothstep(0.0, 0.2, h)), dw)
+	var golden := 1.0 - smoothstep(0.03, 0.55, h)
+	_sun_light.light_color = _sun_light.light_color.lerp(Color(1.0, 0.95, 0.88).lerp(Color(1.0, 0.7, 0.4), golden), dw)
+	_sun_light.light_energy *= lerpf(1.0, 1.45 * (1.0 + 0.25 * golden), dw)
+	_env.fog_light_color = _env.fog_light_color.lerp(Color(0.85, 0.7, 0.5), golden * (0.2 if _compat else 0.5) * dw)
 	# The phone's simpler renderer lights more brightly: tone it down to match the PC.
 	if _compat:
 		# The phone renderer shows the sky darker and does not fog the far wood: lift the sky, haze
@@ -1028,7 +1054,10 @@ func _update_mood(_h: float) -> void:
 				_sunset_since = _time
 			night_amount = smoothstep(3.0, 30.0, _time - _sunset_since)
 		GameState.Phase.NIGHT:
-			night_amount = 1.0
+			# 0.8.2.4 (phone: a dive early in the dusk brightened the picture in one frame, the
+			# night's exposure lift): the night falls over NIGHT_EASE while the clearing still shows.
+			night_amount = 1.0 if _light_snap or not visible else move_toward(night_amount, 1.0, get_process_delta_time() / NIGHT_EASE)
+	_light_snap = false
 	if night_override >= 0.0:
 		night_amount = night_override
 	var n := night_amount
@@ -1283,6 +1312,11 @@ func crown_width() -> float:
 ## every day, so the flip-book shows the tree growing (on) and back to the player's view (off).
 ## How close above the meadow the dive's camera comes (it never goes under the ground).
 const DIVE_FLOOR := 0.35
+## The sunrise (main.gd sets `rising`): the camera rises from this high above the meadow (over
+## the grass) and at least this far outside the crown's reach (0.8.2.4).
+const RISE_FLOOR := 1.3
+const RISE_CLEAR := 1.2
+var rising: bool = false
 
 
 func album_pose(on: bool) -> void:
@@ -1291,8 +1325,9 @@ func album_pose(on: bool) -> void:
 
 
 ## The camera placed at once where play has it (no glide from where it was): after the shed and
-## at sunrise, behind the black (0.8.2.2).
+## at sunrise, behind the black (0.8.2.2). The light too (0.8.2.4: it eases at sunset and dive).
 func snap_camera() -> void:
+	_light_snap = true
 	if state != null:
 		_frame_camera(false, 0.0)
 
@@ -1449,14 +1484,19 @@ func _frame_camera(snap: bool, delta: float = 0.0) -> void:
 	# and closing in (Simon, play test 4). Sunrise plays the same move backwards, rising out.
 	var fall := dive_amount * dive_amount
 	var spin := dive_amount * 0.55
-	var r := Vector2(orbit.x - _focus.x, orbit.z - _focus.z).length() * lerpf(1.0, 0.6, dive_amount)
+	var r := Vector2(orbit.x - _focus.x, orbit.z - _focus.z).length() * lerpf(1.0, 0.6 if not rising else 1.0, dive_amount)
+	if rising:
+		# 0.8.2.4 (phone: the morning opened inside the grass, then the camera rose through the
+		# crown): the sunrise rises outside the crown's reach, from above the grass.
+		var clear := minf(crown_reach() + RISE_CLEAR, maxf(_clearing, Scenery.CLEARING_RADIUS) - 1.0)
+		r = lerpf(r, maxf(r, clear), dive_amount)
 	var a := (ALBUM_YAW if _album else _yaw) + spin
 	camera.position = Vector3(_focus.x + sin(a) * r, lerpf(orbit.y, -1.6, fall), _focus.z + cos(a) * r)
 	# 0.8.2.2 (phone: one to three flat grey frames on the dive, the ground's underside): the
-	# camera stops just above the meadow; the black fade covers the rest of the fall, and the
-	# sunrise rises from there.
+	# camera stops just above the meadow; the black fade covers the rest of the fall.
 	if dive_amount > 0.0:
-		camera.position.y = maxf(camera.position.y, Terrain.height(camera.position.x, camera.position.z) + DIVE_FLOOR)
+		var floor_y := RISE_FLOOR if rising else DIVE_FLOOR
+		camera.position.y = maxf(camera.position.y, Terrain.height(camera.position.x, camera.position.z) + floor_y)
 	camera.fov *= lerpf(1.0, 0.8, dive_amount)
 	var look := Vector3(_focus.x, lerpf(_focus.y, -4.0, fall), _focus.z)
 	var d := look - camera.position

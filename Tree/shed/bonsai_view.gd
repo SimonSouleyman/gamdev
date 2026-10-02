@@ -1168,6 +1168,8 @@ func _update_camera(delta: float) -> void:
 		_blend = minf(1.0, _blend + delta / 0.9)
 		var t := ease(_blend, -2.0)
 		camera.global_transform = _from.interpolate_with(target, t)
+		# 0.8.2.4 (phone: the glide skimmed the workbench): the path arcs up over it.
+		camera.global_position.y += sin(PI * t) * FLY_LIFT
 		camera.fov = lerpf(_from_fov, fov, t)
 	else:
 		camera.global_transform = target
@@ -1203,6 +1205,15 @@ func base_fov() -> float:
 	return _fov
 
 
+## How high the glide to the sill arcs over the straight line (m, at its middle).
+const FLY_LIFT := 0.22
+
+
+## The glide to the sill is over (main.gd shows the paper scraps then).
+func arrived() -> bool:
+	return active and _blend >= 1.0
+
+
 ## Into bonsai mode: the camera glides from `from` (the shed's eye) close to the pot.
 func enter(from: Camera3D) -> void:
 	active = true
@@ -1214,7 +1225,9 @@ func enter(from: Camera3D) -> void:
 	camera.environment = from.environment
 	camera.global_transform = _from
 	camera.make_current()
-	refresh(true)
+	# Rebuilt only if the bonsai changed (0.8.2.4: a forced rebuild was a long first frame of the
+	# glide; the shed's visit already brought it up to date).
+	refresh(false)
 
 
 ## Back to the workbench: the camera glides back, then `to` takes over.
@@ -1229,6 +1242,7 @@ func leave(to: Camera3D, done: Callable) -> void:
 	tw.tween_method(func(t: float) -> void:
 		var e := ease(t, -2.0)
 		camera.global_transform = start.interpolate_with(to.global_transform, e)
+		camera.global_position.y += sin(PI * e) * FLY_LIFT
 		camera.fov = lerpf(fov0, to.fov, e), 0.0, 1.0, 0.7)
 	tw.tween_callback(func() -> void:
 		to.make_current()
