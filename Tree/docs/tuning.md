@@ -100,7 +100,7 @@ Last checked against the code: 2026-09-30 06:40 UTC (main at b4fbd37). File and 
 | Wish kind (`Diary.wish_kind`) | the kind with the lowest stock against need, any of the four (0.6.3: water or nitrogen only) | fixed | The glow never led to the missing phosphorus. |
 | Underground wishes (`Diary.underground_share`) | 1.0: every morning has a wish place, no day wishes (0.8.2.5; until 0.8.2.4: 0.6; 0.6.3: 0.75) | fixed | Simon, "Ein Ort, gut sichtbar" (2026-10-02): the day wishes did nothing and hid the real ones. Seed 14 linden: the glow follower reached 24 of 24 and finished on day 29. |
 | Missed wish deposits (`MISSED_MAX`, `missed_ahead`) | at most 4 wait; a later wish points at an untouched one of its kind 3.5 to 10.5 m ahead again, or is a day wish | fixed | B4: up to 11 missed deposits lay fresh by the last week. |
-| Glows at once (`Diary.glows`) | one; yesterday's glows faintly only on a night with a day wish | fixed | 0.7 broken item 3. |
+| Glows at once (`Diary.glows`) | today's wish at full glow, plus every missed wish deposit not yet reached at about half (`GLOW_YESTERDAY` 0.45), at most 4 missed (0.7 to 0.8.2.4: one; yesterday's only on a day-wish night) | 2 to 4 missed | [PLACEHOLDER] Simon, 2026-10-02: missed wishes stay reachable and keep glowing, without markers above ground (specs/wish-compass-vial.md section 5). |
 | Shade dieback (`SHADE_DIEBACK_SHARE`) | 5 % of shaded tips per day (birch 10 %, beech 0) | 2 to 10 % | Soft failure from the growth model. |
 
 ## Care and pruning (0.6.3)
