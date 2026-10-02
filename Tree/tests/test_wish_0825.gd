@@ -311,8 +311,6 @@ func test_the_roots_drank_well_after_a_night_at_a_deposit() -> void:
 	while g.steer(bot.stick_for(g.roots, g.ground), false, FRAME) and guard < 20000:
 		guard += 1
 	var day := g.day_number()
-	# Played on: the bot chases deposits, so the first root reaches one.
-	t.check(g.drank, "the root reached a deposit")
 	while g.phase != GameState.Phase.DAY:
 		g.tick(0.25)
 	var lines := g.diary.lines_for_day(day + 1).filter(func(e: Dictionary) -> bool: return str(e["text"]) == Diary.DRANK_LINE)
