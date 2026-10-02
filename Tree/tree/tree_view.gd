@@ -260,41 +260,15 @@ func _build_clearing(r: float) -> void:
 
 ## The brush pile at the clearing edge, with its hedgehog and wren (0.8).
 var brush_pile: BrushPileView
-## The nest in the crown, once it has come (Visitors). (No bench: Simon did not like it.)
-var _nest: MeshInstance3D
+## The nest in the crown, once it has come (Visitors; tree/bird_nest.gd). (No bench: Simon did not like it.)
+var _nest: BirdNest
 
 
 func update_visitors() -> void:
 	if _nest == null:
-		_nest = MeshInstance3D.new()
-		var t := TorusMesh.new()
-		t.inner_radius = 0.12
-		t.outer_radius = 0.26
-		t.rings = 10
-		t.ring_segments = 8
-		_nest.mesh = t
-		var nm := StandardMaterial3D.new()
-		nm.albedo_color = Color(0.36, 0.28, 0.18)
-		nm.roughness = 1.0
-		nm.albedo_texture = load(Assets.BARK_DIFF)
-		nm.uv1_scale = Vector3(4, 1, 1)
-		_nest.material_override = nm
-		_nest.scale = Vector3(1, 0.7, 1)
+		_nest = BirdNest.new()
 		add_child(_nest)
-	_nest.visible = Visitors.has_come(state, "nest")
-	if _nest.visible:
-		# In a fork about two thirds up, on a living branch with a few children.
-		var g := state.sim.graph
-		var want := state.sim.height() * 0.62
-		var best := 1
-		var best_d := INF
-		for id in range(2, g.size()):
-			if g.children[id].size() >= 2 and not g.get_flag(id, "dead", false):
-				var d := absf(g.positions[id].y - want)
-				if d < best_d:
-					best_d = d
-					best = id
-		_nest.position = g.positions[best] + Vector3(0, 0.05, 0)
+	_nest.update(state)
 
 
 func _build_world() -> void:
