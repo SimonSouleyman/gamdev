@@ -144,8 +144,8 @@ const FAST_FORWARD := 16.0
 const FAST_EASE := 0.5
 ## 0..1: how far the fast-forward has eased in (0 = the normal clock).
 var _ff_amount: float = 0.0
-## The small ink hourglass by the day scrap, shown only while held.
-var hourglass: Hourglass
+## The small ink double arrow by the day scrap, shown only while the day runs fast.
+var fast_arrows: FastArrows
 ## The sunset picture (0.8.2.4, Simon): one tap runs the rest of the day to the sunset hold with
 ## the fast-forward's speed and steps; a tap anywhere (or on the picture again) stops it. It never
 ## goes past the sunset hold: the dive, and so the night's root run, still waits for the player.
@@ -607,9 +607,9 @@ func _build_hud() -> void:
 	bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	hud.add_child(bar)
 	_day_label = _pill(bar, Color(1, 1, 1, 0.0))
-	hourglass = Hourglass.new()
-	hourglass.visible = false
-	_day_label.get_parent().add_child(hourglass)
+	fast_arrows = FastArrows.new()
+	fast_arrows.visible = false
+	_day_label.get_parent().add_child(fast_arrows)
 	var bar2 := HBoxContainer.new()
 	bar2.set_anchors_preset(Control.PRESET_TOP_WIDE)
 	bar2.offset_left = VIAL_SIZE.x + 8
@@ -1570,9 +1570,8 @@ func _update_hold(delta: float) -> void:
 	else:
 		# Stops on release, at the sunset hold, and when a page or the shed takes the input.
 		_ff_amount = 0.0
-	if hourglass != null:
-		hourglass.visible = fast_forwarding()
-		hourglass.hours = state.sim.clock.clock_hour()
+	if fast_arrows != null:
+		fast_arrows.visible = fast_forwarding()
 	_scenery.cloud_speed = time_speed()
 
 

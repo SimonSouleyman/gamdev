@@ -43,12 +43,8 @@ var _shed_button: TextureButton
 var _photo_button: TextureButton
 var _shears_button: TextureButton
 ## The sunset picture (0.8.2.4): one tap runs the rest of the day quickly to the sunset hold.
+## 0.8.2.5: a walnut hourglass, the sand nearly run (Simon's pick of four; ui/icons/sunset.png).
 var _sunset_button: TextureButton
-## The sunset picture's object (0.8.2.5 candidates for Simon, real objects like the other
-## pictures; tools/render_icons.gd --only=sunset* draws them): 0 the 0.8.2.4 sun behind a hill,
-## 1 an hourglass, 2 a brass pocket sundial, 3 a lit storm lantern, 4 a painted sunset tile.
-const SUNSET_ICONS: Array[String] = ["sunset", "sunset_hourglass", "sunset_sundial", "sunset_lantern", "sunset_tile"]
-const SUNSET_ICON := 3
 var _shears_glow: TextureRect
 var _glow_tween: Tween
 var _flash: ColorRect
@@ -716,7 +712,7 @@ func _build_corner() -> void:
 		if tree_view.prune_mode:
 			_page_once("shears"))
 	# The sunset: the rest of the day runs at the fast-forward's speed; a tap anywhere stops it.
-	_sunset_button = _picture(SUNSET_ICONS[SUNSET_ICON], 156.0, 1.5)
+	_sunset_button = _picture("sunset", 156.0, 1.5)
 	_sunset_button.pressed.connect(func() -> void:
 		if _transitioning:
 			return
@@ -746,11 +742,6 @@ func _build_corner() -> void:
 	_flash.set_anchors_preset(Control.PRESET_FULL_RECT)
 	_flash.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_corner.add_child(_flash)
-
-
-## Shows another of the sunset picture's candidates (SUNSET_ICONS; for comparison shots).
-func show_sunset_icon(variant: int) -> void:
-	_sunset_button.texture_normal = load("res://ui/icons/%s.png" % SUNSET_ICONS[variant])
 
 
 ## The sunset picture's tap: starts the run to the sunset, or stops one that runs.

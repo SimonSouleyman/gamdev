@@ -1,5 +1,5 @@
 extends RefCounted
-## 0.8.2.4 (notes/ff-0.8.2.4.md): the sunset picture runs the rest of the day; the hourglass at
+## 0.8.2.4 (notes/ff-0.8.2.4.md): the sunset picture runs the rest of the day; the fast-forward's mark at
 ## 16x; the bonsai lamp; the bench's drawers; a night ended at once grows its whole budget
 ## (specs/0.8.md item 44). 16x itself is in test_fast_forward.gd.
 var t
@@ -54,7 +54,7 @@ func test_the_sunset_picture_runs_to_the_sunset_hold_and_never_dives() -> void:
 	t.check(tv.can_run_to_sunset(), "offered by day")
 	t.check(tv.run_to_sunset(true), "a tap starts the run")
 	_frame(tv)
-	t.check(tv.hourglass.visible, "the hourglass shows while it runs")
+	t.check(tv.fast_arrows.visible, "the ink arrows show while it runs")
 	var real := 0.0
 	var fastest := 1.0
 	var guard := 0
@@ -71,7 +71,7 @@ func test_the_sunset_picture_runs_to_the_sunset_hold_and_never_dives() -> void:
 	_frame(tv)
 	t.check(not tv.running_to_sunset(), "and stops there")
 	t.check_eq(tv.time_speed(), 1.0, "the normal clock again")
-	t.check(not tv.hourglass.visible, "the hourglass goes")
+	t.check(not tv.fast_arrows.visible, "the arrows go")
 	for _i in range(300):
 		_frame(tv)
 	t.check_eq(g.phase, GameState.Phase.SUNSET, "time holds at the sunset: no dive, the night's root waits")
@@ -167,11 +167,22 @@ func test_a_run_day_grows_the_same_tree() -> void:
 	tv.free()
 
 
-func test_the_hourglass_turns_about_once_a_second_at_16x() -> void:
+## 0.8.2.5: the fast-forward shows ink arrows (the sunset picture is the hourglass now); they
+## pulse calmly, about once a second, whatever the day's speed.
+func test_the_fast_arrows_pulse_about_once_a_second() -> void:
 	var tv := _view()
-	var clk := tv.state.sim.clock
-	var real_per_turn := Hourglass.HOURS_PER_TURN * clk.hour_seconds() / TreeView.FAST_FORWARD
-	t.check(real_per_turn > 0.8 and real_per_turn < 1.6, "one turn of the sand takes %.2f s at 16x" % real_per_turn)
+	var arrows: Object = tv.fast_arrows
+	t.check(arrows is FastArrows and not (arrows is Label), "a drawing, not a word")
+	t.check(FastArrows.PULSE_SECONDS > 0.8 and FastArrows.PULSE_SECONDS < 1.6, "one pulse takes %.2f s" % FastArrows.PULSE_SECONDS)
+	tv.run_to_sunset(true)
+	_frame(tv)
+	var lo := 1.0
+	var hi := 0.0
+	for _i in range(int(FastArrows.PULSE_SECONDS / FRAME) + 2):
+		arrows._process(FRAME)
+		lo = minf(lo, arrows.pulse())
+		hi = maxf(hi, arrows.pulse())
+	t.check(lo < 0.1 and hi > 0.9, "it swells and fades within a pulse (%.2f to %.2f)" % [lo, hi])
 	tv.free()
 
 

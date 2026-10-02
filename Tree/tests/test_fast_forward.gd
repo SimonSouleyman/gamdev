@@ -72,7 +72,7 @@ func test_a_tap_boosts_and_a_hold_fast_forwards() -> void:
 	t.check_eq(tv.time_speed(), 1.0, "not yet at 0.5 s")
 	_frames(tv, 0.2)
 	t.check(tv.fast_forwarding(), "held 0.7 s: the day runs fast")
-	t.check(tv.hourglass.visible, "the hourglass shows while held")
+	t.check(tv.fast_arrows.visible, "the ink arrows show while held")
 	t.check(tv.time_speed() < TreeView.FAST_FORWARD, "it eases in, no jump (%.2f)" % tv.time_speed())
 	_frames(tv, 0.6)
 	t.check_eq(TreeView.FAST_FORWARD, 16.0, "0.8.2.4: 16x (Simon: twice as fast, twice)")
@@ -85,7 +85,7 @@ func test_a_tap_boosts_and_a_hold_fast_forwards() -> void:
 	t.check_eq(clk.boost_remaining, 0.0, "a hold never boosts")
 	t.check_eq(tv.time_speed(), 1.0, "release: the normal clock at once")
 	_frame(tv)
-	t.check(not tv.hourglass.visible, "the hourglass goes with the release")
+	t.check(not tv.fast_arrows.visible, "the arrows go with the release")
 	tv.free()
 
 
@@ -235,12 +235,12 @@ func test_a_held_day_grows_the_same_tree_quicker() -> void:
 	t.check_near(all_day["real"] / calm["real"], 1.0 / TreeView.FAST_FORWARD, 0.01, "a sixteenth of the time (%.3f)" % (all_day["real"] / calm["real"]))
 
 
-## Broken 6: no number, timer or skip button: only the world and a small drawn hourglass.
+## Broken 6: no number, timer or skip button: only the world and a small drawn double arrow.
 func test_it_shows_no_number_or_skip_button() -> void:
 	var tv := _view()
-	var glass: Object = tv.hourglass
-	t.check(not (glass is Label) and not (glass is BaseButton), "the hourglass is a drawing, not text or a button")
-	t.check_eq(tv.hourglass.mouse_filter, Control.MOUSE_FILTER_IGNORE, "and takes no touches")
+	var glass: Object = tv.fast_arrows
+	t.check(not (glass is Label) and not (glass is BaseButton), "the arrows are a drawing, not text or a button")
+	t.check_eq(tv.fast_arrows.mouse_filter, Control.MOUSE_FILTER_IGNORE, "and takes no touches")
 	tv._begin_press(Vector2(200, 600))
 	_frames(tv, 1.5)
 	var words := []

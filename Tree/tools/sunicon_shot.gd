@@ -1,6 +1,7 @@
 extends SceneTree
-## 0.8.2.5 shots: the tree view's HUD with each candidate for the sunset picture
-## (main.SUNSET_ICONS 1 to 4), the whole screen and a crop of the right-hand column of pictures.
+## 0.8.2.5 shots: the tree view's HUD with the sunset picture (the walnut hourglass), the whole
+## screen and a crop of the right-hand column of pictures; then the run to the sunset under way,
+## with crops of the day scrap and its ink double arrow at two moments of its pulse.
 ## Run (phone look): godot --path . --rendering-method gl_compatibility -s tools/sunicon_shot.gd -- --phone --shots=C:/some/folder
 
 var main: Node
@@ -8,6 +9,8 @@ var shots := ""
 var win := Vector2i(450, 1000)
 ## The right-hand column of pictures, compass to sunset, in the 450x1000 window.
 const COLUMN := Rect2i(322, 36, 128, 652)
+## The day scrap and what stands beside it, top left.
+const SCRAP := Rect2i(0, 0, 330, 150)
 
 
 func _initialize() -> void:
@@ -57,13 +60,19 @@ func _run() -> void:
 	main.journal.close_diary()
 	main.journal.clear_pages()
 	await _wait(10)
-	for v in range(main.SUNSET_ICONS.size()):
-		main.show_sunset_icon(v)
-		await _wait(6)
-		RenderingServer.force_draw(false)
-		var img := root.get_viewport().get_texture().get_image()
-		var name := "hud_sunset_%d_%s" % [v, main.SUNSET_ICONS[v]]
-		img.save_png(shots.path_join(name + ".png"))
-		img.get_region(COLUMN).save_png(shots.path_join(name + "_column.png"))
-		print("shot ", name, " ", img.get_size())
+	_shot("hud_sunset_hourglass", COLUMN, "column")
+	main.toggle_run_to_sunset()
+	await _wait(40)
+	_shot("hud_fast_arrows_a", SCRAP, "scrap")
+	await _wait(33)
+	_shot("hud_fast_arrows_b", SCRAP, "scrap")
+	print("running: speed x%.1f, pulse %.2f" % [main.tree_view.time_speed(), main.tree_view.fast_arrows.pulse()])
 	quit()
+
+
+func _shot(name: String, crop: Rect2i, tag: String) -> void:
+	RenderingServer.force_draw(false)
+	var img := root.get_viewport().get_texture().get_image()
+	img.save_png(shots.path_join(name + ".png"))
+	img.get_region(crop).save_png(shots.path_join(name + "_" + tag + ".png"))
+	print("shot ", name, " ", img.get_size())

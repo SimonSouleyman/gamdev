@@ -2,14 +2,12 @@ extends SceneTree
 ## Renders the HUD's picture icons into ui/icons/*.png: the journal (a leather volume), the shed
 ## (a small wooden hut built here from the shed's plank textures), the shears (hand secateurs
 ## built here from swept tubes and extruded outlines), the camera (a vintage rangefinder) and the
-## hand compass (brass case and dial, the needle on its own) and the sunset (0.8.2.4: a glowing
-## sun half sunk behind a grassy hill with a small tree on it, built here). Warm light, transparent background,
+## hand compass (brass case and dial, the needle on its own) and the sunset (0.8.2.5: a walnut
+## hourglass, its sand nearly run, built here). Warm light, transparent background,
 ## a soft ink edge and shadow so they sit on the paper HUD. CC0 models from Poly Haven live in
 ## tools/icon_models (a .gdignore keeps them out of the game; they are read here with GLTFDocument).
 ## Needs a window (the headless driver draws nothing):
-##   godot --path . -s tools/render_icons.gd [-- --only=shears] [-- --only=sunset*] [-- --raw]
-## 0.8.2.5: four sunset variants as real objects (ui/icons/sunset_<variant>.png; main.SUNSET_ICON
-## picks one): an hourglass, a brass pocket sundial, a lit storm lantern, a painted tile.
+##   godot --path . -s tools/render_icons.gd [-- --only=shears] [-- --raw]
 
 const RENDER := 1024
 const OUT := 256
@@ -37,10 +35,8 @@ func _initialize() -> void:
 
 
 func _run() -> void:
-	for job in ["journal", "shed", "shears", "camera", "compass", "sunset", "sunset_hourglass", "sunset_sundial", "sunset_lantern", "sunset_tile"]:
-		# --only=sunset* renders every sunset variant (0.8.2.5).
-		var want: bool = job.begins_with(_only.trim_suffix("*")) if _only.ends_with("*") else job == _only
-		if _only != "" and not want:
+	for job in ["journal", "shed", "shears", "camera", "compass", "sunset"]:
+		if _only != "" and job != _only:
 			continue
 		await call("_icon_" + job)
 		print("rendered ", job)
@@ -611,83 +607,7 @@ func _icon_shears() -> void:
 
 # --- the sunset (0.8.2.4) -------------------------------------------------------------
 
-## The sunset picture (run the rest of the day): a warm glowing sun half behind a rounded hill of
-## real grass, short rays fanned over it, and a small dark tree on the hill's shoulder.
-func _icon_sunset() -> void:
-	var s := _new_stage()
-	var glow := func(c: Color, e: float) -> StandardMaterial3D:
-		var m := StandardMaterial3D.new()
-		m.albedo_color = c
-		m.emission_enabled = true
-		m.emission = c
-		m.emission_energy_multiplier = e
-		m.roughness = 0.6
-		return m
-	# The sun: a sphere whose lower half the hill hides.
-	var sun := MeshInstance3D.new()
-	var sm := SphereMesh.new()
-	sm.radius = 0.55
-	sm.height = 1.1
-	sun.mesh = sm
-	sun.material_override = glow.call(Color(1.0, 0.45, 0.13), 0.75)
-	sun.position = Vector3(0.1, 0.0, -0.25)
-	s.add_child(sun)
-	# The rays: short tapered wedges in a fan over the horizon.
-	for i in range(7):
-		var a := deg_to_rad(18.0 + i * 24.0)
-		var ray := MeshInstance3D.new()
-		var pm := PrismMesh.new()
-		pm.size = Vector3(0.11, 0.24, 0.04)
-		ray.mesh = pm
-		ray.material_override = glow.call(Color(1.0, 0.62, 0.2), 0.9)
-		var dir := Vector3(cos(a), sin(a), 0.0)
-		ray.position = sun.position + dir * 0.8
-		# The prism's point (+y) away from the sun.
-		ray.rotation.z = a - PI * 0.5
-		s.add_child(ray)
-	# The hill: a squashed dome of grass in front.
-	var grass := StandardMaterial3D.new()
-	grass.albedo_texture = load("res://assets/ground/Grass004_1K-JPG_Color.jpg")
-	grass.normal_enabled = true
-	grass.normal_texture = load("res://assets/ground/Grass004_1K-JPG_NormalGL.jpg")
-	grass.albedo_color = Color(0.85, 0.95, 0.7)
-	grass.roughness = 0.9
-	grass.uv1_triplanar = true
-	grass.uv1_scale = Vector3.ONE * 3.0
-	var hill := MeshInstance3D.new()
-	var hm := SphereMesh.new()
-	hm.radius = 1.25
-	hm.height = 1.25
-	hm.is_hemisphere = true
-	hill.mesh = hm
-	hill.material_override = grass
-	hill.scale = Vector3(0.95, 0.36, 0.5)
-	hill.position = Vector3(0.0, -0.4, 0.2)
-	s.add_child(hill)
-	# A small tree on the left shoulder: a dark trunk and a round crown, lit warm from behind.
-	var bark := _mat(Color(0.22, 0.14, 0.08), 0.9)
-	var trunk := MeshInstance3D.new()
-	var tm := CylinderMesh.new()
-	tm.top_radius = 0.018
-	tm.bottom_radius = 0.03
-	tm.height = 0.26
-	trunk.mesh = tm
-	trunk.material_override = bark
-	trunk.position = Vector3(-0.62, 0.04, 0.3)
-	s.add_child(trunk)
-	var crown := MeshInstance3D.new()
-	var cm := SphereMesh.new()
-	cm.radius = 0.15
-	cm.height = 0.27
-	crown.mesh = cm
-	crown.material_override = _mat(Color(0.2, 0.36, 0.14), 0.85)
-	crown.position = Vector3(-0.62, 0.24, 0.3)
-	s.add_child(crown)
-	_frame(0, 8, 1.05)
-	_save(_finish(await _capture()), "sunset")
-
-
-# --- the sunset variants (0.8.2.5): real objects like the other pictures --------------
+# --- the sunset (0.8.2.5): a real object like the other pictures --------------------
 
 ## A turned part: the profile (radius, height) from bottom to top, spun about the y axis.
 func _lathe(profile: Array, mat: Material, at: Vector3 = Vector3.ZERO, sides: int = 56) -> MeshInstance3D:
@@ -737,9 +657,9 @@ func _glass(tint: Color) -> StandardMaterial3D:
 	return m
 
 
-## (A) An hourglass: turned walnut ends and spindles, clear glass, the warm orange sand mostly
-## run through (the day nearly spent).
-func _icon_sunset_hourglass() -> void:
+## The sunset picture (run the rest of the day), 0.8.2.5: an hourglass of turned walnut ends and
+## spindles, clear glass, the warm orange sand mostly run through (the day nearly spent).
+func _icon_sunset() -> void:
 	var s := _new_stage()
 	var wood := _planks("wood_table_worn", 3.0, Color(0.5, 0.31, 0.2))
 	var plate := [Vector2(0, 0), Vector2(0.4, 0), Vector2(0.435, 0.015), Vector2(0.45, 0.04), Vector2(0.435, 0.065), Vector2(0.4, 0.08), Vector2(0, 0.08)]
@@ -766,229 +686,7 @@ func _icon_sunset_hourglass() -> void:
 	# A squat one: the picture is as tall as the shed's at most, so a slim glass would read small.
 	s.scale = Vector3(1.3, 0.9, 1.3)
 	_frame(-18, 7)
-	_save(_finish(await _capture()), "sunset_hourglass")
-
-
-## The sundial's face: silvered brass, a chapter ring, the hour lines fanned from the gnomon's
-## foot and the late afternoon hours enamelled in sunset orange.
-func _sundial_face(size: int) -> ImageTexture:
-	var img := Image.create(size, size, false, Image.FORMAT_RGBA8)
-	var c := Vector2(0.5, 0.74) * size
-	var lat := deg_to_rad(50.0)
-	var ink := Color(0.12, 0.09, 0.06)
-	for y in range(size):
-		for x in range(size):
-			var p := Vector2(x + 0.5, y + 0.5)
-			var d := p.distance_to(Vector2(size, size) * 0.5) / (size * 0.5)
-			if d > 1.0:
-				continue
-			var col := Color(0.93, 0.87, 0.72).lerp(Color(0.8, 0.72, 0.55), d * d * 0.6)
-			# The hour this point's line belongs to (from the noon line, up; afternoon to the right):
-			# tan(angle) = sin(latitude) tan(hour angle).
-			var v := p - c
-			var ang := atan2(v.x, -v.y)
-			var hours := rad_to_deg(atan2(sin(ang), cos(ang) * sin(lat))) / 15.0
-			var r := v.length() / (size * 0.5)
-			if r > 0.5 and d < 0.86 and hours > 3.0 and hours < 6.0:
-				col = Color(0.95, 0.42, 0.1)
-			if d > 0.62 and d < 0.88 and absf(hours) <= 6.05:
-				var frac := absf(hours - roundf(hours))
-				if frac * v.length() * 0.26 < size * 0.007:
-					col = ink
-			if absf(d - 0.88) < 0.014 or absf(d - 0.62) < 0.009:
-				col = ink
-			if d > 0.9:
-				col = Color(0.78, 0.62, 0.32)
-			img.set_pixel(x, y, col)
-	return ImageTexture.create_from_image(img)
-
-
-## (B) A brass pocket sundial: a round case with its bow, the silvered face with the evening
-## hours in orange and a tall gnomon whose shadow falls across it.
-func _icon_sunset_sundial() -> void:
-	var s := _new_stage()
-	var brass := _mat(Color(0.86, 0.64, 0.3), 0.3, 1.0)
-	_lathe([Vector2(0, 0), Vector2(0.46, 0), Vector2(0.5, 0.025), Vector2(0.505, 0.06), Vector2(0.49, 0.095),
-		Vector2(0.455, 0.1), Vector2(0.445, 0.07), Vector2(0, 0.07)], brass)
-	var face := MeshInstance3D.new()
-	var pm := PlaneMesh.new()
-	pm.size = Vector2(0.9, 0.9)
-	face.mesh = pm
-	var fm := _mat(Color.WHITE, 0.35, 0.25)
-	fm.albedo_texture = _sundial_face(512)
-	fm.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA_SCISSOR
-	face.material_override = fm
-	face.position = Vector3(0, 0.072, 0)
-	s.add_child(face)
-	# The gnomon: a brass triangle standing on the noon line, rising north (away).
-	var zo := (0.74 - 0.5) * 0.9
-	var l := 0.52
-	var g := _slab(PackedVector2Array([Vector2(0, zo), Vector2(0, zo - l), Vector2(l * tan(deg_to_rad(42.0)), zo - l),
-		Vector2(l * 0.25, zo - l * 0.55)]), -0.022, 0.022, brass)
-	g.rotation.z = PI * 0.5
-	g.position.y = 0.072
-	# The bow and its crown at the far side.
-	var crown := MeshInstance3D.new()
-	var cm := CylinderMesh.new()
-	cm.top_radius = 0.04
-	cm.bottom_radius = 0.04
-	cm.height = 0.08
-	crown.mesh = cm
-	crown.material_override = brass
-	crown.rotation.x = PI * 0.5
-	crown.position = Vector3(0, 0.05, -0.53)
-	s.add_child(crown)
-	var bow := MeshInstance3D.new()
-	var tm := TorusMesh.new()
-	tm.inner_radius = 0.07
-	tm.outer_radius = 0.1
-	bow.mesh = tm
-	bow.material_override = brass
-	bow.rotation.z = PI * 0.5
-	bow.position = Vector3(0, 0.05, -0.64)
-	s.add_child(bow)
-	# Turned so the gnomon shows its side, its shadow across the evening hours.
-	s.rotation_degrees.y = -62.0
-	_frame(0, 40)
-	_save(_finish(await _capture()), "sunset_sundial")
-
-
-## (C) A storm lantern, lit: red enamel tank, cap and air tubes, a brass burner, the warm flame
-## in a glowing glass globe, the wire guard and the bail.
-func _icon_sunset_lantern() -> void:
-	var s := _new_stage()
-	var red := _mat(Color(0.6, 0.09, 0.05), 0.38, 0.25)
-	var brass := _mat(Color(0.86, 0.64, 0.3), 0.3, 1.0)
-	var wire := _mat(Color(0.5, 0.08, 0.05), 0.4, 0.3)
-	_lathe([Vector2(0, 0), Vector2(0.3, 0), Vector2(0.35, 0.025), Vector2(0.37, 0.09), Vector2(0.35, 0.16),
-		Vector2(0.26, 0.2), Vector2(0.18, 0.215), Vector2(0, 0.215)], red)
-	_lathe([Vector2(0, 0.21), Vector2(0.13, 0.21), Vector2(0.14, 0.25), Vector2(0.11, 0.28), Vector2(0, 0.28)], brass)
-	var knob := MeshInstance3D.new()
-	var km := CylinderMesh.new()
-	km.top_radius = 0.035
-	km.bottom_radius = 0.035
-	km.height = 0.03
-	knob.mesh = km
-	knob.material_override = brass
-	knob.rotation.x = PI * 0.5
-	knob.position = Vector3(0.0, 0.245, 0.17)
-	s.add_child(knob)
-	# The flame and the glowing globe.
-	var flame := MeshInstance3D.new()
-	var fm := SphereMesh.new()
-	fm.radius = 0.045
-	fm.height = 0.17
-	flame.mesh = fm
-	flame.material_override = _glowing(Color(1.0, 0.78, 0.32), 5.0)
-	flame.position = Vector3(0, 0.37, 0)
-	s.add_child(flame)
-	var globe := [Vector2(0.11, 0.27), Vector2(0.2, 0.3), Vector2(0.27, 0.39), Vector2(0.295, 0.52),
-		Vector2(0.27, 0.65), Vector2(0.19, 0.75), Vector2(0.12, 0.79)]
-	var gm := _glass(Color(1.0, 0.78, 0.45, 0.55))
-	gm.emission_enabled = true
-	gm.emission = Color(1.0, 0.55, 0.18)
-	gm.emission_energy_multiplier = 1.3
-	_lathe(globe, gm)
-	var lamp := OmniLight3D.new()
-	lamp.light_color = Color(1.0, 0.62, 0.28)
-	lamp.light_energy = 2.5
-	lamp.omni_range = 0.9
-	lamp.position = Vector3(0, 0.4, 0)
-	s.add_child(lamp)
-	# The guard: four wires bowed around the globe.
-	for i in range(4):
-		var a := deg_to_rad(45.0 + i * 90.0)
-		var path := PackedVector3Array()
-		var radii: Array = []
-		for k in range(globe.size()):
-			var p: Vector2 = globe[k]
-			path.append(Vector3(cos(a) * (p.x + 0.05), p.y, sin(a) * (p.x + 0.05)))
-			radii.append(Vector2(0.012, 0.012))
-		_tube(path, radii, wire, 8)
-	# The cap with its chimney and the two air tubes down the sides.
-	_lathe([Vector2(0.12, 0.78), Vector2(0.3, 0.81), Vector2(0.345, 0.85), Vector2(0.31, 0.9), Vector2(0.19, 0.94),
-		Vector2(0.13, 0.99), Vector2(0.15, 1.02), Vector2(0.1, 1.04), Vector2(0, 1.04)], red)
-	for side in [-1.0, 1.0]:
-		var path := PackedVector3Array()
-		var radii: Array = []
-		for k in range(13):
-			var t := k / 12.0
-			path.append(Vector3(side * (0.37 + sin(t * PI) * 0.06), lerpf(0.13, 0.86, t), 0))
-			radii.append(Vector2(0.032, 0.032))
-		_tube(path, radii, red, 12)
-	# The bail.
-	var bail := PackedVector3Array()
-	var br: Array = []
-	for k in range(25):
-		var a := PI * k / 24.0
-		bail.append(Vector3(cos(a) * 0.42, 0.86 + sin(a) * 0.36, 0))
-		br.append(Vector2(0.014, 0.014))
-	_tube(bail, br, _mat(Color(0.35, 0.33, 0.32), 0.4, 0.8), 8)
-	# Squat like a real storm lantern, so it fills the picture's height-limited box.
-	s.scale = Vector3(1.25, 0.92, 1.25)
-	_frame(-14, 10)
-	_save(_finish(await _capture()), "sunset_lantern")
-
-
-## The tile's painting: a glazed sunset, the sun half sunk behind a cobalt sea, its path on the
-## water, inside a cobalt double line on a cream border.
-func _tile_painting(size: int) -> ImageTexture:
-	var img := Image.create(size, size, false, Image.FORMAT_RGBA8)
-	var cobalt := Color(0.12, 0.2, 0.5)
-	var cream := Color(0.95, 0.91, 0.8)
-	var rng := RandomNumberGenerator.new()
-	rng.seed = 7
-	# Brush work: the edges wobble a little and the glaze is mottled, as painted by hand.
-	var noise := FastNoiseLite.new()
-	noise.seed = 3
-	noise.frequency = 0.02
-	for y in range(size):
-		for x in range(size):
-			var u := (x + 0.5) / size
-			var v := (y + 0.5) / size
-			var e := minf(minf(u, 1.0 - u), minf(v, 1.0 - v))
-			var col := cream
-			if e > 0.1:
-				var wob := noise.get_noise_2d(x, y)
-				var horizon := 0.6 + noise.get_noise_1d(x * 3.0) * 0.008
-				var sun := Vector2(0.5, 0.6)
-				var d := Vector2(u, v).distance_to(sun) + wob * 0.008
-				if v < horizon:
-					col = Color(0.99, 0.84, 0.48).lerp(Color(0.98, 0.52, 0.2), smoothstep(0.12, 0.6, v))
-					if d < 0.22:
-						col = Color(1.0, 0.86, 0.3).lerp(Color(0.95, 0.38, 0.08), smoothstep(0.06, 0.22, d))
-				else:
-					col = cobalt.lerp(Color(0.06, 0.12, 0.34), smoothstep(0.6, 0.9, v))
-					# The sun's path on the water.
-					var band := fmod((v - horizon) * 30.0 + wob * 0.25, 1.0)
-					if absf(u - 0.5) < 0.2 * (1.0 - (v - horizon) * 2.2) and band < 0.5 and v > horizon + 0.02:
-						col = Color(0.98, 0.6, 0.22)
-				col = col.lerp(col * 0.9, rng.randf() * 0.4 + wob * 0.5 + 0.25)
-				col.a = 1.0
-			if absf(e - 0.075) < 0.008 or absf(e - 0.1) < 0.005:
-				col = cobalt
-			img.set_pixel(x, y, col)
-	return ImageTexture.create_from_image(img)
-
-
-## (D) A glazed ceramic tile with the painted sunset, its terracotta body showing at the edge.
-func _icon_sunset_tile() -> void:
-	var s := _new_stage()
-	_add_box(Vector3(1.0, 0.07, 1.0), Vector3(0, 0.035, 0), _mat(Color(0.7, 0.4, 0.26), 0.9))
-	var top := MeshInstance3D.new()
-	var pm := PlaneMesh.new()
-	pm.size = Vector2(0.97, 0.97)
-	top.mesh = pm
-	var gm := _mat(Color.WHITE, 0.12)
-	gm.albedo_texture = _tile_painting(512)
-	gm.metallic_specular = 0.7
-	gm.clearcoat_enabled = true
-	gm.clearcoat = 0.8
-	top.material_override = gm
-	top.position = Vector3(0, 0.0705, 0)
-	s.add_child(top)
-	_frame(-10, 64)
-	_save(_finish(await _capture()), "sunset_tile")
+	_save(_finish(await _capture()), "sunset")
 
 
 # --- the hand compass ----------------------------------------------------------------
