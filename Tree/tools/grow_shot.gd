@@ -34,6 +34,9 @@ extends SceneTree
 ## line, far_view_bare.png without), then a rock band (field_band.png) and a soft vein
 ## (field_vein.png) from a few metres, as a player would meet them, and prints the far view's draw
 ## calls and primitives against the normal overview's.
+## --nest: lets the visitors due by the tree's size come (the nest from 8 m), then photographs the
+## nest from a tool camera 1.3 m away (nest_close.png) and 4 m away (nest_medium.png) before the
+## three normal views.
 ## --settle=<frames> waits before the first photo; --face_moon turns the view toward the moon; --look_up=<radians> tilts the camera toward the sky; --tag=<name> prefixes the file names.
 
 var shots_dir := ""
@@ -50,6 +53,7 @@ var cut_days := 0
 var hog_at := -1.0
 var wren_at := -1.0
 var pile_close := false
+var nest_shot := false
 var rview: RootView
 var prune := false
 var stats := false
@@ -120,6 +124,9 @@ func _initialize() -> void:
 			hog_at = float(a.substr(11))
 		elif a.begins_with("--wren="):
 			wren_at = float(a.substr(7))
+		elif a == "--nest":
+			nest_shot = true
+			settle = maxi(settle, 30)
 		elif a == "--pile_close":
 			pile_close = true
 			settle = maxi(settle, 15)
@@ -196,6 +203,8 @@ func _initialize() -> void:
 	if hint_patches:
 		var depth := minf(0.8, Underground.HINT_MAX_DEPTH - 0.1)
 		print("hint patches: ", g.ground.add_wish_deposit(g.day_number(), Resources.Kind.PHOSPHORUS, Vector3(2.6, -depth, -3.6), 1.3, 30), " ", g.ground.add_wish_deposit(g.day_number(), Resources.Kind.POTASSIUM, Vector3(-2.4, -depth, -4.2), 1.3, 30))
+	if nest_shot:
+		print("visitors: ", Visitors.arrive(g))
 	g.take_events()
 	if cut_days > 0:
 		print("brush pile: %d segments, %d sticks" % [g.brush.wood, g.brush.stick_count()])
@@ -251,6 +260,8 @@ func _process(_delta: float) -> bool:
 			# Stand opposite the moon, so it hangs above the tree.
 			var d := view._night_sky.moon_direction()
 			only_yaw = atan2(-d.x, -d.z)
+	if nest_shot and frame >= 2 and frame <= 26:
+		_nest_frames()
 	if dive:
 		return _dive_frames()
 	if prune:
@@ -288,6 +299,46 @@ func _process(_delta: float) -> bool:
 	else:
 		quit()
 	return false
+
+
+## --nest: a close and a medium photo of the nest, from outside the crown and a little above.
+func _nest_frames() -> void:
+	var nest: Node3D = view._nest
+	if nest == null or not nest.visible:
+		if frame == 2:
+			print("no nest in this tree")
+		return
+	var at := nest.global_position
+	var out := Vector3(at.x, 0.0, at.z)
+	out = out.normalized() if out.length() > 0.05 else Vector3(0, 0, 1)
+	var dists := {2: 1.3, 14: 4.0}
+	if frame == 2:
+		# Hold the limbs still for these two, so the nest stays in the middle of the photo.
+		_set_sway(nest, 0.0)
+	if dists.has(frame):
+		var d: float = dists[frame]
+		var cam := Camera3D.new()
+		cam.fov = 40.0
+		cam.near = 0.02
+		view.add_child(cam)
+		cam.environment = view.camera.environment
+		cam.look_at_from_position(at + out * d + Vector3.UP * d * 0.55, at)
+		cam.make_current()
+	if frame == 12 or frame == 24:
+		RenderingServer.force_draw(false)
+		var nm := "nest_close" if frame == 12 else "nest_medium"
+		root.get_viewport().get_texture().get_image().save_png(shots_dir.path_join("%s%s.png" % [tag, nm]))
+		print("nest at ", at, (", %d triangles" % nest.triangle_count()) if nest.has_method("triangle_count") else "")
+	if frame == 26:
+		view.camera.make_current()
+		_set_sway(nest, 1.0)
+
+
+func _set_sway(nest: Node3D, amount: float) -> void:
+	view._bark_mat.set_shader_parameter("sway_strength", amount)
+	var m := (nest as GeometryInstance3D).material_override
+	if m is ShaderMaterial:
+		(m as ShaderMaterial).set_shader_parameter("sway_strength", amount)
 
 
 ## Where the tree (its living wood, plus a leaf's reach at the tips) sits on screen, as fractions
