@@ -18,7 +18,7 @@ clouds race. Never "I must skip to be efficient".
 - A finger that moves past the threshold before 0.6 s turns the camera, as today. Once the
   fast-forward runs, moving the finger does not turn the camera (one gesture, one meaning).
 
-**Output.** The day's clock runs at 4x real speed. Everything that follows game time follows it:
+**Output.** The day's clock runs at 8x real speed (4x until 0.8.2.1; Simon, 2026-10-02: twice as fast). Everything that follows game time follows it:
 growth, life force, the sun on its arc, boosts already set (they burn off at their game hours, so
 the same boosted hours happen at the same times of day, only quicker), weather and visitors. The
 look says what is happening without a number: clouds and shadows race, and a small ink hourglass
@@ -53,7 +53,7 @@ sunset hold. A page or the shed opening mid-hold ends it (the release is treated
 happened, as today for boosts). Two fingers (pinch zoom) never start it. The first-time moment:
 the journal's tap page mentions the hold in one line, no new page (onboarding-check.md).
 
-**Tuning levers.** Speed (4x), the hold time before it starts (0.6 s), whether the speed eases
+**Tuning levers.** Speed (8x), the hold time before it starts (0.6 s), whether the speed eases
 in over about half a second.
 
 ## What "broken" looks like
