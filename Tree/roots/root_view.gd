@@ -190,6 +190,8 @@ func setup(p_ground: Underground, p_roots: RootSystem, p_res: Resources) -> void
 	ground = p_ground
 	roots = p_roots
 	res = p_res
+	# 0.8.2.3: the end of the night's small roots grow over a few frames (_grow_end).
+	roots.end_in_frames = true
 	mode = Mode.IDLE
 	_reset_run_state()
 	if _content != null:
@@ -211,6 +213,7 @@ func setup(p_ground: Underground, p_roots: RootSystem, p_res: Resources) -> void
 ## game's run or settle carries over (a settle left running made the new game's first night
 ## count as settling, kept the far view shut and fired a stray run_finished).
 func _reset_run_state() -> void:
+	_after_grown = Callable()
 	_settle_t = -1.0
 	_settle_step = 0.0
 	_settle_first_fine = 0
@@ -901,6 +904,10 @@ func _process(delta: float) -> void:
 	if roots == null:
 		return
 	_soil.global_position = camera.global_position
+	if _after_grown.is_valid():
+		_grow_end()
+		_update_hud()
+		return
 	match mode:
 		Mode.RUN:
 			(_dots.material_override as ShaderMaterial).set_shader_parameter("fog_far", 15.0)
@@ -940,6 +947,16 @@ func _process_run(delta: float) -> void:
 		end_early()
 		return
 	var alive := roots.advance(stick, dive, delta, ground, res)
+	if not alive and roots.end_pending():
+		# The rest of this frame follows once the end of the night has grown (_grow_end).
+		_after_grown = _after_advance.bind(false, delta)
+		return
+	_after_advance(alive, delta)
+
+
+## What follows the tip's step: the dots it drank light up, the camera follows; at the run's
+## end the settle begins.
+func _after_advance(alive: bool, delta: float) -> void:
 	if not roots.last_collected.is_empty():
 		dots_collected.emit(roots.last_collected.size())
 	for i in roots.last_collected:
@@ -967,6 +984,20 @@ func _process_run(delta: float) -> void:
 			_set_dot(i)
 			_flash(ground.dot_positions[i], Resources.KIND_COLORS[ground.dot_kinds[i]], 0.5)
 		_settle()
+
+
+## 0.8.2.3: the end of the night (fine roots, the leftover's side roots) took up to 28 ms in one
+## frame on the PC, about 100 ms on a phone. RootSystem grows it over the next frames, about
+## END_FRAME_USEC each, with the camera holding still; then `_after_grown` goes on as before.
+const END_FRAME_USEC := 6000
+var _after_grown: Callable = Callable()
+
+
+func _grow_end() -> void:
+	if roots.grow_on(END_FRAME_USEC):
+		var then := _after_grown
+		_after_grown = Callable()
+		then.call()
 
 
 ## Keeps the camera out of the thick old roots near the trunk (Simon's phone test: the screen
@@ -1025,6 +1056,13 @@ func end_early() -> void:
 	else:
 		roots.last_collected = PackedInt32Array()
 		roots.finish_early(ground, res)
+	if roots.end_pending():
+		_after_grown = _after_end_early
+		return
+	_after_end_early()
+
+
+func _after_end_early() -> void:
 	for i in roots.last_collected:
 		_set_dot(i)
 		_flash(ground.dot_positions[i], Resources.KIND_COLORS[ground.dot_kinds[i]], 0.5)
@@ -1043,8 +1081,9 @@ var _settle_start: int = 1
 var _settle_step: float = 0.0
 
 
+## Also while the end of the night still grows (0.8.2.3, _grow_end): the settle's first part.
 func is_settling() -> bool:
-	return _settle_t >= 0.0
+	return _settle_t >= 0.0 or _after_grown.is_valid()
 
 
 func _settle() -> void:

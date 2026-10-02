@@ -160,13 +160,14 @@ static func play(strat: String, species_id: String, seed: int, days: int, nights
 			finish_day = day + 1
 			heights["fin"] = g.sim.height()
 			break
-	var wished := 0
+	# Each wish deposit counts once: reached when a root reached its glow (Underground
+	# .mark_wish_reached). 0.8.2.3: counting the diary's lines with a drawing also counted the
+	# finds' sketches and the glows reached again (73 of 8 in sim-0.8.2.2).
+	var wished := g.ground.wish_deposits.size()
 	var reached := 0
-	for e in g.diary.entries:
-		if e.has("drawing"):
-			reached += 1
 	for w in g.ground.wish_deposits:
-		wished += 1
+		if bool(w.get("reached", false)):
+			reached += 1
 	return {"strat": strat, "species": species_id, "seed": seed, "finish": finish_day, "heights": heights, "nodes": g.sim.living_nodes(),
 		"secs": secs, "lens": lens, "least": least, "lf_left": lf_left, "wished": wished, "reached": reached,
 		"run_ms": run_ms, "frame_us": frame_us}

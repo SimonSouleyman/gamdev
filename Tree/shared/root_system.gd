@@ -248,7 +248,7 @@ func cost_per_metre(p: Vector3, dir: Vector3 = Vector3.ZERO) -> float:
 ## budget. The 45 main roots the graph is sized for are not a cap on nights: a tree still growing
 ## after night 45 (a pruned one) keeps its runs, so life force never piles up unused (sim-0.6.3).
 func can_start_run() -> bool:
-	return not run_active and has_room_for_root()
+	return not run_active and not _ending and has_room_for_root()
 
 
 func has_room_for_root() -> bool:
@@ -257,6 +257,7 @@ func has_room_for_root() -> bool:
 
 ## Starts tonight's run from any existing root node (not only a tip).
 func start_run(from_id: int) -> bool:
+	finish_pending()
 	if not can_start_run() or from_id < 0 or from_id >= graph.size():
 		return false
 	run_active = true
@@ -491,15 +492,15 @@ func _magnet(stick: Vector2, delta: float, ground: Underground) -> Vector3:
 	return _clamp_pitch(heading.rotated(square.normalized(), _pull_angle))
 
 
-## A new start: no pull, no bend, the obstacles indexed afresh.
+## A new start: no pull, no bend. The obstacle grid is kept (0.8.2.3: it only grows); the
+## segments near the tip are looked up afresh.
 func _reset_bends() -> void:
 	travel = heading
 	_pull_angle = 0.0
 	_pull_axis = Vector3.ZERO
 	_avoid_dir = Vector3.ZERO
-	_obst_grid = {}
-	_obst_upto = 0
 	_avoid_segs = PackedInt32Array()
+	_near_key = []
 	_start_main = int(graph.get_flag(run_start_id, "main", -1)) if run_start_id > 0 else -1
 
 
@@ -525,18 +526,34 @@ const AVOID_TURN: float = 2.6
 const AVOID_OWN_SKIP: float = 1.5
 const AVOID_START_FREE: float = 1.0
 const _OBST_CELL: float = 1.0
-## Main-root segments (node id, to its parent) by grid cell.
+## Main-root segments (node id, to its parent) by grid cell. 0.8.2.3: built once and kept across
+## nights (it was rebuilt from the whole network at every start, up to 3 ms on the PC by day 30);
+## each frame only adds the segments grown since. Fine and side roots are never in it.
 var _obst_grid: Dictionary = {}
 var _obst_upto: int = 0
-## This frame's segments near the tip.
+var _obst_graph: PlantGraph = null
+## This frame's segments near the tip: those of the grid cells within reach that pass within
+## _NEAR_RADIUS + _NEAR_SLACK of where they were looked up (_near_center).
 var _avoid_segs: PackedInt32Array = PackedInt32Array()
 var _start_main: int = -1
+## 0.8.2.3: the near segments are looked up again only when the cells, the graph or the run's
+## start rule change, or the tip moved _NEAR_SLACK; in between the list is reused. The list is
+## filtered by distance, but only segments within AVOID_LOOK + AVOID_CLEARANCE (plus a step) of
+## the tip can ever block, bend or push it, so the result is the same as with every segment of
+## the cells; `_near_any` keeps whether the cells held any (that alone chooses the bend's path).
+const _NEAR_RADIUS: float = AVOID_LOOK + AVOID_CLEARANCE + 0.3
+const _NEAR_SLACK: float = 0.3
+var _near_key: Array = []
+var _near_cells: PackedInt32Array = PackedInt32Array()
+var _near_any: bool = false
+var _near_center: Vector3 = Vector3.ZERO
 
 
 func _index_obstacles() -> void:
-	if _obst_upto > graph.size():
+	if _obst_upto > graph.size() or _obst_graph != graph:
 		_obst_grid = {}
 		_obst_upto = 0
+		_obst_graph = graph
 	for id in range(maxi(_obst_upto, 1), graph.size()):
 		var fl = graph.flags[id]
 		if fl != null and (fl as Dictionary).has("fine"):
@@ -550,6 +567,26 @@ func _index_obstacles() -> void:
 			arr.append(id)
 			_obst_grid[c] = arr
 	_obst_upto = graph.size()
+
+
+## Looks up the segments near the tip (`_avoid_segs`, `_near_any`) when needed (see _near_key).
+func _update_near(p: Vector3) -> void:
+	var lo := Vector3i(((p - Vector3.ONE * _NEAR_RADIUS) / _OBST_CELL).floor())
+	var hi := Vector3i(((p + Vector3.ONE * _NEAR_RADIUS) / _OBST_CELL).floor())
+	var key := [lo, hi, graph.size(), run_active, run_active and run_length < AVOID_START_FREE, run_start_id, run_first_new_id]
+	if key != _near_key:
+		_near_key = key
+		_near_cells = _segments_near(p, _NEAR_RADIUS)
+		_near_any = not _near_cells.is_empty()
+	elif p.distance_to(_near_center) <= _NEAR_SLACK:
+		return
+	_near_center = p
+	var keep := (_NEAR_RADIUS + _NEAR_SLACK) * (_NEAR_RADIUS + _NEAR_SLACK)
+	_avoid_segs = PackedInt32Array()
+	for id in _near_cells:
+		var c := Geometry3D.get_closest_point_to_segment(p, graph.positions[graph.parents[id]], graph.positions[id])
+		if p.distance_squared_to(c) <= keep:
+			_avoid_segs.append(id)
 
 
 ## The obstacle segments (by their child node) in the grid cells within `radius` of `p`.
@@ -626,8 +663,8 @@ func obstacle_distance() -> float:
 ## pulled by a deposit).
 func _avoid(want: Vector3, delta: float) -> void:
 	_index_obstacles()
-	_avoid_segs = _segments_near(tip_position, AVOID_LOOK + AVOID_CLEARANCE + 0.3)
-	if _avoid_segs.is_empty():
+	_update_near(tip_position)
+	if not _near_any:
 		# Nothing near: the tip follows the held heading as before 0.8.2.2 (no lag).
 		_avoid_dir = Vector3.ZERO
 		travel = want
@@ -805,20 +842,83 @@ func _collect(p: Vector3, radius: float, ground: Underground, res: Resources) ->
 	_collect_ids(fresh, ground, res)
 
 
+# --- the end of the night over several frames (0.8.2.3) ----------------------------------
+
+## The small roots at the end of the night (fine roots, the side roots of the leftover; the view's
+## settle not included) took up to 28 ms in one frame on the PC (about 100 ms on a phone). With
+## `end_in_frames` (the root view sets it) they grow over the next frames instead: end_run()
+## grows until END_FIRST_USEC is spent and returns with end_pending() true; grow_on() goes on
+## each frame. The steps and their order are exactly those of one go (the work only pauses
+## between them, and the night's sim does not touch the roots or the stock meanwhile), so the
+## roots are the same. Without it (tools, tests, GameState.steer) everything grows at once.
+signal _grow_on
+signal _start_end
+var end_in_frames: bool = false
+## Time for the end's first share, in the frame the run ended (the tip's step ran there too).
+const END_FIRST_USEC: int = 2000
+const _NO_PAUSE: int = 1 << 62
+var _ending: bool = false
+var _end_until: int = _NO_PAUSE
+
+
+## True while the end of the night is still growing (see end_in_frames).
+func end_pending() -> bool:
+	return _ending
+
+
+## Grows the end of the night on for about `budget_usec`; true once it is complete.
+func grow_on(budget_usec: int) -> bool:
+	if _ending:
+		_end_until = Time.get_ticks_usec() + budget_usec
+		_grow_on.emit()
+	return not _ending
+
+
+## Grows whatever is left of the end of the night now (before a save, a new run or a lookup).
+func finish_pending() -> void:
+	if _ending:
+		_end_until = _NO_PAUSE
+		_grow_on.emit()
+
+
+func _pause_due() -> bool:
+	return _ending and Time.get_ticks_usec() > _end_until
+
+
+## Runs `job` (a coroutine of the end of the night). It is started through a signal, so it may
+## pause at `await _grow_on` without a caller waiting for it.
+func _begin_end(job: Callable) -> void:
+	_ending = true
+	_end_until = Time.get_ticks_usec() + END_FIRST_USEC if end_in_frames else _NO_PAUSE
+	_start_end.connect(job, CONNECT_ONE_SHOT)
+	_start_end.emit()
+
+
+func _end_done() -> void:
+	_ending = false
+	_end_until = _NO_PAUSE
+
+
 ## Ends the run: fine roots sprout along the new path toward the dots within fine_radius
 ## (first level). Whatever life force is left (the player ended early, or the root reached its
 ## node budget) goes into a second and third level of side roots (0.8.2, specs/side-roots.md);
-## what was spent on the root itself makes it thicker. All of it is set once, here.
+## what was spent on the root itself makes it thicker. All of it is set once, here (0.8.2.3:
+## over a few frames with end_in_frames).
 func end_run(ground: Underground, res: Resources) -> void:
 	if not run_active:
 		return
+	_begin_end(_end_run_job.bind(ground, res))
+
+
+func _end_run_job(ground: Underground, res: Resources) -> void:
 	run_active = false
 	leftover_spent = 0.0
 	side_nodes_grown = PackedInt32Array([0, 0])
 	if run_node_count() == 0:
 		# 0.8.2.2: ended before the root grew at all: the whole tank grows small roots from the
 		# whole network (no main root tonight).
-		_spend_at_once(ground, res)
+		await _spend_at_once(ground, res)
+		_end_done()
 		return
 	leftover_spent = res.life_force
 	res.life_force = 0.0
@@ -832,11 +932,14 @@ func end_run(ground: Underground, res: Resources) -> void:
 		path.append(id)
 	_grow_ground = ground
 	var first_fine := graph.size()
-	_grow_fine_roots(path, ground, res)
+	await _grow_fine_roots(path, ground, res)
 	if left_share >= side_min_left_share and leftover_spent > 0.0:
-		_grow_side_roots(path, first_fine, ground, res)
+		await _grow_side_roots(path, first_fine, ground, res)
+	if _pause_due():
+		await _grow_on
 	main_root_count += 1
 	graph.update_radii()
+	_end_done()
 
 
 ## The player ends tonight's root here.
@@ -856,8 +959,13 @@ func end_at_once(ground: Underground, res: Resources) -> bool:
 	run_totals = PackedFloat32Array([0, 0, 0, 0])
 	_run_touched = {}
 	run_tank = res.life_force
-	_spend_at_once(ground, res)
+	_begin_end(_at_once_job.bind(ground, res))
 	return true
+
+
+func _at_once_job(ground: Underground, res: Resources) -> void:
+	await _spend_at_once(ground, res)
+	_end_done()
 
 
 func _spend_at_once(ground: Underground, res: Resources) -> void:
@@ -866,7 +974,9 @@ func _spend_at_once(ground: Underground, res: Resources) -> void:
 	side_nodes_grown = PackedInt32Array([0, 0])
 	_grow_ground = ground
 	if leftover_spent > 0.0:
-		_grow_side_roots(PackedInt32Array(), graph.size(), ground, res)
+		await _grow_side_roots(PackedInt32Array(), graph.size(), ground, res)
+	if _pause_due():
+		await _grow_on
 	graph.update_radii()
 
 
@@ -875,6 +985,8 @@ func _grow_fine_roots(path: PackedInt32Array, ground: Underground, res: Resource
 	var marker_ids := PackedInt32Array()
 	var seen := {}
 	for id in path:
+		if id & 15 == 15 and _pause_due():
+			await _grow_on
 		for d in ground.dots_near(graph.positions[id], fine_radius):
 			if not seen.has(d):
 				seen[d] = true
@@ -884,7 +996,9 @@ func _grow_fine_roots(path: PackedInt32Array, ground: Underground, res: Resource
 	var markers := PackedVector3Array()
 	for d in marker_ids:
 		markers.append(ground.dot_positions[d])
-	var grown := _colonize(path, markers, Budgets.FINE_ROOTS_PER_MAIN_ROOT, fine_radius, 0.22, 0.14, INF, 1)
+	var grown: PackedInt32Array = await _colonize(path, markers, Budgets.FINE_ROOTS_PER_MAIN_ROOT, fine_radius, 0.22, 0.14, INF, 1)
+	if _pause_due():
+		await _grow_on
 	_collect_ids(_reached_by(grown, marker_ids, ground, 0.22), ground, res, fine_share)
 
 
@@ -902,10 +1016,12 @@ func _grow_side_roots(path: PackedInt32Array, first_fine: int, ground: Undergrou
 	var budget2 := total - budget3
 	var reach2 := minf(side_reach_max, side_reach_base + side_reach_per_life_force * leftover_spent)
 	var first2 := graph.size()
-	var near := nearest_fresh(reach2, budget2, 0.12, ground)
+	var near: Dictionary = await _nearest_fresh(reach2, budget2, 0.12, ground)
 	var got2 := PackedInt32Array()
 	if not (near["markers"] as PackedVector3Array).is_empty():
-		got2 = _colonize(near["starts"], near["markers"], budget2, reach2, 0.18, 0.12, reach2, 2)
+		got2 = await _colonize(near["starts"], near["markers"], budget2, reach2, 0.18, 0.12, reach2, 2)
+		if _pause_due():
+			await _grow_on
 		_collect_ids(_reached_by(got2, _fresh_near(got2, 0.18, ground), ground, 0.18), ground, res, fine_share)
 	var rest := budget2 - got2.size()
 	if rest >= SIDE_SHORT_TIPS * 4:
@@ -920,7 +1036,9 @@ func _grow_side_roots(path: PackedInt32Array, first_fine: int, ground: Undergrou
 				starts.append(path[mini(path.size() - 1, int(float(k + 1) / float(want) * (path.size() - 1)))])
 		if starts.is_empty():
 			starts = _newest_root_ends(SIDE_MIN_STARTS)
-		var more := _side_level(starts, rest, reach2, 0.18, 0.12, 2, ground)
+		var more: PackedInt32Array = await _side_level(starts, rest, reach2, 0.18, 0.12, 2, ground)
+		if _pause_due():
+			await _grow_on
 		_collect_ids(_reached_by(more, _fresh_near(more, 0.18, ground), ground, 0.18), ground, res, fine_share)
 		got2.append_array(more)
 	side_nodes_grown[0] = got2.size()
@@ -952,8 +1070,10 @@ func _grow_side_roots(path: PackedInt32Array, first_fine: int, ground: Undergrou
 	if starts3.is_empty():
 		return
 	var reach3 := minf(side3_reach_max, side3_reach_base + side3_reach_per_life_force * leftover_spent)
-	var got3 := _side_level(starts3, budget3, reach3, 0.12, 0.08, 3, ground)
+	var got3: PackedInt32Array = await _side_level(starts3, budget3, reach3, 0.12, 0.08, 3, ground)
 	side_nodes_grown[1] = got3.size()
+	if _pause_due():
+		await _grow_on
 	_collect_ids(_reached_by(got3, _fresh_near(got3, 0.12, ground), ground, 0.12), ground, res, side3_share)
 
 
@@ -961,6 +1081,12 @@ func _grow_side_roots(path: PackedInt32Array, first_fine: int, ground: Undergrou
 ## of `step` reach (each dot costs its distance in steps): {"starts": the nearest node of each,
 ## "markers": their positions, "dots": their ids}.
 func nearest_fresh(reach: float, budget: int, step: float, ground: Underground) -> Dictionary:
+	finish_pending()
+	# Called dynamically: with nothing pending it never pauses, so it returns its result at once.
+	return _nearest_fresh.call(reach, budget, step, ground)
+
+
+func _nearest_fresh(reach: float, budget: int, step: float, ground: Underground) -> Dictionary:
 	var starts := PackedInt32Array()
 	var markers := PackedVector3Array()
 	var dots := PackedInt32Array()
@@ -968,6 +1094,8 @@ func nearest_fresh(reach: float, budget: int, step: float, ground: Underground) 
 	var cell := maxf(reach, 0.5)
 	var grid := {}
 	for id in range(graph.size()):
+		if id & 255 == 255 and _pause_due():
+			await _grow_on
 		if side_start_level < 3.0 and root_level(id) > int(side_start_level):
 			continue
 		var k := Vector3i((graph.positions[id] / cell).floor())
@@ -979,6 +1107,8 @@ func nearest_fresh(reach: float, budget: int, step: float, ground: Underground) 
 	var cands: Array = []
 	var r2 := reach * reach
 	for d in range(ground.dot_positions.size()):
+		if d & 127 == 127 and _pause_due():
+			await _grow_on
 		if ground.dot_collected[d] != 0 or not is_fresh(d):
 			continue
 		var p := ground.dot_positions[d]
@@ -1062,7 +1192,7 @@ func _side_level(starts: PackedInt32Array, budget: int, reach: float, kill: floa
 				markers.append(m)
 	if markers.is_empty():
 		return PackedInt32Array()
-	return _colonize(starts, markers, budget, reach, kill, step, reach, level)
+	return await _colonize(starts, markers, budget, reach, kill, step, reach, level)
 
 
 ## Space colonization on a small temporary graph holding only `starts` (copied under a resting
@@ -1091,10 +1221,14 @@ func _colonize(starts: PackedInt32Array, markers: PackedVector3Array, budget: in
 	sc.markers = markers
 	var guard := 0
 	while not sc.markers.is_empty() and not temp.is_full() and guard < 120:
+		if _pause_due():
+			await _grow_on
 		if sc.step(temp) == 0:
 			break
 		guard += 1
 	for t_id in range(first_new, temp.size()):
+		if t_id & 31 == 31 and _pause_due():
+			await _grow_on
 		var tp := temp.parents[t_id]
 		if not to_real.has(tp):
 			continue  # its parent was dropped
@@ -1263,6 +1397,7 @@ func count_flagged(key: String, value: int) -> int:
 
 
 func to_dict() -> Dictionary:
+	finish_pending()
 	return {
 		"graph": graph.to_json_dict(),
 		"main_root_count": main_root_count,
