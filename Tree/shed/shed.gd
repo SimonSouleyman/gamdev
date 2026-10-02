@@ -24,6 +24,16 @@ const TAP_DELAY := 0.42
 ## the door facing north to the tree, which the sun lights from behind the shed.
 ## It moves out with the edge as the clearing grows.
 static var origin := Vector3(0.0, 0.0, 15.5)
+## Which layout of the room (0.8.2.4 proposals, shed/shed_layouts.gd): 0 is the 0.8.2.2 view.
+## Read once from `--shed-layout=N` on the command line; a tool may set it before the shed is built.
+static var layout: int = _layout_from_args()
+
+
+static func _layout_from_args() -> int:
+	for a in OS.get_cmdline_user_args():
+		if a.begins_with("--shed-layout="):
+			return int(a.substr(14))
+	return 0
 const WIDTH := 3.2
 const DEPTH := 2.8
 const WALL_H := 2.4
@@ -42,6 +52,8 @@ const BENCH_Z := 0.08
 const PINBOARD_X := -(DOOR_W * 0.5 + 0.235)
 const PINBOARD_SCALE := 0.66
 const BENCH_TOP := 0.87
+## The top of the stable door's lower half and its ledge (one layout).
+const DUTCH_Y := 1.0
 
 var camera: Camera3D
 ## Where the bonsai will stand: on the windowsill beside the workbench (design doc 16 A).
@@ -73,9 +85,25 @@ var _boards: SurfaceTool
 ## Dust drifting in the window light by day.
 var _dust: GPUParticles3D
 var _blob_mat: StandardMaterial3D
+## This layout's overrides (ShedLayouts.config), empty for layout 0.
+var _cfg: Dictionary = {}
+## The door's middle along the front wall and its width (layout 0: centred, DOOR_W).
+var _door_x: float = 0.0
+var _door_w: float = DOOR_W
+## The door leaf's hinge (the pinboard hangs on it in one layout).
+var _door_leaf: Node3D
+## The window's frame: the front wall's frame turned to the wall it is in.
+var _win: Node3D
+
+
+func _c(key: String, fallback: Variant) -> Variant:
+	return _cfg.get(key, fallback)
 
 
 func _ready() -> void:
+	_cfg = ShedLayouts.config(layout)
+	_door_x = float(_c("door_x", 0.0))
+	_door_w = float(_c("door_w", DOOR_W))
 	place()
 	rotation.y = PI
 	# Real weathered boards and a worn plank floor (CC0, Poly Haven; Simon, play test 4).
@@ -148,6 +176,51 @@ func _wall(size: Vector3, at: Vector3, wall: int) -> void:
 		var warm := _hash(i + 17, wall + 5) - 0.5
 		_st_box(_boards, c, bsize, Color(v * (1.0 + warm * 0.1), v, v * (1.0 - warm * 0.14)))
 
+
+
+## The turn of a wall's own frame (the front wall's: +Z out of the room, the room at -Z): 0 front,
+## 1 left (+X), 2 right (-X), 3 back.
+static func wall_turn(w: int) -> float:
+	return [0.0, PI * 0.5, -PI * 0.5, PI][w]
+
+
+## How far a wall stands from the middle.
+static func wall_out(w: int) -> float:
+	return DEPTH * 0.5 if w == 0 or w == 3 else WIDTH * 0.5
+
+
+## The window's span along its wall, in the wall's own axis (x for the front and back, z for the
+## sides), smallest first.
+func _window_span() -> Vector2:
+	var u: Vector2 = _c("win_u", WINDOW_X)
+	var b := Basis(Vector3.UP, wall_turn(int(_c("win_wall", 0))))
+	var w := int(_c("win_wall", 0))
+	var a := b * Vector3(u.x, 0, 0)
+	var c := b * Vector3(u.y, 0, 0)
+	var ax := 0 if w == 0 or w == 3 else 2
+	return Vector2(minf(a[ax], c[ax]), maxf(a[ax], c[ax]))
+
+
+## A wall of boards with rectangular openings ([from, to, bottom, top] along its axis).
+func _wall_with_holes(w: int, seed: int, holes: Array, t: float) -> void:
+	var along_x := w == 0 or w == 3
+	var half := (WIDTH if along_x else DEPTH) * 0.5
+	var out := wall_out(w) * (1.0 if w == 0 or w == 1 else -1.0)
+	holes.sort_custom(func(a: Array, b: Array) -> bool: return float(a[0]) < float(b[0]))
+	var piece := func(u0: float, u1: float, y0: float, y1: float) -> void:
+		if u1 - u0 < 0.004 or y1 - y0 < 0.004:
+			return
+		var mid := (u0 + u1) * 0.5
+		var size := Vector3(u1 - u0, y1 - y0, t) if along_x else Vector3(t, y1 - y0, u1 - u0)
+		var at := Vector3(mid, (y0 + y1) * 0.5, out) if along_x else Vector3(out, (y0 + y1) * 0.5, mid)
+		_wall(size, at, seed)
+	var cursor := -half
+	for h in holes:
+		piece.call(cursor, float(h[0]), 0.0, WALL_H)
+		piece.call(float(h[0]), float(h[1]), 0.0, float(h[2]))
+		piece.call(float(h[0]), float(h[1]), float(h[3]), WALL_H)
+		cursor = float(h[1])
+	piece.call(cursor, half, 0.0, WALL_H)
 
 func _jit(i: int, wall: int) -> float:
 	return (_hash(i, wall * 7 + 3) - 0.5) * 0.05
@@ -305,7 +378,8 @@ func _mat(c: Color, rough: float = 0.8) -> StandardMaterial3D:
 
 ## A real model from assets/shed (Poly Haven glTF, origin at its foot).
 func _model(id: String, at: Vector3, scale_by: float, turn: float, parent: Node3D) -> Node3D:
-	var n: Node3D = (load("res://assets/shed/%s/%s_1k.gltf" % [id, id]) as PackedScene).instantiate()
+	var path := "res://assets/shed/%s_1k.gltf" % id if id.contains("/") else "res://assets/shed/%s/%s_1k.gltf" % [id, id]
+	var n: Node3D = (load(path) as PackedScene).instantiate()
 	n.position = at
 	n.scale = Vector3.ONE * scale_by
 	n.rotation.y = turn
@@ -325,21 +399,18 @@ func _build_room() -> void:
 	# depth, with dark gaps between them. All boards are one mesh, one draw call.
 	_boards = SurfaceTool.new()
 	_boards.begin(Mesh.PRIMITIVE_TRIANGLES)
-	_wall(Vector3(WIDTH, WALL_H, t), Vector3(0, WALL_H * 0.5, -hd), 0)
-	_wall(Vector3(t, WALL_H, DEPTH), Vector3(-hw, WALL_H * 0.5, 0), 1)
-	_wall(Vector3(t, WALL_H, DEPTH), Vector3(hw, WALL_H * 0.5, 0), 2)
-	# The front wall around the open door (centred) and the window (local +x).
-	var dx := DOOR_W * 0.5
-	var right_w := hw - dx
-	_wall(Vector3(right_w, WALL_H, t), Vector3(-dx - right_w * 0.5, WALL_H * 0.5, hd), 3)
-	# Left of the door: beside, below and above the window opening.
-	var wx0 := WINDOW_X.x
-	var wx1 := WINDOW_X.y
-	_wall(Vector3(wx0 - dx, WALL_H, t), Vector3((dx + wx0) * 0.5, WALL_H * 0.5, hd), 3)
-	_wall(Vector3(hw - wx1, WALL_H, t), Vector3((wx1 + hw) * 0.5, WALL_H * 0.5, hd), 3)
-	_wall(Vector3(wx1 - wx0, WINDOW_Y.x, t), Vector3((wx0 + wx1) * 0.5, WINDOW_Y.x * 0.5, hd), 3)
-	_wall(Vector3(wx1 - wx0, WALL_H - WINDOW_Y.y, t), Vector3((wx0 + wx1) * 0.5, (WALL_H + WINDOW_Y.y) * 0.5, hd), 3)
-	_wall(Vector3(DOOR_W, WALL_H - DOOR_H, t), Vector3(0, DOOR_H + (WALL_H - DOOR_H) * 0.5, hd), 3)
+	# The front wall around the open door and (in it, layout 0) the window; the other walls with
+	# the window when it is in one of them.
+	var dx := _door_w * 0.5
+	var wall_of := {0: 3, 1: 2, 2: 1, 3: 0}
+	for w in [0, 1, 2, 3]:
+		var holes: Array = []
+		if w == 0:
+			holes.append([_door_x - dx, _door_x + dx, 0.0, DOOR_H])
+		if w == int(_c("win_wall", 0)):
+			var r := _window_span()
+			holes.append([r.x, r.y, float((_c("win_y", WINDOW_Y) as Vector2).x), float((_c("win_y", WINDOW_Y) as Vector2).y)])
+		_wall_with_holes(w, wall_of[w], holes, t)
 	var boards := MeshInstance3D.new()
 	boards.name = "Boards"
 	boards.mesh = _boards.commit()
@@ -350,20 +421,34 @@ func _build_room() -> void:
 	# Door frame: thick bevelled posts and lintel standing proud of the wall, and a thin casing
 	# around them, so the doorway has depth.
 	var frame := _planks("old_planks_02", 1.2, Color(0.52, 0.42, 0.34))
+	var ox := _door_x
 	for x in [-dx - 0.035, dx + 0.035]:
-		_beam(Vector3(0.07, DOOR_H, 0.16), Vector3(x, DOOR_H * 0.5, hd), frame)
-		_beam(Vector3(0.05, DOOR_H + 0.06, 0.025), Vector3(x + signf(x) * 0.055, DOOR_H * 0.5 + 0.03, hd - 0.09), frame)
-	_beam(Vector3(DOOR_W + 0.14, 0.08, 0.16), Vector3(0, DOOR_H + 0.04, hd), frame)
-	_beam(Vector3(DOOR_W + 0.26, 0.06, 0.025), Vector3(0, DOOR_H + 0.1, hd - 0.09), frame)
+		_beam(Vector3(0.07, DOOR_H, 0.16), Vector3(ox + x, DOOR_H * 0.5, hd), frame)
+		_beam(Vector3(0.05, DOOR_H + 0.06, 0.025), Vector3(ox + x + signf(x) * 0.055, DOOR_H * 0.5 + 0.03, hd - 0.09), frame)
+	_beam(Vector3(_door_w + 0.14, 0.08, 0.16), Vector3(ox, DOOR_H + 0.04, hd), frame)
+	_beam(Vector3(_door_w + 0.26, 0.06, 0.025), Vector3(ox, DOOR_H + 0.1, hd - 0.09), frame)
 	# A worn threshold board.
-	_beam(Vector3(DOOR_W + 0.1, 0.03, 0.2), Vector3(0, 0.115, hd), frame)
-	var hinge := Node3D.new()
-	hinge.position = Vector3(-dx, 0, hd + 0.05)
-	hinge.rotation.y = -1.9
-	add_child(hinge)
-	_box(Vector3(DOOR_W, 2.0, 0.05), Vector3(DOOR_W * 0.5, 1.0, 0), _wood, hinge)
+	_beam(Vector3(_door_w + 0.1, 0.03, 0.2), Vector3(ox, 0.115, hd), frame)
+	var double := bool(_c("double_door", false))
+	var side := float(_c("door_hinge", -1.0))
+	var leaf_w := _door_w * (0.5 if double else 1.0)
+	# A stable door (one layout): the lower half shut with a broad ledge on it, the upper open.
+	var dutch := bool(_c("dutch", false))
+	var hinge := _door_leaf_at(Vector3(ox + side * dx, 0, hd + 0.05), side, float(_c("door_rot", -1.9 if side < 0.0 else 1.9)), leaf_w,
+		1.0 if dutch else 2.0, DUTCH_Y + 0.02 if dutch else 0.0)
 	_items["door"] = hinge
-	_pick("door", Vector3(0, 1.25, hd), 0.5)
+	_door_leaf = hinge
+	if double:
+		_door_leaf_at(Vector3(ox - side * dx, 0, hd + 0.05), -side, -1.9 if side > 0.0 else 1.9, leaf_w)
+	if dutch:
+		_box(Vector3(_door_w, DUTCH_Y - 0.1, 0.05), Vector3(ox, 0.1 + (DUTCH_Y - 0.1) * 0.5, hd + 0.02), _wood)
+		for y in [0.35, DUTCH_Y - 0.2]:
+			_box(Vector3(_door_w - 0.06, 0.09, 0.02), Vector3(ox, y, hd - 0.015), _wood)
+		var ledge := _planks("wood_table_worn", 0.9, Color(0.8, 0.74, 0.66))
+		_beam(Vector3(_door_w + 0.16, 0.04, 0.3), Vector3(ox, DUTCH_Y - 0.02, hd - 0.08), ledge, 0.01)
+		_pick("door", Vector3(ox, 1.6, hd), 0.36)
+	else:
+		_pick("door", Vector3(ox, 1.25, hd), 0.5 * _door_w / DOOR_W)
 	# The gable ends above the front and back walls.
 	for z in [-hd, hd]:
 		var tri := MeshInstance3D.new()
@@ -404,8 +489,11 @@ func _build_room() -> void:
 	_lamp_range = _lamp.omni_range
 	# Over the bench (0.8.1: with the eye further back it hung large in the picture's top; here it
 	# shows small above the doorway and still lights the bench).
-	_lamp.position = Vector3(-0.3, WALL_H - 0.35, BENCH_Z - 0.45)
+	_lamp.position = _c("lamp", Vector3(-0.3, WALL_H - 0.35, BENCH_Z - 0.45))
 	add_child(_lamp)
+	if bool(_c("pendant", false)):
+		_build_pendant(_lamp.position)
+		return
 	var glass := MeshInstance3D.new()
 	var s := SphereMesh.new()
 	# Small and warm (0.8.1: in the wider view a large white egg hung at the picture's top).
@@ -423,47 +511,102 @@ func _build_room() -> void:
 	_box(Vector3(0.01, 0.3, 0.01), glass.position + Vector3(0, 0.2, 0), _mat(Color(0.15, 0.12, 0.1)))
 
 
+## A hanging enamel lamp you see (one layout): a dark green shade, a warm bulb under it and its
+## cord up to the roof beam; the light sits just under the bulb.
+func _build_pendant(at: Vector3) -> void:
+	var shade := MeshInstance3D.new()
+	var cone := CylinderMesh.new()
+	cone.top_radius = 0.035
+	cone.bottom_radius = 0.13
+	cone.height = 0.1
+	cone.radial_segments = 24
+	cone.cap_bottom = false
+	shade.mesh = cone
+	var enamel := _mat(Color(0.1, 0.16, 0.12), 0.45)
+	enamel.cull_mode = BaseMaterial3D.CULL_DISABLED
+	shade.material_override = enamel
+	shade.position = at + Vector3(0, 0.1, 0)
+	add_child(shade)
+	var bulb := MeshInstance3D.new()
+	var s := SphereMesh.new()
+	s.radius = 0.04
+	s.height = 0.08
+	bulb.mesh = s
+	var gm := StandardMaterial3D.new()
+	gm.albedo_color = Color(1.0, 0.85, 0.6)
+	gm.emission_enabled = true
+	gm.emission = Color(1.0, 0.7, 0.4)
+	gm.emission_energy_multiplier = 2.0
+	bulb.material_override = gm
+	bulb.position = at + Vector3(0, 0.05, 0)
+	add_child(bulb)
+	var top := WALL_H + 0.7
+	var cord_from := at.y + 0.16
+	_box(Vector3(0.008, top - cord_from, 0.008), Vector3(at.x, (top + cord_from) * 0.5, at.z), _mat(Color(0.1, 0.08, 0.07)))
+	_lamp.position = at + Vector3(0, -0.02, 0)
+
+
+## A door leaf hung at `at` (its hinge post; `side` -1: the leaf reaches toward +X when shut),
+## turned open by `turn`. Returns the hinge (the leaf's frame: x along the leaf, y up).
+func _door_leaf_at(at: Vector3, side: float, turn: float, w: float, h: float = 2.0, y0: float = 0.0) -> Node3D:
+	var hinge := Node3D.new()
+	hinge.position = at
+	hinge.rotation.y = turn
+	add_child(hinge)
+	_box(Vector3(w, h, 0.05), Vector3(w * 0.5 * (-side if side > 0.0 else 1.0), y0 + h * 0.5, 0), _wood, hinge)
+	return hinge
+
+
 ## The small window beside the workbench: a frame with a cross bar, old glass, a deep sill
 ## inside (empty, for the bonsai) and daylight falling in across the sill and the bench.
 func _build_window() -> void:
-	var hd := DEPTH * 0.5
-	var cx := (WINDOW_X.x + WINDOW_X.y) * 0.5
-	var cy := (WINDOW_Y.x + WINDOW_Y.y) * 0.5
-	var w := WINDOW_X.y - WINDOW_X.x
-	var h := WINDOW_Y.y - WINDOW_Y.x
+	# Built in the front wall's frame, turned to the window's wall (layout 0: the front wall).
+	var wall := int(_c("win_wall", 0))
+	_win = Node3D.new()
+	_win.name = "Window"
+	_win.rotation.y = wall_turn(wall)
+	add_child(_win)
+	var hd := wall_out(wall)
+	var wx: Vector2 = _c("win_u", WINDOW_X)
+	var wy: Vector2 = _c("win_y", WINDOW_Y)
+	var cx := (wx.x + wx.y) * 0.5
+	var cy := (wy.x + wy.y) * 0.5
+	var w := wx.y - wx.x
+	var h := wy.y - wy.x
 	# A deep bevelled frame with a casing proud of the wall and thin glazing bars set back.
 	var frame := _planks("old_planks_02", 1.4, Color(0.62, 0.5, 0.4))
-	for y in [WINDOW_Y.x, WINDOW_Y.y]:
-		_beam(Vector3(w + 0.1, 0.055, 0.14), Vector3(cx, y, hd), frame)
-		_beam(Vector3(w + 0.2, 0.045, 0.022), Vector3(cx, y + signf(y - cy) * 0.035, hd - 0.08), frame)
-	for x in [WINDOW_X.x, WINDOW_X.y]:
-		_beam(Vector3(0.055, h, 0.14), Vector3(x, cy, hd), frame)
-		_beam(Vector3(0.045, h + 0.12, 0.022), Vector3(x + signf(x - cx) * 0.035, cy, hd - 0.08), frame)
-	_beam(Vector3(w, 0.026, 0.04), Vector3(cx, cy, hd + 0.01), frame, 0.006)
-	_beam(Vector3(0.026, h, 0.04), Vector3(cx, cy, hd + 0.01), frame, 0.006)
+	for y in [wy.x, wy.y]:
+		_beam(Vector3(w + 0.1, 0.055, 0.14), Vector3(cx, y, hd), frame, 0.012, _win)
+		_beam(Vector3(w + 0.2, 0.045, 0.022), Vector3(cx, y + signf(y - cy) * 0.035, hd - 0.08), frame, 0.012, _win)
+	for x in [wx.x, wx.y]:
+		_beam(Vector3(0.055, h, 0.14), Vector3(x, cy, hd), frame, 0.012, _win)
+		_beam(Vector3(0.045, h + 0.12, 0.022), Vector3(x + signf(x - cx) * 0.035, cy, hd - 0.08), frame, 0.012, _win)
+	_beam(Vector3(w, 0.026, 0.04), Vector3(cx, cy, hd + 0.01), frame, 0.006, _win)
+	_beam(Vector3(0.026, h, 0.04), Vector3(cx, cy, hd + 0.01), frame, 0.006, _win)
 	# Old, slightly dusty glass.
 	var glass := StandardMaterial3D.new()
 	glass.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	glass.albedo_color = Color(0.85, 0.9, 0.85, 0.12)
 	glass.roughness = 0.15
 	_glass = glass
-	_box(Vector3(w, h, 0.005), Vector3(cx, cy, hd + 0.02), glass)
+	_box(Vector3(w, h, 0.005), Vector3(cx, cy, hd + 0.02), glass, _win)
 	# The sill: a deep worn board inside the window, reaching into the room far enough for the
 	# bonsai's tools in a row before the pot (0.7), on two small brackets.
-	var sill_top := WINDOW_Y.x + 0.01
-	_box(Vector3(w + 0.24, 0.035, 0.44), Vector3(cx, sill_top - 0.0175, hd - 0.2), _planks("wood_table_worn", 0.9, Color(0.85, 0.8, 0.74)))
+	var sill_top := wy.x + 0.01
+	_box(Vector3(w + 0.24, 0.035, 0.44), Vector3(cx, sill_top - 0.0175, hd - 0.2), _planks("wood_table_worn", 0.9, Color(0.85, 0.8, 0.74)), _win)
 	for bx in [-0.16, 0.16]:
-		_box(Vector3(0.035, 0.12, 0.3), Vector3(cx + bx, sill_top - 0.095, hd - 0.17), frame)
+		_box(Vector3(0.035, 0.12, 0.3), Vector3(cx + bx, sill_top - 0.095, hd - 0.17), frame, _win)
 	bonsai_spot = Node3D.new()
 	bonsai_spot.name = "bonsai_spot"
 	bonsai_spot.position = Vector3(cx, sill_top, hd - 0.1)
-	add_child(bonsai_spot)
-	_pick("bonsai", bonsai_spot.position + Vector3(0.0, 0.2, -0.04), 0.17)
+	_win.add_child(bonsai_spot)
+	_pick("bonsai", bonsai_spot.position + Vector3(0.0, 0.2, -0.04), 0.17 * float(_c("pick_scale", 1.0)), _win)
 	var tag := Node3D.new()
 	# 0.8.2 (look review): the label hangs under the sill's front edge, not over the tools on it.
-	tag.position = bonsai_spot.position + BONSAI_TAG
-	add_child(tag)
-	_tag_anchors["bonsai"] = [tag, true]
+	var bt: Array = _c("bonsai_tag", [BONSAI_TAG, true])
+	tag.position = bonsai_spot.position + (bt[0] as Vector3)
+	_win.add_child(tag)
+	_tag_anchors["bonsai"] = [tag, bool(bt[1])]
 	# Daylight through the window: a soft spot from outside, and a faint shaft of dusty air.
 	var sun := SpotLight3D.new()
 	sun.light_color = Color(1.0, 0.9, 0.72)
@@ -473,10 +616,11 @@ func _build_window() -> void:
 	sun.spot_angle_attenuation = 0.5
 	sun.spot_attenuation = 0.8
 	sun.shadow_enabled = not Budgets.PHONE
-	add_child(sun)
+	_win.add_child(sun)
 	_window_sun = sun
 	sun.position = Vector3(cx + 0.25, cy + 0.9, hd + 1.1)
-	sun.look_at(to_global(Vector3(cx - 0.3, BENCH_TOP, BENCH_Z + 0.2)), Vector3.UP)
+	var aim := Vector3(cx - 0.3, BENCH_TOP, BENCH_Z + 0.2) if layout == 0 else Vector3(cx - 0.3, BENCH_TOP, hd - 1.2)
+	sun.basis = Basis.looking_at(aim - sun.position, Vector3.UP)
 	var shaft := MeshInstance3D.new()
 	var q := QuadMesh.new()
 	q.size = Vector2(w * 0.95, 1.25)
@@ -485,7 +629,7 @@ func _build_window() -> void:
 	sm.shader = _shaft_shader()
 	shaft.material_override = sm
 	shaft.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	add_child(shaft)
+	_win.add_child(shaft)
 	_shaft = shaft
 	shaft.position = Vector3(cx - 0.05, cy - 0.28, hd - 0.42)
 	shaft.rotation = Vector3(-0.55, PI, 0.0)
@@ -532,7 +676,7 @@ func _build_dust(at: Vector3, extents: Vector3) -> void:
 	q.material = m
 	p.draw_pass_1 = q
 	p.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	add_child(p)
+	_win.add_child(p)
 	_dust = p
 
 
@@ -568,67 +712,145 @@ void fragment() {
 # --- the workbench and the things on it -------------------------------------------------
 
 func _build_bench() -> void:
+	var has_bench := bool(_c("bench", true))
 	var bench := Node3D.new()
 	bench.name = "Workbench"
-	bench.position = Vector3(0.0, 0.05, BENCH_Z)
+	bench.position = _c("bench_at", Vector3(0.0, 0.05, BENCH_Z))
+	bench.rotation.y = float(_c("bench_rot", 0.0))
 	add_child(bench)
-	# An old cabinet workbench with drawers (Poly Haven "Wooden Table 03"), its drawers toward us.
-	var table := _model("WoodenTable_03", Vector3.ZERO, 1.0, PI, bench)
-	table.scale = Vector3(0.95, 1.0, 1.05)
 	var top := BENCH_TOP - 0.05  # bench-local height of the table top
+	if has_bench:
+		# An old cabinet workbench with drawers (Poly Haven "Wooden Table 03"), its drawers toward us.
+		var table := _model("WoodenTable_03", Vector3.ZERO, 1.0, PI, bench)
+		table.scale = Vector3(0.95, 1.0, 1.05) * (_c("bench_scale", Vector3.ONE) as Vector3)
+	else:
+		# The things lie on boards on the wall (or wherever the layout puts them), in the room's frame.
+		bench.position = Vector3.ZERO
+		bench.rotation.y = 0.0
+		top = 0.0
+		for sh in _c("shelves", []):
+			_shelf(sh[0], sh[1])
+		var unit: Variant = _c("shelf_unit", null)
+		if unit != null:
+			_shelf_unit(unit[0], unit[1], unit[2])
+	var things: Dictionary = _c("things", {})
+	var tags: Dictionary = _c("tags", {})
+	var spot := func(name: String, at: Vector3, turn: float) -> Array:
+		if things.has(name):
+			var p: Vector3 = things[name][0]
+			return [Vector3(p.x, top + p.y, p.z), float(things[name][1])]
+		return [at, turn]
+	var tag_of := func(name: String, offset: Vector3, below: bool) -> Array:
+		return tags.get(name, [offset, below])
+	# Some layouts show the things a little larger (on shelves further off).
+	var ts := float(_c("thing_scale", 1.0))
+	# ... and some a larger tap circle than the thing itself (finger size, about 9 mm).
+	var ps := float(_c("pick_scale", 1.0))
 	# The journal: dark leather with an elastic band and a red ribbon, lying on the left.
 	var journal := _book(Vector3(0.16, 0.026, 0.22), _leather(Paper.LEATHER), Color(0.92, 0.88, 0.78), true)
-	journal.position = Vector3(0.17, top, -0.08)
-	journal.rotation.y = 0.25
+	var js: Array = spot.call("journal", Vector3(0.17, top, -0.08), 0.25)
+	journal.position = js[0]
+	journal.rotation.y = js[1]
 	bench.add_child(journal)
-	_register("journal", journal, Vector3(0, 0.02, 0), 0.12)
-	_tag("journal", journal, Vector3(0.0, 0.0, -0.08), true)
+	journal.scale = Vector3.ONE * ts
+	_register("journal", journal, Vector3(0, 0.02, 0), 0.12 * ts * ps)
+	var jt: Array = tag_of.call("journal", Vector3(0.0, 0.0, -0.08), true)
+	_tag("journal", journal, jt[0], jt[1])
 	# The photo album: bigger, green cloth over boards, a paper label on the cover.
 	var album := _book(Vector3(0.28, 0.045, 0.22), _leather(Color(0.2, 0.3, 0.19), 6.0), Color(0.78, 0.7, 0.58), false)
-	album.position = Vector3(-0.04, top, 0.13)
-	album.rotation.y = -0.12
+	var als: Array = spot.call("album", Vector3(-0.04, top, 0.13), -0.12)
+	album.position = als[0]
+	album.rotation.y = als[1]
 	bench.add_child(album)
-	_register("album", album, Vector3(0, 0.03, 0), 0.14)
-	_tag("album", album, Vector3(0.0, 0.06, 0.1), false)
+	album.scale = Vector3.ONE * ts
+	_register("album", album, Vector3(0, 0.03, 0), 0.14 * ts * ps)
+	var at_: Array = tag_of.call("album", Vector3(0.0, 0.06, 0.1), false)
+	_tag("album", album, at_[0], at_[1])
 	# The seed bag: a kraft paper sack, the top rolled over, a few seeds spilled beside it.
 	var seeds := _seed_bag()
-	seeds.position = Vector3(-0.21, top, -0.04)
-	seeds.rotation.y = -0.35
+	var ss: Array = spot.call("seeds", Vector3(-0.21, top, -0.04), -0.35)
+	seeds.position = ss[0]
+	seeds.rotation.y = ss[1]
 	bench.add_child(seeds)
-	_register("seeds", seeds, Vector3(0, 0.09, 0), 0.1)
-	_tag("seeds", seeds, Vector3(0.0, 0.2, 0.0), false)
+	seeds.scale = Vector3.ONE * ts
+	_register("seeds", seeds, Vector3(0, 0.09, 0), 0.1 * ts * ps)
+	var st: Array = tag_of.call("seeds", Vector3(0.0, 0.2, 0.0), false)
+	_tag("seeds", seeds, st[0], st[1])
 	# Garden gloves lying at the front edge: put them on and go outside.
 	var gloves := Node3D.new()
-	gloves.position = Vector3(-0.03, top, -0.17)
-	gloves.rotation.y = 1.45
+	var gs: Array = spot.call("gloves", Vector3(-0.03, top, -0.17), 1.45)
+	gloves.position = gs[0]
+	gloves.rotation.y = gs[1]
 	bench.add_child(gloves)
 	_model("garden_gloves_01", Vector3.ZERO, 0.75, 0.0, gloves)
-	_register("gloves", gloves, Vector3(0, 0.03, 0), 0.1)
-	_tag("gloves", gloves, Vector3(0.0, 0.0, -0.04), true)
+	gloves.scale = Vector3.ONE * ts
+	_register("gloves", gloves, Vector3(0, 0.03, 0), 0.1 * ts * ps)
+	var gt: Array = tag_of.call("gloves", Vector3(0.0, 0.0, -0.04), true)
+	_tag("gloves", gloves, gt[0], gt[1])
+	# A thing may stand up (a book on a shelf, its cover to the room): a tilt about its x axis.
+	for k in things:
+		if (things[k] as Array).size() > 2:
+			(_items[k] as Node3D).rotation.x = float(things[k][2])
 	# A trowel for the feel of the place, and a watering can on the floor under the window.
-	var trowel := _model("trowel_01", Vector3(-0.31, top + 0.035, 0.2), 0.75, 0.0, bench)
-	trowel.rotation = Vector3(PI * 0.5 - 0.02, -0.6, 0.0)
-	_model("watering_can_metal_01", Vector3(0.78, 0.05, DEPTH * 0.5 - 0.3), 1.1, 2.4, self)
+	if has_bench:
+		var trowel := _model("trowel_01", Vector3(-0.31, top + 0.035, 0.2), 0.75, 0.0, bench)
+		trowel.rotation = Vector3(PI * 0.5 - 0.02, -0.6, 0.0)
+	var can: Variant = _c("can", [Vector3(0.78, 0.05, DEPTH * 0.5 - 0.3), 2.4])
+	if can != null:
+		_model("watering_can_metal_01", can[0], 1.1, float(can[1]), self)
 	# Contact shadows (0.6.1 review: the things floated): a soft dark patch under each thing on
 	# the bench, under the bench and the can on the floor, and along the foot of the walls.
-	var y := top + 0.004
-	_blob(Vector3(0.17, y, -0.08), Vector2(0.24, 0.3), 0.25, 0.8, bench)
-	_blob(Vector3(-0.04, y, 0.13), Vector2(0.38, 0.31), -0.12, 0.8, bench)
-	_blob(Vector3(-0.21, y, -0.04), Vector2(0.2, 0.15), -0.35, 0.9, bench)
-	_blob(Vector3(-0.03, y, -0.17), Vector2(0.28, 0.2), 1.45, 0.6, bench)
-	_blob(Vector3(-0.31, y, 0.2), Vector2(0.24, 0.1), -0.6, 0.6, bench)
+	_blob(js[0] + Vector3(0, 0.004, 0), Vector2(0.24, 0.3), js[1], 0.8, bench)
+	_blob(als[0] + Vector3(0, 0.004, 0), Vector2(0.38, 0.31), als[1], 0.8, bench)
+	_blob(ss[0] + Vector3(0, 0.004, 0), Vector2(0.2, 0.15), ss[1], 0.9, bench)
+	_blob(gs[0] + Vector3(0, 0.004, 0), Vector2(0.28, 0.2), gs[1], 0.6, bench)
 	var floor_y := 0.1015
-	_blob(Vector3(0.0, floor_y, BENCH_Z), Vector2(1.9, 1.1), 0.0, 0.85)
-	_blob(Vector3(0.78, floor_y, DEPTH * 0.5 - 0.3), Vector2(0.45, 0.45), 0.0, 0.8)
+	if has_bench:
+		_blob(Vector3(-0.31, top + 0.004, 0.2), Vector2(0.24, 0.1), -0.6, 0.6, bench)
+		_blob(Vector3(0.0, floor_y - 0.05, 0.0), Vector2(1.9, 1.1), 0.0, 0.85, bench)
+	if can != null:
+		_blob(Vector3((can[0] as Vector3).x, floor_y, (can[0] as Vector3).z), Vector2(0.45, 0.45), 0.0, 0.8)
 	for side in [-1.0, 1.0]:
 		_blob(Vector3(side * (WIDTH * 0.5 - 0.05), floor_y, 0.0), Vector2(0.5, DEPTH * 1.1), 0.0, 0.5)
 	_blob(Vector3(0.0, floor_y, -DEPTH * 0.5 + 0.05), Vector2(WIDTH * 1.1, 0.5), 0.0, 0.5)
-	_build_rug(floor_y)
+	# Other things for the feel of the place (a crate, a second can): [model, foot, scale, turn].
+	for pr in _c("props", []):
+		_model(pr[0], pr[1], float(pr[2]), float(pr[3]), self)
+		_blob(Vector3((pr[1] as Vector3).x, floor_y if (pr[1] as Vector3).y < 0.2 else (pr[1] as Vector3).y + 0.003, (pr[1] as Vector3).z), Vector2(0.5, 0.4) * float(pr[2]), float(pr[3]), 0.8)
+	var rug: Variant = _c("rug", [Vector3(0.05, 0.0, BENCH_Z - 0.62), 0.04])
+	if rug != null:
+		_build_rug(floor_y, rug[0], float(rug[1]))
+
+
+## A plain open shelf unit standing against the front wall: two sides, a back and a board at each
+## height (`at`: its foot's middle, `size`: width, top height, depth).
+func _shelf_unit(at: Vector3, size: Vector3, heights: Array) -> void:
+	var wood := _planks("wood_table_worn", 0.9, Color(0.72, 0.64, 0.55))
+	for k: float in [-1.0, 1.0]:
+		_beam(Vector3(0.03, size.y, size.z), at + Vector3(k * (size.x * 0.5 - 0.015), size.y * 0.5, 0), wood, 0.006)
+	_box(Vector3(size.x, size.y, 0.012), at + Vector3(0, size.y * 0.5, size.z * 0.5 - 0.006), _mat(Color(0.22, 0.17, 0.13), 0.9))
+	for h in heights:
+		_beam(Vector3(size.x - 0.06, 0.028, size.z - 0.02), at + Vector3(0, float(h) - 0.014, -0.005), wood, 0.006)
+	_beam(Vector3(size.x, 0.03, size.z + 0.02), at + Vector3(0, size.y + 0.015, 0), wood, 0.006)
+	_blob(Vector3(at.x, 0.1015, at.z), Vector2(size.x + 0.2, size.z + 0.2), 0.0, 0.8)
+
+
+## A wall shelf: a worn board (`top`: the middle of its top face, `size`) on two dark brackets.
+func _shelf(top: Vector3, size: Vector3) -> void:
+	var board := _planks("wood_table_worn", 0.9, Color(0.8, 0.74, 0.66))
+	_beam(size, top - Vector3(0, size.y * 0.5, 0), board, 0.008)
+	var iron := _mat(Color(0.14, 0.12, 0.11), 0.6)
+	var back := signf(top.z) * size.z * 0.5
+	for k: float in [-1.0, 1.0]:
+		var x := top.x + k * size.x * 0.36
+		_box(Vector3(0.025, 0.14, 0.025), Vector3(x, top.y - size.y - 0.07, top.z + back - signf(top.z) * 0.015), iron)
+		var arm := _box(Vector3(0.022, 0.022, size.z * 0.85), Vector3(x, top.y - size.y - 0.07, top.z), iron)
+		arm.rotation.x = signf(top.z) * 0.55
 
 
 ## A woven rag rug on the strip of floor before the bench (0.8.2.2, the tighter view: the little
 ## floor left in the picture's foot is a place to stand, not bare boards).
-func _build_rug(floor_y: float) -> void:
+func _build_rug(floor_y: float, at: Vector3, turn: float) -> void:
 	var rug := MeshInstance3D.new()
 	var pm := PlaneMesh.new()
 	pm.size = Vector2(1.5, 0.9)
@@ -636,8 +858,8 @@ func _build_rug(floor_y: float) -> void:
 	var m := ShaderMaterial.new()
 	m.shader = _rug_shader()
 	rug.material_override = m
-	rug.position = Vector3(0.05, floor_y + 0.002, BENCH_Z - 0.62)
-	rug.rotation.y = 0.04
+	rug.position = Vector3(at.x, floor_y + 0.002, at.z)
+	rug.rotation.y = turn
 	rug.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(rug)
 
@@ -683,10 +905,10 @@ func _tag(name: String, node: Node3D, offset: Vector3, below: bool) -> void:
 	_tag_anchors[name] = [a, below]
 
 
-func _pick(name: String, at: Vector3, radius: float) -> void:
+func _pick(name: String, at: Vector3, radius: float, parent: Node3D = self) -> void:
 	var c := Node3D.new()
 	c.position = at
-	add_child(c)
+	parent.add_child(c)
 	_picks[name] = [c, radius]
 
 
@@ -806,10 +1028,10 @@ func _seed_bag() -> Node3D:
 func _build_pinboard() -> void:
 	var hd := DEPTH * 0.5
 	var board := Node3D.new()
-	board.position = Vector3(PINBOARD_X, 1.45, hd - 0.06)
-	board.rotation.y = PI
-	board.scale = Vector3.ONE * PINBOARD_SCALE
-	add_child(board)
+	board.position = _c("pin_at", Vector3(PINBOARD_X, 1.45, hd - 0.06))
+	board.rotation.y = float(_c("pin_rot", PI))
+	board.scale = Vector3.ONE * float(_c("pin_scale", PINBOARD_SCALE))
+	(_door_leaf if bool(_c("pin_on_door", false)) else self as Node3D).add_child(board)
 	var cork := _mat(Color(0.62, 0.46, 0.3), 0.95)
 	cork.normal_enabled = true
 	cork.normal_texture = preload("res://lookdev/paper/textures/leather_normal.png")
@@ -922,6 +1144,9 @@ func fit_view() -> void:
 ## Fits the view to a screen of this shape (width over height).
 func _fit_for(aspect: float) -> void:
 	_fit_aspect = aspect
+	if layout != 0:
+		_fit_layout(aspect)
+		return
 	var best := INF
 	var best_fov := MIN_FOV
 	for i in range(61):
@@ -941,6 +1166,111 @@ func _fit_for(aspect: float) -> void:
 	# Facing the door (+Z in the shed's frame), tilted down.
 	camera.basis = Basis(Vector3.UP, PI) * Basis(Vector3.RIGHT, _fit_pitch)
 	camera.fov = best_fov
+
+
+## The view of a layout proposal (ShedLayouts): from its eye, the turn and tilt nearest its own
+## that hold every thing, label, the door and the sill whole, with the narrowest field of view.
+func _fit_layout(aspect: float) -> void:
+	var eye: Vector3 = _c("eye", EYE)
+	var yaw0 := float(_c("yaw", PI))
+	var pitch0 := deg_to_rad(float(_c("pitch", -20.0)))
+	var yr := float(_c("yaw_range", 0.2))
+	# Where the things' middle sits on screen, -1 bottom .. 1 top (a little below the middle: the
+	# wall above them shows more than the floor).
+	var vmid := float(_c("vmid", -0.05))
+	var pts := layout_must_see()
+	var best := INF
+	var best_b := Basis()
+	var best_fov := MIN_FOV
+	for i in range(41):
+		var yaw := yaw0 + yr * (i / 20.0 - 1.0)
+		for j in range(71):
+			var pitch := pitch0 + deg_to_rad(j - 35.0)
+			var b := Basis(Vector3.UP, yaw) * Basis(Vector3.RIGHT, pitch)
+			var fit := _fit_of(b, eye, pts, aspect)
+			var cost := fit.x + absf(yaw - yaw0) * 8.0 + absf(fit.y - vmid) * 25.0 + absf(rad_to_deg(pitch - pitch0)) * 0.02
+			if cost < best:
+				best = cost
+				best_b = b
+				best_fov = fit.x
+				_fit_pitch = pitch
+	camera.position = eye
+	camera.basis = best_b
+	camera.fov = best_fov
+
+
+## The field of view (degrees) that holds these points from this eye, and where the middle of
+## their height sits on screen (-1 bottom .. 1 top).
+func _fit_of(b: Basis, eye: Vector3, pts: Array[Vector3], aspect: float) -> Vector2:
+	var inv := Transform3D(b, eye).affine_inverse()
+	var need := tan(deg_to_rad(MIN_FOV * 0.5))
+	var lo := INF
+	var hi := -INF
+	for p in pts:
+		var c := inv * p
+		if c.z > -0.05:
+			return Vector2(179.0, 0.0)
+		var ty := c.y / -c.z
+		lo = minf(lo, ty)
+		hi = maxf(hi, ty)
+		need = maxf(need, maxf(absf(c.x) / -c.z / aspect, absf(ty)) / (1.0 - VIEW_MARGIN))
+	var fov := clampf(rad_to_deg(atan(need)) * 2.0, MIN_FOV, 179.0)
+	var t := tan(deg_to_rad(fov * 0.5))
+	return Vector2(fov, (lo + hi) * 0.5 / t)
+
+
+## What must be whole on screen in a layout proposal (shed frame): each thing's tap circle and
+## its label, the pinboard's corners and label, the doorway, the sill with the bonsai and its tools.
+func layout_must_see() -> Array[Vector3]:
+	var pts: Array[Vector3] = []
+	for k in ["journal", "album", "seeds", "gloves"]:
+		var c := _in_shed(_picks[k][0] as Node3D)
+		var r := float(_picks[k][1]) * 0.8
+		for d in [Vector3(r, 0, 0), Vector3(-r, 0, 0), Vector3(0, r, 0), Vector3(0, -r * 0.5, 0), Vector3(0, 0, r), Vector3(0, 0, -r)]:
+			pts.append(c + d)
+	for k in ITEMS:
+		var a := _in_shed(_tag_anchors[k][0] as Node3D)
+		pts.append(a)
+		pts.append(a + Vector3(0, -0.07 if bool(_tag_anchors[k][1]) else 0.07, 0))
+	var board := _items["options"] as Node3D
+	var bx := _xf_in_shed(board)
+	for cx in [-0.27, 0.27]:
+		for cy in [-0.31, 0.31]:
+			pts.append(bx * Vector3(cx, cy, 0.0))
+	for p in _c("see", []):
+		pts.append(p)
+	var unit: Variant = _c("shelf_unit", null)
+	if unit != null:
+		var u0: Vector3 = unit[0]
+		var us: Vector3 = unit[1]
+		for k: float in [-1.0, 1.0]:
+			pts.append(u0 + Vector3(k * us.x * 0.5, us.y, -us.z * 0.5))
+			pts.append(u0 + Vector3(k * us.x * 0.5, 0.0, -us.z * 0.5))
+	var hd := DEPTH * 0.5
+	var dx := _door_w * 0.5 + 0.08
+	for x in [-dx, dx]:
+		for y in [0.2, DOOR_H + 0.12]:
+			pts.append(Vector3(_door_x + x, y, hd))
+	var sx := _xf_in_shed(bonsai_spot)
+	for p in [Vector3(0.14, 0, -0.18), Vector3(-0.14, 0, -0.18), Vector3(0, 0.45, -0.04), Vector3(0.12, 0.08, -0.16),
+			Vector3(SILL_TOOLS_EDGE, 0.14, 0.05), Vector3(SILL_TOOLS_EDGE, 0, -0.26), Vector3(-0.2, 0, -0.26),
+			]:
+		pts.append(sx * p)
+	return pts
+
+
+## A node's transform in the shed's own frame (built up from its parents, in the tree or not).
+func _xf_in_shed(n: Node3D) -> Transform3D:
+	var xf := n.transform
+	var p := n.get_parent()
+	while p != null and p != self:
+		xf = (p as Node3D).transform * xf
+		p = p.get_parent()
+	return xf
+
+
+func _in_shed(n: Node3D) -> Vector3:
+	return _xf_in_shed(n).origin
 
 
 ## The vertical field of view (degrees) that shows must_see() on a screen of this shape.

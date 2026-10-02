@@ -172,6 +172,32 @@ func test_shed_view_fits_the_phone() -> void:
 		vp.free()
 
 
+
+## 0.8.2.4 layout proposals (ShedLayouts): each keeps every thing, the door and the sill whole on
+## a phone's screen, each thing found by a tap on it and at least finger size.
+func test_shed_layout_proposals_fit_the_phone() -> void:
+	for i in range(1, ShedLayouts.COUNT + 1):
+		Shed.layout = i
+		var vp := SubViewport.new()
+		vp.size = Vector2i(720, 1600)
+		vp.disable_3d = false
+		t.root.add_child(vp)
+		var shed := Shed.new()
+		vp.add_child(shed)
+		shed.bonsai_ready = true
+		shed.camera.current = true
+		shed.fit_view()
+		for p in shed.layout_must_see():
+			var s := shed.camera.unproject_position(shed.to_global(p))
+			t.check(not shed.camera.is_position_behind(shed.to_global(p)) and s.x >= 0.0 and s.x <= 720.0 and s.y >= 0.0 and s.y <= 1600.0, "layout %d: %s on screen (%s)" % [i, p, s])
+		for item in Shed.ITEMS + ["door"]:
+			var c: Node3D = shed._picks[item][0]
+			var s := shed.camera.unproject_position(c.global_position)
+			t.check_eq(shed.item_at(s), item, "layout %d: a tap on the %s finds it" % [i, item])
+			t.check(shed._screen_radius(c.global_position, float(shed._picks[item][1])) * 2.0 >= 100.0, "layout %d: %s at least finger size" % [i, item])
+		vp.free()
+	Shed.layout = 0
+
 ## 0.8.2 (look review, sillzoom): on a narrow phone screen the sill's tools keep a margin from
 ## the left edge, and the bonsai's label hangs under the sill's edge, below the tools.
 func test_the_sill_keeps_its_tools_clear() -> void:
