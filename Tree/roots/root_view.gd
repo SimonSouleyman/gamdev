@@ -53,7 +53,7 @@ var mode: Mode = Mode.IDLE
 var input_enabled: bool = true
 ## Asked before a run starts (GameState allows one run per night).
 var can_start: Callable = func() -> bool: return true
-## Test hook: when set, used instead of the joystick and keyboard.
+## Test hook: when set, used instead of the steering finger and keyboard.
 var scripted_stick: Variant = null
 var scripted_dive: bool = false
 
@@ -80,8 +80,13 @@ var _dragged: bool = false
 
 # HUD
 var hud: CanvasLayer
-var joystick: ThumbStick
-var dive_button: Button
+## 0.8.2.7 (Simon): no stick on screen and no dive button. A finger down anywhere during the run
+## is the centre of an invisible stick; dragging away from it steers that way (STEER_RADIUS px
+## for a full turn); lifting it keeps the heading. Space or Shift still dives on a PC.
+const STEER_RADIUS := 110.0
+var steer_value: Vector2 = Vector2.ZERO
+var _steer_down: bool = false
+var _steer_origin: Vector2 = Vector2.ZERO
 var end_button: Button
 ## Tonight's life force, the green vial (ui/vial.gd), and the scrap with tonight's haul.
 var vial: Vial
@@ -142,6 +147,32 @@ const FAR_ROOT_SHARE := 0.0045
 const CAM_RATE := 3.0
 const CAM_RATE_FAR := 1.1
 var far_view: bool = false
+
+## 0.8.2.7 (Simon: "the camera in the replay doesn't focus on the root you built yet"): from the
+## run's end the camera frames tonight's root and its side and fine roots on the portrait screen
+## within these margins (shares of the screen: sides, under the vial, scrap, compass and hint,
+## above the bottom), from a high three-quarter view turned (within FOCUS_TURN of where the run
+## camera looked) so the root shows largest. It eases there at FOCUS_RATE from exactly where the
+## run camera was, follows the fine roots as the settle grows them, and after the settle turns on
+## slowly as before. Any turn or zoom by the player hands the camera back to the player.
+const FOCUS_MARGIN_SIDE := 0.08
+const FOCUS_MARGIN_TOP := 0.25
+const FOCUS_MARGIN_BOTTOM := 0.07
+const FOCUS_PITCH := 0.8
+const FOCUS_TURN := 1.6
+const FOCUS_RATE := 1.2
+const FOCUS_MIN_DISTANCE := 4.0
+const FOCUS_MAX_DISTANCE := 45.0
+## Framing tonight's root now (from the settle until the player takes the camera).
+var focus_tonight: bool = false
+var _focus_yaw: float = 0.0
+## Tonight's node ids framed (the root and what grew from it; ascending), and the end of the
+## ids shown so far.
+var _focus_ids := PackedInt32Array()
+var _focus_from: int = 1
+var _focus_to: int = 1
+## The distance the frame wants; during the settle it only grows (no breathing in and out).
+var _focus_distance: float = 0.0
 ## Set by main: the first-time line "pinch out to see the whole field" is still wanted.
 var far_hint: bool = false
 ## Set by main: called with "band" or "vein" the first time the tip meets one; true shows a line.
@@ -218,6 +249,7 @@ func _reset_run_state() -> void:
 	_settle_step = 0.0
 	_settle_first_fine = 0
 	_settle_start = 1
+	focus_tonight = false
 	_static_job = {}
 	_static_end = -1
 	_tips_key = []
@@ -238,8 +270,8 @@ func _reset_run_state() -> void:
 		_tip.visible = false
 	if _hover != null:
 		_hover.visible = false
-	if joystick != null:
-		release_controls()
+	release_controls()
+	if end_button != null:
 		_show_run_controls(false)
 
 
@@ -738,24 +770,6 @@ func _build_hud() -> void:
 	_hint.offset_top = 268
 	root.add_child(_hint)
 
-	joystick = ThumbStick.new()
-	joystick.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
-	joystick.position = Vector2(50, -320)
-	joystick.offset_left = 50
-	joystick.offset_top = -330
-	joystick.offset_right = 290
-	joystick.offset_bottom = -90
-	root.add_child(joystick)
-
-	dive_button = _scrap_button("hold\nto dive", 30)
-	dive_button.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
-	dive_button.offset_left = -250
-	dive_button.offset_top = -330
-	dive_button.offset_right = -60
-	dive_button.offset_bottom = -140
-	dive_button.focus_mode = Control.FOCUS_NONE
-	root.add_child(dive_button)
-
 	# End tonight's root here; the rest of the life force goes into fine roots.
 	# (0.8.2.1 look review: 56 px tall with small words, well under 9 mm on the phone.)
 	end_button = _scrap_button(Pages.END_ROOT_LABEL, 30)
@@ -809,8 +823,8 @@ func _scrap_button(text: String, size: int) -> Button:
 
 
 func _show_run_controls(on: bool) -> void:
-	joystick.visible = on
-	dive_button.visible = on
+	if not on:
+		release_controls()
 	# 0.8.2.2 (specs/0.8.md "Stop at once"): ending is there from the moment the night opens,
 	# also before the root has moved (the tank then grows small roots everywhere).
 	end_button.visible = on
@@ -836,9 +850,9 @@ func _update_hud() -> void:
 		Mode.DONE when far_view:
 			_hint.text = "Pinch in to come back."
 		Mode.PICK:
-			_hint.text = ("Tap a point on a root to start tonight's root." + ("\nPinch out to see the whole field." if far_hint else "")) if roots.graph.size() > 1 else ""
+			_hint.text = ("Tap a root to start tonight's root there. Drag to look around." + ("\nPinch out to see the whole field." if far_hint else "")) if roots.graph.size() > 1 else ""
 		Mode.RUN:
-			_hint.text = "Move the stick (or WASD) to grow the root." if _waiting_for_input else (_note_text if _note_time > 0.0 else "")
+			_hint.text = "Drag anywhere to steer the root (or WASD)." if _waiting_for_input else (_note_text if _note_time > 0.0 else "")
 		Mode.DONE:
 			_hint.text = ("A quiet night below. Swipe down to wake the tree." if quiet_night else ("Small roots reach for the nearest dots." if roots.run_length < roots.step_length and roots.side_nodes_grown[0] > 0 else "The new root settles. The leftover grows side roots." if roots.side_nodes_grown[0] > 0 else "The new root settles. Fine roots reach for what is near.")) if is_settling() or quiet_night else "Swipe down to wake the tree, or wait for the morning."
 		_:
@@ -849,6 +863,7 @@ func _update_hud() -> void:
 
 func begin_pick() -> void:
 	_leave_far(true)
+	focus_tonight = false
 	mode = Mode.PICK
 	quiet_night = false
 	_life_at_start = maxf(res.life_force, 0.001)
@@ -885,6 +900,7 @@ func resume_run() -> void:
 
 func _enter_run() -> void:
 	_leave_far(false)
+	focus_tonight = false
 	mode = Mode.RUN
 	quiet_night = false
 	_waiting_for_input = true
@@ -904,6 +920,7 @@ func _enter_run() -> void:
 ## A night without life force, or after the run: the camera just looks around.
 func begin_idle_overview() -> void:
 	_leave_far(true)
+	focus_tonight = false
 	mode = Mode.DONE
 	_show_run_controls(false)
 	_tip.visible = false
@@ -950,7 +967,9 @@ func _process(delta: float) -> void:
 				_process_settle(delta)
 			# From the overview the whole underground glows; up close only the near dots do.
 			(_dots.material_override as ShaderMaterial).set_shader_parameter("fog_far", _orbit_distance + 12.0)
-			if not _pressing and not far_view:
+			if focus_tonight and not far_view:
+				_update_focus(delta)
+			elif not _pressing and not far_view:
 				_orbit_yaw += delta * 0.08
 			if far_view and absf(_orbit_yaw - _far_fit_yaw) > 0.01:
 				# Turned by a drag: the frame follows, so the map still fills the screen.
@@ -1074,11 +1093,10 @@ func _outside_rocks(p: Vector3) -> Vector3:
 	return p
 
 
-## A page opened: fingers lifted meanwhile would never be seen, so let go of stick and dive.
+## A page opened: a finger lifted meanwhile would never be seen, so let go of the steering.
 func release_controls() -> void:
-	if joystick.is_pressed():
-		joystick.release()
-	dive_button.button_pressed = false
+	_steer_down = false
+	steer_value = Vector2.ZERO
 
 
 ## The player ends the root here: fine roots take the rest of tonight's life force.
@@ -1138,15 +1156,9 @@ func _settle() -> void:
 		if g.get_flag(id, "fine", -1) != -1:
 			_settle_first_fine = id
 			break
-	# Frame tonight's root.
+	# Frame tonight's root (0.8.2.7): eased there from where the camera is now.
 	if start < g.size():
-		var lo := g.positions[start]
-		var hi := lo
-		for id in range(start, g.size()):
-			lo = lo.min(g.positions[id])
-			hi = hi.max(g.positions[id])
-		_look = (lo + hi) * 0.5
-		_orbit_distance = clampf((hi - lo).length() * 0.9 + 3.0, 4.0, 16.0)
+		_begin_focus(start, _settle_first_fine)
 	_update_looks()
 	# 0.8.2: tonight's root and its side roots keep the warm glow of the run while they settle,
 	# so the thicker root or the new fan reads against the old roots (specs/side-roots.md,
@@ -1209,11 +1221,121 @@ func _process_settle(delta: float) -> void:
 	if _settle_t < SETTLE_GROW + 0.15 and _settle_step >= 0.12:
 		_settle_step = 0.0
 		var k := smoothstep(0.0, SETTLE_GROW, _settle_t)
-		_live_roots.mesh = _builder.build(g, _settle_start, _settle_first_fine + int(ceil((g.size() - _settle_first_fine) * k)))
+		_focus_to = _settle_first_fine + int(ceil((g.size() - _settle_first_fine) * k))
+		_live_roots.mesh = _builder.build(g, _settle_start, _focus_to)
 	if _settle_t >= SETTLE_GROW + SETTLE_HOLD:
 		_settle_t = -1.0
+		_focus_to = g.size()
 		_finish_static_job()
 		run_finished.emit(roots.run_totals)
+
+
+# --- the camera on tonight's root (0.8.2.7) -----------------------------------------------
+
+## Starts framing tonight's nodes from `from` (the run's first new node); the nodes up to `shown`
+## show at once, the rest as the settle grows them. The orbit is first set to where the camera
+## is and where it looks, so nothing jumps; then yaw, pitch, distance and look point ease.
+func _begin_focus(from: int, shown: int) -> void:
+	var g := roots.graph
+	_focus_from = clampi(from, 1, g.size())
+	_focus_to = clampi(shown, _focus_from, g.size())
+	# The root itself and the side and fine roots that grew from it; the fine roots the night's
+	# end sprouts from older root ends elsewhere are left out (they spread the frame over the
+	# whole field). A night ended at once has no root of its own: all its new roots then.
+	var mine := {}
+	_focus_ids = PackedInt32Array()
+	for id in range(_focus_from, g.size()):
+		if g.get_flag(id, "fine", -1) == -1 or mine.has(g.parents[id]):
+			mine[id] = true
+			_focus_ids.append(id)
+	if _focus_ids.is_empty():
+		for id in range(_focus_from, g.size()):
+			_focus_ids.append(id)
+	var fwd := -camera.global_basis.z if camera.is_inside_tree() else -camera.basis.z
+	var reach := clampf(camera.position.distance_to(roots.tip_position if roots.run_length > 0.0 else _look_now), 2.0, 30.0)
+	_look_now = camera.position + fwd * reach
+	var off := camera.position - _look_now
+	_orbit_distance = off.length()
+	_orbit_pitch = asin(clampf(off.y / maxf(_orbit_distance, 1e-4), -1.0, 1.0))
+	_orbit_yaw = atan2(off.x, off.z)
+	# The turn that shows the whole of tonight's growth largest, with a small wish to stay.
+	var all := _focus_points(g.size())
+	var best := _orbit_yaw
+	var best_score := INF
+	for k in range(-6, 7):
+		var yaw := _orbit_yaw + FOCUS_TURN * k / 6.0
+		var d: float = _fit_view(all, yaw, FOCUS_PITCH)[1]
+		var score := d * (1.0 + 0.12 * absf(k) / 6.0)
+		if score < best_score:
+			best_score = score
+			best = yaw
+	_focus_yaw = best
+	_focus_distance = 0.0
+	_look = _look_now
+	focus_tonight = true
+
+
+## Tonight's nodes framed now: those shown before `to`, and the node the root grew from.
+func _focus_points(to: int) -> PackedVector3Array:
+	var g := roots.graph
+	var pts := PackedVector3Array()
+	if _focus_ids.is_empty():
+		return pts
+	pts.append(g.positions[g.parents[_focus_ids[0]]])
+	for id in _focus_ids:
+		if id >= mini(to, g.size()):
+			break
+		pts.append(g.positions[id])
+	return pts
+
+
+## The look point and distance at which every point lies inside the FOCUS margins, seen from
+## (yaw, pitch) with the camera's own field of view and the screen's shape: [look, distance].
+func _fit_view(pts: PackedVector3Array, yaw: float, pitch: float) -> Array:
+	if pts.is_empty():
+		return [_look, _orbit_distance]
+	var dir := Vector3(sin(yaw) * cos(pitch), sin(pitch), cos(yaw) * cos(pitch))
+	var f := -dir
+	var r := f.cross(Vector3.UP).normalized()
+	var u := r.cross(f).normalized()
+	var tv := tan(deg_to_rad(camera.fov) * 0.5)
+	var th := tv * _aspect()
+	var x_half := 1.0 - 2.0 * FOCUS_MARGIN_SIDE
+	var y_top := 1.0 - 2.0 * FOCUS_MARGIN_TOP
+	var y_bot := -1.0 + 2.0 * FOCUS_MARGIN_BOTTOM
+	var y_half := (y_top - y_bot) * 0.5
+	var y_mid := (y_top + y_bot) * 0.5
+	var lo := Vector3(INF, INF, INF)
+	var hi := Vector3(-INF, -INF, -INF)
+	for p in pts:
+		var q := Vector3(r.dot(p), u.dot(p), f.dot(p))
+		lo = lo.min(q)
+		hi = hi.max(q)
+	var centre := r * (lo.x + hi.x) * 0.5 + u * (lo.y + hi.y) * 0.5 + f * (lo.z + hi.z) * 0.5
+	var d := FOCUS_MIN_DISTANCE
+	for p in pts:
+		var q := p - centre
+		var depth := f.dot(q)
+		d = maxf(d, absf(r.dot(q)) / (th * x_half) - depth)
+		d = maxf(d, absf(u.dot(q)) / (tv * y_half) - depth)
+	d = minf(d, FOCUS_MAX_DISTANCE)
+	# The content's middle at the free band's middle: the camera looks a little below it.
+	return [centre - u * (y_mid * tv * d), d]
+
+
+## Eases the orbit onto tonight's root (see FOCUS_MARGIN_SIDE).
+func _update_focus(delta: float) -> void:
+	var e := 1.0 - exp(-FOCUS_RATE * delta)
+	if not is_settling():
+		# Settled: the slow turn of the overview goes on, and the frame turns with it.
+		_focus_yaw += delta * 0.08
+	_orbit_yaw = lerp_angle(_orbit_yaw, _focus_yaw, e)
+	_orbit_pitch = lerpf(_orbit_pitch, FOCUS_PITCH, e)
+	var fit := _fit_view(_focus_points(_focus_to), _orbit_yaw, _orbit_pitch)
+	var want: float = fit[1]
+	_focus_distance = maxf(_focus_distance, want) if is_settling() else lerpf(_focus_distance, want, e)
+	_orbit_distance = lerpf(_orbit_distance, _focus_distance, e)
+	_look = fit[0]
 
 
 func _look_at_safely(target: Vector3) -> void:
@@ -1231,7 +1353,7 @@ func _stick() -> Vector2:
 		return scripted_stick
 	if not input_enabled:
 		return Vector2.ZERO
-	var v: Vector2 = joystick.value
+	var v: Vector2 = steer_value
 	var k := Vector2(
 		Input.get_action_strength("ui_right") - Input.get_action_strength("ui_left"),
 		Input.get_action_strength("ui_up") - Input.get_action_strength("ui_down"))
@@ -1251,7 +1373,7 @@ func _dive_held() -> bool:
 		return scripted_dive
 	if not input_enabled:
 		return false
-	return dive_button.button_pressed or Input.is_physical_key_pressed(KEY_SPACE) or Input.is_physical_key_pressed(KEY_SHIFT)
+	return Input.is_physical_key_pressed(KEY_SPACE) or Input.is_physical_key_pressed(KEY_SHIFT)
 
 
 func _on_find(f: Dictionary) -> void:
@@ -1287,7 +1409,12 @@ func _flash(p: Vector3, color: Color, size: float = 0.5) -> void:
 # --- picking a start point ---------------------------------------------------
 
 func _unhandled_input(event: InputEvent) -> void:
-	if not input_enabled or mode != Mode.PICK and mode != Mode.DONE:
+	if not input_enabled:
+		return
+	if mode == Mode.RUN:
+		_steer_input(event)
+		return
+	if mode != Mode.PICK and mode != Mode.DONE:
 		return
 	if _zoom_input(event):
 		return
@@ -1311,12 +1438,23 @@ func _unhandled_input(event: InputEvent) -> void:
 		_dragged = false
 		_press_pos = pos
 		_press_msec = Time.get_ticks_msec()
+		if mode == Mode.PICK and not far_view:
+			# 0.8.2.7: the root under the finger lights up at once, where tonight's would start.
+			var id := pick_node_at(pos)
+			_hover.visible = id >= 0
+			if id >= 0:
+				_hover.position = roots.graph.positions[id]
+				# About a fingertip across on screen, however far the camera is.
+				_hover.scale = Vector3.ONE * maxf(2.2, camera.position.distance_to(_hover.position) * 0.03 / 0.14)
 	elif is_move:
 		if _pressing:
 			var rel := (event as InputEventMouseMotion).relative
 			if pos.distance_to(_press_pos) > 12.0:
 				_dragged = true
+				if mode == Mode.PICK and not far_view:
+					_hover.visible = false
 			if _dragged and _touches.size() < 2:
+				focus_tonight = false
 				_orbit_yaw -= rel.x * (0.004 if far_view else 0.006)
 				if not far_view:
 					_orbit_pitch = clampf(_orbit_pitch + rel.y * 0.004, -0.6, 1.2)
@@ -1325,6 +1463,7 @@ func _unhandled_input(event: InputEvent) -> void:
 			_hover.visible = id >= 0
 			if id >= 0:
 				_hover.position = roots.graph.positions[id]
+				_hover.scale = Vector3.ONE
 	elif is_release:
 		_pressing = false
 		if mode == Mode.DONE and not is_settling() 				and TreeView.is_swipe(_press_pos, pos, false, (Time.get_ticks_msec() - _press_msec) / 1000.0):
@@ -1337,24 +1476,66 @@ func _unhandled_input(event: InputEvent) -> void:
 			if tip >= 0:
 				start_at(tip)
 		elif not _dragged and mode == Mode.PICK:
+			# 0.8.2.7: a tap on a root starts there; a tap on plain soil does nothing.
 			var id := pick_node_at(pos)
+			_hover.visible = false
 			if id >= 0:
 				start_at(id)
 
 
-## Nearest root node to a screen point, within 90 px. -1 if none.
+## The floating stick of the run (see STEER_RADIUS): one finger (the mouse, or a touch the
+## engine passes on as the mouse), so the "let roots spread" button keeps its own taps.
+func _steer_input(event: InputEvent) -> void:
+	if event is InputEventMouseButton and (event as InputEventMouseButton).button_index == MOUSE_BUTTON_LEFT:
+		var b := event as InputEventMouseButton
+		if b.pressed:
+			_steer_down = true
+			_steer_origin = b.position
+			steer_value = Vector2.ZERO
+		else:
+			release_controls()
+	elif event is InputEventMouseMotion and _steer_down:
+		var off := ((event as InputEventMouseMotion).position - _steer_origin).limit_length(STEER_RADIUS) / STEER_RADIUS
+		steer_value = Vector2(off.x, -off.y)
+
+
+## The root under a screen point (0.8.2.7: forgiving): the root segment nearest to it on screen
+## within a fingertip (FINGER_MM), and of its two ends the one nearer the finger. -1 if none.
 func pick_node_at(screen: Vector2) -> int:
+	var g := roots.graph
+	var reach := finger_px()
 	var best := -1
-	var best_d := 90.0
-	for id in range(roots.graph.size()):
-		var p := roots.graph.positions[id]
-		if camera.is_position_behind(p):
+	var best_d := reach
+	var pts := PackedVector2Array()
+	pts.resize(g.size())
+	var seen := PackedByteArray()
+	seen.resize(g.size())
+	for id in range(g.size()):
+		if not camera.is_position_behind(g.positions[id]):
+			pts[id] = camera.unproject_position(g.positions[id])
+			seen[id] = 1
+	if g.size() == 1 and seen[0] == 1 and pts[0].distance_to(screen) < reach:
+		return 0
+	for id in range(1, g.size()):
+		var a := g.parents[id]
+		if seen[id] == 0 or seen[a] == 0:
 			continue
-		var d := camera.unproject_position(p).distance_to(screen)
+		var c := Geometry2D.get_closest_point_to_segment(screen, pts[a], pts[id])
+		var d := c.distance_to(screen)
 		if d < best_d:
 			best_d = d
-			best = id
+			best = id if c.distance_to(pts[id]) <= c.distance_to(pts[a]) else a
 	return best
+
+
+## A fingertip on the screen (about 9 mm) in the view's own pixels.
+const FINGER_MM := 9.0
+func finger_px() -> float:
+	var dpi := float(DisplayServer.screen_get_dpi()) if DisplayServer.get_name() != "headless" else 96.0
+	var win := float(DisplayServer.window_get_size().x) if DisplayServer.get_name() != "headless" else 0.0
+	var vp := get_viewport().get_visible_rect().size.x if is_inside_tree() else 720.0
+	var scale := vp / win if win > 1.0 else 1.0
+	return clampf(FINGER_MM / 25.4 * maxf(dpi, 96.0) * scale, 40.0, 140.0)
 
 
 # --- the far view (0.8.2) --------------------------------------------------------------
@@ -1598,6 +1779,8 @@ func far_tips() -> PackedInt32Array:
 func _zoom_input(event: InputEvent) -> bool:
 	if event is InputEventMouseButton and (event as InputEventMouseButton).pressed:
 		var b := (event as InputEventMouseButton).button_index
+		if b == MOUSE_BUTTON_WHEEL_UP or b == MOUSE_BUTTON_WHEEL_DOWN:
+			focus_tonight = false
 		if b == MOUSE_BUTTON_WHEEL_UP:
 			if far_view:
 				leave_far_view()
@@ -1612,6 +1795,7 @@ func _zoom_input(event: InputEvent) -> bool:
 					_orbit_distance = minf(NORMAL_MAX_DISTANCE, _orbit_distance * 1.1)
 			return true
 	if event is InputEventMagnifyGesture:
+		focus_tonight = false
 		var f := (event as InputEventMagnifyGesture).factor
 		if far_view:
 			if f > 1.02:
@@ -1641,6 +1825,7 @@ func _zoom_input(event: InputEvent) -> bool:
 			return false
 		_touches[d.index] = d.position
 		if _touches.size() == 2 and _pinch_from > 0.0:
+			focus_tonight = false
 			var pts := _touches.values()
 			var now := maxf((pts[0] as Vector2).distance_to(pts[1]), 1.0)
 			var ratio := _pinch_from / now

@@ -140,6 +140,10 @@ const HOLD_START := 0.6
 ## The day's clock while held (tuning lever; 0.8.2.2: 8x, was 4x, Simon: "twice as fast";
 ## 0.8.2.4: 16x, Simon: "doubled again").
 const FAST_FORWARD := 16.0
+## The sunset picture's (hourglass) speed: twice the hold (0.8.2.7, Simon: "twice as fast again:
+## 32x; holding stays 16x"). Same fixed sim steps and per-frame budget (main.FF_BUDGET_MS): a
+## phone that cannot keep it runs the day slower, not the frame.
+const SUNSET_RUN_SPEED := 32.0
 ## Real seconds the speed takes to ease in from 1x to FAST_FORWARD (no hitch when it starts).
 const FAST_EASE := 0.5
 ## 0..1: how far the fast-forward has eased in (0 = the normal clock).
@@ -1641,10 +1645,10 @@ func _frame_camera(snap: bool, delta: float = 0.0) -> void:
 # --- hold to fast-forward ---------------------------------------------------
 
 ## How fast the day's clock runs now: 1, or up to FAST_FORWARD while a still finger is held by
-## day. main.gd multiplies the sim's real time by it; the sim itself still steps in fixed game
+## day, up to SUNSET_RUN_SPEED while the sunset picture runs the day. main.gd multiplies the sim's real time by it; the sim itself still steps in fixed game
 ## time, so a held day grows exactly the tree a watched one does.
 func time_speed() -> float:
-	var speed := lerpf(1.0, FAST_FORWARD, _ff_amount)
+	var speed := lerpf(1.0, SUNSET_RUN_SPEED if _to_sunset else FAST_FORWARD, _ff_amount)
 	if _to_sunset and state != null:
 		var clk := state.sim.clock
 		var left := (clk.daylight_fraction - clk.time_of_day) * clk.seconds_per_day

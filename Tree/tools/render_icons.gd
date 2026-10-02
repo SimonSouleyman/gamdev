@@ -684,7 +684,8 @@ func _icon_sunset() -> void:
 		bulb.append(Vector2(p.x, 1.0 - p.y))
 	_lathe(bulb, _glass(Color(0.92, 0.96, 1.0, 0.2)))
 	# A squat one: the picture is as tall as the shed's at most, so a slim glass would read small.
-	s.scale = Vector3(1.3, 0.9, 1.3)
+	# 0.8.2.7 (Simon: too wide): the round parts 20 % narrower (1.3 -> 1.04), the height kept.
+	s.scale = Vector3(1.04, 0.9, 1.04)
 	_frame(-18, 7)
 	_save(_finish(await _capture()), "sunset")
 
