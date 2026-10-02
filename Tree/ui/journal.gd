@@ -1,16 +1,19 @@
 class_name Journal
 extends CanvasLayer
-## The journal (design doc sections 2, 8, 9): every hint is a page of one notebook.
-## Small things are torn-out pages that flutter in (the tutorial lives there); the big menus
-## open the book itself: a leather-bound notebook with ribbon tabs for the diary, the pages to
-## read again and the settings. Handwriting and paper come from Paper.
+## The journal (design doc sections 2, 8, 9). 0.8.2.6 (specs/journal-drawers-loop.md, J1 to J4):
+## a leather-bound notebook with three ribbons: Today (the wish, what the tree lacks, where
+## tonight's root finds it, and an ink sketch of the tree), Diary (one line on the days something
+## happened, and the player's notes) and Collection (the plants under the crown, the finds, the
+## visitors, the trees grown). The explanation pages sit at the back of the book behind a small
+## "notes" corner; a first-time hint is one ink sentence at the screen's edge, gone on the next
+## tap. The switches live on the shed's pinboard only. Handwriting and paper come from Paper.
 
 signal page_closed(page_id: String)
 signal opened_changed(is_open: bool)
 signal setting_changed(key: String, value: bool)
 
-## A page can only be turned after a short moment, so a tap meant for the game does not
-## throw away a page nobody has read.
+## A hint can only be tapped away after a short moment, so a tap meant for the game does not
+## throw away a sentence nobody has read.
 const MIN_PAGE_SECONDS := 0.6
 
 var state: GameState
@@ -19,22 +22,37 @@ var state: GameState
 var settings: Dictionary = {"sound": true, "no_ui": false, "battery_saver": false, "notifications": true, "any_species": false,
 	"vibration": true, "clearer_print": false}
 
-var _queue: Array = []  # [{id, title, body}]
-## Pages put aside while the player is in the shed; they come back outside.
+## The finds for the Collection page (0.8.2.6): a hook the shed's drawers can set, returning
+## [{"kind": String (InkSketch kind), "text": String, "day": int, optional "where": String (its
+## drawer, e.g. "in the left drawer")}]. Unset, the finds come from this tree's diary.
+var finds_source: Callable
+
+var _queue: Array = []  # [{id, title, body, doodle}]
+## Hints put aside while the player is in the shed; they come back outside.
 var _held: Array = []
+## The hint on screen: one ink sentence on a slip at the screen's lower edge (0.8.2.6, J4).
 var _page: Control
 var _page_sheet: PanelContainer
-var _page_title: Label
-var _page_body: Label
-## The torn page's ink doodle (0.8.2) and its kind.
+var _page_text: Label
 var _page_doodle: TextureRect
-var _page_doodle_kind: String = ""
-## Size of a page's doodle and of a day page's, in pixels.
+var _cur: Dictionary = {}
+## Size of a hint's doodle, a page's and a day's, in pixels.
+const HINT_DOODLE_SIZE: int = 64
 const PAGE_DOODLE_SIZE: int = 104
 const DAY_DOODLE_SIZE: int = 72
+## The hint's slip sits this far above the screen's lower edge.
+const HINT_BOTTOM := 36.0
 var _page_id: String = ""
 var _page_shown_at: float = 0.0
 var _pages_torn: int = 0
+## A page read again from the back of the book: the full torn-out page over the book.
+var _sheet: Control
+var _sheet_paper: PanelContainer
+var _sheet_title: Label
+var _sheet_body: Label
+var _sheet_doodle: TextureRect
+var _sheet_marks: Control
+var _sheet_id: String = ""
 
 var _book: Control
 ## The dim around the open book; solid once it is open (the world under it then stops drawing).
@@ -43,26 +61,24 @@ const BOOK_DIM := 0.78
 var _book_page: PanelContainer
 var _tabs: Dictionary = {}  # name -> Control (content)
 var _tab_buttons: Dictionary = {}
-## The book opens at its first page, the tree's own (0.8.1, item 28), then where it was left.
-var _current_tab: String = "tree"
+## The three ribbons (J1), and the back pages behind the "notes" corner.
+const RIBBONS: Array[String] = ["today", "diary", "collection"]
+const NOTES_TAB := "notes"
+## The book opens at Today, then where it was left.
+var _current_tab: String = "today"
 var _diary_text: RichTextLabel
-var _wish_label: Label
 var _note: LineEdit
-var _toggles: Dictionary = {}
+var _notes_corner: Button
 var _open_button: TextureButton
 var _pages_list: VBoxContainer
 var _pages_empty: Label
 var _book_title: Label
-## The clearing's collection: what came up in the crown's shade (Clearing.found).
-var _clearing_list: VBoxContainer
-var _clearing_more: Label
-## The care page (0.6.3): the crown and the roots read in words (Care.page).
-var _care_box: VBoxContainer
-## The tree's own page (0.8.1, item 28; before, the flower pot's on the bench): how it is, the
-## day's wish, who has come, and an ink sketch of it as it stands.
-var _tree_box: VBoxContainer
+## The Collection page's box (rebuilt on each open).
+var _collection_box: VBoxContainer
+## The Today page: its lines and the ink sketch of the tree as it stands.
+var _today_box: VBoxContainer
 var _tree_sketch: Control
-## Pages that name the nutrients by their dots show the key of the four marks (0.8).
+## Hints whose topic names the nutrients by their dots show the key of the four marks (0.8).
 const MARK_PAGES: Array[String] = ["first_night", "first_sunset", "sapling"]
 var _page_marks: Control
 
@@ -70,8 +86,9 @@ var _page_marks: Control
 func _ready() -> void:
 	layer = 20
 	_build_open_button()
-	_build_page()
 	_build_book()
+	_build_page()
+	_build_sheet()
 
 
 ## 0.8.2.4 (phone: opening the book froze for 0.49 s): the day pages' ink doodles were drawn on
@@ -96,14 +113,14 @@ func is_book_open() -> bool:
 
 
 func is_open() -> bool:
-	return _page.visible or _book.visible
+	return _page.visible or _book.visible or _sheet.visible
 
 
-# --- torn-out pages -----------------------------------------------------------
+# --- first-time hints (0.8.2.6, J4) ----------------------------------------------------
 
-## Queues a one-time page. Pages show one after another; each closes with a tap. Each carries
-## one ink doodle about its topic (0.8.2, item 23): `doodle` (an InkSketch kind), else the
-## page's own (Pages.doodle).
+## Queues a first-time hint. It shows as one ink sentence (Pages.hint) at the screen's edge, one
+## after another; each goes on the next tap. The full page stays at the back of the book.
+## `doodle`: an InkSketch kind, else the page's own (Pages.doodle).
 func show_page(id: String, title: String, body: String, doodle: String = "") -> void:
 	if doodle == "":
 		doodle = Pages.doodle(id)
@@ -116,57 +133,57 @@ func _next_page() -> void:
 	if _queue.is_empty():
 		_page.visible = false
 		_page_id = ""
+		_cur = {}
 		opened_changed.emit(is_open())
 		return
-	var p: Dictionary = _queue.pop_front()
-	_page_id = p["id"]
-	_page_title.text = p["title"]
-	_page_body.text = p["body"]
-	_page_doodle_kind = str(p.get("doodle", ""))
-	_page_doodle.texture = InkSketch.texture(_page_doodle_kind) if InkSketch.has(_page_doodle_kind) else null
+	_cur = _queue.pop_front()
+	_page_id = _cur["id"]
+	_page_text.text = Pages.hint(_page_id, str(_cur["body"]))
+	var kind := str(_cur.get("doodle", ""))
+	_page_doodle.texture = InkSketch.texture(kind) if InkSketch.has(kind) else null
 	_page_doodle.visible = _page_doodle.texture != null
 	_page_marks.visible = MARK_PAGES.has(_page_id)
-	# Each page is torn a little differently and lies a little askew.
 	_pages_torn += 1
-	# Torn from a squared notebook.
-	# Crumpled, torn paper lit like a real sheet (visuals thread).
-	PaperLook.apply(_page_sheet, "torn_page", 40 + _pages_torn % 5, 34.0)
+	PaperLook.apply(_page_sheet, "torn_page", 40 + _pages_torn % 5, 18.0)
 	_page.visible = true
-	# Above the book, when a page is opened from its "pages" tab.
 	move_child(_page, -1)
 	_page_shown_at = Time.get_ticks_msec() / 1000.0
-	# The page flutters in: drops a little, turns into place.
+	# The slip fades in.
 	_page.modulate.a = 0.0
-	_page_sheet.rotation_degrees = -6.0 + (_pages_torn % 3) * 2.0
-	_page_sheet.pivot_offset = _page_sheet.size * 0.5
-	var tw := create_tween().set_parallel(true)
-	tw.tween_property(_page, "modulate:a", 1.0, 0.3)
-	tw.tween_property(_page_sheet, "rotation_degrees", -1.5 + (_pages_torn % 3) * 1.2, 0.45).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+	create_tween().tween_property(_page, "modulate:a", 1.0, 0.25)
 	opened_changed.emit(true)
 
 
-## Drops every open or queued page (a new game or a load starts clean).
+## The hint on screen: its sentence ("" when none shows).
+func hint_text() -> String:
+	return _page_text.text if _page.visible else ""
+
+
+## Drops every open or queued hint (a new game or a load starts clean).
 func clear_pages() -> void:
 	_queue.clear()
 	_held.clear()
 	_page.visible = false
 	_page_id = ""
+	_cur = {}
+	_sheet.visible = false
 	_book.visible = false
 	_world_back()
 
 
-## Puts the open and queued pages aside without marking them read (entering the shed).
+## Puts the open and queued hints aside without marking them read (entering the shed).
 func hold_pages() -> void:
 	if _page.visible:
-		_held.append({"id": _page_id, "title": _page_title.text, "body": _page_body.text, "doodle": _page_doodle_kind})
+		_held.append(_cur)
 		_page.visible = false
 		_page_id = ""
+		_cur = {}
 	_held.append_array(_queue)
 	_queue.clear()
 	opened_changed.emit(is_open())
 
 
-## Brings the pages put aside back (leaving the shed).
+## Brings the hints put aside back (leaving the shed).
 func release_pages() -> void:
 	_queue = _held + _queue
 	_held.clear()
@@ -174,7 +191,7 @@ func release_pages() -> void:
 		_next_page()
 
 
-## Ids of the page on screen, the queued and the held ones, in order (saved with the game).
+## Ids of the hint on screen, the queued and the held ones, in order (saved with the game).
 func pending_ids() -> Array[String]:
 	var out: Array[String] = []
 	if _page.visible and _page_id != "":
@@ -184,11 +201,20 @@ func pending_ids() -> Array[String]:
 	return out
 
 
+## The hint on screen, or the page read again from the back of the book.
 func current_page() -> String:
+	if _sheet.visible:
+		return _sheet_id
 	return _page_id if _page.visible else ""
 
 
+## Closes the page read again, else the hint on screen (the next queued one follows).
 func close_page() -> void:
+	if _sheet.visible:
+		_sheet.visible = false
+		_sheet_id = ""
+		opened_changed.emit(is_open())
+		return
 	if not _page.visible:
 		return
 	var id := _page_id
@@ -198,6 +224,7 @@ func close_page() -> void:
 
 
 func _build_page() -> void:
+	# A full-screen catcher: the tap that clears the hint does not also act on the game.
 	_page = Control.new()
 	_page.set_anchors_preset(Control.PRESET_FULL_RECT)
 	_page.mouse_filter = Control.MOUSE_FILTER_STOP
@@ -206,45 +233,101 @@ func _build_page() -> void:
 				and Time.get_ticks_msec() / 1000.0 - _page_shown_at >= MIN_PAGE_SECONDS:
 			close_page())
 	add_child(_page)
+	_page_sheet = PanelContainer.new()
+	_page_sheet.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
+	_page_sheet.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	_page_sheet.offset_left = 22
+	_page_sheet.offset_right = -22
+	_page_sheet.offset_top = -HINT_BOTTOM
+	_page_sheet.offset_bottom = -HINT_BOTTOM
+	_page_sheet.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_page.add_child(_page_sheet)
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 12)
+	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_page_sheet.add_child(row)
+	_page_doodle = _doodle_rect(HINT_DOODLE_SIZE)
+	row.add_child(_page_doodle)
+	var words := VBoxContainer.new()
+	words.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	words.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.add_child(words)
+	_page_text = Paper.ink_label("", 28)
+	_page_text.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_page_text.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	words.add_child(_page_text)
+	# The key of the dots' marks (0.8), under the hints that name the nutrients by colour.
+	_page_marks = NutrientMarks.legend(20)
+	_page_marks.visible = false
+	words.add_child(_page_marks)
+	_page.visible = false
+
+
+## The full torn-out page, for a page read again from the back of the book (never in play).
+func _build_sheet() -> void:
+	_sheet = Control.new()
+	_sheet.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_sheet.mouse_filter = Control.MOUSE_FILTER_STOP
+	_sheet.gui_input.connect(func(e: InputEvent) -> void:
+		if e is InputEventMouseButton and not e.pressed and (e as InputEventMouseButton).button_index == MOUSE_BUTTON_LEFT:
+			close_page())
+	add_child(_sheet)
 	var dim := ColorRect.new()
 	dim.color = Color(0.05, 0.04, 0.02, 0.4)
 	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
 	dim.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_page.add_child(dim)
+	_sheet.add_child(dim)
 	var holder := CenterContainer.new()
 	holder.set_anchors_preset(Control.PRESET_FULL_RECT)
 	holder.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_page.add_child(holder)
-	_page_sheet = PanelContainer.new()
-	_page_sheet.custom_minimum_size = Vector2(620, 0)
-	_page_sheet.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	holder.add_child(_page_sheet)
+	_sheet.add_child(holder)
+	_sheet_paper = PanelContainer.new()
+	_sheet_paper.custom_minimum_size = Vector2(620, 0)
+	_sheet_paper.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	holder.add_child(_sheet_paper)
 	var box := VBoxContainer.new()
 	box.add_theme_constant_override("separation", 10)
 	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_page_sheet.add_child(box)
+	_sheet_paper.add_child(box)
 	var head := HBoxContainer.new()
 	head.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	box.add_child(head)
-	_page_title = Paper.ink_label("", 44, Paper.INK, true)
-	_page_title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	_page_title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	head.add_child(_page_title)
-	_page_doodle = _doodle_rect(PAGE_DOODLE_SIZE)
-	head.add_child(_page_doodle)
+	_sheet_title = Paper.ink_label("", 44, Paper.INK, true)
+	_sheet_title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_sheet_title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	head.add_child(_sheet_title)
+	_sheet_doodle = _doodle_rect(PAGE_DOODLE_SIZE)
+	head.add_child(_sheet_doodle)
 	box.add_child(_rule())
-	_page_body = Paper.ink_label("", 29)
-	_page_body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_page_body.custom_minimum_size = Vector2(540, 0)
-	box.add_child(_page_body)
-	# The key of the dots' marks (0.8), under the pages that name the nutrients by colour.
-	_page_marks = NutrientMarks.legend(24)
-	_page_marks.visible = false
-	box.add_child(_page_marks)
-	var footer := Paper.ink_label("tap to turn the page", 22, Paper.FAINT_INK)
+	_sheet_body = Paper.ink_label("", 29)
+	_sheet_body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_sheet_body.custom_minimum_size = Vector2(540, 0)
+	box.add_child(_sheet_body)
+	_sheet_marks = NutrientMarks.legend(24)
+	_sheet_marks.visible = false
+	box.add_child(_sheet_marks)
+	var footer := Paper.ink_label("tap to turn back", 22, Paper.FAINT_INK)
 	footer.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
 	box.add_child(footer)
-	_page.visible = false
+	_sheet.visible = false
+
+
+## Opens a page from the back of the book, in full, over the book.
+func read_page(id: String) -> void:
+	if not Pages.has(id):
+		return
+	_sheet_id = id
+	_sheet_title.text = Pages.title(id)
+	_sheet_body.text = Pages.body(id)
+	var kind := Pages.doodle(id)
+	_sheet_doodle.texture = InkSketch.texture(kind) if InkSketch.has(kind) else null
+	_sheet_doodle.visible = _sheet_doodle.texture != null
+	_sheet_marks.visible = MARK_PAGES.has(id)
+	_pages_torn += 1
+	PaperLook.apply(_sheet_paper, "torn_page", 40 + _pages_torn % 5, 34.0)
+	_sheet.visible = true
+	move_child(_sheet, -1)
+	opened_changed.emit(true)
 
 
 ## A small ink doodle (InkSketch), fixed size, never taking a tap.
@@ -398,21 +481,27 @@ func _build_book() -> void:
 	var content := Control.new()
 	content.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	stack.add_child(content)
-	_tabs["tree"] = _build_tree_tab()
+	_tabs["today"] = _build_today_tab()
 	_tabs["diary"] = _build_diary_tab()
-	_tabs["pages"] = _build_pages_tab()
-	_tabs["settings"] = _build_settings_tab()
-	_tabs["clearing"] = _build_clearing_tab()
-	_tabs["care"] = _build_care_tab()
+	_tabs["collection"] = _build_collection_tab()
+	_tabs[NOTES_TAB] = _build_notes_tab()
 	for k in _tabs:
 		var c: Control = _tabs[k]
 		c.set_anchors_preset(Control.PRESET_FULL_RECT)
 		content.add_child(c)
+	# The back of the book (J1): a small "notes" corner at the page's foot, not a ribbon.
+	var foot := HBoxContainer.new()
+	foot.alignment = BoxContainer.ALIGNMENT_END
+	stack.add_child(foot)
+	_notes_corner = Paper.ink_button("notes", 22)
+	_notes_corner.add_theme_color_override("font_color", Paper.FAINT_INK)
+	_notes_corner.pressed.connect(func() -> void: _show_tab(NOTES_TAB))
+	foot.add_child(_notes_corner)
 
 	# Cloth ribbon bookmarks sticking out of the right edge of the book, with forked ends.
-	var ribbons := {"tree": Color(0.42, 0.3, 0.18), "diary": Color(0.62, 0.2, 0.16), "care": Color(0.2, 0.36, 0.5), "pages": Color(0.25, 0.38, 0.22), "clearing": Color(0.52, 0.42, 0.16)}
+	var ribbons := {"today": Color(0.42, 0.3, 0.18), "diary": Color(0.62, 0.2, 0.16), "collection": Color(0.52, 0.42, 0.16)}
 	var y := 110
-	for k in ribbons:
+	for k in RIBBONS:
 		var b := Button.new()
 		b.text = k
 		b.focus_mode = Control.FOCUS_NONE
@@ -452,21 +541,135 @@ func _build_book() -> void:
 		_book.add_child(b)
 		_tab_buttons[k] = b
 		y += 118
-	_show_tab("tree", false)
+	_show_tab("today", false)
 	_book.visible = false
 
+
+# --- Today (J2): at most three lines, no numbers ------------------------------------
+
+func _build_today_tab() -> Control:
+	var scroll := ScrollContainer.new()
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 14)
+	box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	box.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	scroll.add_child(box)
+	_today_box = VBoxContainer.new()
+	_today_box.add_theme_constant_override("separation", 14)
+	box.add_child(_today_box)
+	_tree_sketch = Control.new()
+	_tree_sketch.custom_minimum_size = Vector2(0, 420)
+	_tree_sketch.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	_tree_sketch.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_tree_sketch.draw.connect(func() -> void:
+		if state != null:
+			ShedMenu.draw_graph_sketch(_tree_sketch, state.sim.graph))
+	box.add_child(_tree_sketch)
+	return scroll
+
+
+## The Today page: each line with the coloured mark of its nutrient where it names one.
+func _refresh_today() -> void:
+	for c in _today_box.get_children():
+		c.queue_free()
+	for line in today_lines(state):
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 12)
+		var kind := int(line["kind"])
+		if kind >= 0:
+			var mark := NutrientMarks.icon_rect(kind, 34)
+			mark.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+			row.add_child(mark)
+		var l := Paper.ink_label(str(line["text"]), 28, Paper.RED_INK if line["topic"] == "wish" else Paper.INK)
+		l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		row.add_child(l)
+		_today_box.add_child(row)
+	_tree_sketch.queue_redraw()
+
+
+## What the tree lacks, in words (J2).
+const LACK_WORDS: Array[String] = ["Thirsty.", "Hungry for nitrogen.", "Hungry for phosphorus.", "Hungry for potassium."]
+const NOTHING_MISSING := "Nothing missing."
+
+
+## The Today page's lines (J2): at most three, no numbers. Each {"topic": "wish" | "lacks" |
+## "tonight", "text", "kind" (the nutrient's mark, -1 for none)}.
+static func today_lines(s: GameState) -> Array:
+	var out: Array = []
+	var d := s.diary
+	# 1. The wish.
+	var wish_kind := -1
+	var wish_open := false
+	if d.wish_patch >= 0 and d.wish_patch < s.ground.patches.size():
+		var p: Dictionary = s.ground.patches[d.wish_patch]
+		wish_kind = int(p["kind"])
+		var plant := Diary.PLANTS[wish_kind]
+		if d.wish_reached:
+			out.append({"topic": "wish", "text": "Wish found: the %s." % plant, "kind": wish_kind})
+		else:
+			wish_open = true
+			var kept := d.wish_since >= 0 and d.wish_since < s.day_number()
+			out.append({"topic": "wish", "text": Diary.wish_entry(wish_kind, p["center"], kept, Diary.is_far(s.ground, d.wish_patch)), "kind": wish_kind})
+	elif d.wish != "":
+		# An old save's day wish (before 0.8.2.5).
+		out.append({"topic": "wish", "text": "Wish: " + wish_line(d.wish), "kind": -1})
+	# 2. What the tree lacks most.
+	var need := main_need(s)
+	out.append({"topic": "lacks", "text": LACK_WORDS[need] if need >= 0 else NOTHING_MISSING, "kind": need})
+	# 3. Where tonight's root finds it (only while tonight's root is still to come).
+	if s.finished or s.is_seed() or not s.roots.can_start_run():
+		return out
+	var look := need if need >= 0 else (wish_kind if wish_open else -1)
+	if look < 0:
+		return out
+	var text := ""
+	if wish_open and look == wish_kind:
+		text = "Tonight: far away, toward the wish." if Diary.is_far(s.ground, d.wish_patch) else "Tonight: toward the wish."
+	elif not s.reach_for(look).is_empty():
+		text = "Tonight: near the %s." % Diary.PLANTS[look]
+	elif wish_open:
+		text = "Tonight: far away, toward the wish."
+	else:
+		text = "Tonight: none within reach."
+	out.append({"topic": "tonight", "text": text, "kind": look})
+	return out
+
+
+## The nutrient the tree lacks most (the leaves show it, Care), or -1: none, or too young or grown
+## to read.
+static func main_need(s: GameState) -> int:
+	if s.finished or s.is_seed() or s.day_number() <= 1:
+		return -1
+	var shown := s.sim.care_shown()
+	var best := -1
+	for k in range(4):
+		if shown[k] >= Care.SHOW_MIN and (best < 0 or shown[k] > shown[best]):
+			best = k
+	return best
+
+
+## Opens the book at Today (the care page's place before 0.8.2.6).
+func open_care() -> void:
+	open_diary()
+	_show_tab("today", false)
+
+
+## Which ribbon's page is open ("today" first; "notes" for the back pages).
+func current_tab() -> String:
+	return _current_tab
+
+
+# --- Diary (J3): one line on the days something happened ---------------------------
 
 func _build_diary_tab() -> Control:
 	var box := VBoxContainer.new()
 	box.add_theme_constant_override("separation", 10)
-	_wish_label = Paper.ink_label("", 26, Paper.RED_INK)
-	_wish_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	box.add_child(_wish_label)
 	_diary_text = RichTextLabel.new()
 	_diary_text.bbcode_enabled = true
 	# The day pages' doodles are drawn smaller than they were made (InkSketch.texture's mipmaps).
 	_diary_text.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
-	_diary_text.scroll_following = true
 	_diary_text.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	_diary_text.add_theme_color_override("default_color", Paper.INK)
 	for k in ["normal_font", "bold_font", "italics_font"]:
@@ -485,11 +688,6 @@ func _build_diary_tab() -> Control:
 	_note.add_theme_color_override("font_color", Paper.INK)
 	_note.add_theme_color_override("font_placeholder_color", Color(Paper.FAINT_INK, 0.7))
 	_note.add_theme_color_override("caret_color", Paper.INK)
-	var line := StyleBoxLine.new()
-	line.color = Color(Paper.INK, 0.5)
-	line.thickness = 2
-	line.grow_begin = 0
-	line.vertical = false
 	var empty := StyleBoxEmpty.new()
 	_note.add_theme_stylebox_override("normal", empty)
 	_note.add_theme_stylebox_override("focus", empty)
@@ -501,132 +699,77 @@ func _build_diary_tab() -> Control:
 	return box
 
 
-func _build_tree_tab() -> Control:
+## The days, newest first: the date, then the day's one line with its doodle when something
+## happened (Diary.page), then the player's own notes in red. A quiet day shows its date only.
+func _refresh_diary_text() -> void:
+	_diary_text.clear()
+	var days := state.diary.days()
+	days.reverse()
+	for day in days:
+		var lines := state.diary.page(day)
+		_diary_text.append_text("[b]Day %d[/b]" % day)
+		if not lines.is_empty():
+			_diary_text.append_text("  ")
+			_diary_text.add_image(InkSketch.texture(state.diary.doodle(day)), DAY_DOODLE_SIZE, DAY_DOODLE_SIZE, Color.WHITE, INLINE_ALIGNMENT_CENTER)
+		_diary_text.append_text("\n")
+		for e in lines:
+			_diary_text.append_text("%s\n" % str(e["text"]).replace("[", "[lb]"))
+		for e in state.diary.notes(day):
+			_diary_text.append_text("[i][color=#8a2c1e]%s[/color][/i]\n" % str(e["text"]).replace("[", "[lb]"))
+		_diary_text.append_text("\n")
+	_diary_text.scroll_to_line(0)
+
+
+# --- Collection (J1) ----------------------------------------------------------------
+
+func _build_collection_tab() -> Control:
 	var scroll := ScrollContainer.new()
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	var box := VBoxContainer.new()
-	box.add_theme_constant_override("separation", 10)
-	box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	box.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	scroll.add_child(box)
-	_tree_box = VBoxContainer.new()
-	_tree_box.add_theme_constant_override("separation", 10)
-	box.add_child(_tree_box)
-	_tree_sketch = Control.new()
-	_tree_sketch.custom_minimum_size = Vector2(0, 420)
-	_tree_sketch.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	_tree_sketch.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_tree_sketch.draw.connect(func() -> void:
-		if state != null:
-			ShedMenu.draw_graph_sketch(_tree_sketch, state.sim.graph))
-	box.add_child(_tree_sketch)
+	_collection_box = VBoxContainer.new()
+	_collection_box.add_theme_constant_override("separation", 12)
+	_collection_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.add_child(_collection_box)
 	return scroll
 
 
-## The tree's page: one label per paragraph (ShedMenu.status_text), the day's wish in red ink.
-func _refresh_tree() -> void:
-	for c in _tree_box.get_children():
+## The finds for the Collection page: finds_source's when set (the shed's drawers), else the
+## finds this tree's diary records, each kind once.
+func collection_finds() -> Array:
+	if finds_source.is_valid():
+		return finds_source.call()
+	var out: Array = []
+	var seen := {}
+	for e in state.diary.entries:
+		var kind := Diary.drawing_of(e)
+		if Diary.topic_of(e) == "find" and Underground.FIND_TEXTS.has(kind) and not seen.has(kind):
+			seen[kind] = true
+			out.append({"kind": kind, "text": str(e["text"]), "day": int(e["day"])})
+	return out
+
+
+## The visitors this tree has had, each once: [{"kind", "text"}].
+static func collection_visitors(s: GameState) -> Array:
+	var out: Array = []
+	for id in Visitors.LINES:
+		if Visitors.has_come(s, id):
+			out.append({"kind": id, "text": str(Visitors.LINES[id])})
+	if s.seen_pages.has("visitor_hedgehog"):
+		out.append({"kind": "hedgehog", "text": GameState.HEDGEHOG_LINE})
+	if s.seen_pages.has("visitor_wren"):
+		out.append({"kind": "wren", "text": GameState.WREN_LINE})
+	return out
+
+
+func _refresh_collection() -> void:
+	for c in _collection_box.get_children():
 		c.queue_free()
-	for line in tree_page_lines(state):
-		var l := Paper.ink_label(line, 26, Paper.RED_INK if line.begins_with("A wish: ") else Paper.INK)
-		l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		_tree_box.add_child(l)
-	_tree_sketch.queue_redraw()
-
-
-## The paragraphs of the tree's page: how it is, the day's wish, who has come.
-static func tree_page_lines(s: GameState) -> Array[String]:
-	var lines := ShedMenu.status_text(s)
-	if s.diary.wish != "":
-		lines.insert(1, "A wish: " + wish_line(s.diary.wish))
-	return lines
-
-
-## Which ribbon's page is open ("tree" first).
-func current_tab() -> String:
-	return _current_tab
-
-
-func _build_pages_tab() -> Control:
-	var box := VBoxContainer.new()
-	box.add_theme_constant_override("separation", 12)
-	box.add_child(_heading("Pages to read again", "feather"))
-	_pages_empty = Paper.ink_label("Nothing to read again yet. Pages the journal shows you will be kept here.", 25, Paper.FAINT_INK)
-	_pages_empty.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	box.add_child(_pages_empty)
-	_pages_list = VBoxContainer.new()
-	_pages_list.add_theme_constant_override("separation", 10)
-	box.add_child(_pages_list)
-	return box
-
-
-## The first collection (design doc 17.6): a handwritten list of the shade plants and mushrooms
-## that have come up under the crown, each with a small painted drawing and the day it came.
-func _build_clearing_tab() -> Control:
-	var box := VBoxContainer.new()
-	box.add_theme_constant_override("separation", 12)
-	box.add_child(_heading("Under my crown", "fern"))
-	var intro := Paper.ink_label("Where the crown's shade falls, the sun meadow gives way. What has come up there so far:", 25, Paper.FAINT_INK)
-	intro.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	box.add_child(intro)
-	_clearing_list = VBoxContainer.new()
-	_clearing_list.add_theme_constant_override("separation", 14)
-	box.add_child(_clearing_list)
-	_clearing_more = Paper.ink_label("", 24, Paper.FAINT_INK)
-	_clearing_more.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	box.add_child(_clearing_more)
-	return box
-
-
-## The care page (0.6.3): what the tree lacks and where tonight's root finds it, how the
-## crown is shaped, and what the last cut did, read from the crown and the roots.
-func _build_care_tab() -> Control:
-	var scroll := ScrollContainer.new()
-	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
-	_care_box = VBoxContainer.new()
-	_care_box.add_theme_constant_override("separation", 10)
-	_care_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	scroll.add_child(_care_box)
-	return scroll
-
-
-func _refresh_care() -> void:
-	for c in _care_box.get_children():
-		c.queue_free()
-	_care_box.add_child(_heading("Tree care", Care.doodle(state)))
-	for part in Care.page(state):
-		_care_box.add_child(Paper.ink_label(str(part["title"]), 27, Paper.RED_INK, true))
-		# The marks of the dots it names (0.8), as they glow underground.
-		if part.has("kinds"):
-			var marks := HBoxContainer.new()
-			marks.add_theme_constant_override("separation", 10)
-			for k in part["kinds"]:
-				marks.add_child(NutrientMarks.icon_rect(int(k), 34))
-			_care_box.add_child(marks)
-		var text := Paper.ink_label(str(part["text"]), 25)
-		text.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		text.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		_care_box.add_child(text)
-
-
-## Opens the book at the care page.
-func open_care() -> void:
-	open_diary()
-	_show_tab("care", false)
-
-
-func _refresh_clearing() -> void:
-	for c in _clearing_list.get_children():
-		c.queue_free()
+	# Under my crown: the shade plants and mushrooms (Clearing.found), with their painted drawings.
+	_collection_box.add_child(_heading("Under my crown", "fern"))
 	var found: Dictionary = state.clearing.found
 	var atlas := load(Understory.ATLAS) as Texture2D
 	for k in Clearing.KINDS:
 		if not found.has(k):
 			continue
-		var row := HBoxContainer.new()
-		row.add_theme_constant_override("separation", 14)
-		# A small drawing of it, glued in beside the name.
 		var pic := TextureRect.new()
 		var at := AtlasTexture.new()
 		at.atlas = atlas
@@ -634,57 +777,102 @@ func _refresh_clearing() -> void:
 		var half := atlas.get_size() * 0.5
 		at.region = Rect2(Vector2(cell % 2, cell / 2) * half, half)
 		pic.texture = at
-		pic.custom_minimum_size = Vector2(96, 96)
+		pic.custom_minimum_size = Vector2(80, 80)
 		pic.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 		pic.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
-		row.add_child(pic)
-		var words := VBoxContainer.new()
-		words.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		words.add_child(Paper.ink_label(Clearing.NAMES[k], 30, Paper.INK, true))
-		var note := Paper.ink_label("first seen on day %d: %s" % [int(found[k]), Clearing.NOTES[k]], 23, Paper.FAINT_INK)
-		note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		words.add_child(note)
-		row.add_child(words)
-		_clearing_list.add_child(row)
+		_collection_box.add_child(_collection_row(pic, Clearing.NAMES[k], Clearing.NOTES[k]))
 	if found.is_empty():
-		_clearing_more.text = "Nothing yet. The young tree's shade is still too small; the ground takes a few days to change."
-	elif found.size() < Clearing.KINDS.size():
-		_clearing_more.text = "More may come as the crown grows, and after rain."
-	else:
-		_clearing_more.text = ""
+		_collection_box.add_child(_faint("Nothing yet: the shade is still small."))
+	# The finds, and the drawer they lie in.
+	_collection_box.add_child(_heading("Finds", "coin"))
+	var finds := collection_finds()
+	for f in finds:
+		var kind := str(f.get("kind", ""))
+		_collection_box.add_child(_collection_row(_doodle_rect(64, kind if InkSketch.has(kind) else ""), str(f.get("text", "")), str(f.get("where", "in the workbench drawer"))))
+	if finds.is_empty():
+		_collection_box.add_child(_faint("Nothing yet: the roots find things far out."))
+	# The visitors, each once.
+	_collection_box.add_child(_heading("Visitors", "butterflies"))
+	var visitors := collection_visitors(state)
+	for v in visitors:
+		_collection_box.add_child(_collection_row(_doodle_rect(64, str(v["kind"])), str(v["text"]), ""))
+	if visitors.is_empty():
+		_collection_box.add_child(_faint("Nobody yet."))
+	# The trees grown, each species once.
+	_collection_box.add_child(_heading("Trees grown", "grown_tree"))
+	var species := {}
+	for t in state.grove:
+		species[str(t.get("species", ""))] = true
+	for sid in Species.ORDER:
+		if species.has(sid):
+			var kind := InkSketch.species_kind(sid)
+			_collection_box.add_child(_collection_row(_doodle_rect(64, kind), Species.from_id(sid).display_name, ""))
+	if species.is_empty():
+		_collection_box.add_child(_faint("None yet: this is the first."))
 
 
-func _build_settings_tab() -> Control:
+func _collection_row(pic: Control, words_text: String, note: String) -> HBoxContainer:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 12)
+	row.add_child(pic)
+	var words := VBoxContainer.new()
+	words.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var n := Paper.ink_label(words_text, 25)
+	n.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	words.add_child(n)
+	if note != "":
+		var l := Paper.ink_label(note, 22, Paper.FAINT_INK)
+		l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		words.add_child(l)
+	row.add_child(words)
+	return row
+
+
+static func _faint(text: String) -> Label:
+	var l := Paper.ink_label(text, 23, Paper.FAINT_INK)
+	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	return l
+
+
+# --- the back of the book: the explanation pages (J1, J4) ----------------------------
+
+func _build_notes_tab() -> Control:
+	var scroll := ScrollContainer.new()
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	var box := VBoxContainer.new()
-	box.add_theme_constant_override("separation", 16)
-	box.add_child(Paper.ink_label("Settings", 32, Paper.INK, true))
-	var names := {"sound": "sound", "no_ui": "no UI (pure scenery)", "battery_saver": "battery saver", "notifications": "a daily note (later)"}
-	for key in names:
-		var c := CheckBox.new()
-		c.text = names[key]
-		c.focus_mode = Control.FOCUS_NONE
-		c.add_theme_font_override("font", Paper.hand_font())
-		c.add_theme_font_size_override("font_size", 28)
-		for fc in ["font_color", "font_pressed_color", "font_hover_color", "font_hover_pressed_color"]:
-			c.add_theme_color_override(fc, Paper.INK)
-		var icons := Paper.check_icons()
-		c.add_theme_icon_override("unchecked", icons[0])
-		c.add_theme_icon_override("checked", icons[1])
-		c.add_theme_icon_override("unchecked_disabled", icons[0])
-		c.add_theme_icon_override("checked_disabled", icons[1])
-		c.button_pressed = settings[key]
-		c.toggled.connect(func(on: bool) -> void:
-			settings[key] = on
-			setting_changed.emit(key, on))
-		box.add_child(c)
-		_toggles[key] = c
-	return box
+	box.add_theme_constant_override("separation", 12)
+	box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.add_child(box)
+	box.add_child(_heading("Notes", "feather"))
+	_pages_empty = _faint("Nothing to read again yet.")
+	box.add_child(_pages_empty)
+	_pages_list = VBoxContainer.new()
+	_pages_list.add_theme_constant_override("separation", 10)
+	box.add_child(_pages_list)
+	return scroll
+
+
+func _refresh_notes() -> void:
+	for c in _pages_list.get_children():
+		c.queue_free()
+	var any := false
+	for id in Pages.ids():
+		if state.seen_pages.has(id):
+			var b := Paper.ink_button(Pages.title(id), 26)
+			b.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+			b.pressed.connect(func() -> void: read_page(id))
+			_pages_list.add_child(b)
+			any = true
+	_pages_empty.visible = not any
 
 
 func _show_tab(name: String, animate: bool = true) -> void:
+	if not _tabs.has(name):
+		name = "today"
 	_current_tab = name
 	for k in _tabs:
 		(_tabs[k] as Control).visible = k == name
+	_notes_corner.visible = name != NOTES_TAB
 	_layout_ribbons(name)
 	if animate:
 		_turn_page()
@@ -743,6 +931,8 @@ func open_diary() -> void:
 
 func close_diary() -> void:
 	_book.visible = false
+	_sheet.visible = false
+	_sheet_id = ""
 	_world_back()
 	opened_changed.emit(is_open())
 
@@ -767,42 +957,18 @@ func _refresh_diary() -> void:
 	if state == null:
 		return
 	_book_title.text = "My " + state.tree_name()
-	_wish_label.text = ("A wish: " + wish_line(state.diary.wish)) if state.diary.wish != "" else ""
-	_wish_label.visible = state.diary.wish != ""
-	_diary_text.clear()
-	# A day page (0.8.2): the day with its one doodle, at most three short lines of the game
-	# (Diary.page), then the player's own notes in red.
-	for day in state.diary.days():
-		_diary_text.append_text("\n[b]Day %d[/b]  " % day)
-		_diary_text.add_image(InkSketch.texture(state.diary.doodle(day)), DAY_DOODLE_SIZE, DAY_DOODLE_SIZE, Color.WHITE, INLINE_ALIGNMENT_CENTER)
-		_diary_text.append_text("\n")
-		for e in state.diary.page(day):
-			_diary_text.append_text("%s\n" % str(e["text"]).replace("[", "[lb]"))
-		for e in state.diary.notes(day):
-			_diary_text.append_text("[i][color=#8a2c1e]%s[/color][/i]\n" % str(e["text"]).replace("[", "[lb]"))
-	for c in _pages_list.get_children():
-		c.queue_free()
-	var any := false
-	for id in Pages.ids():
-		if state.seen_pages.has(id):
-			var b := Paper.ink_button(Pages.title(id), 26)
-			b.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
-			b.pressed.connect(func() -> void: show_page(id, Pages.title(id), Pages.body(id)))
-			_pages_list.add_child(b)
-			any = true
-	_pages_empty.visible = not any
-	_refresh_tree()
-	_refresh_clearing()
-	_refresh_care()
+	_refresh_today()
+	_refresh_diary_text()
+	_refresh_collection()
+	_refresh_notes()
 
 
-## The day's wish after "A wish: ", mid-sentence (0.7 review: "A wish: Today, ..." had a stray
+## The day's wish after "Wish: ", mid-sentence (0.7 review: "A wish: Today, ..." had a stray
 ## capital).
 static func wish_line(wish: String) -> String:
 	return wish.substr(0, 1).to_lower() + wish.substr(1) if wish != "" else ""
 
 
+## The pinboard's switches (0.8.2.6: the book has no settings page; the shed's pinboard does).
 func set_setting(key: String, on: bool) -> void:
 	settings[key] = on
-	if _toggles.has(key):
-		(_toggles[key] as CheckBox).set_pressed_no_signal(on)

@@ -120,7 +120,7 @@ func test_shapes_only_in_the_journal_key_and_on_the_tins() -> void:
 		j.show_page(id, Pages.title(id), Pages.body(id))
 		t.check(j._page_marks.visible, "page %s shows the marks" % id)
 		j.close_page()
-	# The care page: the marks of the dots it asks for.
+	# The Today page (0.8.2.6, the care page's place): the mark of the dots it asks for.
 	var care = preload("res://tests/test_care.gd").new()
 	care.t = t
 	var g: GameState = care._play(6)
@@ -129,13 +129,13 @@ func test_shapes_only_in_the_journal_key_and_on_the_tins() -> void:
 	g.sim.assess_needs()
 	care._day_to(g, 0.5)
 	j.state = g
-	j._refresh_care()
+	j._refresh_today()
 	var drops := 0
-	for c in j._care_box.get_children():
+	for c in j._today_box.get_children():
 		for m in c.get_children():
 			if m is TextureRect and str(m.name) == "mark_drop":
 				drops += 1
-	t.check(drops >= 1, "the care page shows the drop beside tonight's root")
+	t.check(drops >= 1, "the Today page shows the drop beside the need")
 	t.check(Care.DOT_WORDS[0] == "blue", "and its words name the colour")
 	j.free()
 	# The bonsai's pellet slip.

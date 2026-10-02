@@ -40,7 +40,12 @@ func _all_game_lines() -> Array[String]:
 	for kind in range(4):
 		ground.patches.append({"kind": kind, "center": Vector3(5, -1, 5), "radius": 1.0})
 		out.append(Diary.reached_text(ground, ground.patches.size() - 1, 28))
-	out.append_array(GameState.CARE_LINES)
+	# The Today page's words (0.8.2.6, J2) and the reached wish.
+	out.append_array(Journal.LACK_WORDS)
+	out.append_array([Journal.NOTHING_MISSING, "Tonight: far away, toward the wish.", "Tonight: toward the wish.", "Tonight: none within reach."])
+	for plant in Diary.PLANTS:
+		out.append("Tonight: near the %s." % plant)
+		out.append("Wish found: the %s." % plant)
 	for k in GameState.FIND_LINES:
 		out.append(str(GameState.FIND_LINES[k]))
 	for k in Visitors.LINES:
@@ -48,10 +53,6 @@ func _all_game_lines() -> Array[String]:
 	for k in Clearing.FIRST_LINES:
 		out.append(str(Clearing.FIRST_LINES[k]))
 	out.append_array([GameState.HEDGEHOG_LINE, GameState.WREN_LINE, GameState.PILE_LINE])
-	for w in [{"mist": true, "dew": true}, {"mist": true}, {"dew": true}]:
-		out.append(Almanac.diary_line(w, "morning"))
-	for w in [{"rain": true, "thunder": true}, {"rain": true}, {"thunder": true}]:
-		out.append(Almanac.diary_line(w, "evening"))
 	out.append(Backup.diary_line({"made_at_unix": 1790000000.0}))
 	# The lines that name the tree, with the longest name.
 	var longest := ""
@@ -79,33 +80,39 @@ func test_every_game_line_is_short_and_fits_one_phone_line() -> void:
 		t.check(w <= LINE_WIDTH, "one line on the phone, either hand (%.0f px): %s" % [w, line])
 
 
-func test_a_day_page_holds_at_most_three_lines_in_order() -> void:
+## 0.8.2.6 (J3, broken 53): one game line a day, only when something happened; the wish, the
+## need and the weather never fill a day page.
+func test_a_day_page_holds_one_line_only_when_something_happened() -> void:
+	t.check_eq(Diary.PAGE_MAX, 1, "one game line a day")
 	var d := Diary.new()
-	d.add(3, "Night 4: the root grew.", "tree")
+	d.add(3, "Wish: the clover.", "tree", "clover", "wish")
 	d.add(3, "Mist over the clearing this morning.", "tree", "mist", "mood")
 	d.add(3, "Pale leaves: short of nitrogen.", "tree", "leaf_n", "care")
-	d.add(3, "Found a lost coin, green with age.", "tree", "coin", "find")
 	d.add(3, "The first butterflies came to the leaves.", "tree", "butterflies", "visitor")
-	d.add(3, "Wish: the clover in the north.", "tree", "clover", "wish")
+	d.add(3, "Found a lost coin, green with age.", "tree", "coin", "find")
 	d.add(3, "my own note", "player")
 	var page := d.page(3)
-	t.check_eq(page.size(), 3, "three lines")
-	t.check_eq(str(page[0]["topic"]), "wish", "the wish first")
-	t.check_eq(str(page[1]["topic"]), "care", "then the need")
-	t.check_eq(str(page[2]["topic"]), "find", "then one find (a visitor waits for another day)")
+	t.check_eq(page.size(), 1, "one line")
+	t.check_eq(str(page[0]["topic"]), "find", "the find before the visitor")
 	t.check_eq(d.notes(3).size(), 1, "the player's note is kept apart")
 	t.check_eq(d.doodle(3), "coin", "the page's doodle: its find")
-	# A quiet day: the mood line fills the third place, a plain note only when nothing else does.
+	# A quiet day: the wish, the need, the weather and a plain old line show nothing.
 	var q := Diary.new()
-	q.add(1, "a plain note")
-	t.check_eq(q.page(1).size(), 1, "a plain line shows on an empty day")
+	q.add(1, "Wish: the rushes.", "tree", "rushes", "wish")
+	q.add(1, "Thirsty: the leaves hang.", "tree", "leaf_water", "care")
 	q.add(1, "Dew sparkled in the first sun.", "tree", "mist", "mood")
-	t.check_eq(str(q.page(1)[0]["text"]), "Dew sparkled in the first sun.", "a mood line before a plain one")
-	t.check_eq(q.doodle(1), "mist", "with its doodle")
+	q.add(1, "a plain note")
+	t.check(q.page(1).is_empty(), "a quiet day stays empty")
+	t.check(q.days().has(1), "but its date is there")
 	t.check_eq(Diary.new().doodle(9), "sun", "a day without lines still has a doodle")
+	# The night's root reached something: a line when nothing better came.
+	q.add(1, Diary.DRANK_LINE, "tree", "fine_roots", "drank")
+	t.check_eq(str(q.page(1)[0]["topic"]), "drank", "what the night reached")
+	q.add(1, "In blossom: the bees have come.", "tree", "blossom", "milestone")
+	t.check_eq(str(q.page(1)[0]["topic"]), "milestone", "a milestone before it")
 	# Topics survive a save.
 	var back := Diary.from_dict(JSON.parse_string(JSON.stringify(d.to_dict())))
-	t.check_eq(str(back.page(3)[1]["topic"]), "care", "topics are saved")
+	t.check_eq(str(back.page(3)[0]["topic"]), "find", "topics are saved")
 
 
 func test_a_played_month_writes_short_day_pages() -> void:
@@ -125,16 +132,17 @@ func test_a_played_month_writes_short_day_pages() -> void:
 	var wishes := 0
 	for day in g.diary.days():
 		var page := g.diary.page(day)
-		t.check(page.size() <= Diary.PAGE_MAX, "day %d: at most three lines (%d)" % [day, page.size()])
+		t.check(page.size() <= Diary.PAGE_MAX, "day %d: at most one line (%d)" % [day, page.size()])
 		t.check(InkSketch.has(g.diary.doodle(day)), "day %d: a doodle (%s)" % [day, g.diary.doodle(day)])
 		for e in page:
 			var text := str(e["text"])
 			t.check(_width(text, body, BODY_SIZE) <= LINE_WIDTH, "day %d: one line: %s" % [day, text])
-			t.check(not text.contains(" m tall") and not text.contains("drank water"), "no routine numbers: " + text)
-		if day >= 1:
-			t.check(page.size() > 0 and str(page[0].get("topic", "")) == "wish", "day %d: the wish first" % day)
+			t.check(Diary.SPECIAL.has(Diary.topic_of(e)), "day %d: only what happened: %s" % [day, text])
+		for e in g.diary.lines_for_day(day):
+			t.check(not ["care", "mood"].has(str(e.get("topic", ""))), "no routine or mood line written: " + str(e["text"]))
+		if day >= 1 and g.diary.lines_for_day(day).any(func(e: Dictionary) -> bool: return str(e.get("topic", "")) == "wish"):
 			wishes += 1
-	t.check(wishes >= 7, "every morning's wish is on its page (%d)" % wishes)
+	t.check(wishes >= 7, "every morning's wish is kept as the day's record (%d)" % wishes)
 	# The wish names its plant only (0.8.2.5: the meadow shows the place, the compass points to it).
 	for e in g.diary.entries:
 		if str(e.get("topic", "")) == "wish":
@@ -143,18 +151,109 @@ func test_a_played_month_writes_short_day_pages() -> void:
 			t.check(Diary.PLANTS.any(func(p: String) -> bool: return text.contains(p)), "the plant: " + text)
 
 
-func test_the_need_is_written_with_its_leaf() -> void:
-	var g := GameState.new_game(3, "linden")
-	g.sim.clock.day_count = 4
-	g.sim.graph.add_node(0, Vector3(0, 0.3, 0))
-	g.sim.graph.add_node(1, Vector3(0, 0.6, 0))
+## 0.8.2.6 (J2, broken 52): Today has at most three lines, no numbers: the wish, what the tree
+## lacks (with its mark), where tonight's root finds it. The need writes no diary line.
+func test_today_names_the_wish_the_need_and_tonight() -> void:
+	var g := GameState.new_game(11, "linden")
+	var bot := RootBot.new()
+	for _day in range(6):
+		g.dive()
+		g.start_run(0 if g.roots.graph.size() <= 1 else g.roots.graph.size() - 1)
+		var guard := 0
+		while g.steer(bot.stick_for(g.roots, g.ground), false, 1.0 / 30.0) and guard < 20000:
+			guard += 1
+		while g.phase == GameState.Phase.NIGHT:
+			g.tick(0.25)
+		while g.phase == GameState.Phase.DAY:
+			g.tick(0.5)
+	var lines := Journal.today_lines(g)
+	t.check(lines.size() >= 2 and lines.size() <= 3, "two or three lines (%d)" % lines.size())
+	t.check_eq(str(lines[0]["topic"]), "wish", "the wish first: " + str(lines[0]["text"]))
+	var digits := RegEx.create_from_string("[0-9]")
+	for l in lines:
+		t.check(digits.search(str(l["text"])) == null, "no number: " + str(l["text"]))
+	# A strong need: named in words with its mark, and tonight's line follows.
 	g.sim.care_need = PackedFloat32Array([0.0, 0.9, 0.2, 0.0])
-	g._care_line()
-	var care := g.diary.entries.filter(func(e: Dictionary) -> bool: return e.get("topic", "") == "care")
-	t.check_eq(care.size(), 1, "one care line")
-	if care.size() == 1:
-		t.check(str(care[0]["text"]).contains("nitrogen"), "the strongest need: " + str(care[0]["text"]))
-		t.check_eq(str(care[0]["drawing"]), "leaf_n", "the pale leaf")
+	g.sim.care_prev = PackedFloat32Array([0.0, 0.9, 0.2, 0.0])
+	t.check_eq(Journal.main_need(g), Resources.Kind.NITROGEN, "nitrogen lacks most")
+	lines = Journal.today_lines(g)
+	t.check_eq(str(lines[1]["text"]), "Hungry for nitrogen.", "in words")
+	t.check_eq(int(lines[1]["kind"]), Resources.Kind.NITROGEN, "with its mark")
+	t.check(lines.size() == 3 and str(lines[2]["text"]).begins_with("Tonight: "), "and where tonight: " + str(lines.back()["text"]))
+	# Nothing lacking.
+	g.sim.care_need = PackedFloat32Array([0.0, 0.0, 0.0, 0.0])
+	g.sim.care_prev = PackedFloat32Array([0.0, 0.0, 0.0, 0.0])
+	t.check_eq(str(Journal.today_lines(g)[1]["text"]), Journal.NOTHING_MISSING, "nothing missing")
+	t.check(g.diary.entries.all(func(e: Dictionary) -> bool: return str(e.get("topic", "")) != "care"), "no care line in the diary")
+
+
+## 0.8.2.6 (J1, broken 51): three ribbons, no settings page; the hint pages behind the "notes"
+## corner. J4 (broken 54): a first-time hint is one sentence at the screen's edge, not a page.
+func test_the_book_has_three_ribbons_and_hints_are_one_sentence() -> void:
+	var g := GameState.new_game(4, "linden")
+	g.seen_pages["first_night"] = true
+	var j := Journal.new()
+	t.root.add_child(j)
+	j.state = g
+	j.open_diary()
+	t.check_eq(j._tab_buttons.keys(), ["today", "diary", "collection"], "three ribbons")
+	t.check(not j._tabs.has("settings"), "no settings page")
+	t.check_eq(j.current_tab(), "today", "the book opens at Today")
+	j._show_tab("notes", false)
+	t.check(j._pages_list.get_child_count() >= 1, "the explanation pages wait at the back")
+	j.read_page("first_night")
+	t.check_eq(j.current_page(), "first_night", "a page read again opens in full")
+	t.check(j._sheet_body.text.contains("WASD"), "with all its text")
+	j.close_page()
+	t.check(j.current_page() == "" and j.is_book_open(), "back to the book")
+	j.close_diary()
+	# In play: one ink sentence at the lower edge.
+	j.show_page("sapling", Pages.title("sapling"), Pages.body("sapling"))
+	t.check_eq(j.current_page(), "sapling", "the hint is up")
+	t.check_eq(j.hint_text(), Pages.HINTS["sapling"], "its one sentence")
+	t.check(not j._sheet.visible, "no torn-out page")
+	t.check(j._page_sheet.anchor_top == 1.0 and j._page_sheet.anchor_bottom == 1.0, "at the screen's edge")
+	var closed: Array = []
+	j.page_closed.connect(func(id: String) -> void: closed.append(id))
+	j._page_shown_at = -10.0
+	j.close_page()
+	t.check_eq(closed, ["sapling"], "gone on the tap, and the game hears it")
+	t.check(not j.is_open(), "nothing left open")
+	j.free()
+	# Every hint is one short sentence.
+	for id in Pages.ids():
+		var h := Pages.hint(id)
+		t.check(h != "" and h.split(" ", false).size() <= 13, "short hint for %s: %s" % [id, h])
+		t.check(h.count(". ") == 0, "one sentence for %s: %s" % [id, h])
+
+
+## The Collection lists the finds (from the drawers' hook when it is set), the visitors and the
+## trees grown.
+func test_the_collection_lists_finds_visitors_and_trees() -> void:
+	var g := GameState.new_game(4, "linden")
+	g.notify_find({"kind": "coin"})
+	g.seen_pages["visitor_fox"] = true
+	g.grove = [{"species": "birch", "days": 25, "seed": 4}]
+	var j := Journal.new()
+	t.root.add_child(j)
+	j.state = g
+	var finds := j.collection_finds()
+	t.check(finds.size() == 1 and str(finds[0]["kind"]) == "coin", "the coin from the diary")
+	t.check(Journal.collection_visitors(g).any(func(v: Dictionary) -> bool: return v["kind"] == "fox"), "the fox")
+	j.finds_source = func() -> Array: return [{"kind": "fossil", "text": "A fossil shell.", "day": 2}]
+	t.check_eq(str(j.collection_finds()[0]["kind"]), "fossil", "the drawers' hook")
+	j.open_diary()
+	j._show_tab("collection", false)
+	var words := ""
+	for row in j._collection_box.get_children():
+		for c in row.get_children() + ([row] as Array):
+			if c is Label:
+				words += (c as Label).text + "|"
+			for cc in c.get_children():
+				if cc is Label:
+					words += (cc as Label).text + "|"
+	t.check(words.contains("A fossil shell.") and words.to_lower().contains("birch"), "the collection shows them: " + words)
+	j.free()
 
 
 func test_explanation_pages_are_a_third_and_keep_what_the_player_needs() -> void:

@@ -68,7 +68,7 @@ func test_old_lines_get_a_topic_and_a_doodle() -> void:
 	d.add(2, "Night 3: the new root grew 34 m and drank water 2.8, nitrogen 3.2, phosphorus 1.2, potassium 1.6.")
 	d.add(2, "Night 3: the root found what feeds the nettles in the north, the one I wished for.", "tree", "nettles")
 	var page := d.page(2)
-	t.check_eq(page.size(), 1, "day 2 shows the reached wish only (the dew waits behind a find)")
+	t.check_eq(page.size(), 1, "day 2 shows the reached wish only")
 	t.check(str(page[0]["text"]).contains("the one I wished for"), "the reached wish shows: " + str(page[0]["text"]))
 	t.check_eq(d.doodle(2), "nettles", "with its nettles")
 	d.add(5, "The old roots drew water 2.9, nitrogen 0.0, phosphorus 0.0, potassium 1.5 from the soil overnight.")
@@ -81,8 +81,7 @@ func test_old_lines_get_a_topic_and_a_doodle() -> void:
 	d.add(4, "The old roots drew water 0.5, nitrogen 0.0, phosphorus 0.0, potassium 1.5 from the soil overnight.")
 	d.add(4, "The linden is 3.3 m tall with 36 leaf clusters.")
 	d.add(4, "A light shower passed over the clearing in the afternoon.")
-	t.check_eq(str(d.page(4)[0]["text"]), "A light shower passed over the clearing in the afternoon.", "a quiet day: the weather")
-	t.check_eq(d.doodle(4), "rain", "with rain")
+	t.check(d.page(4).is_empty(), "a quiet day (0.8.2.6): no line, not even the weather")
 	d.add(0, "I planted a linden seed in the clearing as the sun went down.")
 	t.check_eq(d.doodle(0), "seed", "the planting: a seed")
 	d.add(8, "At dusk a hedgehog snuffled out of the brush pile at the edge of the clearing and back in again. It has moved into my cuttings.", "tree", "hedgehog")
@@ -100,10 +99,10 @@ func test_a_0_8_1_save_shows_no_routine_line() -> void:
 		for e in g.diary.page(day):
 			var text := str(e["text"])
 			t.check(not text.contains("drank water") and not text.contains("drew water"), "day %d: no routine line: %s" % [day, text])
-			t.check(not text.contains(" m tall") or g.diary.page(day).size() == 1, "day %d: the height only on a day without anything else" % day)
+			t.check(not text.contains(" m tall"), "day %d: no height line" % day)
 			shown += 1
 		t.check(InkSketch.has(g.diary.doodle(day)), "day %d has a doodle" % day)
-	t.check(shown >= g.diary.days().size(), "every every old day shows a line (%d on %d days)" % [shown, g.diary.days().size()])
+	t.check(shown >= 1 and shown <= g.diary.days().size(), "the days something happened show a line (%d on %d days)" % [shown, g.diary.days().size()])
 
 
 # --- 2: a reached wish shows on its day page -----------------------------------------------
