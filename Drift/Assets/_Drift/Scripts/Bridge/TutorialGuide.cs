@@ -311,7 +311,7 @@ namespace Drift.Bridge
                     return "Hallo! Ich bin " + K("Tilda") + ", ein kleiner Vulkan. Schön, dass du da bist! Ich zeige dir, wie deine Insel wächst.";
                 case TutorialStep.Move:
                     return touchDevice
-                        ? "Probier es gleich aus: Leg den " + K("Daumen links") + " aufs Wasser und zieh. Deine Insel treibt genau dorthin – drehen muss sie sich nie."
+                        ? "Probier es gleich aus: Leg einen " + K("Finger irgendwo") + " aufs Wasser und zieh. Deine Insel treibt genau dorthin – drehen muss sie sich nie."
                         : "Probier es gleich aus: " + K("W") + ", " + K("A") + ", " + K("S") + " und " + K("D") + " zeigen die Richtung, deine Insel treibt einfach dorthin. Fahr ein Stück los!";
                 case TutorialStep.Zoom:
                     return touchDevice

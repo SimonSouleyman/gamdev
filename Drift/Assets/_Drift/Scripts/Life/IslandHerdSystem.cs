@@ -19,7 +19,9 @@ namespace Drift.Life
         // Signature moves: one per species, no other species has it (IslandHerdSystem.Signature.cs).
         Zigzag, Carousel, Rear, Scratch, Snuggle, StampDance, NeckDuel, SkyCall, Crater, TailChase, WarDance, Groom, Necking,
         // Two herds meeting (IslandHerdSystem.Meetings.cs); Cheer = the onlookers of a chase or a shoving match.
-        Greet, Tag, Shove, Cheer, Trek, RingDance
+        Greet, Tag, Shove, Cheer, Trek, RingDance,
+        // Environment layers (v0.6.8): needs (Graze/Shelter), relations (Guard/Gather), seasons (Court).
+        Graze, Shelter, Guard, Gather, Court
     }
 
     [ExecuteAlways]
@@ -54,7 +56,9 @@ namespace Drift.Life
             "reckt den Hals im Kräftemessen", "reckt den Schnabel zum Himmel und ruft", "scharrt nach Flechten",
             "jagt den eigenen Schwanz", "hüpft im Kriegstanz", "krault einem anderen Zebra das Fell", "schwingt den Hals im Halskampf",
             "begrüßt die Nachbarherde – Nase an Nase", "spielt Fangen mit der Nachbarherde", "misst spielerisch die Kräfte mit dem Nachbarn",
-            "schaut dem Spiel der beiden Herden zu", "zieht mit der Nachbarherde in einer langen Reihe", "tanzt mit der Nachbarherde im Kreis"
+            "schaut dem Spiel der beiden Herden zu", "zieht mit der Nachbarherde in einer langen Reihe", "tanzt mit der Nachbarherde im Kreis",
+            // Environment layers (v0.6.8): Graze, Shelter, Guard, Gather, Court.
+            "frisst sich satt", "sucht Schutz vor dem Regen", "hält Wache nach den Nachbarn", "trifft die anderen am Wasser", "balzt und tollt umher"
         };
 
         // Steps of the choreographies as ActivityStep reports them.
@@ -67,7 +71,15 @@ namespace Drift.Life
         public const int CircleWalk = 0, CircleGuard = 1;
         public const int PounceStalk = 0, PounceLeap = 1, PounceHeadIn = 2, PounceShake = 3;
 
-        enum Errand { None, Drink, Wade, Shade, Watch, Slide, Parade, Browse, Soak, Circle, Stroll, Visit, Spread, Signature, Meet }
+        enum Errand
+        {
+            None, Drink, Wade, Shade, Watch, Slide, Parade, Browse, Soak, Circle, Stroll, Visit, Spread, Signature, Meet,
+            // Environment layers (v0.6.8), each started/arrived/stepped by its own partial file:
+            // needs (IslandHerdSystem.Needs.cs), relations (.Relations.cs), seasons (.Seasons.cs).
+            Graze, Migrate, Shelter, Scatter,
+            Mingle, Guard, Gather,
+            Huddle, Hoard, Court,
+        }
         enum PlayKind { Chase, Spar, Race }
 
         public int seed = 1;
@@ -193,9 +205,11 @@ namespace Drift.Life
         // 0..1, set by the island each frame from the storm intensity; above huddleThreshold herds stop wandering.
         public float Agitation;
 
-        class Species
+        partial class Species
         {
             public LifeKind kind;
+            // What the species eats (IslandLifeSystem.FoodAt); Grass unless the table says otherwise.
+            public Diet diet;
             public float minArea, weight;
             public int sizeMin, sizeMax, maxSize;
             // body: template length (world length = body * animalScale); speed in units/s.
@@ -233,21 +247,21 @@ namespace Drift.Life
                           grazeMin = 4f, grazeMax = 9f, lookMin = 2f, lookMax = 4f, lookChance = 0.45f, restChance = 0.25f, restMin = 10f, restMax = 25f, stopMin = 8f, stopMax = 18f, play = 0.012f, grow = 480f },
             new Species { kind = LifeKind.Ox,    minArea = 50f, weight = 1f, sizeMin = 3, sizeMax = 5,  maxSize = 8,  speed = 0.175f, minH = 0.15f, maxH = 1.9f, body = 0.66f, hop = 0f,
                           grazeMin = 10f, grazeMax = 22f, lookMin = 2f, lookMax = 5f, lookChance = 0.2f, restChance = 0.45f, restMin = 15f, restMax = 40f, stopMin = 15f, stopMax = 40f, play = 0.002f, grow = 720f },
-            new Species { kind = LifeKind.Capybara, biome = 1, coastal = true, minArea = 4f, weight = 3f, sizeMin = 4, sizeMax = 7, maxSize = 12, speed = 0.2f, minH = 0.15f, maxH = 1.6f, body = 0.5f, hop = 0.015f,
+            new Species { kind = LifeKind.Capybara, diet = Diet.Reeds, biome = 1, coastal = true, minArea = 4f, weight = 3f, sizeMin = 4, sizeMax = 7, maxSize = 12, speed = 0.2f, minH = 0.15f, maxH = 1.6f, body = 0.5f, hop = 0.015f,
                           grazeMin = 5f, grazeMax = 12f, lookMin = 1.5f, lookMax = 3f, lookChance = 0.25f, restChance = 0.5f, restMin = 15f, restMax = 40f, stopMin = 10f, stopMax = 25f, play = 0.008f, grow = 360f },
-            new Species { kind = LifeKind.Flamingo, biome = 1, coastal = true, standsToRest = true, grazePitch = 38f, minArea = 10f, weight = 2f, sizeMin = 6, sizeMax = 10, maxSize = 16, speed = 0.2f, minH = 0.12f, maxH = 1.2f, body = 0.4f, hop = 0.01f,
+            new Species { kind = LifeKind.Flamingo, diet = Diet.Fish, biome = 1, coastal = true, standsToRest = true, grazePitch = 38f, minArea = 10f, weight = 2f, sizeMin = 6, sizeMax = 10, maxSize = 16, speed = 0.2f, minH = 0.12f, maxH = 1.2f, body = 0.4f, hop = 0.01f,
                           grazeMin = 4f, grazeMax = 9f, lookMin = 1.5f, lookMax = 3f, lookChance = 0.3f, restChance = 0.3f, restMin = 10f, restMax = 25f, stopMin = 10f, stopMax = 22f, play = 0.004f, grow = 480f },
             new Species { kind = LifeKind.Tortoise, biome = 1, minArea = 20f, weight = 1f, sizeMin = 2, sizeMax = 3, maxSize = 5, speed = 0.05f, minH = 0.15f, maxH = 1.5f, body = 0.6f, hop = 0f,
                           grazeMin = 12f, grazeMax = 25f, lookMin = 3f, lookMax = 6f, lookChance = 0.2f, restChance = 0.5f, restMin = 20f, restMax = 50f, stopMin = 20f, stopMax = 50f, play = 0f, grow = 900f },
             new Species { kind = LifeKind.Reindeer, biome = 2, minArea = 15f, weight = 2f, sizeMin = 5, sizeMax = 8, maxSize = 14, speed = 0.26f, minH = 0.15f, maxH = 2.6f, body = 0.52f, hop = 0.025f,
                           grazeMin = 6f, grazeMax = 14f, lookMin = 2f, lookMax = 4f, lookChance = 0.3f, restChance = 0.3f, restMin = 15f, restMax = 35f, stopMin = 10f, stopMax = 22f, play = 0.008f, grow = 480f },
-            new Species { kind = LifeKind.Penguin, biome = 2, coastal = true, grazePitch = 3f, minArea = 4f, weight = 3f, sizeMin = 6, sizeMax = 10, maxSize = 16, speed = 0.16f, minH = 0.12f, maxH = 1.4f, body = 0.3f, hop = 0.012f,
+            new Species { kind = LifeKind.Penguin, diet = Diet.Fish, biome = 2, coastal = true, grazePitch = 3f, minArea = 4f, weight = 3f, sizeMin = 6, sizeMax = 10, maxSize = 16, speed = 0.16f, minH = 0.12f, maxH = 1.4f, body = 0.3f, hop = 0.012f,
                           grazeMin = 3f, grazeMax = 7f, lookMin = 1.5f, lookMax = 3f, lookChance = 0.45f, restChance = 0.2f, restMin = 8f, restMax = 20f, stopMin = 6f, stopMax = 14f, play = 0.015f, grow = 300f },
-            new Species { kind = LifeKind.ArcticFox, biome = 2, minArea = 25f, weight = 1f, sizeMin = 2, sizeMax = 2, maxSize = 4, speed = 0.34f, minH = 0.15f, maxH = 2.8f, body = 0.42f, hop = 0.03f,
+            new Species { kind = LifeKind.ArcticFox, diet = Diet.Fish, biome = 2, minArea = 25f, weight = 1f, sizeMin = 2, sizeMax = 2, maxSize = 4, speed = 0.34f, minH = 0.15f, maxH = 2.8f, body = 0.42f, hop = 0.03f,
                           grazeMin = 3f, grazeMax = 6f, lookMin = 2f, lookMax = 4f, lookChance = 0.5f, restChance = 0.3f, restMin = 12f, restMax = 30f, stopMin = 6f, stopMax = 14f, play = 0.01f, grow = 360f },
             new Species { kind = LifeKind.Zebra, biome = 3, minArea = 15f, weight = 2f, sizeMin = 5, sizeMax = 8, maxSize = 14, speed = 0.28f, minH = 0.15f, maxH = 2.0f, body = 0.56f, hop = 0.03f,
                           grazeMin = 6f, grazeMax = 14f, lookMin = 2f, lookMax = 4f, lookChance = 0.3f, restChance = 0.2f, restMin = 12f, restMax = 30f, stopMin = 10f, stopMax = 22f, play = 0.006f, grow = 480f },
-            new Species { kind = LifeKind.Giraffe, biome = 3, grazePitch = 3f, minArea = 40f, weight = 1f, sizeMin = 3, sizeMax = 4, maxSize = 7, speed = 0.22f, minH = 0.15f, maxH = 1.9f, body = 0.6f, hop = 0.012f,
+            new Species { kind = LifeKind.Giraffe, diet = Diet.Leaves, biome = 3, grazePitch = 3f, minArea = 40f, weight = 1f, sizeMin = 3, sizeMax = 4, maxSize = 7, speed = 0.22f, minH = 0.15f, maxH = 1.9f, body = 0.6f, hop = 0.012f,
                           grazeMin = 8f, grazeMax = 16f, lookMin = 3f, lookMax = 6f, lookChance = 0.35f, restChance = 0.1f, restMin = 10f, restMax = 25f, stopMin = 14f, stopMax = 30f, play = 0.002f, grow = 720f },
             new Species { kind = LifeKind.Meerkat, biome = 3, minArea = 4f, weight = 3f, sizeMin = 6, sizeMax = 10, maxSize = 16, speed = 0.42f, minH = 0.15f, maxH = 2.0f, body = 0.34f, hop = 0.03f,
                           grazeMin = 2f, grazeMax = 5f, lookMin = 1f, lookMax = 2.5f, lookChance = 0.5f, restChance = 0.15f, restMin = 8f, restMax = 20f, stopMin = 5f, stopMax = 12f, play = 0.02f, grow = 240f },
@@ -299,9 +313,11 @@ namespace Drift.Life
             public int meshStart = -1, meshCount;
         }
 
-        class Herd
+        partial class Herd
         {
             public Species spec;
+            // Why the herd is where it is (the environment layers set it, the watch card shows it).
+            public HerdGoal goal;
             public readonly List<Animal> members = new();
             public Vector2 center, target, fleeFrom;
             public float wait, fleeTimer, growTimer, playT, playAng;
@@ -1068,7 +1084,10 @@ namespace Drift.Life
             if (herd.members.Count < 2 || herd.members.Count >= s.maxSize || AnimalCount >= AnimalCap) return false;
             if (_life == null || _life.StageAt(herd.center) <= 0.95f) return false;
             foreach (var a in herd.members) if (a.growth < youngIndependence) return false;
-            if (Rand() >= growthChance) return false;
+            float factor = 1f;
+            GrowthFactorNeeds(herd, ref factor);
+            GrowthFactorSeasons(herd, ref factor);
+            if (Rand() >= growthChance * Mathf.Clamp(factor, 0f, 2f)) return false;
             Bear(herd);
             return true;
         }
@@ -1550,6 +1569,7 @@ namespace Drift.Life
             || act == AnimalActivity.Slide || act == AnimalActivity.Parade || act == AnimalActivity.OneLeg || act == AnimalActivity.Browse
             || act == AnimalActivity.Soak || act == AnimalActivity.Circle
             || act == AnimalActivity.Stroll || act == AnimalActivity.Visit || act == AnimalActivity.Spread
+            || act == AnimalActivity.Graze || act == AnimalActivity.Shelter || act == AnimalActivity.Guard || act == AnimalActivity.Gather || act == AnimalActivity.Court
             || IsSignature(act);
 
         static void ClearGoal(Animal a)
@@ -1576,6 +1596,7 @@ namespace Drift.Life
             if (herd.errand == Errand.None) return;
             if (herd.errand == Errand.Meet) { AbortMeeting(herd); return; }
             if (herd.errand == Errand.Watch) herd.watchCool = Rand(40f, 60f);
+            else if (IsEnvironmentErrand(herd.errand)) herd.goal = HerdGoal.None;
             else herd.errandCool = Rand(40f, 70f);
             herd.errand = Errand.None;
             herd.errandStage = 0;
@@ -1792,8 +1813,47 @@ namespace Drift.Life
                 case Errand.Meet:
                     ArriveMeeting(herd);
                     break;
+                case Errand.Graze: case Errand.Migrate: case Errand.Shelter: case Errand.Scatter:
+                    ArriveNeeds(herd);
+                    break;
+                case Errand.Mingle: case Errand.Guard: case Errand.Gather:
+                    ArriveRelations(herd);
+                    break;
+                case Errand.Huddle: case Errand.Hoard: case Errand.Court:
+                    ArriveSeasons(herd);
+                    break;
             }
         }
+
+        // ---------------------------------------------------------- environment layers (v0.6.8)
+        // Hooks for the partial files IslandHerdSystem.Needs.cs / .Relations.cs / .Seasons.cs. Each layer may start
+        // one of its errands from Think (set `started`), is stepped per herd, places the members on arrival, and can
+        // slow a herd or its growth. An unimplemented partial method costs nothing.
+        partial void NeedsThink(Herd herd, bool standing, ref bool started);
+        partial void RelationsThink(Herd herd, bool standing, ref bool started);
+        partial void SeasonsThink(Herd herd, bool standing, ref bool started);
+        partial void ArriveNeeds(Herd herd);
+        partial void ArriveRelations(Herd herd);
+        partial void ArriveSeasons(Herd herd);
+        // Per herd and sim step (dt = herd time), before the walk; `mul` is the herd's speed multiplier.
+        partial void StepNeeds(Herd herd, float dt, ref float mul);
+        partial void StepRelations(Herd herd, float dt, ref float mul);
+        partial void StepSeasons(Herd herd, float dt, ref float mul);
+        // Once per island step (dt = herd time), for island-wide state such as the season or a storm.
+        partial void TickNeeds(float dt);
+        partial void TickRelations(float dt);
+        partial void TickSeasons(float dt);
+        // Births: `factor` scales growthChance (hungry or cold herds grow slower, courtship faster; never above 2).
+        partial void GrowthFactorNeeds(Herd herd, ref float factor);
+        partial void GrowthFactorSeasons(Herd herd, ref float factor);
+        // Whether an environment errand survives a reshape of the island (default: its target and goals stay valid).
+        partial void EnvironmentErrandSurvives(Herd herd, ref bool survives);
+
+        public HerdGoal GoalOf(int herd) => herd >= 0 && herd < _herds.Count ? _herds[herd].goal : HerdGoal.None;
+        public string GoalLabelOf(int herd) => HerdGoals.Label(GoalOf(herd));
+        public Diet DietOf(int herd) => herd >= 0 && herd < _herds.Count ? _herds[herd].spec.diet : Diet.Grass;
+        public static bool IsEnvironmentErrandValue(int errand) => errand >= (int)Errand.Graze;
+        bool IsEnvironmentErrand(Errand e) => e >= Errand.Graze;
 
         // ---------------------------------------------------------- patterns of every species
 
@@ -2015,6 +2075,16 @@ namespace Drift.Life
                         if (a.hasGoal && !ValidTarget(sp, _surface.SampleHeight(a.goal))) return false;
                     return true;
                 default:
+                    if (IsEnvironmentErrand(herd.errand))
+                    {
+                        var es = herd.spec;
+                        bool survives = ValidTarget(es, _surface.SampleHeight(herd.target));
+                        if (survives)
+                            foreach (var a in herd.members)
+                                if (a.hasGoal && !ValidTarget(es, _surface.SampleHeight(a.goal))) { survives = false; break; }
+                        EnvironmentErrandSurvives(herd, ref survives);
+                        return survives;
+                    }
                     return false;
             }
         }
@@ -2384,6 +2454,15 @@ namespace Drift.Life
                 if (shoreOk && StartShoreErrand(herd, Errand.Drink)) return true;
             }
             if (MeetThink(herd, standing)) return true;
+            // The environment layers get the first word: hunger, weather, other species and the season may send
+            // the herd somewhere before the species' own errands roll (each hook lives in its partial file).
+            bool started = false;
+            NeedsThink(herd, standing, ref started);
+            if (started) return true;
+            RelationsThink(herd, standing, ref started);
+            if (started) return true;
+            SeasonsThink(herd, standing, ref started);
+            if (started) return true;
             if (herd.errandCool <= 0f)
             {
                 if (s.kind == LifeKind.Sheep && (Raining || Noon) && StartShade(herd)) return true;
@@ -2967,6 +3046,7 @@ namespace Drift.Life
         {
             if (_surface == null || _rnd == null || herdIndex < 0 || herdIndex >= _herds.Count) return false;
             var herd = _herds[herdIndex];
+            YieldNeeds(herd);
             if (herd.errand != Errand.None || herd.stampT > 0f || herd.tuckT > 0f) return false;
             switch (which)
             {
@@ -2996,7 +3076,7 @@ namespace Drift.Life
         {
             if (_surface == null || _rnd == null || herdIndex < 0 || herdIndex >= _herds.Count) return false;
             var herd = _herds[herdIndex];
-            if (herd.members.Count == 0 || herd.fleeing || herd.errand != Errand.None || herd.playT > 0f || herd.stampT > 0f || herd.tuckT > 0f) return false;
+            if (herd.members.Count == 0 || herd.fleeing || (herd.errand != Errand.None && !NeedsYields(herd)) || herd.playT > 0f || herd.stampT > 0f || herd.tuckT > 0f) return false;
             if (_night > sleepThreshold || Agitation >= huddleThreshold || behaviourRate <= 0f) return false;
             return !AnySleeping(herd);
         }
@@ -3048,6 +3128,9 @@ namespace Drift.Life
             _stepClock += dt;
             _refAge += dt;
             CloseUpMotion.Tick();
+            TickNeeds(dt);
+            TickRelations(dt);
+            TickSeasons(dt);
             float sinkDepth = _surface.SinkDepth;
             if (sinkDepth > _lastSink + 1e-4f)
             {
@@ -3663,6 +3746,13 @@ namespace Drift.Life
             }
             if (herd.diving && safe && herd.wait < 1f) herd.wait = 1f;
             if (herd.errand == Errand.Shade && herd.errandStage == 1 && herd.wait < 2f && (Raining || Noon)) herd.wait = 2f;
+            if (safe)
+            {
+                StepNeeds(herd, dt, ref mul);
+                StepRelations(herd, dt, ref mul);
+                StepSeasons(herd, dt, ref mul);
+            }
+            else if (herd.goal != HerdGoal.None && herd.goal != HerdGoal.Scatter && !IsEnvironmentErrand(herd.errand)) herd.goal = HerdGoal.None;
             if (herd.errand == Errand.Watch)
             {
                 herd.errandT -= dt;
@@ -3762,7 +3852,7 @@ namespace Drift.Life
             // A member with a goal (shore, lookout, watch line, burrow) walks there instead of to its slot; sheep
             // on the move fall in behind member 0, each joining once the line has passed its place.
             float body = s.body * animalScale;
-            float gather = huddle ? 1f - 0.45f * Mathf.Clamp01(Agitation) : herd.errand == Errand.Shade && herd.errandStage == 1 ? 0.55f : galloping ? 0.75f : 1f;
+            float gather = huddle ? 1f - 0.45f * Mathf.Clamp01(Agitation) : (herd.errand == Errand.Shade || herd.errand == Errand.Shelter) && herd.errandStage == 1 ? 0.55f : galloping ? 0.75f : 1f;
             float turn = 1f - Mathf.Exp(-4f * dt);
             bool strolling = herd.errand == Errand.Stroll;
             // Single file is the sheep's own way of walking; a stroll along the shore goes two abreast (any species).
@@ -3948,7 +4038,7 @@ namespace Drift.Life
                 else
                 {
                     if (IdleStep(herd, a, i, dt)) changed = true;
-                    if (a.act == AnimalActivity.None || a.act == AnimalActivity.Shade) idleMode = a.state == AnimalState.Sleep ? IdleOff : a.state == AnimalState.Rest ? IdleLying : IdleFull;
+                    if (a.act == AnimalActivity.None || a.act == AnimalActivity.Shade || a.act == AnimalActivity.Graze || a.act == AnimalActivity.Shelter) idleMode = a.state == AnimalState.Sleep ? IdleOff : a.state == AnimalState.Rest ? IdleLying : IdleFull;
                 }
                 if (idleOn && StepIdle(herd, a, i, dt, idleMode)) changed = true;
                 if (a.shore && !a.hasGoal && _surface.SampleHeight(a.pos) >= s.minH)
@@ -4347,7 +4437,9 @@ namespace Drift.Life
                 {
                     var a = h.members[i];
                     d.m[i * 6] = a.pos.x; d.m[i * 6 + 1] = a.pos.y;
-                    d.m[i * 6 + 2] = a.offset.x; d.m[i * 6 + 3] = a.offset.y;
+                    // The winter huddle squeezes offsets temporarily: the save keeps the herd's own formation.
+                    var off = OwnOffset(h, a);
+                    d.m[i * 6 + 2] = off.x; d.m[i * 6 + 3] = off.y;
                     d.m[i * 6 + 4] = a.yaw; d.m[i * 6 + 5] = a.scale;
                     d.variant[i] = a.variant;
                     d.growth[i] = a.growth;

@@ -52,6 +52,10 @@ namespace Drift.Bridge
         Button _topButton;
         // Gemütlich
         Text _areaText, _cozyStatusText, _islandsText, _formText, _milestoneText, _hintText;
+        // The season as a small badge left of the island's state in the head row (cozy only, hidden without a year).
+        Image _seasonPill;
+        Text _seasonText;
+        int _lastSeason = int.MinValue;
         UiBar _worldBar, _cozyBuoyBar;
         // Abenteuer
         Text _timerText, _bestText, _boostText, _levelText, _advBuoyLabel;
@@ -96,7 +100,7 @@ namespace Drift.Bridge
         void OnEnable()
         {
             Build();
-            _lastArea = _lastIslands = _lastLeft = _lastVolcanoes = int.MinValue;
+            _lastArea = _lastIslands = _lastLeft = _lastVolcanoes = _lastSeason = int.MinValue;
             _startLineAlpha = -1f;
             _momentumLit = -1;
             _lastSinkState = _lastHintState = _lastForm = _lastHeavy = -1;
@@ -275,7 +279,7 @@ namespace Drift.Bridge
             _hintLayout = -1;
             PlaceHint();
             _ringBgBuilt = false;
-            _lastArea = _lastIslands = _lastLeft = _lastVolcanoes = _lastTimer = _lastBest = _lastBoost = int.MinValue;
+            _lastArea = _lastIslands = _lastLeft = _lastVolcanoes = _lastTimer = _lastBest = _lastBoost = _lastSeason = int.MinValue;
             _lastSinkState = _lastForm = _lastHeavy = _momentumLit = -1;
             _startLineAlpha = -1f;
             _lastMilestone = "";
@@ -322,8 +326,22 @@ namespace Drift.Bridge
             }
             int sinkState = CozySinking ? 1 : 0;
             int form = player.Compactness >= 0.475f ? 1 : 0;
+            bool head = false;
+            int season = SeasonIndex(LifeEnvironment.Season);
+            if (season != _lastSeason)
+            {
+                _lastSeason = season;
+                head = true;
+                if (_seasonText != null)
+                {
+                    _seasonText.text = SeasonLabel(LifeEnvironment.Season);
+                    _seasonText.color = SeasonColor(season);
+                }
+                SetActive(_seasonPill, season >= 0);
+            }
             if (sinkState != _lastSinkState || form != _lastForm)
             {
+                head = true;
                 _lastSinkState = sinkState;
                 _lastForm = form;
                 _cozyStatusText.text = ModeTexts.CozySinkStatus(sinkState == 1);
@@ -331,6 +349,7 @@ namespace Drift.Bridge
                 _formText.text = ModeTexts.FormLabel(player.Compactness);
                 _formText.color = form == 1 ? UiStyle.CreamSoft : UiStyle.Sand;
             }
+            if (head) FitHeadRow();
             // The next milestone is the reason to look forward to the next merge (Leuchtturm, Hafen, ...).
             string next = session != null ? Drift.SaveSystem.Milestones.NextText(session.Stats.islandsAbsorbed) : "";
             if (next != _lastMilestone)
@@ -338,6 +357,47 @@ namespace Drift.Bridge
                 _lastMilestone = next;
                 if (_milestoneText != null) _milestoneText.text = next;
             }
+        }
+
+        // 0 Frühling, 1 Sommer, 2 Herbst, 3 Winter around the year's keys (IslandLifeSystem: 0 spring, 0.25 summer,
+        // 0.5 autumn, 0.75 the cold end); -1 without a year (no SeasonProvider).
+        // TODO(v0.6.8 integration): use the seasons layer's own helper here once it exists, so the badge and the
+        // herds' winter huddle agree on when winter starts.
+        // Fixed quarters, the same boundaries as the herds' IslandHerdSystem.SeasonOf (the huddle starts when the badge says Winter).
+        public static int SeasonIndex(float season) => season < 0f || float.IsNaN(season) ? -1 : Mathf.FloorToInt(Mathf.Repeat(season, 1f) * 4f) % 4;
+
+        public static string SeasonLabel(float season)
+        {
+            switch (SeasonIndex(season))
+            {
+                case 0: return "Frühling";
+                case 1: return "Sommer";
+                case 2: return "Herbst";
+                case 3: return "Winter";
+                default: return "";
+            }
+        }
+
+        static Color SeasonColor(int season) =>
+            season == 0 ? UiStyle.Mint : season == 1 ? UiStyle.Sand : season == 2 ? UiStyle.Coral : UiStyle.Sky;
+
+        public string SeasonShown => _seasonPill != null && _seasonPill.gameObject.activeSelf && _seasonText != null ? _seasonText.text : "";
+
+        // Head row, right to left: the "?", the island's state, the season badge; "Landmasse" gets what is left (and
+        // shrinks a long number a little rather than run under the badge).
+        void FitHeadRow()
+        {
+            if (_areaText == null || _cozyStatusText == null) return;
+            float right = 52f + Mathf.Min(Mathf.Ceil(_cozyStatusText.preferredWidth), 280f) + 14f;
+            if (_seasonPill != null && _seasonPill.gameObject.activeSelf)
+            {
+                float w = Mathf.Ceil(_seasonText.preferredWidth) + 28f;
+                _seasonPill.rectTransform.Place(new Vector2(1f, 0.5f), new Vector2(1f, 0.5f), new Vector2(-right, 0f), new Vector2(w, 40f));
+                right += w + 14f;
+            }
+            float area = Mathf.Clamp(Inner - right, 220f, 400f);
+            var rt = _areaText.rectTransform;
+            if (Mathf.Abs(rt.sizeDelta.x - area) > 0.5f) rt.sizeDelta = new Vector2(area, rt.sizeDelta.y);
         }
 
         // The value column of the world row grows with its text (up to WorldValueMax) and the bar gives way, so the
@@ -706,6 +766,11 @@ namespace Drift.Bridge
             var head = Row(_cozy, "Head", 16f, 58f);
             _areaText = RowText(head, "", UiStyle.Subheading, UiStyle.Cream, TextAnchor.MiddleLeft, true, 0f, 400f);
             _cozyStatusText = RowText(head, "", UiStyle.Caption, UiStyle.Sand, TextAnchor.MiddleRight, true, -52f, 280f);
+            _seasonPill = UiStyle.Pill(head, "Season", new Vector2(140f, 40f), UiStyle.Ghost);
+            _seasonText = UiStyle.Label(_seasonPill.transform, "", 26, UiStyle.Mint, TextAnchor.MiddleCenter, true);
+            _seasonText.rectTransform.Stretch(0f, 0f, 0f, 2f);
+            _seasonText.raycastTarget = false;
+            _seasonPill.gameObject.SetActive(false);
             // The small "?" says the panel explains itself on a tap.
             var help = UiStyle.Dot(head, "Help", 40f, UiStyle.Ghost);
             help.rectTransform.Place(new Vector2(1f, 0.5f), new Vector2(1f, 0.5f), Vector2.zero, new Vector2(40f, 40f));

@@ -63,7 +63,7 @@ namespace Drift.Tests
             {
                 string hint = ModeTexts.SteerHint(GameMode.Adventure, touch, true);
                 StringAssert.DoesNotContain("Tempo", hint, "the race drives itself; there is no speed to set");
-                Assert.LessOrEqual(hint.Length, 40, "fits the small chip beside the small map");
+                Assert.LessOrEqual(hint.Length, 45, "fits the small chip beside the small map (FitWidth shrinks the longest ones slightly)");
             }
             Assert.Less(ModeTexts.LowBuoyancy, ModeTexts.HeavyBuoyancy);
             StringAssert.Contains("Treibgut", ModeTexts.LowBuoyancyCall);
@@ -100,6 +100,38 @@ namespace Drift.Tests
             Assert.GreaterOrEqual(CollectionCatalog.IndexOf(SeaKind.Ray), 0);
             Assert.GreaterOrEqual(CollectionCatalog.IndexOf(SeaKind.FlyingFish), 0);
             Assert.GreaterOrEqual(CollectionCatalog.IndexOf(SeaKind.Dolphin), 0);
+        }
+    
+
+        // v0.6.8: the season as a badge in the cozy head row; hidden without a year.
+        [Test]
+        public void Hud_SeasonLabelHiddenWithoutProvider()
+        {
+            var saved = LifeEnvironment.SeasonProvider;
+            try
+            {
+                LifeEnvironment.SeasonProvider = null;
+                Assert.AreEqual(-1f, LifeEnvironment.Season);
+                Assert.AreEqual(-1, WorldHud.SeasonIndex(LifeEnvironment.Season));
+                Assert.AreEqual("", WorldHud.SeasonLabel(LifeEnvironment.Season));
+                Assert.AreEqual("", WorldHud.SeasonLabel(float.NaN));
+
+                LifeEnvironment.SeasonProvider = () => 0.5f;
+                Assert.AreEqual("Herbst", WorldHud.SeasonLabel(LifeEnvironment.Season));
+            }
+            finally
+            {
+                LifeEnvironment.SeasonProvider = saved;
+            }
+            Assert.AreEqual("Frühling", WorldHud.SeasonLabel(0f));
+            // Fixed quarters, the same boundaries as IslandHerdSystem.SeasonOf (the winter huddle starts with the badge).
+            Assert.AreEqual("Frühling", WorldHud.SeasonLabel(0.24f));
+            Assert.AreEqual("Sommer", WorldHud.SeasonLabel(0.25f));
+            Assert.AreEqual("Sommer", WorldHud.SeasonLabel(0.49f));
+            Assert.AreEqual("Herbst", WorldHud.SeasonLabel(0.5f));
+            Assert.AreEqual("Winter", WorldHud.SeasonLabel(0.75f));
+            Assert.AreEqual("Winter", WorldHud.SeasonLabel(0.9f));
+            Assert.AreEqual("Frühling", WorldHud.SeasonLabel(1f));
         }
     }
 }

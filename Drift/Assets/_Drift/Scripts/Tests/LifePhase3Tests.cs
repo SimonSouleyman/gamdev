@@ -15,6 +15,8 @@ namespace Drift.Tests
         public void SetUp()
         {
             LifeLod.DistanceProvider = _ => 0f;
+            // Summer: the v0.6.8 seasons layer (courtship in spring, huddles in winter) stays out of these checks.
+            LifeEnvironment.SeasonProvider = () => 0.375f;
             _night = 0f;
             LifeEnvironment.NightProvider = () => _night;
         }

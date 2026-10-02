@@ -219,7 +219,7 @@ namespace Drift.Tests
         }
 
         // Abenteuer drives itself: the hint may not promise throttle control, and it reads the same in both
-        // steering schemes. Gemütlich keeps its two old hints word for word.
+        // steering schemes. Gemütlich keeps its keyboard hints word for word.
         [Test]
         public void Hud_AdventureHintTalksAboutSteeringAndBraking()
         {
@@ -230,8 +230,20 @@ namespace Drift.Tests
                 StringAssert.Contains("lenken", a);
                 StringAssert.Contains("brems", a.ToLowerInvariant());
             }
-            Assert.AreEqual("Stick links: Richtung", ModeTexts.SteerHint(GameMode.Cozy, true, true));
-            Assert.AreEqual("Stick links: lenken & Tempo", ModeTexts.SteerHint(GameMode.Cozy, true, false));
+            Assert.AreEqual("Ziehen: seitlich lenken, nach unten bremsen", ModeTexts.SteerHint(GameMode.Adventure, true, true));
+            Assert.AreEqual("Neigen: seitlich lenken, zu dir kippen bremst", ModeTexts.SteerHint(GameMode.Adventure, true, true, true));
+            // The touch steering is invisible and takes the whole screen: no stick, no "links".
+            Assert.AreEqual("Finger aufsetzen und ziehen: Richtung", ModeTexts.SteerHint(GameMode.Cozy, true, true));
+            Assert.AreEqual("Finger aufsetzen und ziehen: lenken & Tempo", ModeTexts.SteerHint(GameMode.Cozy, true, false));
+            Assert.AreEqual("Handy neigen: Richtung", ModeTexts.SteerHint(GameMode.Cozy, true, true, true));
+            foreach (var mode in new[] { GameMode.Cozy, GameMode.Adventure })
+                foreach (bool direct in new[] { false, true })
+                {
+                    string help = ModeTexts.SteerHelp(mode, direct);
+                    StringAssert.StartsWith("Irgendwo aufsetzen und ziehen:", help);
+                    StringAssert.DoesNotContain("Stick", help);
+                    StringAssert.DoesNotContain("Stick", ModeTexts.SteerHint(mode, true, direct));
+                }
             Assert.AreEqual("W A S D Richtung", ModeTexts.SteerHint(GameMode.Cozy, false, true));
             Assert.AreEqual("W/S Tempo  ·  A/D lenken", ModeTexts.SteerHint(GameMode.Cozy, false, false));
         }

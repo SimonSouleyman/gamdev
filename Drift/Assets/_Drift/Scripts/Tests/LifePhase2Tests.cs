@@ -15,6 +15,8 @@ namespace Drift.Tests
         public void SetUp()
         {
             LifeLod.DistanceProvider = _ => 0f;
+            // Summer: the v0.6.8 seasons layer (courtship in spring, huddles in winter) stays out of these checks.
+            LifeEnvironment.SeasonProvider = () => 0.375f;
             _night = 0f;
             LifeEnvironment.NightProvider = () => _night;
         }
@@ -242,6 +244,8 @@ namespace Drift.Tests
             herds.playRate = 6f;
             // Fanning out and visiting loosen the formation on purpose; this checks that play pairs rejoin it.
             herds.strollRate = herds.visitRate = herds.spreadRate = 0f;
+            // A chase meeting falling on the final check strings the herd out: this test is about play pairs only.
+            herds.meetRate = 0f;
             int plays = 0, maxPlaying = 0;
             int steps = Mathf.CeilToInt(300f / 0.05f);
             for (int i = 0; i < steps; i++)

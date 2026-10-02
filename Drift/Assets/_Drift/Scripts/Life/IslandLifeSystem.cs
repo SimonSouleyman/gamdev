@@ -160,6 +160,24 @@ namespace Drift.Life
         public int foreignStand = 12;
         public int maxSavedForeign = 600;
 
+        // v0.6.8 environment for the herds. Grazing lowers a cell's stage and leaves a graze mark that fades over
+        // grazeRecoverSeconds of real time; while it is fresh the cell regrows at grazeRegrowFactor of the normal
+        // rate (normal growth is ~0.05 stage per real second, far faster than a herd eats), its grass food is
+        // depleted and its ground and grass are drawn shorter and yellower.
+        [Header("Weide und Klima (Herden)")]
+        [Tooltip("Nachwachsen einer frisch abgeweideten Zelle gegenüber normal (0,04 = 25-mal langsamer).")]
+        [Range(0.005f, 1f)] public float grazeRegrowFactor = 0.04f;
+        [Tooltip("Echtzeit-Sekunden, bis eine voll abgeweidete Zelle wieder normal wächst und aussieht.")]
+        [Range(10f, 900f)] public float grazeRecoverSeconds = 240f;
+        [Tooltip("Weidespur pro gefressener Stufe (8 = nach 0,125 Stufen voll abgeweidet).")]
+        [Range(1f, 40f)] public float grazeMarkGain = 8f;
+        [Tooltip("Anteil des Fischangebots an der Küste, den ein voller Sturm kostet.")]
+        [Range(0f, 1f)] public float fishStormLoss = 0.3f;
+        // Voter model on the per-cell biome: a border cell looks at one random neighbour and takes its biome. The
+        // mean share of every biome stays put, so the seam frays into a mixed zone instead of moving.
+        [Tooltip("Klima-Vermischung an Biomgrenzen: Übernahmen pro Lebenssekunde, wenn alle vier Nachbarn fremd sind (0 = aus).")]
+        [Range(0f, 0.05f)] public float biomeBlendRate = 0.003f;
+
         static readonly Color VolcanicTint = new Color(0.5f, 0.42f, 0.4f, 0.65f);
         static readonly Color BarrenTint = new Color(1.35f, 1.2f, 0.72f, 1f);
 
@@ -222,6 +240,22 @@ namespace Drift.Life
         public static float SeasonReference { get; private set; }
         public static void ResetSeasonReference() => SeasonReference = 0f;
 
+        // LifeEnvironment.Season comes from here (Drift.Visuals cannot see this assembly): the island set as
+        // SeasonSource (the player's), else the island that stood nearest the camera focus in the last full frame.
+        // Installed by the first enabled life system, removed with the last one.
+        public static IslandLifeSystem SeasonSource { get; set; }
+        static readonly Func<float> SeasonProviderFn = PlayerSeason;
+        static int _enabledCount;
+        static IslandLifeSystem _nearCur, _nearPrev;
+        static float _nearDist;
+        static int _nearFrame = -1;
+
+        static float PlayerSeason()
+        {
+            var s = SeasonSource != null ? SeasonSource : _nearPrev != null ? _nearPrev : _nearCur;
+            return s != null ? s._season : SeasonReference;
+        }
+
         readonly List<Plant> _plants = new();
         readonly List<Import> _pending = new();
         IIslandSurface _surface;
@@ -231,7 +265,15 @@ namespace Drift.Life
         int _nx, _nz;
         Vector2 _origin;
         float[] _stage, _burn, _fireT, _fert, _maxStage, _height, _bloomPhase, _bloomBaked, _burnBaked;
+        // Graze mark 0..1 per cell (not saved: a reload simply finds the pasture recovered) and what the mesh shows.
+        float[] _grazed, _grazeBaked;
+        // ClimateAt's field: the cells' biome climate blurred across seams, rebuilt lazily after a change.
+        float[] _climate, _climateTmp, _climateW;
+        bool _climateDirty = true;
         bool[] _land, _shore;
+        // Cells to the nearest shore cell (8-neighbourhood): 0 shore .. CoastFar = 3 or more; CoastWater off the land.
+        byte[] _coast;
+        const byte CoastFar = 3, CoastWater = 255;
         int[] _counts, _quota;
         Color[] _cellColor;
         // (int)LifeBiome per cell, same indexing as _stage/_burn/_land: the biome is a property of the LAND, so
@@ -459,6 +501,292 @@ namespace Drift.Life
             return idx < 0 ? 0f : _stage[idx];
         }
 
+        // ---------------------------------------------------------------- environment for the herds (v0.6.8)
+        // Food is read off the succession stage: grass is the meadow between bare ground and closed wood, leaves
+        // are the foliage of mature trees, reeds the low growth within two cells of the shore, fish the shore
+        // itself. Off the grid (no land yet) there is food everywhere and no shade.
+        const float GrazeFloor = 0.04f;
+        // Grass eaters do not fell woods: above this stage they only crop the undergrowth (the mark, no stage).
+        const float GrazeCanopy = 0.95f;
+        // Browsing strips foliage down to this stage and no further, so the trees keep standing at ~half size.
+        const float LeafFloor = 0.7f, LeafFull = 1.15f;
+        // How much of the grass a full graze mark has eaten (the stage alone cannot show it under a canopy).
+        const float GrazeDepletion = 0.7f;
+        const int SearchDirections = 16, SearchRings = 3;
+        const float ShelterMin = 0.2f;
+
+        // Tree cover of a stage: trees appear from ~0.7 and close their canopy past 1.0.
+        static float TreeCover(float s) => Smooth(0.55f, 1.1f, s);
+
+        static float CoastWeight(byte coast) => coast == 0 ? 1f : coast == 1 ? 0.75f : coast == 2 ? 0.4f : 0f;
+
+        float FoodOfCell(int idx, Diet diet)
+        {
+            if (!_land[idx] || _fireT[idx] > 0f) return 0f;
+            float s = _stage[idx];
+            switch (diet)
+            {
+                case Diet.Leaves:
+                    return Smooth(LeafFloor, LeafFull, s);
+                case Diet.Reeds:
+                {
+                    float coast = CoastWeight(_coast[idx]);
+                    if (coast <= 0f) return 0f;
+                    return coast * Smooth(0.03f, 0.2f, s) * (1f - 0.6f * Smooth(0.6f, 1.05f, s)) * (1f - GrazeDepletion * _grazed[idx]);
+                }
+                case Diet.Fish:
+                {
+                    byte c = _coast[idx];
+                    float sea = c == 0 ? 1f : c == 1 ? 0.4f : 0f;
+                    return sea * (1f - fishStormLoss * Mathf.Clamp01(_surface.StormIntensity));
+                }
+                default:
+                {
+                    // Savanna grass stays under its acacias (canopyClears 0); a closed temperate wood is a poor
+                    // pasture (0.35: herds still crop it, but move on to a meadow when they can).
+                    float clears = Biomes.Of(_cellBiome[idx]).canopyClears;
+                    return Smooth(0.1f, 0.45f, s) * (1f - 0.65f * clears * Smooth(0.6f, 1.1f, s)) * (1f - GrazeDepletion * _grazed[idx]);
+                }
+            }
+        }
+
+        // 0..1 how much food of this diet a herd finds at a spot.
+        public float FoodAt(Vector2 localPos, Diet diet)
+        {
+            if (!_hasGrid) return 1f;
+            int idx = CellIndex(localPos);
+            return idx < 0 ? 0f : FoodOfCell(idx, diet);
+        }
+
+        // A herd ate here: lowers the cell's vegetation and returns how much was actually eaten (0..amount) - the
+        // stage taken, weighed by how good the patch was (full value from food 0.5 up). Fish never run out.
+        public float Graze(Vector2 localPos, Diet diet, float amount)
+        {
+            if (!(amount > 0f)) return 0f;
+            if (!_hasGrid) return amount;
+            int idx = CellIndex(localPos);
+            if (idx < 0) return 0f;
+            float food = FoodOfCell(idx, diet);
+            if (food <= 0f) return 0f;
+            float quality = Mathf.Clamp01(food * 2f);
+            if (diet == Diet.Fish) return amount * quality;
+            float s = _stage[idx], take;
+            if (diet == Diet.Leaves)
+            {
+                take = Mathf.Min(amount, s - LeafFloor);
+                if (take <= 0f) return 0f;
+                _stage[idx] = s - take;
+            }
+            else if (s > GrazeCanopy)
+                take = amount;
+            else
+            {
+                take = Mathf.Min(amount, s - GrazeFloor);
+                if (take <= 0f) return 0f;
+                _stage[idx] = s - take;
+            }
+            _grazed[idx] = Mathf.Min(1f, _grazed[idx] + take * grazeMarkGain);
+            _tintDirty = true;
+            return take * quality;
+        }
+
+        // Candidate spots around `from`: the spot itself, then SearchRings rings of SearchDirections points out to
+        // radius, turned by a random angle so two herds do not walk to the same points.
+        Vector2 SearchPoint(Vector2 from, float radius, float turn, int k, out float distance)
+        {
+            if (k == 0) { distance = 0f; return from; }
+            k--;
+            int ring = k / SearchDirections;
+            distance = radius * (ring + 1) / SearchRings;
+            float a = turn + (k % SearchDirections + 0.5f * (ring & 1)) * (Mathf.PI * 2f / SearchDirections);
+            return from + new Vector2(Mathf.Cos(a), Mathf.Sin(a)) * distance;
+        }
+
+        // The best patch of this diet within radius that holds at least minFood (nearer spots win by up to 30 %);
+        // false when there is none.
+        public bool TryFindFood(Vector2 from, Diet diet, float radius, float minFood, System.Random rnd, out Vector2 target)
+        {
+            target = from;
+            if (!_hasGrid || !(radius > 0f)) return false;
+            float turn = rnd != null ? (float)rnd.NextDouble() * Mathf.PI * 2f : 0f;
+            float best = -1f;
+            for (int k = 0; k <= SearchDirections * SearchRings; k++)
+            {
+                Vector2 p = SearchPoint(from, radius, turn, k, out float d);
+                int idx = CellIndex(p);
+                if (idx < 0 || !_land[idx]) continue;
+                float food = FoodOfCell(idx, diet);
+                if (food < minFood || food <= 0f) continue;
+                float score = food * (1f - 0.3f * d / radius);
+                if (score > best) { best = score; target = p; }
+            }
+            return best >= 0f;
+        }
+
+        float CoverOfCell(int i, int j)
+        {
+            if (i < 0 || j < 0 || i >= _nx || j >= _nz) return 0f;
+            int idx = j * _nx + i;
+            return !_land[idx] || _fireT[idx] > 0f ? 0f : TreeCover(_stage[idx]);
+        }
+
+        // 0..1 tree cover at a spot (shade at noon, shelter in rain), smoothed over the 3x3 cells (1-2-1 kernel).
+        public float ShadeAt(Vector2 localPos)
+        {
+            if (!_hasGrid) return 0f;
+            int i = Mathf.FloorToInt((localPos.x - _origin.x) / cellSize);
+            int j = Mathf.FloorToInt((localPos.y - _origin.y) / cellSize);
+            if (i < -1 || j < -1 || i > _nx || j > _nz) return 0f;
+            float sum = 4f * CoverOfCell(i, j)
+                + 2f * (CoverOfCell(i - 1, j) + CoverOfCell(i + 1, j) + CoverOfCell(i, j - 1) + CoverOfCell(i, j + 1))
+                + CoverOfCell(i - 1, j - 1) + CoverOfCell(i + 1, j - 1) + CoverOfCell(i - 1, j + 1) + CoverOfCell(i + 1, j + 1);
+            return sum / 16f;
+        }
+
+        // The densest tree cover within radius; false when there are no trees. Should the sampled points all miss
+        // (a lone tree between them), any tree within reach will do.
+        public bool TryFindShelter(Vector2 from, float radius, System.Random rnd, out Vector2 target)
+        {
+            target = from;
+            if (!_hasGrid || !(radius > 0f)) return false;
+            float turn = rnd != null ? (float)rnd.NextDouble() * Mathf.PI * 2f : 0f;
+            float best = -1f;
+            for (int k = 0; k <= SearchDirections * SearchRings; k++)
+            {
+                Vector2 p = SearchPoint(from, radius, turn, k, out float d);
+                float shade = ShadeAt(p);
+                if (shade < ShelterMin) continue;
+                float score = shade * (1f - 0.3f * d / radius);
+                if (score > best) { best = score; target = p; }
+            }
+            if (best >= 0f) return true;
+            return rnd != null && TryRandomPlant(LifeKind.Tree, rnd, from, radius, out target);
+        }
+
+        // -1 cold .. +1 hot at a spot: the biome's climate, blended across the seams of merged islands (the cell
+        // values blurred over 3x3 cells and sampled bilinearly, so a seam is a gradient about three cells wide).
+        public float ClimateAt(Vector2 localPos)
+        {
+            if (!_hasGrid) return Biomes.Of(Biome).climate;
+            if (_climateDirty) RebuildClimate();
+            float fx = (localPos.x - _origin.x) / cellSize - 0.5f;
+            float fz = (localPos.y - _origin.y) / cellSize - 0.5f;
+            int i0 = Mathf.FloorToInt(fx), j0 = Mathf.FloorToInt(fz);
+            float tx = fx - i0, tz = fz - j0;
+            float a = ClimateSafe(i0, j0), b = ClimateSafe(i0 + 1, j0), c = ClimateSafe(i0, j0 + 1), d = ClimateSafe(i0 + 1, j0 + 1);
+            return Mathf.Lerp(Mathf.Lerp(a, b, tx), Mathf.Lerp(c, d, tx), tz);
+        }
+
+        float ClimateSafe(int i, int j) => _climate[Mathf.Clamp(j, 0, _nz - 1) * _nx + Mathf.Clamp(i, 0, _nx - 1)];
+
+        // Land-weighted 3x3 box over the cells' biome climate (separable); water takes the land next to it, cells
+        // with no land around them the dominant biome's climate. Once per change of the biome map, never per frame.
+        void RebuildClimate()
+        {
+            _climateDirty = false;
+            float dom = Biomes.Of(_dominantBiome).climate;
+            if (_biomesPresent == 0 || (_biomesPresent & (_biomesPresent - 1)) == 0)
+            {
+                for (int i = 0; i < _climate.Length; i++) _climate[i] = dom;
+                return;
+            }
+            for (int j = 0; j < _nz; j++)
+                for (int i = 0; i < _nx; i++)
+                {
+                    float v = 0f, w = 0f;
+                    for (int ni = Mathf.Max(0, i - 1); ni <= Mathf.Min(_nx - 1, i + 1); ni++)
+                    {
+                        int n = j * _nx + ni;
+                        if (!_land[n] || _cellBiome[n] >= Biomes.Count) continue;
+                        v += Biomes.Of(_cellBiome[n]).climate;
+                        w += 1f;
+                    }
+                    _climateTmp[j * _nx + i] = v;
+                    _climateW[j * _nx + i] = w;
+                }
+            for (int j = 0; j < _nz; j++)
+                for (int i = 0; i < _nx; i++)
+                {
+                    float v = 0f, w = 0f;
+                    for (int nj = Mathf.Max(0, j - 1); nj <= Mathf.Min(_nz - 1, j + 1); nj++)
+                    {
+                        v += _climateTmp[nj * _nx + i];
+                        w += _climateW[nj * _nx + i];
+                    }
+                    _climate[j * _nx + i] = w > 0f ? v / w : dom;
+                }
+        }
+
+        // Cells that changed biome by the seam blending so far (tests, debugging).
+        public int BiomeBlends { get; private set; }
+        // The blending looks at every BlendStride-th cell per tick, a different eighth each time.
+        const int BlendStride = 8;
+        // A biome never blends away below this many cells, and the dominant biome never loses its lead.
+        const int MinBiomeCells = 8;
+
+        // One voter step: the cell takes the biome of a random 4-neighbour if that differs.
+        void BlendCell(int i, int j, int idx)
+        {
+            int n;
+            switch (_rnd.Next(4))
+            {
+                case 0: if (i == 0) return; n = idx - 1; break;
+                case 1: if (i + 1 >= _nx) return; n = idx + 1; break;
+                case 2: if (j == 0) return; n = idx - _nx; break;
+                default: if (j + 1 >= _nz) return; n = idx + _nx; break;
+            }
+            if (!_land[n]) return;
+            int b = _cellBiome[idx], x = _cellBiome[n];
+            if (x == b || x >= Biomes.Count || b >= Biomes.Count || _biomeCells[b] <= MinBiomeCells) return;
+            int dom = _dominantBiome;
+            if (b == dom ? _biomeCells[b] - 1 <= _biomeCells[x] + 1 : x != dom && _biomeCells[x] + 1 >= _biomeCells[dom]) return;
+            _cellBiome[idx] = (byte)x;
+            _biomeCells[b]--;
+            _biomeCells[x]++;
+            _climateDirty = true;
+            BiomeBlends++;
+            // The old biome's plants make way like grass under a closing canopy and the succession regrows the cell
+            // with the new biome's species. A collected (foreign) species stays where it stands, as everywhere.
+            var spec = Biomes.Of(x);
+            for (int p = 0; p < _plants.Count; p++)
+            {
+                var pl = _plants[p];
+                if (pl.dying || pl.cell != idx || spec.IsNative(pl.kind) || !NativeHere(pl.kind)) continue;
+                pl.dying = true;
+                pl.fadeRate = CanopyFadeRate;
+                _counts[idx * K + pl.slot]--;
+                _liveVerts -= LifeMeshes.GetTemplate(pl.kind, pl.variant).vertices.Length;
+                _dirty = true;
+            }
+        }
+
+        // Sets the stage of the cell under localPos (tests, debugging), capped by what the ground carries.
+        public bool SetStageAt(Vector2 localPos, float stage)
+        {
+            if (!_hasGrid) return false;
+            int idx = CellIndex(localPos);
+            if (idx < 0 || !_land[idx]) return false;
+            _stage[idx] = Mathf.Clamp(stage, 0f, _maxStage[idx]);
+            _tintDirty = true;
+            return true;
+        }
+
+        // 0..1 graze mark of the cell under localPos (1 = just grazed bare, 0 = untouched or recovered).
+        public float GrazedAt(Vector2 localPos)
+        {
+            if (!_hasGrid) return 0f;
+            int idx = CellIndex(localPos);
+            return idx < 0 ? 0f : _grazed[idx];
+        }
+
+        // Cells to the nearest shore cell (0 = on the shore, 3 = three or more, 255 = water or off the grid).
+        public int CoastDistanceAt(Vector2 localPos)
+        {
+            if (!_hasGrid) return CoastWater;
+            int idx = CellIndex(localPos);
+            return idx < 0 ? CoastWater : _coast[idx];
+        }
+
         public float BurnAt(Vector2 localPos)
         {
             if (!_hasGrid) return 0f;
@@ -612,9 +940,20 @@ namespace Drift.Life
 
         void OnEnable()
         {
+            _enabledCount++;
+            if (LifeEnvironment.SeasonProvider == null) LifeEnvironment.SeasonProvider = SeasonProviderFn;
             _surface = GetComponent<IIslandSurface>();
             RecountBiomes();
             if (_surface != null && _surface.LandArea > 0f) Repopulate();
+        }
+
+        void OnDisable()
+        {
+            _enabledCount = Mathf.Max(0, _enabledCount - 1);
+            if (_nearCur == this) _nearCur = null;
+            if (_nearPrev == this) _nearPrev = null;
+            if (SeasonSource == this) SeasonSource = null;
+            if (_enabledCount == 0 && LifeEnvironment.SeasonProvider == SeasonProviderFn) LifeEnvironment.SeasonProvider = null;
         }
 
         void OnDestroy()
@@ -857,6 +1196,10 @@ namespace Drift.Life
             _foreignAt = new byte[n * K];
             _cellColor = new Color[n];
             _cellBiome = new byte[n];
+            _grazed = new float[n]; _grazeBaked = new float[n];
+            _climate = new float[n]; _climateTmp = new float[n]; _climateW = new float[n];
+            _coast = new byte[n];
+            _climateDirty = true;
             for (int i = 0; i < n; i++) _bloomBaked[i] = 0.5f;
         }
 
@@ -864,6 +1207,7 @@ namespace Drift.Life
         // biomes' species is what counts as native here. Once per grid build, never per frame.
         void RecountBiomes()
         {
+            _climateDirty = true;
             Array.Clear(_biomeCells, 0, _biomeCells.Length);
             if (_cellBiome != null && _land != null)
                 for (int i = 0; i < _land.Length; i++)
@@ -960,7 +1304,7 @@ namespace Drift.Life
             }
 
             var oStage = _stage; var oBurn = _burn; var oFire = _fireT; var oLand = _land; var oPatch = _firePatch;
-            var oBloom = _bloomBaked; var oBurnBaked = _burnBaked; var oBiome = _cellBiome;
+            var oBloom = _bloomBaked; var oBurnBaked = _burnBaked; var oBiome = _cellBiome; var oGrazed = _grazed;
             int onx = _nx, onz = _nz; Vector2 oOrigin = _origin;
             bool hadGrid = _hasGrid;
 
@@ -992,6 +1336,7 @@ namespace Drift.Life
                         if (oPatch != null) _firePatch[idx] = oPatch[oi];
                         _bloomBaked[idx] = oBloom[oi]; _burnBaked[idx] = oBurnBaked[oi];
                         _cellBiome[idx] = oBiome != null ? oBiome[oi] : BiomeUnset;
+                        if (oGrazed != null) _grazed[idx] = oGrazed[oi];
                     }
                     else
                     {
@@ -1043,7 +1388,24 @@ namespace Drift.Life
                                 shore = ni < 0 || nj < 0 || ni >= _nx || nj >= _nz || !_land[nj * _nx + ni];
                             }
                     _shore[idx] = shore;
+                    _coast[idx] = !_land[idx] ? CoastWater : shore ? (byte)0 : CoastFar;
                 }
+            // Two rings inland (reeds grow within two cells of the shore; fish only at it).
+            for (byte d = 1; d < CoastFar; d++)
+                for (int j = 0; j < _nz; j++)
+                    for (int i = 0; i < _nx; i++)
+                    {
+                        int idx = j * _nx + i;
+                        if (_coast[idx] != CoastFar) continue;
+                        for (int dj = -1; dj <= 1; dj++)
+                            for (int di = -1; di <= 1; di++)
+                            {
+                                int ni = i + di, nj = j + dj;
+                                if (ni < 0 || nj < 0 || ni >= _nx || nj >= _nz || _coast[nj * _nx + ni] != d - 1) continue;
+                                _coast[idx] = d;
+                                di = dj = 2;
+                            }
+                    }
         }
 
         // Walks downhill from a shore cell's centre (with a little sideways scatter) until the ground lies in
@@ -1080,7 +1442,7 @@ namespace Drift.Life
                     CellProps(idx, _surface.SampleHeight(CellCenter(i, j)));
                     if (!_land[idx])
                     {
-                        _stage[idx] = 0f; _burn[idx] = 0f; _fireT[idx] = 0f;
+                        _stage[idx] = 0f; _burn[idx] = 0f; _fireT[idx] = 0f; _grazed[idx] = 0f;
                         continue;
                     }
                     _landCells++;
@@ -1135,6 +1497,15 @@ namespace Drift.Life
             float dist = LifeLod.Distance(transform.position);
             if (_vegRenderer != null) _vegRenderer.enabled = dist < hideDistance;
             Tier = LifeLod.Tier(dist, detailDistance, simDistance);
+            int frame = Time.frameCount;
+            if (frame != _nearFrame)
+            {
+                if (_nearCur != null) _nearPrev = _nearCur;
+                _nearCur = null;
+                _nearDist = float.MaxValue;
+                _nearFrame = frame;
+            }
+            if (dist < _nearDist) { _nearDist = dist; _nearCur = this; }
 
             _tickTimer += dt;
             float interval = Tier == LifeTier.Far ? tickInterval * farTickFactor : tickInterval;
@@ -1188,6 +1559,12 @@ namespace Drift.Life
             }
             float spreadDt = ldt * (1f - fireRainDamping * Mathf.Clamp01(storm));
             _spreadTo.Clear();
+            float grazeFade = ldt / Mathf.Max(1e-3f, grazeRecoverSeconds * timeScale);
+            // Seam blending rides on the sweep: only islands with more than one biome, one cell in BlendStride per
+            // tick, and the neighbour is only looked at on the rare hit.
+            bool blend = biomeBlendRate > 0f && (_biomesPresent & (_biomesPresent - 1)) != 0;
+            float blendP = blend ? 1f - Mathf.Exp(-biomeBlendRate * ldt * BlendStride) : 0f;
+            int blendPhase = Ticks & (BlendStride - 1);
 
             for (int j = 0; j < _nz; j++)
                 for (int i = 0; i < _nx; i++)
@@ -1206,8 +1583,15 @@ namespace Drift.Life
                     }
 
                     float grow = growthRate * _fert[idx] * ldt * (1f + _burn[idx]);
+                    float g = _grazed[idx];
+                    if (g > 0f)
+                    {
+                        grow *= 1f - (1f - grazeRegrowFactor) * Smooth(0f, 0.35f, g);
+                        _grazed[idx] = Mathf.Max(0f, g - grazeFade);
+                    }
                     _stage[idx] = Mathf.Min(_stage[idx] + grow, _maxStage[idx]);
                     _burn[idx] = Mathf.Max(0f, _burn[idx] - burnFadeRate * ldt);
+                    if (blend && (idx & (BlendStride - 1)) == blendPhase && Rand() < blendP) BlendCell(i, j, idx);
                 }
             // Lit after the sweep, so a fresh cell never spreads in the tick that lit it (the old in-sweep ignition
             // let a fire run several cells towards +x/+z within one tick).
@@ -1652,6 +2036,12 @@ namespace Drift.Life
                     _burnBaked[idx] = bu;
                     if (_counts[idx * K + SlotGrass] > 0) changed = true;
                 }
+                float gz = _grazed[idx];
+                if (Mathf.Abs(gz - _grazeBaked[idx]) > bloomRebuildStep || (gz == 0f && _grazeBaked[idx] > 0f))
+                {
+                    _grazeBaked[idx] = gz;
+                    if (_counts[idx * K + SlotGrass] > 0) changed = true;
+                }
             }
             if (Mathf.Abs(_season - _bakedSeason) > seasonRebuildStep)
             {
@@ -1717,6 +2107,12 @@ namespace Drift.Life
         }
 
         static readonly Color Char = new Color(0.07f, 0.06f, 0.05f).linear;
+        // Cropped grass: shorter and straw-coloured while the cell's graze mark lasts; the open ground under it
+        // yellows by GrazedGround (multipliers, so every biome palette keeps its own hue).
+        const float GrazedGrassScale = 0.5f;
+        static readonly Color GrazedGrass = new Color(1.25f, 1.0f, 0.55f);
+        static readonly Color GrazedGround = new Color(1.18f, 0.94f, 0.62f);
+        const float GrazedGroundStrength = 0.6f;
         static readonly Color ShootColour = new Color(0.8f, 1.3f, 0.65f);
 
         // Season keys (multipliers) at 0 spring, 0.25 summer, 0.5 autumn, 0.75 late autumn, wrapping back.
@@ -1784,6 +2180,12 @@ namespace Drift.Life
                             float sh = Mathf.Clamp01(_burnBaked[cell] / 0.9f);
                             scale *= Mathf.Lerp(1f, 0.6f, sh);
                             cs = Color.Lerp(cs, ShootColour, sh);
+                        }
+                        if (cell >= 0 && _grazeBaked[cell] > 0f)
+                        {
+                            float gz = _grazeBaked[cell];
+                            scale *= Mathf.Lerp(1f, GrazedGrassScale, gz);
+                            cs = Color.Lerp(cs, new Color(cs.r * GrazedGrass.r, cs.g * GrazedGrass.g, cs.b * GrazedGrass.b, 1f), gz);
                         }
                         break;
                     case SlotFlower:
@@ -1885,6 +2287,12 @@ namespace Drift.Life
                 c = Color.Lerp(c, biome.snow, snow);
             }
             if (Settlement != null && Settlement.Clears(CellCenter(idx % _nx, idx / _nx))) c = Color.Lerp(c, IslandSettlementSystem.VillageGround, 0.8f);
+            float gz = _grazed[idx];
+            if (gz > 0f)
+            {
+                float k = GrazedGroundStrength * gz * (1f - TreeCover(s));
+                c = new Color(c.r * Mathf.Lerp(1f, GrazedGround.r, k), c.g * Mathf.Lerp(1f, GrazedGround.g, k), c.b * Mathf.Lerp(1f, GrazedGround.b, k), c.a);
+            }
             c = Color.Lerp(c, Burnt, Mathf.Clamp01(_burn[idx]));
             c.a = 1f - 0.85f * Mathf.Clamp01(_burn[idx]);
             int ch = Character;

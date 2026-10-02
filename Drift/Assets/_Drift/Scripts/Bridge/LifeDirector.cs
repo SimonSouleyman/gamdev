@@ -161,6 +161,45 @@ namespace Drift.Bridge
         }
     }
 
+    // How often herd moments may become a line in the news chip: a gap after any of them and a longer cooldown per
+    // goal, so a migrating herd is news and not a ticker. Pure so it can be tested.
+    public sealed class MomentToastGate
+    {
+        public float gapSeconds = 40f;
+        public float cooldownSeconds = 150f;
+
+        static readonly int GoalCount = Enum.GetValues(typeof(HerdGoal)).Length;
+        readonly float[] _lastAt = new float[GoalCount];
+        float _last;
+
+        public int Shown { get; private set; }
+
+        public MomentToastGate() => Reset();
+
+        public void Reset()
+        {
+            _last = -1e9f;
+            for (int i = 0; i < _lastAt.Length; i++) _lastAt[i] = -1e9f;
+            Shown = 0;
+        }
+
+        public bool Allow(HerdGoal goal, float clock)
+        {
+            int i = (int)goal;
+            if (goal == HerdGoal.None || i < 0 || i >= _lastAt.Length) return false;
+            return clock - _last >= gapSeconds && clock - _lastAt[i] >= cooldownSeconds;
+        }
+
+        public void Note(HerdGoal goal, float clock)
+        {
+            int i = (int)goal;
+            if (i < 0 || i >= _lastAt.Length) return;
+            _last = clock;
+            _lastAt[i] = clock;
+            Shown++;
+        }
+    }
+
     // The cozy rhythm keeper: listens to everything a watcher would notice (Moments, world events, encounters,
     // milestones, merges) with the playtest recorder's rule - on screen and at least 20 px tall - and, when the
     // view has been quiet for a jittered few seconds, starts something in front of the camera: a herd's signature
@@ -221,6 +260,16 @@ namespace Drift.Bridge
         [Tooltip("Nachts werden Fische, Delfine, Wale und Meeres-Ereignisse so viel stärker gewichtet.")]
         [Range(0f, 5f)] public float nightSeaBoost = 1.5f;
 
+        [Header("Meldungen")]
+        [Tooltip("Tut eine Herde im Bild etwas Besonderes (zieht zur neuen Weide, sucht Schutz vor dem Regen, kuschelt gegen die Kälte, alle treffen sich am Wasser …), sagt eine kurze Meldung, was los ist. Tippen darauf beobachtet die Herde.")]
+        public bool momentToasts = true;
+        [Tooltip("Mindestabstand (s) zwischen zwei solchen Meldungen.")]
+        [Range(5f, 300f)] public float momentToastGap = 40f;
+        [Tooltip("So lange (s) kommt dieselbe Meldung (z. B. \"zieht zur neuen Weide\") nicht noch einmal.")]
+        [Range(10f, 900f)] public float momentToastCooldown = 150f;
+        [Tooltip("So groß (px) muss die Herde auf dem Bildschirm sein, damit ihr Ereignis gemeldet wird.")]
+        [Range(5f, 60f)] public float momentToastPx = 14f;
+
         [Header("Verweise")]
         [Tooltip("So oft (s) werden fehlende Verweise (Kamera, Systeme) neu gesucht.")]
         [Range(0.5f, 10f)] public float resolveInterval = 2f;
@@ -270,6 +319,8 @@ namespace Drift.Bridge
 
         // The playtest recorder's subject size for an encounter.
         const float EncounterSize = 4f;
+        // A herd's size on screen for the moment-toast rule, and how far from the moment's point its herd may stand.
+        const float HerdToastSize = 1.5f, HerdToastReach = 8f;
         static readonly AnimalActivity[] WanderMoves = { AnimalActivity.Stroll, AnimalActivity.Visit, AnimalActivity.Spread };
 
         LifePacer _pacer;
@@ -287,6 +338,8 @@ namespace Drift.Bridge
         Vector2 _viewCenter;
         float _viewRadius;
         bool _hasView;
+        readonly MomentToastGate _toastGate = new();
+        float _toastClock;
 
         public LifePacer Pacer => _pacer;
         public bool Running => _active;
@@ -298,6 +351,8 @@ namespace Drift.Bridge
         public float PxAtView => _pxAtView;
         public bool FarView => _far;
         public int FlocksCalled { get; private set; }
+        public MomentToastGate ToastGate => _toastGate;
+        public string LastMomentToast { get; private set; } = "";
         float PickPx => _far ? Mathf.Min(pickPx, farPickPx) : pickPx;
 
         void OnEnable()
@@ -416,6 +471,7 @@ namespace Drift.Bridge
 
         public void Tick(float dt)
         {
+            _toastClock += Mathf.Max(0f, dt);
             _resolveT -= dt;
             if (_resolveT <= 0f)
             {
@@ -462,6 +518,153 @@ namespace Drift.Bridge
         {
             _momentSerial++;
             if (_active && Noticed(world, Moments.SubjectSize(kind))) _pacer.Notice();
+            if (_active) TryMomentToast(kind, world);
+        }
+
+        // ------------------------------------------------------------------ moment toasts
+
+        // "Sichtbarkeit": a herd that follows one of the environment rules near the camera says so in the news chip.
+        // Returns whether a line was shown (public so tests and eval take the same route as a reported moment).
+        public bool TryMomentToast(MomentKind kind, Vector3 world)
+        {
+            var goal = ToastGoalOf(kind);
+            if (!momentToasts || watch == null || goal == HerdGoal.None) return false;
+            _toastGate.gapSeconds = momentToastGap;
+            _toastGate.cooldownSeconds = momentToastCooldown;
+            if (!_toastGate.Allow(goal, _toastClock)) return false;
+            if (!Moments.Noticed(_cam, world, HerdToastSize, 0.02f, momentToastPx)) return false;
+            string plural = null, other = null;
+            WatchSubject subject = null;
+            if (FindHerdAt(world, goal, HerdToastReach, out var island, out var herds, out int herd, out int mate))
+            {
+                plural = LifeNames.Plural(herds.HerdKind(herd));
+                if (mate >= 0) other = LifeNames.Plural(herds.HerdKind(mate));
+                var watched = watch.Watched;
+                // Already watching that herd: the line explains what is on screen, there is nowhere to fly.
+                if (watched == null || watched.herds != herds || watched.herd != herd) subject = WatchSubjects.OfHerd(island, herds, herd);
+            }
+            string text = MomentToastText(goal, plural, other);
+            if (!watch.ShowMoment(text, subject)) return false;
+            _toastGate.Note(goal, _toastClock);
+            LastMomentToast = text;
+            return true;
+        }
+
+        // The herd a moment at `world` is about: the nearest herd middle within `reach` on a loaded island, one that
+        // has the moment's goal counting as twice as close. `mate` = the nearest herd of another kind on the same
+        // island within twice the reach (who a mixed herd mingles with), -1 for none.
+        public static bool FindHerdAt(Vector3 world, HerdGoal goal, float reach, out Island island, out IslandHerdSystem herds, out int herd, out int mate)
+        {
+            island = null;
+            herds = null;
+            herd = mate = -1;
+            float best = float.MaxValue;
+            var p = new Vector2(world.x, world.z);
+            var all = Island.All;
+            for (int k = 0; k < all.Count; k++)
+            {
+                var isl = all[k];
+                if (isl == null || !isl.isActiveAndEnabled || isl.IsSunk) continue;
+                if (!isl.TryGetComponent(out IslandHerdSystem hs) || !hs.enabled) continue;
+                for (int h = 0; h < hs.HerdCount; h++)
+                {
+                    if (hs.HerdSize(h) == 0) continue;
+                    float d = (HerdPlanar(isl, hs, h) - p).magnitude;
+                    if (d > reach) continue;
+                    if (goal != HerdGoal.None && hs.GoalOf(h) == goal) d *= 0.5f;
+                    if (d >= best) continue;
+                    best = d;
+                    island = isl;
+                    herds = hs;
+                    herd = h;
+                }
+            }
+            if (herds == null) return false;
+            var kind = herds.HerdKind(herd);
+            var at = HerdPlanar(island, herds, herd);
+            float bestMate = float.MaxValue;
+            for (int h = 0; h < herds.HerdCount; h++)
+            {
+                if (h == herd || herds.HerdSize(h) == 0 || herds.HerdKind(h) == kind) continue;
+                float d = (HerdPlanar(island, herds, h) - at).magnitude;
+                if (d > 2f * reach) continue;
+                if (goal != HerdGoal.None && herds.GoalOf(h) == goal) d *= 0.5f;
+                if (d >= bestMate) continue;
+                bestMate = d;
+                mate = h;
+            }
+            return true;
+        }
+
+        static Vector2 HerdPlanar(Island island, IslandHerdSystem herds, int herd)
+        {
+            var c = herds.HerdCenter(herd);
+            var w = island.transform.TransformPoint(new Vector3(c.x, 0f, c.y));
+            return new Vector2(w.x, w.z);
+        }
+
+        // MomentKind -> the goal a toast speaks about, matched by name (MomentKind.Migrate -> HerdGoal.Migrate), so
+        // the mapping holds whatever order the moment kinds are appended in.
+        // TODO(v0.6.8 integration): once MomentKind has Migrate, Gather, Mingle, Huddle, Court and Shelter this
+        // can become a plain switch on the enum.
+        static HerdGoal[] _momentGoals;
+
+        public static HerdGoal ToastGoalOf(MomentKind kind)
+        {
+            if (_momentGoals == null)
+            {
+                var values = (MomentKind[])Enum.GetValues(typeof(MomentKind));
+                int max = 0;
+                foreach (var v in values) max = Mathf.Max(max, (int)v);
+                var map = new HerdGoal[max + 1];
+                foreach (var v in values) if ((int)v >= 0) map[(int)v] = ToastGoalOfName(v.ToString());
+                _momentGoals = map;
+            }
+            int i = (int)kind;
+            return i >= 0 && i < _momentGoals.Length ? _momentGoals[i] : HerdGoal.None;
+        }
+
+        // The moment kinds (by enum name) that become a toast.
+        public static HerdGoal ToastGoalOfName(string momentName)
+        {
+            switch (momentName)
+            {
+                case "Migrate": return HerdGoal.Migrate;
+                case "Gather": return HerdGoal.Gather;
+                case "Mingle": return HerdGoal.Mingle;
+                case "Huddle": return HerdGoal.Huddle;
+                case "Court": return HerdGoal.Court;
+                case "Shelter": return HerdGoal.Shelter;
+                default: return HerdGoal.None;
+            }
+        }
+
+        // The toast line for a goal; `plural` / `otherPlural` are the species names ("Zebras"), null when unknown -
+        // the line then speaks of "die Herde", it is never empty for a toast goal. "" for any other goal.
+        public static string MomentToastText(HerdGoal goal, string plural, string otherPlural)
+        {
+            bool known = !string.IsNullOrEmpty(plural);
+            switch (goal)
+            {
+                case HerdGoal.Migrate: return known ? "Die " + plural + " ziehen zur neuen Weide" : "Eine Herde zieht zur neuen Weide";
+                case HerdGoal.Gather: return "Alle treffen sich am Wasser";
+                case HerdGoal.Mingle:
+                    return known && !string.IsNullOrEmpty(otherPlural) && otherPlural != plural
+                        ? plural + " und " + otherPlural + " ziehen zusammen"
+                        : "Zwei Herden ziehen zusammen";
+                case HerdGoal.Huddle: return known ? "Die " + plural + " kuscheln gegen die Kälte" : "Die Herde kuschelt gegen die Kälte";
+                case HerdGoal.Court: return known ? "Paarungszeit bei den " + DativePlural(plural) : "Paarungszeit auf der Insel";
+                case HerdGoal.Shelter: return known ? "Die " + plural + " suchen Schutz vor dem Regen" : "Die Herde sucht Schutz vor dem Regen";
+                default: return "";
+            }
+        }
+
+        // "bei den Schafen", "bei den Hasen", "bei den Zebras": the dative plural adds an -n unless it ends in -n or -s.
+        public static string DativePlural(string plural)
+        {
+            if (string.IsNullOrEmpty(plural)) return "";
+            char last = plural[plural.Length - 1];
+            return last == 'n' || last == 's' ? plural : plural + "n";
         }
 
         void OnWorldEvent(WorldEventKind kind, Vector3 at)

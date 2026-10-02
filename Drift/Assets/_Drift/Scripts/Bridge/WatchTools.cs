@@ -26,8 +26,11 @@ namespace Drift.Bridge
 
         const string CanvasName = "WatchToolsCanvas";
         const float ToastSeconds = 3f;
-        // Lower edge of "Zurück zur Insel" + herd chip, measured from the top of the safe area.
-        const float FollowUiBottom = 700f;
+        // Lower edge of "Zurück zur Insel" + herd chip + orbit hint, measured from the top of the safe area. The herd
+        // chip has a second line (diet, hunger), so the hint sits lower than it used to; MilestoneToasts.ToastTopWatching
+        // still has to fit under the news chip below this.
+        const float FollowUiBottom = 704f;
+        const float ChipTop = -532f, ChipHeight = 68f, ChipHeightTwoLines = 96f, HintGap = 10f;
 
         public GameSession session;
         public Island player;
@@ -178,7 +181,8 @@ namespace Drift.Bridge
         bool _popupPlaced, _popupBelow;
 
         GameObject _followButton, _followChip;
-        Text _followChipText;
+        Text _followChipText, _followChipDetail;
+        bool _chipTwoLines;
         // The one thing being watched, whichever entry point started it; null = not watching. A herd brings its
         // system along (chip, popup, herd framing), anything else a focus function.
         WatchSubject _watch;
@@ -189,7 +193,7 @@ namespace Drift.Bridge
         Vector2 _followCenter;
         Vector3 _followFocus;
         float _followRadius = 1.5f, _chipTimer;
-        int _chipSize = -1, _chipMood = -1;
+        int _chipSize = -1, _chipMood = -1, _chipGoal = -1, _chipHunger = -2;
         // The camera watches the middle of the animals themselves (island frame, eased), not the herd's leading
         // centre point, which runs ahead of a moving herd; _herdSpread is the largest animal distance from it.
         Vector2 _focusLocal;
@@ -299,6 +303,8 @@ namespace Drift.Bridge
         public string PopupOrigin => _popupForeign && _popupOrigin != null ? _popupOrigin.text : "";
         public int FollowedHerd => Following ? _followHerd : -1;
         public string FollowChipText => _followChipText != null ? _followChipText.text : "";
+        // The herd chip's second line ("frisst Gras  ·  hungrig"); empty for anything that is not a herd.
+        public string FollowChipDetail => _followChipDetail != null && _chipTwoLines ? _followChipDetail.text : "";
         public DiscoveryJournal Journal => saveManager != null ? saveManager.Journal : null;
         public JournalPanel JournalView => _journalPanel;
         public CollectionToasts Toasts => _toasts;
@@ -586,6 +592,11 @@ namespace Drift.Bridge
 
         // Collection toasts wait while photo mode, the journal or the album is up and never outlive their run.
         float _noticeTimer;
+        // What a moment notice ("Die Zebras ziehen zur neuen Weide") is about: a tap on it watches that.
+        WatchSubject _noticeSubject;
+
+        public bool NoticeShowing => _noticeTimer > 0f;
+        public WatchSubject NoticeSubject => _noticeTimer > 0f ? _noticeSubject : null;
 
         // The news chip was tapped (public so tests and eval take the same route as a finger).
         public void OnNewsTapped()
@@ -593,6 +604,15 @@ namespace Drift.Bridge
             var t = _toasts.Current;
             if (_noticeTimer > 0f)
             {
+                if (_noticeSubject != null)
+                {
+                    var subject = _noticeSubject;
+                    _noticeSubject = null;
+                    _noticeTimer = 0f;
+                    SetActive(_newsChip, false);
+                    BeginWatch(subject);
+                    return;
+                }
                 if (!_noticePhoto) return;
                 _noticePhoto = false;
                 _noticeTimer = 0f;
@@ -1233,7 +1253,8 @@ namespace Drift.Bridge
                 _focusSnap = true;
                 StepHerdFocus(0f);
                 _followRadius = TargetFollowRadius();
-                _chipSize = _chipMood = -1;
+                _chipSize = _chipMood = _chipGoal = -1;
+                _chipHunger = -2;
                 _chipTimer = 0f;
             }
             else
@@ -1242,6 +1263,7 @@ namespace Drift.Bridge
                 _followFocus = focus;
                 _followRadius = subject.radius;
                 if (_followChipText != null) _followChipText.text = subject.label;
+                SetChipDetail("");
             }
             UpdateFollow();
             if (!Following) return false;
@@ -1338,13 +1360,26 @@ namespace Drift.Bridge
 
         // A one-line message in the news chip, outside the collection queue. A photo hint can be tapped: it takes the
         // camera to the creature it is about and opens photo mode.
-        void ShowNotice(string text, bool photoHint = false)
+        void ShowNotice(string text, bool photoHint = false, WatchSubject subject = null)
         {
             _toasts.Dismiss();
             _noticeTimer = photoHint ? photoHintSeconds : noticeSeconds;
             _noticePhoto = photoHint;
-            ShowNews(new CollectionToast { text = text, strong = photoHint, photo = photoHint, count = photoHint ? 1 : 0 });
+            _noticeSubject = photoHint ? null : subject;
+            bool tappable = photoHint || _noticeSubject != null;
+            ShowNews(new CollectionToast { text = text, strong = tappable, photo = photoHint, count = tappable ? 1 : 0 });
             SetActive(_newsChip, true);
+        }
+
+        // Something the herds are doing near the camera, said in one line (LifeDirector: a herd sets off for greener
+        // grass, everyone meets at the water). It never pushes a collection toast or another notice off the chip and
+        // is dropped instead; a tap watches `subject`. False when it was not shown.
+        public bool ShowMoment(string text, WatchSubject subject)
+        {
+            if (string.IsNullOrEmpty(text) || _newsText == null || !WatchRules.Allowed(WatchFeature.DiscoveryToast)) return false;
+            if (_noticeTimer > 0f || _toasts.Showing || _photoActive || _journalOpen || _album.IsOpen) return false;
+            ShowNotice(text, false, subject);
+            return true;
         }
 
         public void ReturnToIsland()
@@ -1569,11 +1604,21 @@ namespace Drift.Bridge
             _chipTimer = 0.4f;
             int size = _followHerds.HerdSize(_followHerd);
             int mood = HerdMood(_followHerds, _followHerd);
-            if (size == _chipSize && mood == _chipMood) return;
+            var goal = _followHerds.GoalOf(_followHerd);
+            float hunger = HerdHunger(_followHerds, _followHerd);
+            int hungerLevel = HungerLevel(hunger);
+            if (size == _chipSize && mood == _chipMood && (int)goal == _chipGoal && hungerLevel == _chipHunger) return;
             _chipSize = size;
             _chipMood = mood;
-            FillFollowChip(_followKind, size, mood);
+            _chipGoal = (int)goal;
+            _chipHunger = hungerLevel;
+            if (_followChipText != null) _followChipText.text = FollowChipLine(_followKind, size, mood, goal);
+            SetChipDetail(FollowChipDetailLine(_followHerds.DietOf(_followHerd), hunger));
         }
+
+        // 0..1, 1 = starving; below 0 = not known (the chip then names the diet only).
+        // TODO(v0.6.8 integration): return herds.HungerOf(herd) once IslandHerdSystem has it (Needs layer).
+        static float HerdHunger(IslandHerdSystem herds, int herd) => herds != null ? herds.HungerOf(herd) : -1f;
 
         // Asked again in LateUpdate, after the islands have moved this frame.
         Vector3 FollowFocusOf()
@@ -1602,16 +1647,77 @@ namespace Drift.Bridge
 
         public static string PluralOf(LifeKind kind) => LifeNames.Plural(kind);
 
-        public static string FollowChipLine(LifeKind kind, int size, int mood)
+        public static string FollowChipLine(LifeKind kind, int size, int mood) => FollowChipLine(kind, size, mood, HerdGoal.None);
+
+        // The herd's goal ("zieht zur neuen Weide") replaces the plain activity word while it has one; a goal without
+        // a label falls back to the activity, and an empty activity drops its separator.
+        public static string FollowChipLine(LifeKind kind, int size, int mood, HerdGoal goal)
         {
-            string m = mood >= 0 && mood < Moods.Length ? Moods[mood] : "";
-            return size == 1 ? NameOf(kind) + "  ·  allein  ·  " + m : PluralOf(kind) + "  ·  " + size + " Tiere  ·  " + m;
+            string m = goal != HerdGoal.None ? HerdGoals.Label(goal) : "";
+            if (string.IsNullOrEmpty(m)) m = mood >= 0 && mood < Moods.Length ? Moods[mood] : "";
+            string head = size == 1 ? NameOf(kind) + "  ·  allein" : PluralOf(kind) + "  ·  " + size + " Tiere";
+            return string.IsNullOrEmpty(m) ? head : head + "  ·  " + m;
+        }
+
+        // The chip's second line: what the herd eats and, once the herds report it, how hungry it is.
+        public static string FollowChipDetailLine(Diet diet, float hunger)
+        {
+            string line = "frisst " + HerdGoals.DietLabel(diet);
+            string h = HungerWord(hunger);
+            return h.Length > 0 ? line + "  ·  " + h : line;
+        }
+
+        public const float HungryFrom = 0.4f, VeryHungryFrom = 0.75f;
+
+        // -1 = unknown, 0 satt, 1 hungrig, 2 sehr hungrig.
+        public static int HungerLevel(float hunger) =>
+            float.IsNaN(hunger) || hunger < 0f ? -1 : hunger >= VeryHungryFrom ? 2 : hunger >= HungryFrom ? 1 : 0;
+
+        public static string HungerWord(float hunger)
+        {
+            switch (HungerLevel(hunger))
+            {
+                case 0: return "satt";
+                case 1: return "hungrig";
+                case 2: return "sehr hungrig";
+                default: return "";
+            }
         }
 
         void FillFollowChip(LifeKind kind, int size, int mood)
         {
             if (_followChipText != null) _followChipText.text = FollowChipLine(kind, size, mood);
         }
+
+        // Two lines for a herd, one for anything else; the orbit hint under the chip moves with its height.
+        void SetChipDetail(string detail)
+        {
+            if (_followChipDetail == null) return;
+            bool two = !string.IsNullOrEmpty(detail);
+            _followChipDetail.text = detail ?? "";
+            if (two == _chipTwoLines) return;
+            _chipTwoLines = two;
+            LayoutFollowChip();
+            // The orbit hint under the chip moves along now, not on its next layout change.
+            if (_hintRect != null && (_hintShown < 0 || (_hintShown & 2) == 0))
+                _hintRect.anchoredPosition = new Vector2(_hintRect.anchoredPosition.x, HintTop);
+        }
+
+        void LayoutFollowChip()
+        {
+            if (_followChip == null || _followChipText == null || _followChipDetail == null) return;
+            float h = _chipTwoLines ? ChipHeightTwoLines : ChipHeight;
+            ((RectTransform)_followChip.transform).TopCenter(new Vector2(0f, ChipTop), new Vector2(680f, h));
+            SetActive(_followChipDetail.gameObject, _chipTwoLines);
+            if (_chipTwoLines)
+            {
+                _followChipText.rectTransform.Stretch(UiStyle.Gap, 44f, UiStyle.Gap, 6f);
+                _followChipDetail.rectTransform.Stretch(UiStyle.Gap, 8f, UiStyle.Gap, 52f);
+            }
+            else _followChipText.rectTransform.Stretch(UiStyle.Gap, 0f, UiStyle.Gap, 2f);
+        }
+
+        float HintTop => ChipTop - (_chipTwoLines ? ChipHeightTwoLines : ChipHeight) - HintGap;
 
         // ---------------------------------------------------------------- discovery
 
@@ -2705,7 +2811,7 @@ namespace Drift.Bridge
             _hintText.text = OrbitHint(touchInput, photo);
             var size = new Vector2(photo && !touchInput ? 900f : 820f, photo && !touchInput ? 96f : 60f);
             if (photo) _hintRect.BottomCenter(new Vector2(0f, 308f), size);
-            else _hintRect.TopCenter(new Vector2(0f, -616f), size);
+            else _hintRect.TopCenter(new Vector2(0f, HintTop), size);
         }
 
         // ---------------------------------------------------------------- editor preview
@@ -2763,7 +2869,8 @@ namespace Drift.Bridge
                 SetActive(_popupFollow, true);
                 LayoutPopup(true, OriginLine(LifeKind.Flamingo));
                 FillPopup(LifeKind.Flamingo, true, 7, (int)AnimalState.Play);
-                FillFollowChip(LifeKind.Sheep, 7, (int)AnimalState.Graze);
+                _followChipText.text = FollowChipLine(LifeKind.Sheep, 7, (int)AnimalState.Graze, HerdGoal.Migrate);
+                SetChipDetail(FollowChipDetailLine(Diet.Grass, 0.5f));
                 ShowNews(new CollectionToast { text = CollectionToasts.CollectedText(new[] { CollectionCatalog.IndexOf(LifeKind.Flamingo) }, 1, 1), strong = true });
                 _newsRect.anchoredPosition = new Vector2(0f, NewsTopWatching);
                 _popupRect.anchoredPosition = new Vector2(60f, -160f);
@@ -2999,10 +3106,15 @@ namespace Drift.Bridge
 
         GameObject BuildFollowChip(RectTransform root)
         {
-            var chip = UiStyle.Chip(root, "FollowChip", "", new Vector2(680f, 68f), out _followChipText);
-            chip.TopCenter(new Vector2(0f, -536f), new Vector2(680f, 68f));
+            var chip = UiStyle.Chip(root, "FollowChip", "", new Vector2(680f, ChipHeight), out _followChipText);
+            chip.TopCenter(new Vector2(0f, ChipTop), new Vector2(680f, ChipHeight));
             _followChipText.fontSize = 32;
             _followChipText.color = UiStyle.Cream;
+            _followChipDetail = UiStyle.Label(chip, "", 27, UiStyle.Sand, TextAnchor.MiddleCenter);
+            _followChipDetail.raycastTarget = false;
+            UiStyle.FitWidth(_followChipDetail);
+            _followChipDetail.gameObject.SetActive(false);
+            _chipTwoLines = false;
             return chip.gameObject;
         }
 
@@ -3069,7 +3181,7 @@ namespace Drift.Bridge
         GameObject BuildHint(RectTransform root)
         {
             _hintRect = UiStyle.Chip(root, "OrbitHint", "", new Vector2(820f, 60f), out _hintText);
-            _hintRect.TopCenter(new Vector2(0f, -616f), new Vector2(820f, 60f));
+            _hintRect.TopCenter(new Vector2(0f, HintTop), new Vector2(820f, 60f));
             _hintText.fontSize = 28;
             _hintText.color = UiStyle.CreamSoft;
             _hintShown = -1;

@@ -10,14 +10,20 @@ namespace Drift.Tests
     public class IslandLifeSystemTests
     {
         readonly List<GameObject> _objects = new();
+        System.Func<float> _seasonProvider;
 
         [SetUp]
-        public void SetUp() => LifeLod.DistanceProvider = _ => 0f;
+        public void SetUp()
+        {
+            LifeLod.DistanceProvider = _ => 0f;
+            _seasonProvider = LifeEnvironment.SeasonProvider;
+        }
 
         [TearDown]
         public void TearDown()
         {
             LifeLod.DistanceProvider = null;
+            LifeEnvironment.SeasonProvider = _seasonProvider;
             foreach (var go in _objects)
                 if (go != null) Object.DestroyImmediate(go);
             _objects.Clear();
@@ -77,8 +83,10 @@ namespace Drift.Tests
         {
             var life = Make(4f, 7, "ClusterIsle", true);
             var herds = life.GetComponent<IslandHerdSystem>();
-            // Fanning out and visiting loosen the formation on purpose; this checks the formation itself.
+            // Fanning out and visiting loosen the formation on purpose, and so does the spring courtship (the life
+            // systems install the season, which starts in spring); this checks the formation itself, in summer.
             herds.strollRate = herds.visitRate = herds.spreadRate = 0f;
+            LifeEnvironment.SeasonProvider = () => 0.375f;
             Assert.Greater(herds.HerdCount, 1);
             for (int h = 0; h < herds.HerdCount; h++)
                 for (int o = 0; o < h; o++)

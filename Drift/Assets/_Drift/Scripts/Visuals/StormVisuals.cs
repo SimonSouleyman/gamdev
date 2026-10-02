@@ -163,14 +163,19 @@ namespace Drift.Visuals
         Island _player;
         float _strikeCooldown;
 
+        System.Func<Vector3, float> _rainProvider;
+
         void OnEnable()
         {
             LifeEnvironment.LightningStruck += OnLightning;
+            _rainProvider = RainAt;
+            LifeEnvironment.RainProvider = _rainProvider;
         }
 
         void OnDisable()
         {
             LifeEnvironment.LightningStruck -= OnLightning;
+            if (LifeEnvironment.RainProvider == _rainProvider) LifeEnvironment.RainProvider = null;
             Flash = 0f;
             Shader.SetGlobalFloat(FlashId, 0f);
             Shader.SetGlobalFloat(StormCountId, 0f);
@@ -248,6 +253,27 @@ namespace Drift.Visuals
             }
             StepBolts(dt);
         }
+
+        // 0..1 rain at a world position (LifeEnvironment.RainProvider): 1 under a storm's cloud mass, fading out over
+        // its outer rim (RainEdge .. 1 of the cloud radius), and with the storm's own fade in and out.
+        public float RainAt(Vector3 world)
+        {
+            float rain = 0f;
+            for (int i = 0; i < StormCount; i++)
+            {
+                var d = _stormData[i];
+                float r = d.z * cloudRadius;
+                if (r <= 0f) continue;
+                float dx = world.x - d.x, dz = world.z - d.y;
+                float q = Mathf.Sqrt(dx * dx + dz * dz) / r;
+                if (q >= 1f) continue;
+                float t = Mathf.Clamp01((q - RainEdge) / (1f - RainEdge));
+                rain = Mathf.Max(rain, (1f - t * t * (3f - 2f * t)) * Mathf.Clamp01(d.w * 4f));
+            }
+            return rain;
+        }
+
+        const float RainEdge = 0.7f;
 
         // ------------------------------------------------------------ lightning
 

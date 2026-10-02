@@ -108,7 +108,7 @@ namespace Drift.Life
         // get the calm gestures, the shade bunch (no goal) all of them.
         static bool IdleCompatible(AnimalActivity act) =>
             act == AnimalActivity.Watch || act == AnimalActivity.Visit || act == AnimalActivity.Spread || act == AnimalActivity.Circle
-            || act == AnimalActivity.Shade;
+            || act == AnimalActivity.Shade || act == AnimalActivity.Graze || act == AnimalActivity.Shelter;
 
         static float S(float x)
         {

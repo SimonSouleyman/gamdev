@@ -129,14 +129,23 @@ namespace Drift.Bridge
 
         // The driving hint of the HUD. Abenteuer drives itself ("man fährt immer"): the input only steers sideways,
         // pulling back brakes and can never bring the island to a stop, so both steering schemes read the same.
-        // tilt: the phone's tilt steering is on, so there is no stick to point at.
+        // tilt: the phone's tilt steering is on, so no finger steers. Touch steering is an invisible stick: a finger
+        // goes down anywhere off the buttons and drags.
         public static string SteerHint(GameMode mode, bool touch, bool direct, bool tilt = false)
         {
             if (mode == GameMode.Adventure)
-                return tilt ? "Neigen: seitlich lenken, zu dir kippen bremst" : touch ? "Stick: seitlich lenken, unten bremsen" : "A/D lenken  ·  S bremsen";
+                return tilt ? "Neigen: seitlich lenken, zu dir kippen bremst" : touch ? "Ziehen: seitlich lenken, nach unten bremsen" : "A/D lenken  ·  S bremsen";
             if (tilt) return "Handy neigen: Richtung";
-            if (touch) return direct ? "Stick links: Richtung" : "Stick links: lenken & Tempo";
+            if (touch) return direct ? "Finger aufsetzen und ziehen: Richtung" : "Finger aufsetzen und ziehen: lenken & Tempo";
             return direct ? "W A S D Richtung" : "W/S Tempo  ·  A/D lenken";
+        }
+
+        // The help's touch row: there is nothing on screen to point at, so it says where the finger goes.
+        public static string SteerHelp(GameMode mode, bool direct)
+        {
+            const string where = "Irgendwo aufsetzen und ziehen:\n";
+            if (mode == GameMode.Adventure) return where + "seitlich lenken, nach unten bremsen";
+            return where + (direct ? "die Insel fährt in diese Richtung" : "lenken & Tempo");
         }
 
         static readonly System.Globalization.CultureInfo German = System.Globalization.CultureInfo.GetCultureInfo("de-DE");

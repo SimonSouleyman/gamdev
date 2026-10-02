@@ -710,6 +710,8 @@ namespace Drift.Islands
             _driftPhase = (Mathf.Abs(shapeSeed) % 1000) * 0.00628f;
             _upliftDur = upliftDuration;
             IsSunk = false;
+            // The HUD's season and the herds' year follow the player's island, not whichever island is nearest.
+            if (useKeyboardInput) IslandLifeSystem.SeasonSource = GetComponent<IslandLifeSystem>();
 
             GenerateShape();
             ApplyTransform();

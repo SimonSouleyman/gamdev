@@ -17,6 +17,9 @@ namespace Drift.Core
         SleepStir,
         // Appended 2026-09-24 (herd meetings): two herds meet and greet, chase, shove, trek or dance together.
         Meeting,
+        // Appended 2026-10-02 (environment layers, v0.6.8): a herd leaves for a greener patch, the dusk gathering at the
+        // water, two species mingling, the winter huddle, courtship, shelter from the rain.
+        Migrate, Gather, Mingle, Huddle, Court, Shelter,
     }
 
     // Something a watcher would notice, reported where and when it starts. Costs a null check without listeners;
@@ -50,6 +53,12 @@ namespace Drift.Core
                 case MomentKind.Spar: return 0.9f;
                 case MomentKind.Errand:
                 case MomentKind.AnimalDive: return 0.7f;
+                case MomentKind.Migrate:
+                case MomentKind.Shelter:
+                case MomentKind.Huddle:
+                case MomentKind.Court: return 1.5f;
+                case MomentKind.Gather:
+                case MomentKind.Mingle: return 2.5f;
                 case MomentKind.BirdMurmur: return 5f;
                 case MomentKind.BirdLanding: return 1.5f;
                 case MomentKind.BirdDive: return 1f;

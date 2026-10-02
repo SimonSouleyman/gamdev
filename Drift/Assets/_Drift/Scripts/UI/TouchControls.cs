@@ -2,41 +2,43 @@ using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.InputSystem;
-using UnityEngine.UI;
 using TouchPhase = UnityEngine.InputSystem.TouchPhase;
 
 namespace Drift.UI
 {
+    // An invisible floating stick (owner: "ganz unsichtbar, ganzer Bildschirm"): a finger that goes down anywhere
+    // off the UI steers by its drag from the touch-down point. Nothing is drawn.
     [ExecuteAlways]
     public class TouchControls : MonoBehaviour, IMoveInputSource
     {
-        const string CanvasName = "TouchCanvas";
+        // The canvas the stick used to draw on; older Editor sessions still carry it as a DontSave child.
+        const string LegacyCanvasName = "TouchCanvas";
 
         public bool forceShowTouch;
         public bool inputEnabled = true;
-        // Off while the tilt steering drives: the thumbstick disappears and every tap counts as a tap again,
-        // but the two-finger pinch zoom keeps working.
+        // Off while the tilt steering drives: no finger steers and every tap counts as a tap again, but the
+        // two-finger pinch zoom keeps working.
         public bool stickEnabled = true;
-        public bool editorPreview;
+        // Canvas units of the 1080x1920 reference, like the rest of the UI.
         public float stickRadius = 150f;
-        public float knobRadius = 70f;
         [Range(0f, 0.5f)] public float deadZone = 0.15f;
-        [Range(0.2f, 1f)] public float stickZoneWidth = 0.5f;
         public float pinchSensitivity = 1f;
-        public int sortingOrder = 20;
-        public Color baseColor = new Color(0.99f, 0.96f, 0.88f, 0.16f);
-        public Color knobColor = new Color(0.99f, 0.96f, 0.88f, 0.62f);
 
-        struct Pointer
+        public struct TouchPointer
         {
             public int id;
             public Vector2 pos;
             public bool began;
+
+            public TouchPointer(int id, Vector2 pos, bool began)
+            {
+                this.id = id;
+                this.pos = pos;
+                this.began = began;
+            }
         }
 
-        readonly List<Pointer> _pointers = new List<Pointer>(10);
-        Canvas _canvas;
-        RectTransform _canvasRect, _base, _knob;
+        readonly List<TouchPointer> _pointers = new List<TouchPointer>(10);
         int _stickId = int.MinValue;
         Vector2 _stickOrigin;
         bool _pinching;
@@ -48,11 +50,13 @@ namespace Drift.UI
         public Vector2 Move { get; private set; }
         public bool StickActive => _stickId != int.MinValue;
         // For tap detection elsewhere: a press only counts as steering once the pointer the stick captured has
-        // left the dead zone. Starting in the stick half alone does not make it a steer.
+        // left the dead zone. Going down off the UI alone does not make it a steer.
         public bool IsPointerOnStick(int pointerId) => StickActive && _stickId == pointerId;
         public bool StickDeflected { get; private set; }
         public bool IsPinching => _pinching;
         public bool Available => forceShowTouch || (Touchscreen.current != null && InputMode.TouchPreferred);
+        // The full deflection in screen pixels, at the UI's canvas scale.
+        public float RadiusPixels => stickRadius * ScaleFactor;
 
         public float ConsumePinchFactor()
         {
@@ -96,12 +100,11 @@ namespace Drift.UI
             _lookDelta = Vector2.zero;
             _gestures.Reset();
             _uiFingerCount = 0;
-            SetVisible(false);
         }
 
         void OnEnable()
         {
-            Build();
+            UiStyle.DestroyChildrenNamed(transform, LegacyCanvasName);
         }
 
         void OnDisable()
@@ -111,21 +114,33 @@ namespace Drift.UI
 
         void Update()
         {
-            if (_canvas == null) return;
-            if (!Application.isPlaying)
-            {
-                SetVisible(editorPreview);
-                if (editorPreview) PlacePreview();
-                return;
-            }
+            if (!Application.isPlaying) return;
             if (!inputEnabled || !Available)
             {
-                if (StickActive || _pinching) Release();
-                else SetVisible(false);
-                if (_gestures.Active) _gestures.Reset();
+                Idle();
                 return;
             }
             CollectPointers();
+            Step();
+        }
+
+        // One input frame from these fingers instead of the touchscreen (tests, play-test bots); none = all lifted.
+        public void Feed(params TouchPointer[] fingers)
+        {
+            _pointers.Clear();
+            if (fingers != null) _pointers.AddRange(fingers);
+            if (inputEnabled) Step();
+            else Idle();
+        }
+
+        void Idle()
+        {
+            if (StickActive || _pinching) Release();
+            if (_gestures.Active) _gestures.Reset();
+        }
+
+        void Step()
+        {
             UpdatePinch();
             if (stickEnabled) UpdateStick();
             else if (StickActive || Move != Vector2.zero) ReleaseStick();
@@ -182,7 +197,7 @@ namespace Drift.UI
             _gestures.QuickTap(id, start, pos, px);
         }
 
-        // The look finger: the first one that starts outside the stick and off the UI. Two fingers are a pinch,
+        // The look finger: the first one that is not the stick's and starts off the UI. Two fingers are a pinch,
         // never a look.
         void UpdateLook()
         {
@@ -215,7 +230,6 @@ namespace Drift.UI
             _stickId = int.MinValue;
             StickDeflected = false;
             Move = Vector2.zero;
-            SetVisible(false);
         }
 
         void CollectPointers()
@@ -228,14 +242,14 @@ namespace Drift.UI
                 {
                     var phase = t.phase.ReadValue();
                     if (phase != TouchPhase.Began && phase != TouchPhase.Moved && phase != TouchPhase.Stationary) continue;
-                    _pointers.Add(new Pointer { id = t.touchId.ReadValue(), pos = t.position.ReadValue(), began = phase == TouchPhase.Began });
+                    _pointers.Add(new TouchPointer(t.touchId.ReadValue(), t.position.ReadValue(), phase == TouchPhase.Began));
                 }
             }
             else if (forceShowTouch && Mouse.current != null)
             {
                 var m = Mouse.current;
                 if (m.leftButton.isPressed)
-                    _pointers.Add(new Pointer { id = -1, pos = m.position.ReadValue(), began = m.leftButton.wasPressedThisFrame });
+                    _pointers.Add(new TouchPointer(-1, m.position.ReadValue(), m.leftButton.wasPressedThisFrame));
             }
         }
 
@@ -261,27 +275,21 @@ namespace Drift.UI
                 for (int i = 0; i < _pointers.Count; i++) if (_pointers[i].id == _stickId) { idx = i; break; }
                 if (idx < 0)
                 {
-                    _stickId = int.MinValue;
-                    StickDeflected = false;
-                    Move = Vector2.zero;
-                    SetVisible(false);
+                    ReleaseStick();
                     return;
                 }
                 if (_pinching)
                 {
                     Move = Vector2.zero;
-                    PlaceKnob(_stickOrigin);
                     return;
                 }
                 Vector2 delta = _pointers[idx].pos - _stickOrigin;
-                float radiusPx = stickRadius * ScaleFactor;
                 float mag = delta.magnitude;
                 Vector2 dir = mag > 1e-3f ? delta / mag : Vector2.zero;
-                float norm = Mathf.Clamp01(mag / radiusPx);
+                float norm = Mathf.Clamp01(mag / RadiusPixels);
                 float scaled = norm <= deadZone ? 0f : (norm - deadZone) / (1f - deadZone);
                 Move = dir * scaled;
                 if (scaled > 0f) StickDeflected = true;
-                PlaceKnob(_stickOrigin + dir * Mathf.Min(mag, radiusPx));
                 return;
             }
 
@@ -289,7 +297,6 @@ namespace Drift.UI
             {
                 var p = _pointers[i];
                 if (!p.began) continue;
-                if (p.pos.x > Screen.width * stickZoneWidth) continue;
                 // Only a fresh raycast: IsPointerOverGameObject answers for the previous UI update, so after a tap on a
                 // button (Tilda's "Weiter") it still said "over UI" for the next touch of that finger id, and the stick
                 // refused the first touch (owner, first APK test: "hängt, erst nach mehrmaligem Probieren").
@@ -298,83 +305,39 @@ namespace Drift.UI
                 StickDeflected = false;
                 _stickOrigin = p.pos;
                 Move = Vector2.zero;
-                SetVisible(true);
-                PlaceBase(p.pos);
-                PlaceKnob(p.pos);
                 break;
             }
         }
 
-        // A fresh UI raycast at this screen point: true when a raycastable graphic (button) is under it.
+        // A fresh UI raycast at this screen point: true when a raycastable graphic (button, toast, bubble) is under it.
+        // Every hit counts: TouchControls sits on SessionUI, the parent of the screens', watch tools' and tutorial
+        // canvases, and skipping "our own" hits used to let a steer start on their buttons.
         static readonly List<RaycastResult> _uiHits = new List<RaycastResult>();
 
-        static bool OverGraphic(Vector2 screen)
+        // Tests stand in for the raycast with this: GraphicRaycaster skips every graphic until a canvas has been
+        // rendered, which never happens inside an Edit Mode test.
+        public static System.Func<Vector2, bool> UiHitOverride;
+
+        public static bool OverGraphic(Vector2 screen)
         {
+            if (UiHitOverride != null) return UiHitOverride(screen);
             var es = EventSystem.current;
             if (es == null) return false;
             _uiHits.Clear();
             es.RaycastAll(new PointerEventData(es) { position = screen }, _uiHits);
             for (int i = 0; i < _uiHits.Count; i++)
-            {
-                var go = _uiHits[i].gameObject;
-                if (go != null && go.GetComponentInParent<TouchControls>() == null) return true;
-            }
+                if (_uiHits[i].gameObject != null) return true;
             return false;
         }
 
-        float ScaleFactor => _canvas != null && _canvas.scaleFactor > 0f ? _canvas.scaleFactor : 1f;
-
-        void PlaceBase(Vector2 screen)
+        // The scale every Drift canvas gets from its CanvasScaler (UiStyle.Canvas: ScaleWithScreenSize, Expand).
+        static float ScaleFactor
         {
-            if (_base == null) return;
-            RectTransformUtility.ScreenPointToLocalPointInRectangle(_canvasRect, screen, null, out var local);
-            _base.anchoredPosition = local;
-        }
-
-        void PlaceKnob(Vector2 screen)
-        {
-            if (_knob == null) return;
-            RectTransformUtility.ScreenPointToLocalPointInRectangle(_canvasRect, screen, null, out var local);
-            _knob.anchoredPosition = local;
-        }
-
-        void PlacePreview()
-        {
-            if (_canvasRect == null) return;
-            var size = _canvasRect.rect.size;
-            var p = new Vector2(-size.x * 0.5f + 260f, -size.y * 0.5f + 360f);
-            _base.anchoredPosition = p;
-            _knob.anchoredPosition = p + new Vector2(40f, 30f);
-        }
-
-        void SetVisible(bool on)
-        {
-            if (_base != null && _base.gameObject.activeSelf != on) _base.gameObject.SetActive(on);
-            if (_knob != null && _knob.gameObject.activeSelf != on) _knob.gameObject.SetActive(on);
-        }
-
-        void Build()
-        {
-            UiStyle.DestroyChildrenNamed(transform, CanvasName);
-            _canvas = UiStyle.Canvas(transform, CanvasName, sortingOrder, false, out _);
-            _canvasRect = (RectTransform)_canvas.transform;
-
-            _base = Disc(_canvas.transform, "StickBase", stickRadius * 2f, baseColor, 1.3f, 0.5f);
-            _knob = Disc(_canvas.transform, "StickKnob", knobRadius * 2f, knobColor, 1.55f, 0.9f);
-            SetVisible(false);
-        }
-
-        // Translucent disc on a blurred shadow; nothing here takes raycasts, the stick reads the pointers itself.
-        static RectTransform Disc(Transform parent, string name, float size, Color color, float shadowScale, float shadowStrength)
-        {
-            var rt = UiStyle.Rect(parent, name).Center(Vector2.zero, new Vector2(size, size));
-            var shadow = UiStyle.Shape(rt, "Shadow", UiSprites.SoftCircle, UiStyle.WithAlpha(UiStyle.Shadow, UiStyle.Shadow.a * shadowStrength));
-            shadow.rectTransform.Center(new Vector2(0f, -size * 0.04f), new Vector2(size, size) * shadowScale);
-            UiStyle.Shape(rt, "Body", UiSprites.Circle, color).rectTransform.Stretch();
-            UiStyle.Shape(rt, "Rim", UiSprites.CircleRing, UiStyle.WithAlpha(UiStyle.Cream, Mathf.Min(1f, color.a * 1.6f))).rectTransform.Stretch();
-            var sheen = UiStyle.Shape(rt, "Sheen", UiSprites.SoftCircle, UiStyle.WithAlpha(UiStyle.Cream, color.a * 0.35f));
-            sheen.rectTransform.Center(new Vector2(0f, size * 0.12f), new Vector2(size, size) * 0.62f);
-            return rt;
+            get
+            {
+                float f = Mathf.Min(Screen.width / UiStyle.Reference.x, Screen.height / UiStyle.Reference.y);
+                return f > 0f ? f : 1f;
+            }
         }
     }
 
