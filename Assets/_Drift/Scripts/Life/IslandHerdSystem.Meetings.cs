@@ -182,7 +182,7 @@ namespace Drift.Life
 
         bool MeetFree(Herd h, bool natural)
         {
-            if (h.members.Count == 0 || h.meeting != null || h.errand != Errand.None || !MeetsOthers(h.spec.kind)) return false;
+            if (h.members.Count == 0 || h.meeting != null || (h.errand != Errand.None && !NeedsYields(h)) || !MeetsOthers(h.spec.kind)) return false;
             if (h.fleeing || h.fleeTimer > 0f || h.refuging || h.diving || h.playT > 0f || h.stampT > 0f || h.tuckT > 0f) return false;
             if (natural && (h.settleT > 0f || _stepClock < h.meetAt)) return false;
             foreach (var a in h.members) if (a.hidden || a.shore || a.state == AnimalState.Sleep) return false;

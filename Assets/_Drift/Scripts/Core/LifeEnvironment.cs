@@ -49,6 +49,28 @@ namespace Drift.Core
             }
         }
 
+        // 0..1 rain at a world position (the storm visuals know where the rain columns are); without a provider
+        // the player's storm strength stands in for every island.
+        public static Func<Vector3, float> RainProvider;
+
+        public static float RainAt(Vector3 worldPosition)
+        {
+            var p = RainProvider;
+            return p != null ? Mathf.Clamp01(p(worldPosition)) : Storm;
+        }
+
+        // 0..1 how far the year has turned (IslandLifeSystem.Season of the player's island); -1 without a provider.
+        public static Func<float> SeasonProvider;
+
+        public static float Season
+        {
+            get
+            {
+                var p = SeasonProvider;
+                return p != null ? Mathf.Repeat(p(), 1f) : -1f;
+            }
+        }
+
         // 0..1 time of day, 0 = midnight, 0.5 = noon (DayNightCycle.TimeOfDay); -1 without a provider, which the
         // herds read as "no noon": the midday behaviours (sheep in the shade, oxen wading) then only come with
         // rain or by chance.

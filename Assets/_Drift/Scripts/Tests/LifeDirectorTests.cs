@@ -365,5 +365,78 @@ namespace Drift.Tests
                 Assert.Greater(Moments.SubjectSize(k), 0f, k.ToString());
             Assert.Greater(Moments.SubjectSize(MomentKind.FireflyWave), Moments.SubjectSize(MomentKind.CritterMove));
         }
+    
+
+        // ------------------------------------------------------------ moment toasts (v0.6.8)
+
+        [Test]
+        public void MomentToast_TextsNameTheSpecies()
+        {
+            Assert.AreEqual("Die Zebras ziehen zur neuen Weide", LifeDirector.MomentToastText(HerdGoal.Migrate, "Zebras", null));
+            Assert.AreEqual("Alle treffen sich am Wasser", LifeDirector.MomentToastText(HerdGoal.Gather, "Zebras", null));
+            Assert.AreEqual("Zebras und Giraffen ziehen zusammen", LifeDirector.MomentToastText(HerdGoal.Mingle, "Zebras", "Giraffen"));
+            Assert.AreEqual("Die Schafe kuscheln gegen die Kälte", LifeDirector.MomentToastText(HerdGoal.Huddle, "Schafe", null));
+            Assert.AreEqual("Paarungszeit bei den Hasen", LifeDirector.MomentToastText(HerdGoal.Court, "Hasen", null));
+            Assert.AreEqual("Paarungszeit bei den Schafen", LifeDirector.MomentToastText(HerdGoal.Court, "Schafe", null));
+            Assert.AreEqual("Die Zebras suchen Schutz vor dem Regen", LifeDirector.MomentToastText(HerdGoal.Shelter, "Zebras", null));
+        }
+
+        [Test]
+        public void MomentToast_NeverEmptyForAToastGoal()
+        {
+            var goals = new[] { HerdGoal.Migrate, HerdGoal.Gather, HerdGoal.Mingle, HerdGoal.Huddle, HerdGoal.Court, HerdGoal.Shelter };
+            foreach (var g in goals)
+            {
+                Assert.IsNotEmpty(LifeDirector.MomentToastText(g, null, null), g.ToString());
+                Assert.IsNotEmpty(LifeDirector.MomentToastText(g, "", ""), g.ToString());
+                Assert.AreEqual(g, LifeDirector.ToastGoalOfName(g.ToString()), "moment kinds are matched by name");
+            }
+            Assert.AreEqual("Die Herde sucht Schutz vor dem Regen", LifeDirector.MomentToastText(HerdGoal.Shelter, null, null));
+            Assert.AreEqual("Zwei Herden ziehen zusammen", LifeDirector.MomentToastText(HerdGoal.Mingle, "Zebras", null));
+            Assert.AreEqual("Zwei Herden ziehen zusammen", LifeDirector.MomentToastText(HerdGoal.Mingle, "Zebras", "Zebras"));
+            Assert.AreEqual("", LifeDirector.MomentToastText(HerdGoal.Graze, "Zebras", null), "grazing is no news");
+            Assert.AreEqual("", LifeDirector.MomentToastText(HerdGoal.None, "Zebras", null));
+        }
+
+        [Test]
+        public void MomentToast_OnlyTheEnvironmentMomentsBecomeToasts()
+        {
+            Assert.AreEqual(HerdGoal.None, LifeDirector.ToastGoalOf(MomentKind.Signature));
+            Assert.AreEqual(HerdGoal.None, LifeDirector.ToastGoalOf(MomentKind.Meeting));
+            Assert.AreEqual(HerdGoal.None, LifeDirector.ToastGoalOf((MomentKind)(-1)));
+            Assert.AreEqual(HerdGoal.None, LifeDirector.ToastGoalOf((MomentKind)10000));
+            Assert.AreEqual(HerdGoal.None, LifeDirector.ToastGoalOfName("Graze"));
+            foreach (MomentKind k in Enum.GetValues(typeof(MomentKind)))
+                Assert.AreEqual(LifeDirector.ToastGoalOfName(k.ToString()), LifeDirector.ToastGoalOf(k), k.ToString());
+        }
+
+        [Test]
+        public void MomentToast_DativePlural()
+        {
+            Assert.AreEqual("Hasen", LifeDirector.DativePlural("Hasen"));
+            Assert.AreEqual("Schafen", LifeDirector.DativePlural("Schafe"));
+            Assert.AreEqual("Rentieren", LifeDirector.DativePlural("Rentiere"));
+            Assert.AreEqual("Zebras", LifeDirector.DativePlural("Zebras"));
+            Assert.AreEqual("Erdmännchen", LifeDirector.DativePlural("Erdmännchen"));
+            Assert.AreEqual("Polarfüchsen", LifeDirector.DativePlural("Polarfüchse"));
+            Assert.AreEqual("", LifeDirector.DativePlural(null));
+        }
+
+        [Test]
+        public void MomentToast_GateKeepsItNewsNotATicker()
+        {
+            var gate = new MomentToastGate { gapSeconds = 40f, cooldownSeconds = 150f };
+            Assert.IsFalse(gate.Allow(HerdGoal.None, 0f));
+            Assert.IsTrue(gate.Allow(HerdGoal.Migrate, 0f));
+            gate.Note(HerdGoal.Migrate, 0f);
+            Assert.IsFalse(gate.Allow(HerdGoal.Shelter, 39f), "the gap holds for every goal");
+            Assert.IsTrue(gate.Allow(HerdGoal.Shelter, 40f));
+            Assert.IsFalse(gate.Allow(HerdGoal.Migrate, 149f), "the same news waits for its cooldown");
+            Assert.IsTrue(gate.Allow(HerdGoal.Migrate, 150f));
+            Assert.IsFalse(gate.Allow((HerdGoal)999, 1000f));
+            Assert.AreEqual(1, gate.Shown);
+            gate.Reset();
+            Assert.IsTrue(gate.Allow(HerdGoal.Migrate, 0f));
+        }
     }
 }

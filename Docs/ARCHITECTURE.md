@@ -2246,3 +2246,47 @@ Owner feedback after the v0.6.7.2 phone session (`Docs/CHANGES_2026-09-26.md`), 
   tests, `ResetAdventure` clears it and `BestDistances.Clear(Adventure)`), logged in `SessionScreens` right after
   `BestDistances.Submit`; `RunJournalPanel` has the tabs Gemütlich/Abenteuer, `RunJournal.OpenRequested(GameMode)`.
 - `IslandHints.RefreshNow` clears its widgets when hidden (they were only covered by the disabled canvas).
+
+## v0.6.8 – environment layers of the herds (2026-10-02)
+
+Owner decision after the game-loop discussion: a richer simulation instead of new mechanics – no predators, herds only
+wander and grow slower, the player never intervenes (`Docs/CHANGES_2026-10-02.md`). Six parallel agents on a scaffold:
+
+- **Scaffold (coordinator)**: `Core/HerdGoals.cs` (`Diet`, `HerdGoal`, German labels), `Species.diet`,
+  `Herd.goal`, partial hooks in `IslandHerdSystem.cs` – `NeedsThink/RelationsThink/SeasonsThink(herd, standing, ref
+  started)` before the species' own errands, `ArriveNeeds/Relations/Seasons`, `StepNeeds/Relations/Seasons(herd, dt,
+  ref mul)` while safe, `TickNeeds/Relations/Seasons(dt)` per island step, `GrowthFactorNeeds/Seasons(herd, ref factor)`
+  in `TryBirth`, `EnvironmentErrandSurvives`; errands `Graze, Migrate, Shelter, Scatter | Mingle, Guard, Gather | Huddle,
+  Hoard, Court`; activities `Graze, Shelter, Guard, Gather, Court` (+ mood texts); `GoalOf/GoalLabelOf/DietOf/HungerOf`;
+  `MomentKind.Migrate, Gather, Mingle, Huddle, Court, Shelter`. `LifeEnvironment.RainAt(world)` (StormVisuals) and
+  `LifeEnvironment.Season` (installed by the first enabled `IslandLifeSystem`, reads `SeasonSource` = the player's island,
+  set in `Island.OnEnable`).
+- **Environment API (`IslandLifeSystem`)**: `FoodAt(local, diet)`, `Graze(local, diet, amount)`, `TryFindFood`,
+  `ShadeAt`, `TryFindShelter`, `ClimateAt` (−1 cold … +1 hot from `BiomeSpec.climate`, 3×3 smoothed, bilinear);
+  `_grazed` mark per cell (regrow ×0.04 while fresh, recovers in `grazeRecoverSeconds` 240 s, yellowed tint + shorter
+  straw-coloured grass); coast distance byte per cell for reeds/fish; biome blending at seams in the growth sweep
+  (`biomeBlendRate` 0.003, every 8th cell, voter model, dominant biome and ≥ 8 cells per biome kept, native plants of
+  the old biome fade out).
+- **Needs (`IslandHerdSystem.Needs.cs`)**: `herd.hunger` (0..1, `hungerFullTime` 420 s), graze bouts (`Errand.Graze`,
+  30–50 s, half the adults with `AnimalActivity.Graze`, bites every 1 s of herd time), migration (`Errand.Migrate`,
+  `TryFindFood` 6–14 u, `Moment Migrate`), starving = ×0.7 pace + births ×(1 − 0.8·hunger), fish eaters feed through
+  shore errands, giraffes through `StartBrowse`; noon shade / rain shelter (`Errand.Shelter`, `TryFindShelter`,
+  `Moment Shelter`); storm gusts (members with act Flee for 3–5 s, not an errand because the huddle cancels errands).
+  Graze bouts yield to choreographies, meetings and the director (`NeedsYields`/`YieldNeeds` in `HerdFree`,
+  `StartChoreography`, `MeetFree`).
+- **Relations (`IslandHerdSystem.Relations.cs`)**: static symmetric matrix `HerdRelation { Ignore, Avoid, Mingle,
+  Follow, Guard }` (`RelationOf`, `FollowsLead`, `GuardsAgainst`, `YieldsTo`); Mingle = shared sunflower disc 40–90 s
+  (`Moment Mingle`), Follow = wander target 3 u behind the lead, Guard = a sentry at the herd's edge facing the other
+  species, Avoid = targets ≥ 6 u away (time-of-day sides for reindeer/penguin), Gather = the dusk truce at a drink spot
+  (`Moment Gather`, one per island and evening); `relationShare` 0.35 caps the time per herd.
+- **Seasons (`IslandHerdSystem.Seasons.cs`)**: `SeasonOf` fixed quarters (`WorldHud.SeasonIndex` uses the same),
+  spring courtship (`StartPlay` with `courtGap` 60 s, `Moment Court`, births ×1.75), autumn hoarding (hares/meerkats
+  dig at a cache, reindeer graze longer), winter huddle as a herd "hold" (offsets ×0.6, never wakes sleepers, ends at
+  dawn, `Moment Huddle`; `OwnOffset` keeps the real formation for `Capture`), winter pace ×0.8 and births ×0.5, climate
+  nudge (`TryClimateNudge`, preferred climate per biome) and shade for arctic species on hot ground.
+- **Legibility**: `WatchTools` herd card shows the goal label + diet/hunger words; `LifeDirector.TryMomentToast`
+  (gate 40 s / 150 s per text, herd ≥ 14 px, tap = watch) with the six moment texts; `WorldHud` season badge.
+- **Touch**: `TouchControls` draws nothing and accepts a steer anywhere not on a UI graphic (`UiHitOverride`/`Feed`
+  for tests); fixed: graphics under SessionUI (pause, journal, photo, toasts, Tilda bubbles) never blocked the stick.
+- **Tests**: herd test classes pin `LifeEnvironment.SeasonProvider = () => 0.375f` (summer) in SetUp – the installed
+  provider otherwise starts every test in spring (courtship) and the burrow/play-pair checks drift.

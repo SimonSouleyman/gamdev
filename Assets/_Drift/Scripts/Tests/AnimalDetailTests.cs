@@ -23,6 +23,8 @@ namespace Drift.Tests
             LifeEnvironment.NightProvider = () => _night;
             LifeEnvironment.TimeOfDayProvider = null;
             LifeEnvironment.PointOfInterest = null;
+            // Summer: the v0.6.8 seasons layer (spring courtship keeps playing hares out of the burrow) stays out of these checks.
+            LifeEnvironment.SeasonProvider = () => 0.375f;
             LifeEnvironment.ViewDistanceProvider = null;
         }
 

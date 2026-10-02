@@ -178,7 +178,7 @@ namespace Drift.Bridge
             if (_tabs != null && _tabs.gameObject.activeSelf != (scope == HelpScope.Both)) _tabs.gameObject.SetActive(scope == HelpScope.Both);
             ArrangeControls(touchFirst);
             // The cozy steering scheme can change in the pause menu between two openings.
-            if (_cozyStickLabel != null) _cozyStickLabel.text = ModeTexts.SteerHint(GameMode.Cozy, true, Drift.Islands.Island.DirectionSteering);
+            if (_cozyStickLabel != null) _cozyStickLabel.text = ModeTexts.SteerHelp(GameMode.Cozy, Drift.Islands.Island.DirectionSteering);
             RefreshVoiceLabel();
             for (int i = 0; i < PageCount; i++)
                 if (_pages[i] != null && _pages[i].activeSelf) _pages[i].SetActive(false);
@@ -457,8 +457,7 @@ namespace Drift.Bridge
 
             var touch = _touchCards[0] = UiStyle.Card(page, "Touch", new Vector2(ContentWidth, 430f)).TopCenter(new Vector2(0f, -490f), new Vector2(ContentWidth, 430f));
             CardHeading(touch, "Am Handy");
-            var stick = GlyphRow(touch, -96f, ModeTexts.SteerHint(GameMode.Cozy, true, Drift.Islands.Island.DirectionSteering), out _cozyStickLabel);
-            StickGlyph(stick);
+            DragGlyph(GlyphRow(touch, -96f, ModeTexts.SteerHelp(GameMode.Cozy, Drift.Islands.Island.DirectionSteering), out _cozyStickLabel));
             var pinch = GlyphRow(touch, -204f, "Zwei Finger: Zoom");
             Finger(pinch, new Vector2(-22f, -14f));
             Finger(pinch, new Vector2(22f, 14f));
@@ -468,10 +467,13 @@ namespace Drift.Bridge
             return page.gameObject;
         }
 
-        static void StickGlyph(RectTransform glyph)
+        // A finger and the way it drags: the steering itself shows nothing on screen.
+        static void DragGlyph(RectTransform glyph)
         {
-            UiStyle.Dot(glyph, "Base", 84f, UiStyle.Ghost).rectTransform.Center(Vector2.zero, new Vector2(84f, 84f));
-            UiStyle.Dot(glyph, "Knob", 40f, UiStyle.WithAlpha(UiStyle.Cream, 0.85f)).rectTransform.Center(new Vector2(12f, 10f), new Vector2(40f, 40f));
+            var arrow = UiStyle.Shape(glyph, "Drag", UiSprites.Arrow, UiStyle.WithAlpha(UiStyle.Cream, 0.6f));
+            arrow.rectTransform.Center(new Vector2(14f, 14f), new Vector2(44f, 44f));
+            arrow.rectTransform.localRotation = Quaternion.Euler(0f, 0f, -45f);
+            Finger(glyph, new Vector2(-16f, -16f));
         }
 
         static void CardHeading(RectTransform card, string text)
@@ -590,7 +592,7 @@ namespace Drift.Bridge
 
             var touch = _touchCards[1] = UiStyle.Card(page, "Touch", new Vector2(ContentWidth, 322f)).TopCenter(new Vector2(0f, -416f), new Vector2(ContentWidth, 322f));
             CardHeading(touch, "Am Handy");
-            StickGlyph(GlyphRow(touch, -96f, ModeTexts.SteerHint(GameMode.Adventure, true, true)));
+            DragGlyph(GlyphRow(touch, -96f, ModeTexts.SteerHelp(GameMode.Adventure, true)));
             var ahead = GlyphRow(touch, -200f, "Deine Insel fährt von allein");
             var arrow = UiStyle.Shape(ahead, "Arrow", UiSprites.Arrow, UiStyle.Cream);
             arrow.rectTransform.Center(Vector2.zero, new Vector2(56f, 56f));

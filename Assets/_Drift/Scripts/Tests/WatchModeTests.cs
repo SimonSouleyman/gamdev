@@ -59,6 +59,8 @@ namespace Drift.Tests
             // The watch tools are cozy-only now (WatchRules); the Editor may still sit in Adventure from a play run.
             GameModes.Set(GameMode.Cozy);
             LifeLod.DistanceProvider = _ => 0f;
+            // Summer: the v0.6.8 seasons layer (courtship in spring, huddles in winter) stays out of these checks.
+            LifeEnvironment.SeasonProvider = () => 0.375f;
             LifeEnvironment.NightProvider = () => 0f;
             LifeEnvironment.TimeOfDayProvider = null;
             LifeEnvironment.PointOfInterest = null;
@@ -396,6 +398,106 @@ namespace Drift.Tests
 
             Assert.IsNull(WatchSubjects.OfHerd(_island, _herds, 9), "no such herd");
             Assert.IsNull(WatchSubjects.OfHerd(null, _herds, 0));
+        }
+    
+
+        // ------------------------------------------------------------ the herd card says why (v0.6.8)
+
+        [Test]
+        public void HerdCard_GoalReplacesTheActivityWord()
+        {
+            int graze = (int)AnimalState.Graze;
+            Assert.AreEqual("Rentiere  ·  6 Tiere  ·  grast", WatchTools.FollowChipLine(LifeKind.Reindeer, 6, graze, HerdGoal.None));
+            Assert.AreEqual("Rentiere  ·  6 Tiere  ·  zieht zur neuen Weide", WatchTools.FollowChipLine(LifeKind.Reindeer, 6, graze, HerdGoal.Migrate));
+            Assert.AreEqual("Hase  ·  allein  ·  sucht Schutz vor dem Regen", WatchTools.FollowChipLine(LifeKind.Hare, 1, graze, HerdGoal.Shelter));
+            Assert.AreEqual(WatchTools.FollowChipLine(LifeKind.Sheep, 7, graze), WatchTools.FollowChipLine(LifeKind.Sheep, 7, graze, HerdGoal.None),
+                "without a goal the card reads as before");
+            // Never an empty label: an unknown goal falls back to the activity, an unknown activity drops its dot.
+            Assert.AreEqual("Rentiere  ·  6 Tiere  ·  grast", WatchTools.FollowChipLine(LifeKind.Reindeer, 6, graze, (HerdGoal)999));
+            Assert.AreEqual("Rentiere  ·  6 Tiere", WatchTools.FollowChipLine(LifeKind.Reindeer, 6, 99, HerdGoal.None));
+            foreach (HerdGoal goal in System.Enum.GetValues(typeof(HerdGoal)))
+            {
+                if (goal == HerdGoal.None) continue;
+                string label = HerdGoals.Label(goal);
+                Assert.IsNotEmpty(label, goal.ToString());
+                StringAssert.EndsWith("  ·  " + label, WatchTools.FollowChipLine(LifeKind.Zebra, 5, graze, goal));
+            }
+        }
+
+        [Test]
+        public void HerdCard_HungerAsWords()
+        {
+            Assert.AreEqual("satt", WatchTools.HungerWord(0f));
+            Assert.AreEqual("satt", WatchTools.HungerWord(0.39f));
+            Assert.AreEqual("hungrig", WatchTools.HungerWord(0.4f));
+            Assert.AreEqual("hungrig", WatchTools.HungerWord(0.74f));
+            Assert.AreEqual("sehr hungrig", WatchTools.HungerWord(0.75f));
+            Assert.AreEqual("sehr hungrig", WatchTools.HungerWord(1f));
+            Assert.AreEqual("", WatchTools.HungerWord(-1f), "unknown hunger says nothing");
+            Assert.AreEqual("", WatchTools.HungerWord(float.NaN));
+            Assert.AreEqual("frisst Gras", WatchTools.FollowChipDetailLine(Diet.Grass, -1f));
+            Assert.AreEqual("frisst Blätter  ·  sehr hungrig", WatchTools.FollowChipDetailLine(Diet.Leaves, 0.9f));
+            Assert.AreEqual("frisst Schilf  ·  satt", WatchTools.FollowChipDetailLine(Diet.Reeds, 0.1f));
+            Assert.AreEqual("frisst Fisch  ·  hungrig", WatchTools.FollowChipDetailLine(Diet.Fish, 0.5f));
+        }
+
+        [Test]
+        public void HerdCard_FollowedHerdShowsItsDietLine()
+        {
+            _watch.ShowPopup(_island, _herds, 0, 2);
+            _watch.FollowPopupHerd();
+            Assert.IsTrue(_watch.Following);
+            string chip = _watch.FollowChipText;
+            StringAssert.StartsWith(WatchTools.PluralOf(LifeKind.Hare) + "  ·  ", chip);
+            StringAssert.DoesNotEndWith("·", chip.TrimEnd());
+            StringAssert.DoesNotEndWith("  ·  ", chip);
+            string goal = _herds.GoalLabelOf(0);
+            if (_herds.GoalOf(0) != HerdGoal.None && goal.Length > 0) StringAssert.EndsWith(goal, chip);
+            StringAssert.StartsWith("frisst " + HerdGoals.DietLabel(_herds.DietOf(0)), _watch.FollowChipDetail);
+
+            // Anything that is not a herd keeps the one-line chip.
+            _watch.ReturnToIsland();
+            var still = new WatchSubject
+            {
+                label = "Leuchtturm",
+                ground = _island,
+                still = true,
+                focus = (out Vector3 f) => { f = _island.transform.position; return true; },
+            };
+            Assert.IsTrue(_watch.BeginWatch(still));
+            Assert.AreEqual("Leuchtturm", _watch.FollowChipText);
+            Assert.AreEqual("", _watch.FollowChipDetail);
+        }
+
+        // ------------------------------------------------------------ moment notices (LifeDirector)
+
+        [Test]
+        public void MomentNotice_TapWatchesTheHerdItIsAbout()
+        {
+            Assert.IsFalse(_watch.ShowMoment("", WatchSubjects.OfHerd(_island, _herds, 0)), "never an empty line");
+            Assert.IsTrue(_watch.ShowMoment("Die Hasen ziehen zur neuen Weide", WatchSubjects.OfHerd(_island, _herds, 0)));
+            Assert.IsTrue(_watch.NoticeShowing);
+            Assert.AreEqual("Die Hasen ziehen zur neuen Weide", _watch.NewsText);
+            Assert.IsFalse(_watch.ShowMoment("Alle treffen sich am Wasser", null), "one line at a time, the next is dropped");
+            Assert.AreEqual("Die Hasen ziehen zur neuen Weide", _watch.NewsText);
+
+            _watch.OnNewsTapped();
+            Assert.IsTrue(_watch.Following);
+            Assert.AreEqual(0, _watch.FollowedHerd);
+            Assert.IsFalse(_watch.NoticeShowing);
+        }
+
+        [Test]
+        public void MomentNotice_FindsTheHerdAtTheMomentsPoint()
+        {
+            var c = _herds.HerdCenter(0);
+            var world = _island.transform.TransformPoint(new Vector3(c.x, 0f, c.y));
+            Assert.IsTrue(LifeDirector.FindHerdAt(world + new Vector3(0.5f, 0f, 0f), HerdGoal.Migrate, 8f, out var island, out var herds, out int herd, out int mate));
+            Assert.AreSame(_island, island);
+            Assert.AreSame(_herds, herds);
+            Assert.AreEqual(0, herd);
+            Assert.AreEqual(-1, mate, "a single species has nobody to mingle with");
+            Assert.IsFalse(LifeDirector.FindHerdAt(world + new Vector3(500f, 0f, 0f), HerdGoal.Migrate, 8f, out _, out _, out _, out _));
         }
     }
 }

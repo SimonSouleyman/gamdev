@@ -30,6 +30,8 @@ namespace Drift.Life
         public float snowLine, snowPatches;
         public Color snow = Biomes.Ground(0.95f, 0.97f, 1f);
         public float seasonAmplitude = 1f;
+        // -1 arctic .. 0 temperate .. +1 hot (IslandLifeSystem.ClimateAt blends it across the seams of merged land).
+        public float climate;
         public LifeKind[] animals;
         public LifeKind[] plants;
         public LifeKind[] collectibles;
@@ -99,7 +101,7 @@ namespace Drift.Life
                 groundDensity = 0.8f, shrubDensity = 1.2f, treeDensity = 1.1f, canopyClears = 0.6f, flowerEvery = 2, flowerMaxStage = 2f,
                 fresh = Ground(0.45f, 0.72f, 0.25f), plains = Ground(0.3f, 0.68f, 0.2f),
                 shrub = Ground(0.2f, 0.58f, 0.18f), forest = Ground(0.13f, 0.47f, 0.16f),
-                seasonAmplitude = 0.25f,
+                seasonAmplitude = 0.25f, climate = 1f,
                 animals = new[] { LifeKind.Capybara, LifeKind.Flamingo, LifeKind.Tortoise }
             }),
             Make(new BiomeSpec
@@ -115,7 +117,7 @@ namespace Drift.Life
                 groundDensity = 0.7f, shrubDensity = 0.7f, treeDensity = 0.8f, canopyClears = 0.5f, flowerEvery = 2, flowerMaxStage = 2f,
                 fresh = Ground(0.72f, 0.78f, 0.74f), plains = Ground(0.62f, 0.72f, 0.64f),
                 shrub = Ground(0.52f, 0.64f, 0.58f), forest = Ground(0.42f, 0.56f, 0.52f),
-                snowLine = 1.2f, snowPatches = 0.3f, seasonAmplitude = 0.4f,
+                snowLine = 1.2f, snowPatches = 0.3f, seasonAmplitude = 0.4f, climate = -1f,
                 animals = new[] { LifeKind.Penguin, LifeKind.Reindeer, LifeKind.ArcticFox }
             }),
             Make(new BiomeSpec
@@ -131,7 +133,7 @@ namespace Drift.Life
                 groundDensity = 1.3f, shrubDensity = 0.4f, treeDensity = 0.16f, canopyClears = 0f, flowerEvery = 4, flowerMaxStage = 2f,
                 fresh = Ground(0.85f, 0.7f, 0.38f), plains = Ground(0.86f, 0.68f, 0.3f),
                 shrub = Ground(0.8f, 0.6f, 0.28f), forest = Ground(0.72f, 0.52f, 0.25f),
-                seasonAmplitude = 0.4f,
+                seasonAmplitude = 0.4f, climate = 1f,
                 animals = new[] { LifeKind.Meerkat, LifeKind.Zebra, LifeKind.Giraffe }
             })
         };
