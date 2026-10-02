@@ -2,24 +2,18 @@
 
 ## Progress (for resuming work)
 
-State 2026-10-01: 0.8 tagged (tree-v0.8), on main and on Simon's phone (save backups in
-GameDev/tree-shots/savebackup/pre-*). APKs in GameDev/tree-releases. Open questions go to Simon
-via the coordinator. Plan (docs/specs/0.8.md "0.8.1 and 0.8.2", broken items 17-34):
-- 0.8.1 fixes, integration branch iterate-0.8.1, four streams:
-  - s08-sim (wt-sim08): no-roots finish, wider root field ~30 m (29), far wishes (34).
-  - s081-look (wt081-look): brighter nights/visible roots (17), plain dots in play (20),
-    camera framing (25), noon crown (31).
-  - s081-shed (wt081-shed): bonsai tool handling (18), sill/pinboard on the phone (26), pot page
-    into the journal (28), juniper pads/trunk (32).
-  - s081-sound (wt081-sound): warm root-run hum with a slow 4-note melody (27), live wallpaper
-    really animated (33).
-  - Then: merge, frame-rate measurement on the phone (30), full two-reviewer check, install.
-- 0.8.2 features: seed pictures in the pouch (19), side roots + thicker roots
-  (specs/side-roots.md; Simon's playtest idea), hold to fast-forward (specs/fast-forward.md),
-  shorter journal with doodles and the Kalam font (21-24), far view / rock bands / soft veins /
-  first-time check (specs/root-field-extras.md).
-- 0.8.3: fungal network and the ink root drawing in the album (specs/root-field-extras.md).
-- Known minor: hedgehog small at the tree's foot; care signals rarely show (design question).
+State 2026-10-02: 0.8.2 tagged (tree-v0.8.2) and on main; it is on Simon's phone (save and photo
+backups in GameDev/tree-shots/savebackup/pre-*). APKs in GameDev/tree-releases. While
+prototyping: only a short test run per version (unit tests + autoplay), Simon tests on the phone;
+balance sims run in the design thread's cloud copy. Open questions go to Simon via the coordinator.
+- 0.8.2 contains: hold to fast-forward, juniper needles, sill labels, damp-patch sign, shears view,
+  shorter journal with doodles and Kalam, seed pictures, dearer metre (layout 3), side roots and
+  thicker roots, far wishes balanced per seed (notes in docs/notes/*-0.8.2.md).
+- In progress: far view, rock bands with gaps, soft veins, first-time player check
+  (specs/root-field-extras.md) on s082-field (worktree GameDev/wt082-field). Then short test,
+  save backup, install.
+- Then 0.8.3: fungal network and the ink root drawing in the album.
+- Not yet measured: frame rate underground on the phone (day view 28 fps in 0.8.1).
 - Choices taken as "recommended" while Simon was away:
   - Scope after 0.7: new features too (Simon tapped it), 0.8 per the design thread's spec.
   - Live picture: wallpaper and screen saver, one animation (default until he answers).
