@@ -81,7 +81,7 @@ func test_wind_moves_the_crown_not_the_foot() -> void:
 		t.check(LivePicture.wind_offset(0.0, ct, time, gy, ct).x == 0.0, "the picture's left edge stays")
 		t.check(LivePicture.wind_offset(1.0, 0.95, time, gy, ct).x == 0.0, "the right edge stays")
 	t.check(most > 0.001, "the crown moves")
-	t.check(most < LivePicture.WIND * (gy - ct) * 1.6 + LivePicture.LEAF * 1.3, "softly: about 3 %% of the tree's height")
+	t.check(most < LivePicture.WIND * 1.25 * (gy - ct) * LivePicture.LAYER_ASPECT + LivePicture.LEAF * 1.3, "softly: about 3 %% of the tree's height")
 	t.check(LivePicture.FPS >= 5 and LivePicture.FPS <= 15, "a low frame rate (14c)")
 
 
@@ -107,7 +107,7 @@ func test_wind_is_visible_on_the_phone() -> void:
 			var b := LivePicture.wind_offset(0.5 + 1.0 / 24.0, v, time, gy, ct)
 			leaf_step = maxf(leaf_step, absf(a.x - b.x) * screen_w)
 		t.check(hi - lo >= 12.0, "the crown top sways at least 12 px in 10 s (crown %.2f: %.1f px)" % [ct, hi - lo])
-		t.check(hi - lo <= 90.0, "light wind, not a storm (crown %.2f: %.1f px)" % [ct, hi - lo])
+		t.check(hi - lo <= 120.0, "light wind, not a storm (crown %.2f: %.1f px)" % [ct, hi - lo])
 		t.check(leaf_step >= 2.0, "neighbouring leaves move apart (%.1f px)" % leaf_step)
 	var grass := 0.0
 	for i in range(120):
@@ -298,3 +298,33 @@ func test_written_layers_show_the_tree_and_name_real_files() -> void:
 	t.check(LiveExport.verify_dir(DIR).contains("missing"), "a layer the meta names but is gone is found")
 	_clear()
 	t.check(LiveExport.verify_dir(DIR) != "", "no picture at all is found")
+
+
+
+## 0.8.2.8 (Simon: the wind looked like a filter squeezing the picture): the crown bends round the
+## foot as one; a row across the crown keeps its width, a column its height (within a few px).
+func test_the_tree_sways_as_one_without_squeezing() -> void:
+	var gy := 0.9
+	var ct := 0.25
+	var w := 1116.0
+	var h := w * LivePicture.LAYER_ASPECT
+	var worst_row := 0.0
+	var worst_col := 0.0
+	var top_lo := 1e9
+	var top_hi := -1e9
+	for i in range(120):
+		var time := i / 12.0
+		# A row across the crown, 0.3 of the width wide: its ends move together.
+		var v := lerpf(ct, gy, 0.35)
+		var a := LivePicture.wind_offset(0.35, v, time, gy, ct)
+		var b := LivePicture.wind_offset(0.65, v, time, gy, ct)
+		worst_row = maxf(worst_row, absf(a.x - b.x) * w)
+		# A column up the trunk: its top and bottom keep their distance (no squash).
+		var top := LivePicture.wind_offset(0.5, ct, time, gy, ct)
+		var low := LivePicture.wind_offset(0.5, lerpf(ct, gy, 0.5), time, gy, ct)
+		worst_col = maxf(worst_col, absf(top.y - low.y) * h)
+		top_lo = minf(top_lo, top.x * w)
+		top_hi = maxf(top_hi, top.x * w)
+	t.check(top_hi - top_lo > 30.0, "the crown top swings (%.0f px)" % (top_hi - top_lo))
+	t.check(worst_row < 12.0, "a row across the crown keeps its width (%.1f px)" % worst_row)
+	t.check(worst_col < 8.0, "the trunk keeps its height (%.1f px)" % worst_col)

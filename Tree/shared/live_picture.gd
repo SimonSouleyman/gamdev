@@ -26,11 +26,17 @@ const KEEP_CLEAR := 0.28
 ## How far the crown top sways, as a share of the tree's height on screen (tuning lever). 0.8.1
 ## (broken list 33): 0.012 swayed a young tree by 3 px on the Fairphone, which read as a still
 ## picture; now about 3 %, with a small tree swaying as if it were WIND_MIN_TALL tall.
+## 0.8.2.8: the angle (radians) the crown top turns round the foot at full swing; with a small
+## tree turning as if it were WIND_MIN_TALL tall. About 3 % of the tree's height at its top.
 const WIND := 0.03
 const WIND_MIN_TALL := 0.4
+## The layer's height over its width (LAYER_SIZE).
+const LAYER_ASPECT := 960.0 / 540.0
+## How far the crown's halves bob up and down, per share of the width out from the trunk.
+const BOB := 0.03
 ## Leaves shimmering in the crown: a quick, small wobble that differs from cell to cell of the
-## mesh, in shares of the layer's width (0.0035 is about 4 px on the phone).
-const LEAF := 0.0035
+## mesh, in shares of the layer's width (0.0025 is about 3 px on the phone; 0.8.2.8: was 0.0035).
+const LEAF := 0.0025
 ## The meadow's ripple below the foot, in shares of the layer's width.
 const GRASS := 0.005
 ## Where the sun is reckoned: the middle of Germany (the game's calendar is German too).
@@ -119,18 +125,26 @@ static func moment(day_of_year: int, hour: float, utc_offset_hours: float, unix:
 
 ## How far a point of the layer moves in the wind at time t (seconds), in layer units (0..1 of
 ## the layer's width and height). u, v: the point (v downward). ground_y, crown_top: the trunk's
-## foot and the crown's top in the same units. The trunk's foot stands still, the crown sways
-## more the higher up (a bending trunk) with a slow gust, a wave runs through the branches so
-## they move apart, the leaves shimmer, and the grass below the foot ripples in waves.
+## foot and the crown's top in the same units.
+## 0.8.2.8 (Simon: "the wind is only a filter over the picture that wobbles and squeezes it; the
+## tree should really sway"): the whole tree now bends round its foot as one, every height turned
+## by its own small angle (more higher up, a bending trunk), so the crown keeps its shape instead
+## of stretching and squeezing by columns and rows. The two halves of the crown bob a little in
+## turn, the leaves shimmer faintly, the grass below the foot ripples. The trunk stands in the
+## layer's middle (LiveExport.frame_camera).
 static func wind_offset(u: float, v: float, t: float, ground_y: float, crown_top: float) -> Vector2:
 	var tall := maxf(ground_y - crown_top, 0.02)
 	var k := clampf((ground_y - v) / tall, 0.0, 1.0)
-	var bend := pow(k, 1.6)
-	var sway := WIND * maxf(tall, WIND_MIN_TALL)
-	var gust := 0.6 * sin(t * 0.9 + u * 1.3) + 0.4 * sin(t * 0.37 + 1.7)
-	var branches := 0.35 * k * sin(t * 1.6 - u * 6.0 + v * 4.0)
-	var dx := sway * bend * (gust + branches)
-	var dy := sway * 0.2 * bend * sin(t * 1.1 + u * 3.0)
+	# One sway for the whole tree: a slow swing whose strength comes and goes in gusts.
+	var swing := (0.7 + 0.3 * sin(t * 0.37 + 1.7)) * sin(t * 0.9) + 0.2 * sin(t * 2.3 + 0.6)
+	var phi := WIND * sqrt(maxf(1.0, WIND_MIN_TALL / tall)) * swing * pow(k, 0.8)
+	# Turned round the foot, in square units (the layer is LAYER_ASPECT times taller than wide).
+	var rx := u - 0.5
+	var ry := (v - ground_y) * LAYER_ASPECT
+	var dx := rx * (cos(phi) - 1.0) - ry * sin(phi)
+	var dy := (rx * sin(phi) + ry * (cos(phi) - 1.0)) / LAYER_ASPECT
+	# The crown's halves bob in turn (a branch rising as the other dips), out at their ends.
+	dy += BOB * absf(rx) * k * sin(t * 1.7 + (0.0 if rx > 0.0 else PI))
 	# The leaves: only in the crown (above a third of the tree), never the trunk's foot.
 	var leaf := LEAF * smoothstep(0.3, 0.6, k)
 	dx += leaf * sin(t * 5.1 + u * 31.0 + v * 23.0)
