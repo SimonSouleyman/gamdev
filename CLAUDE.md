@@ -43,7 +43,7 @@ Typical loop for a code change:
 
 **Play Mode frames advance once `Application.runInBackground = true` is set** (from `eval`, right
 after `editor_play`; it is a runtime flag and is not saved). Without it the unfocused Editor never
-ticks the Player Loop and `Time.frameCount` stays at 1. With it the game really runs: drive it by
+ticks the Player Loop and `Time.frameCount` stays at 1. (It also needs the Editor window in the foreground, see the gotchas below.) With it the game really runs: drive it by
 replacing `Island.InputProvider` with a steering lambda (index the `Island.All` list, a `foreach`
 over the interface allocates), sample state from `eval`, take screenshots *including the overlay
 UI* with `ScreenCapture.CaptureScreenshot(path)` (`capture_game_view` renders the camera only), and
@@ -142,6 +142,28 @@ the report. Note `FindObjectsByType` in `eval` can miss `DontSave` children — 
   They play the real save slot: back up `LocalLow/DefaultCompany/Drift` + PlayerPrefs first, restore afterwards.
 - `eval` has a ~5 s main-thread budget — long benches (e.g. `PerfBaseline.PerIsland()` over 32
   islands) time out; bench subsets or fewer iterations instead.
+
+- **Play Mode only ticks while the Unity window is the foreground window** (2026-09-25): `runInBackground = true`
+  alone is not enough – `Time.frameCount` stays at 1 and bot scenarios never start. Bring the Editor to the front
+  (PowerShell `SetForegroundWindow` on the Unity process' main window) before a play test and check that the frame
+  counter rises.
+- **Version numbers go through the Editor**: `PlayerSettings.bundleVersion` / `PlayerSettings.Android.bundleVersionCode`
+  from `eval`, then `AssetDatabase.SaveAssets()`. A `sed` on `ProjectSettings.asset` is overwritten from memory when a
+  build starts (the APK then carries the old version).
+- **Reload the scene from disk before building or saving** (`EditorSceneManager.OpenScene(…, Single)`): a build with a
+  dirty scene opens the modal "Scene(s) Have Been Modified" dialog, which blocks every CLI command until someone
+  answers it (it can be dismissed with a BM_CLICK to its "Don't Save" button via user32, without moving the mouse).
+- **No script edits while a build runs** – also not by agents: the build fails with "script class layout is
+  incompatible between the editor and the player".
+- **Builds leave `Assets/Resources/PerformanceTestRun*.json`** (Performance Testing package): delete them before
+  committing.
+- **QuickTests chunks**: one `eval` has ~5 s; run the suite as ~25 class-name patterns (`^A[a-d]`, `^Adventure[A-I]`,
+  `^LifePhase1` …) – a pattern that times out still ran, but its result is lost.
+- **Herd tests pin the season** (`LifeEnvironment.SeasonProvider = () => 0.375f` in SetUp): the provider installed by
+  `IslandLifeSystem` otherwise starts every test in spring (courtship) or, after `Simulate(900)`, in winter.
+- **Phone GPU precision**: noise/hash inputs built from large world coordinates or `_Time` lose bits on Adreno and
+  show as screen-aligned tiles – reduce the inputs to integers first (`DriftNoiseStable`); keep world position, time,
+  depth and UVs in `float`, only shading maths in `half`.
 
 ## Workflow preferences
 
