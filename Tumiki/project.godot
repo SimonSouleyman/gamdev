@@ -11,13 +11,13 @@ config/features=PackedStringArray("4.7", "GL Compatibility")
 
 [display]
 
-window/size/viewport_width=720
-window/size/viewport_height=1280
-window/size/window_width_override=405
-window/size/window_height_override=720
+window/size/viewport_width=1280
+window/size/viewport_height=720
+window/size/window_width_override=960
+window/size/window_height_override=540
 window/stretch/mode="canvas_items"
 window/stretch/aspect="expand"
-window/handheld/orientation=1
+window/handheld/orientation=4
 
 [input_devices]
 
@@ -26,7 +26,7 @@ pointing/emulate_touch_from_mouse=true
 [physics]
 
 common/physics_ticks_per_second=60
-common/max_physics_steps_per_frame=4
+common/max_physics_steps_per_frame=2
 
 [rendering]
 

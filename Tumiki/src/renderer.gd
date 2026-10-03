@@ -42,10 +42,15 @@ var fill_meshes := []  # [list][shade] -> ArrayMesh
 var line_meshes := []
 var materials := {}
 var particle_batch: Batch
+## Fill and line batch per (layer, shade, list), looked up by index in block().
+var fill_cache := []
+var line_cache := []
 
 
 func _ready() -> void:
 	_build_meshes()
+	fill_cache.resize(3 * SHADE_NUM * SHAPE_NUM)
+	line_cache.resize(3 * SHADE_NUM * SHAPE_NUM)
 	var pmesh := ArrayMesh.new()
 	var arr := []
 	arr.resize(Mesh.ARRAY_MAX)
@@ -130,13 +135,36 @@ func block(list: int, color: int, shade: int, x: float, y: float, z: float,
 		deg: float, sx: float, sy: float, sz: float, layer: int = Layer.WORLD) -> void:
 	var c := cos(deg)
 	var s := sin(deg)
-	var r0 := Vector4(c * sx, -s * sy, 0, x)
-	var r1 := Vector4(s * sx, c * sy, 0, y)
-	var r2 := Vector4(0, 0, sz, z)
-	var col: Color = COLORS[color % COLORS.size()]
-	_push(_get_batch(list, shade, layer, false), r0, r1, r2, col)
-	if line_meshes[list][shade] != null:
-		_push(_get_batch(list, shade, layer, true), r0, r1, r2, col)
+	var col: Color = COLORS[color % 12]
+	var key := (layer * SHADE_NUM + shade) * SHAPE_NUM + list
+	var b: Batch = fill_cache[key]
+	if b == null:
+		b = _get_batch(list, shade, layer, false)
+		fill_cache[key] = b
+		if line_meshes[list][shade] != null:
+			line_cache[key] = _get_batch(list, shade, layer, true)
+	var a := c * sx
+	var bb := -s * sy
+	var d := s * sx
+	var e := c * sy
+	_write(b, a, bb, x, d, e, y, sz, z, col)
+	var lb: Batch = line_cache[key]
+	if lb != null:
+		_write(lb, a, bb, x, d, e, y, sz, z, col)
+
+
+## Writes one instance: a 2D rotation/scale (a b / d e) in xy, scale sz in z, and a color.
+static func _write(b: Batch, a: float, bb: float, x: float, d: float, e: float, y: float,
+		sz: float, z: float, col: Color) -> void:
+	var o := b.n * 16
+	if o + 16 > b.buf.size():
+		b.buf.resize(maxi(256, b.buf.size() * 2))
+	# Write through b.buf directly: a local copy of the array would be copied on write.
+	b.buf[o] = a; b.buf[o + 1] = bb; b.buf[o + 2] = 0; b.buf[o + 3] = x
+	b.buf[o + 4] = d; b.buf[o + 5] = e; b.buf[o + 6] = 0; b.buf[o + 7] = y
+	b.buf[o + 8] = 0; b.buf[o + 9] = 0; b.buf[o + 10] = sz; b.buf[o + 11] = z
+	b.buf[o + 12] = col.r; b.buf[o + 13] = col.g; b.buf[o + 14] = col.b; b.buf[o + 15] = col.a
+	b.n += 1
 
 
 func block_t(list: int, color: int, shade: int, t: Transform3D, layer: int = Layer.WORLD) -> void:

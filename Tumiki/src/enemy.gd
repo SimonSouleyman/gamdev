@@ -6,6 +6,9 @@ const BOSS_MOVE_DEG := 0.04
 
 static var total_num := 0
 
+## Field length of the original game, which boss movement points are scaled by.
+const ORIG_FIELD_X := 21.0
+
 var exists := false
 var spec: TData.EnemySpec
 var parts: Array = []
@@ -105,10 +108,11 @@ func _points_move() -> void:
 		if cnt >= pattern.withdraw_cnt:
 			withdraw = true
 			on_route = false
-		# The original scales both by the field length (21). The portrait field is longer, so x
-		# follows it while y keeps the original scale to stay inside the field width.
-		ax = aim.x * Game.I.field.size.x
-		ay = aim.y * 21.0
+		# The original scales both by its field length of 21. On a wider screen the field is
+		# longer, so the point keeps its distance from the right edge. (Scaling x by the longer
+		# field put the stage 4 boss, whose points lie far right, completely out of reach.)
+		ax = aim.x * ORIG_FIELD_X + Game.I.field.size.x - ORIG_FIELD_X
+		ay = aim.y * ORIG_FIELD_X
 	if withdraw:
 		ax = withdraw_pos.x
 		ay = withdraw_pos.y

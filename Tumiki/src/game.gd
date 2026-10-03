@@ -16,10 +16,10 @@ const STAGE_MESSAGE := ["WE ARE TUMIKI FIGHTERS!", "JUST OVER THE HORIZON", "PAN
 const SAVE_PATH := "user://save.cfg"
 
 static var I: Game
-## Screen height / width, set by Main before the game is created.
+## Screen width / height, set by Main before the game is created.
 static var view_aspect := 16.0 / 9.0
-## World units at the top of the field covered by the HUD text, set by Main.
-var hud_top := 4.0
+## Testing: stage to start a new game at (`-- --stage=N`, 1-based on the command line).
+static var first_stage := 0
 
 var state := TITLE
 var stage := 0
@@ -62,7 +62,7 @@ func _ready() -> void:
 	r = BlockRenderer.new()
 	add_child(r)
 	camera = Camera3D.new()
-	camera.keep_aspect = Camera3D.KEEP_WIDTH
+	camera.keep_aspect = Camera3D.KEEP_HEIGHT
 	camera.near = 0.1
 	camera.far = 1000
 	add_child(camera)
@@ -70,14 +70,16 @@ func _ready() -> void:
 	add_child(sound)
 	field = Field.new()
 	field.set_aspect(view_aspect)
-	camera.fov = rad_to_deg(2 * atan(Field.VIEW_HALF_W / field.eye_z))
+	camera.fov = rad_to_deg(2 * atan(Field.VIEW_HALF_H / field.eye_z))
 	particles = Particles.new(128)
 	fragments = U.Pool.new(128, func(): return Effects.Fragment.new())
 	bullets = Bullets.new(512)
 	ship = Ship.new()
 	splinters = U.Pool.new(144, func(): return Effects.Splinter.new())
+	splinters.track = true
 	gauge = Effects.DamageGauge.new()
 	enemies = U.Pool.new(64, func(): return Enemy.new())
+	enemies.track = true
 	signs = U.Pool.new(32, func(): return Effects.ScoreSign.new())
 	letters = Letters.new(32)
 	stage_manager = StageManager.new()
@@ -88,10 +90,9 @@ func _ready() -> void:
 
 
 func _set_camera() -> void:
-	# The original looks at the field from z = eyeZ. The camera is rolled by -90 degrees so that
-	# the original "forward" (+x) points up on a portrait screen. The field is seen from above,
-	# with its full width (world y) filling the screen width.
-	camera.transform = Transform3D(Basis(Vector3(0, 0, 1), -PI / 2), Vector3(0, 0, field.eye_z))
+	# Like the original: looking at the field from z = eyeZ, +x right, +y up. The field height
+	# fills the screen; wider screens see a longer field.
+	camera.transform = Transform3D(Basis.IDENTITY, Vector3(0, 0, field.eye_z))
 
 
 func _load() -> void:
@@ -138,7 +139,7 @@ func _start_in_game() -> void:
 
 
 func start_in_game_first() -> void:
-	stage = 0
+	stage = first_stage
 	_start_in_game()
 	state = START_GAME
 	ship.start_stage()
@@ -247,14 +248,14 @@ func set_rank(rk: float) -> void:
 
 
 func splinters_check_hit(p: Vector2) -> bool:
-	for sp in splinters.actor:
+	for sp in splinters.active:
 		if sp.exists and sp.check_hit(p):
 			return true
 	return false
 
 
 func enemies_check_hit(p: Vector2, damage: float) -> bool:
-	for en in enemies.actor:
+	for en in enemies.active:
 		if en.exists and en.check_hit(p, damage):
 			return true
 	return false
@@ -262,12 +263,27 @@ func enemies_check_hit(p: Vector2, damage: float) -> bool:
 
 # --- Frame update ---
 
+## Frame timing for the autoplay log (microseconds).
+var t_step := 0
+var t_draw := 0
+var t_max := 0
+
+
 func _physics_process(_delta: float) -> void:
+	var t0 := Time.get_ticks_usec()
 	step()
+	var t1 := Time.get_ticks_usec()
 	draw_frame()
+	var t2 := Time.get_ticks_usec()
+	t_step += t1 - t0
+	t_draw += t2 - t1
+	t_max = maxi(t_max, t2 - t0)
 
 
 func step() -> void:
+	splinters.refresh_active()
+	enemies.refresh_active()
+	ship.stuck.pool.refresh_active()
 	match state:
 		START_GAME, IN_GAME, END_GAME:
 			_move_in_game()
@@ -393,7 +409,7 @@ func draw_frame() -> void:
 		START_GAME, IN_GAME, PAUSE, END_GAME:
 			field.draw(r)
 			enemies_draw()
-			for sp in splinters.actor:
+			for sp in splinters.active:
 				if sp.exists:
 					sp.draw(r)
 			if state == START_GAME:
@@ -422,7 +438,7 @@ func draw_frame() -> void:
 
 
 func enemies_draw() -> void:
-	for en in enemies.actor:
+	for en in enemies.active:
 		if en.exists:
 			en.draw(r)
 

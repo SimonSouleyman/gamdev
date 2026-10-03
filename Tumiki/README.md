@@ -1,9 +1,9 @@
-# Tumiki Fighters (Godot, Hochformat)
+# Tumiki Fighters (Godot, Querformat)
 
-Nachbau von **TUMIKI Fighters** (Kenta Cho / ABA Games, 2004) in Godot 4.7 für Android im Hochformat.
-Das Schiff startet unten und fliegt nach oben. Spiellogik, Gegner, Stages und Schussmuster (BulletML)
-sind aus dem Original portiert. Das Spielfeld wird von oben gesehen und füllt den ganzen Bildschirm:
-der Boden scrollt unten durch, getroffene Gegner fallen zur näheren Seite (links/rechts) weg.
+Nachbau von **TUMIKI Fighters** (Kenta Cho / ABA Games, 2004) in Godot 4.7 für Android im Querformat,
+wie im Original. Spiellogik, Gegner, Stages und Schussmuster (BulletML) sind aus dem Original
+portiert. Das Bild füllt den ganzen Bildschirm; auf breiten Handys ist das Spielfeld entsprechend länger.
+Getroffene Gegner fallen nach unten und leicht schräg zum Spieler, damit man sie fangen kann.
 
 ## Steuerung
 
@@ -12,6 +12,9 @@ der Boden scrollt unten durch, getroffene Gegner fallen zur näheren Seite (link
   Teile werden eingezogen (geschützt, aber nur 1/5 Bonuspunkte).
 - **Pause**: Knopf oben rechts (pausiert auch automatisch, wenn die App in den Hintergrund geht).
 - Am PC: Pfeiltasten/WASD, X oder Shift = Slow, P = Pause.
+
+Test-Bot: `godot --path . -- --autoplay [--invincible] [--stage=N] [--shots=<ordner> --shotframes=a,b]`
+spielt automatisch und schreibt alle 600 Frames Werte und Rechenzeiten ins Log.
 
 ## Projekt
 
