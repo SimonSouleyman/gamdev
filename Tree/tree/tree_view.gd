@@ -87,6 +87,10 @@ var _built_marks := ""
 var _shown_care := PackedFloat32Array([-1, -1, -1, -1])
 ## Tools may force a care look (a shot of a thirsty tree); empty: the game's own signals.
 var care_override := PackedFloat32Array()
+## 0.8.2.8: how much less the morning's low sun lifts the sky's glow and the exposure than the
+## evening's (Simon: the start of the day was overexposed). Fade out by midday.
+const MORNING_SKY_CUT := 0.35
+const MORNING_EXPOSURE_CUT := 0.22
 ## Night adaptation (0.8.1, notes/look-0.8.1.md): exposure and the moonlit fill lifted by these
 ## shares at full night, so the tree reads on the phone without the night looking like day.
 const NIGHT_EXPOSURE_LIFT := 0.45
@@ -1103,13 +1107,17 @@ func _update_sun() -> void:
 	wish_plant.set_daylight(clampf(h * 3.0, 0.0, 1.0))
 	# The sky glows brighter near the horizon hours, and the haze takes the sun's colour.
 	# A low sun: a bright golden sky and haze, the ground in raking light (the reference photos).
-	_sky_mat.energy_multiplier = 1.5 + 1.7 * (1.0 - k) + (0.35 if clock.boost_active else 0.0)
+	# 0.8.2.8 (Simon: "when the day begins in tree mode it is still a little overexposed"): the
+	# morning's low sun lifts the sky, the exposure and the golden sun less than the evening's
+	# (the evening stays as bright: it was too dark before, 0.8.1).
+	var morning := 1.0 - smoothstep(0.4, 0.6, clock.time_of_day / maxf(clock.daylight_fraction, 0.01))
+	_sky_mat.energy_multiplier = 1.5 + 1.7 * (1.0 - k) * (1.0 - MORNING_SKY_CUT * morning) + (0.35 if clock.boost_active else 0.0)
 	# After sunset the haze stays cool blue-grey; only while the sun is up does it warm.
 	var warm := 0.25 * (1.0 - k) * dw
 	_env.fog_light_color = Color(0.32, 0.38, 0.48).lerp(Color(0.45, 0.55, 0.5), dw).lerp(_sun_light.light_color * 0.9, warm)
 	_env.fog_sun_scatter = 0.08 * (1.0 - k)
 	# The eye adapts: a low sun and the dusk are exposed brighter, so the tree stays readable.
-	_env.tonemap_exposure = 1.1 + 0.3 * (1.0 - k)
+	_env.tonemap_exposure = (1.1 + 0.3 * (1.0 - k)) * (1.0 - MORNING_EXPOSURE_CUT * morning * (1.0 - k))
 	# Never too dark by day: the dawn burst must be seen.
 	# Brighter dusk (Simon: the start at sunset was too dark).
 	_env.ambient_light_energy = (1.2 + 0.3 * k) if state.phase == GameState.Phase.DAY else 1.2
@@ -1124,7 +1132,7 @@ func _update_sun() -> void:
 	_env.ambient_light_energy *= lerpf(1.0, lerpf(0.95, 0.6, smoothstep(0.0, 0.2, h)), dw)
 	var golden := 1.0 - smoothstep(0.03, 0.55, h)
 	_sun_light.light_color = _sun_light.light_color.lerp(Color(1.0, 0.95, 0.88).lerp(Color(1.0, 0.7, 0.4), golden), dw)
-	_sun_light.light_energy *= lerpf(1.0, 1.45 * (1.0 + 0.25 * golden), dw)
+	_sun_light.light_energy *= lerpf(1.0, 1.45 * (1.0 + 0.25 * golden * (1.0 - 0.6 * morning)), dw)
 	_env.fog_light_color = _env.fog_light_color.lerp(Color(0.85, 0.7, 0.5), golden * (0.2 if _compat else 0.5) * dw)
 	# The phone's simpler renderer lights more brightly: tone it down to match the PC.
 	if _compat:

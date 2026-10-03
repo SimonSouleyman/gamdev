@@ -1148,8 +1148,22 @@ func is_settling() -> bool:
 	return _settle_t >= 0.0 or _after_grown.is_valid()
 
 
+## Every deposit the roots reach shows dimmed (dot_look) from now on.
+func _dim_reached() -> void:
+	if roots == null or _dots.multimesh.instance_count != ground.dot_count():
+		return
+	for i in roots.tapped:
+		if int(i) < ground.dot_count():
+			_set_dot(int(i))
+
+
 func _settle() -> void:
 	begin_idle_overview()
+	# 0.8.2.8 (Simon: "the side roots head for the dots, but the dots were often still there"):
+	# a deposit a side root reached while the tree's stock of its kind was full is tapped (the
+	# old roots drink it on the next nights) but was not drawn tonight, so it kept its full
+	# glow until the next night. Every deposit reached is dimmed now, as the roots reach it.
+	_dim_reached()
 	var g := roots.graph
 	var start := clampi(roots.run_first_new_id, 1, g.size())
 	_settle_first_fine = g.size()
