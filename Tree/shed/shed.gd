@@ -89,8 +89,8 @@ var bonsai_lamp: SpotLight3D
 ## warm pools. By night only; by day the window lights the room.
 var ceiling_lamp: OmniLight3D
 const CEILING_LAMP_AT := Vector3(-0.05, WALL_H - 0.08, -1.05)
-const CEILING_LAMP_ENERGY := 0.5
-const CEILING_LAMP_PHONE := 0.9
+const CEILING_LAMP_ENERGY := 1.0
+const CEILING_LAMP_PHONE := 1.8
 var _bonsai_bulb: StandardMaterial3D
 ## The bonsai lamp's energy at full night (the phone's renderer is dimmer: BONSAI_LAMP_PHONE).
 const BONSAI_LAMP_ENERGY := 1.0
