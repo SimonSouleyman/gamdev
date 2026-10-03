@@ -18,18 +18,21 @@ clouds race. Never "I must skip to be efficient".
 - A finger that moves past the threshold before 0.6 s turns the camera, as today. Once the
   fast-forward runs, moving the finger does not turn the camera (one gesture, one meaning).
 
-**Output.** The day's clock runs at 16x real speed (Simon, 2026-10-02: twice as fast, twice; 4x until 0.8.2.1, 8x until 0.8.2.3). From 0.8.2.4 a sunset button (0.8.2.5: a walnut hourglass, a real object like the other pictures) runs the rest of the day without holding, until the sunset hold; a tap on the screen stops it. It ran at the hold's 16x until 0.8.2.6; from 0.8.2.7 it runs at 32x (Simon, 2026-10-02: "twice as fast again: 32x; hold-to-fast-forward stays at 16x"). Both use the same fixed sim steps and the same per-frame sim budget (12 ms): a phone that cannot keep 32x runs the day slower, never the frame. At the four day moments (moments-0.8.2.6) both drop to 1x for 2 s and ease in again over 0.5 s. Everything that follows game time follows it:
+**Output.** The day's clock runs at 32x real speed while held (Simon, 2026-10-03, 0.8.2.8: "still too slow, double it"; 4x until 0.8.2.1, 8x until 0.8.2.3, 16x until 0.8.2.7). From 0.8.2.4 a sunset button (0.8.2.5: a walnut hourglass, a real object like the other pictures) runs the rest of the day without holding, until the sunset hold; a tap on the screen stops it. From 0.8.2.8 the hourglass takes about 7 real seconds for whatever is left of the day (Simon: "the day should pass within 7 seconds"; 16x until 0.8.2.6, 32x in 0.8.2.7); the day's moments still show during it but no longer slow it. A day being fast-forwarded takes coarser sim steps (at most 0.5 game s, `main._ff_step`) when the fixed steps do not fit the per-frame sim budget (12 ms), so the speed is the real speed on the phone; a watched day keeps the fixed steps. While holding, at the four day moments (moments-0.8.2.6) the clock drops to 1x for 2 s and eases in again over 0.5 s. Everything that follows game time follows it:
 growth, life force, the sun on its arc, boosts already set (they burn off at their game hours, so
 the same boosted hours happen at the same times of day, only quicker), weather and visitors. The
 look says what is happening without a number: clouds and shadows race, and a small ink double arrow
 (0.8.2.5; a small hourglass until then) pulses by the time scrap while it runs.
 
 **What working looks like.**
-- A day held from morning to sunset takes a sixteenth of the real time (120 s of daylight: about
-  8 s held, about 4 s with the hourglass, plus the moments' 2 s each).
-- Holding changes nothing in the result: the same seed and the same taps give the same tree, the
-  same life force at sunset and the same night length, held or not. The sim steps by game time,
-  so this should hold by construction.
+- A day held from morning to sunset takes a thirty-second of the real time (120 s of daylight:
+  about 4 s held, plus the moments' 2 s each); the hourglass ends the rest of the day in about 7 s.
+- Holding changes nothing that matters: the same seed and the same taps give the same tree, the
+  same life force at sunset and the same night length, held or not, as long as the fixed steps fit
+  the frame. From 0.8.2.8 a slow phone takes coarser steps while fast-forwarding, so its tree can
+  differ slightly (a few segments, a little life force); it stays a fair, calm day. Accepted:
+  Simon wants the day to pass quickly more than he wants exact replays, and the seeded sims run
+  with fixed steps.
 - The phone keeps its frame rate while holding.
 
 **Interactions.**
@@ -53,13 +56,14 @@ sunset hold. A page or the shed opening mid-hold ends it (the release is treated
 happened, as today for boosts). Two fingers (pinch zoom) never start it. The first-time moment:
 the journal's tap page mentions the hold in one line, no new page (onboarding-check.md).
 
-**Tuning levers.** Speed (hold 16x, hourglass 32x), the hold time before it starts (0.6 s), whether the speed eases
+**Tuning levers.** Speed (hold 32x, hourglass about 7 s for the rest of the day), the coarsest fast step (0.5 game s), the hold time before it starts (0.6 s), whether the speed eases
 in over about half a second.
 
 ## What "broken" looks like
 
 1. A hold boosts, or a tap starts the fast-forward.
-2. The same seed and taps give a different tree, tank or night length when held.
+2. The same seed and taps give a clearly different tree, tank or night length when held (more than
+   a few segments, or a night more than a few seconds shorter or longer).
 3. The fast-forward runs past the sunset hold, starts the dive or runs underground.
 4. The phone drops below the frame rate it holds by day without holding (below about 25 fps on
    the Fairphone) or hitches when the hold starts.
