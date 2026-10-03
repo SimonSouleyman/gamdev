@@ -15,10 +15,6 @@ const FIELD_SPACE := 1.5
 const FIRE_INTERVAL := 2
 ## Touch control: the ship follows the finger, but never faster than this per frame.
 const TOUCH_MAX_SPEED := 1.1
-## Take-off: rise from below the screen to this fraction of the field length.
-const START_X0 := -1.0
-const START_X1 := -0.55
-const START_RISE_CNT := 160
 
 var pos := Vector2.ZERO
 var deg := 0.0
@@ -76,16 +72,17 @@ func start() -> void:
 func start_stage() -> void:
 	var f: Field = Game.I.field
 	start()
-	# Portrait take-off: the squadron comes in from below the screen and the friends fly on ahead.
-	pos = Vector2(START_X0 * f.size.x - 3, 0)
-	deg = 0
+	pos = Vector2(-f.size.x / 3 * 2, -f.size.y / 5 * 4)
+	deg = 0.2
+	ground_y = 120
+	f.ground_y = ground_y
 	start_cnt = 0
 	cnt = 0
 	smx = 0
 	smy = 0
 	rand.set_seed(0)
 	for i in friend_pos.size():
-		friend_pos[i] = Vector2(pos.x - 2 - rand.next_float(f.size.x * 0.6), rand.next_signed_float(f.size.y * 0.85))
+		friend_pos[i] = Vector2(-rand.next_float(f.size.x * 3) + f.size.x * 1.5, pos.y + rand.next_float(f.size.y))
 
 
 func back_to_home() -> void:
@@ -95,7 +92,7 @@ func back_to_home() -> void:
 	smy = 0
 	rand.set_seed(0)
 	for i in friend_pos.size():
-		friend_pos[i] = Vector2(-f.size.x - 2 - rand.next_float(f.size.x * 0.5), rand.next_signed_float(f.size.y * 0.8))
+		friend_pos[i] = Vector2(-rand.next_float(f.size.x * 3) + f.size.x * 1.5, f.size.y + rand.next_float(f.size.y / 2))
 
 
 static var invincible := "--invincible" in OS.get_cmdline_user_args()
@@ -163,19 +160,33 @@ func move(input: Vector2, fire: bool, slow: bool) -> void:
 
 func start_move() -> void:
 	var g := Game.I
-	var f: Field = g.field
-	if start_cnt <= START_RISE_CNT:
-		var t := float(start_cnt) / START_RISE_CNT
-		pos.x = lerpf(START_X0 * f.size.x - 3, START_X1 * f.size.x, smoothstep(0, 1, t))
-		if start_cnt < 90:
-			g.particles.add(1, pos, PI / 2, 0.4, 0.3 + start_cnt * 0.01, 0.5, Particles.SMOKE)
-	if start_cnt == 40:
-		g.sound.play_se(Sound.PROPELLER)
-	if start_cnt > 256:
-		g.set_in_game()
+	if start_cnt < 120:
+		if start_cnt < 80:
+			smx += 0.003
+		else:
+			smx -= 0.006
+		pos.x += smx
+		if start_cnt < 60:
+			g.particles.add(1, pos, PI / 2 + 0.2, 0.4, start_cnt * 0.02, 0.5, Particles.SMOKE)
+	if start_cnt > 60 and start_cnt < 180:
+		if start_cnt == 61:
+			g.sound.play_se(Sound.PROPELLER)
+		if start_cnt < 140:
+			smy += 0.003
+		else:
+			smy -= 0.006
+		pos.y += smy
+		ground_y -= 1
+		g.field.ground_y = ground_y
+		pos.x -= 0.01
+	if start_cnt > 180:
+		pos.x -= 0.1
+		deg -= 0.0026
+		if start_cnt > 256:
+			g.set_in_game()
 	start_cnt += 1
 	for i in friend_pos.size():
-		friend_pos[i].x += 0.35
+		friend_pos[i].y += 0.15
 
 
 func end_move() -> void:
@@ -214,13 +225,12 @@ func back_to_home_move(button: bool) -> void:
 		for i in friend_pos.size():
 			friend_pos[i].x += BASE_SPEED * 2
 	end_cnt += 1
-	# The friends catch up from below.
 	if end_cnt < 220:
 		for i in friend_pos.size():
-			friend_pos[i].x += 0.12
+			friend_pos[i].y -= 0.05
 	elif end_cnt < 330:
 		for i in friend_pos.size():
-			friend_pos[i].x += 0.05
+			friend_pos[i].y -= 0.02
 
 
 func draw(r: BlockRenderer) -> void:
@@ -230,10 +240,10 @@ func draw(r: BlockRenderer) -> void:
 	tumiki_set.draw_rot(r, pos, 0, 0, deg)
 
 
-func draw_friendly(r: BlockRenderer, _back: bool) -> void:
+func draw_friendly(r: BlockRenderer, back: bool) -> void:
 	var z := -3.0
 	for fp in friend_pos:
-		tumiki_set.draw_rot(r, fp, z, 1, 0.0)
+		tumiki_set.draw_rot(r, fp, z, 1, 0.0 if back else 0.2)
 		z -= 1
 
 
@@ -416,6 +426,7 @@ class StuckPool:
 
 	func _init(n: int, ship: Ship) -> void:
 		pool = U.Pool.new(n, func(): return StuckEnemy.new(self, ship))
+		pool.track = true
 
 	func get_instance():
 		return pool.get_instance()
@@ -427,7 +438,7 @@ class StuckPool:
 	func check_hit(p: Vector2) -> bool:
 		if pull_in_cnt > 0:
 			return false
-		for se in pool.actor:
+		for se in pool.active:
 			if se.exists and se.check_hit(p):
 				return true
 		return false
@@ -435,7 +446,7 @@ class StuckPool:
 	func check_hit_without_my_ship(p: Vector2):
 		if pull_in_cnt > 0:
 			return null
-		for se in pool.actor:
+		for se in pool.active:
 			if se.exists and not se.is_my_ship and se.check_hit(p):
 				return se
 		return null
@@ -456,7 +467,7 @@ class StuckPool:
 
 	func check_connected(nse: StuckEnemy) -> bool:
 		var c := false
-		for se in pool.actor:
+		for se in pool.active:
 			if se.exists and se.check_connected(nse):
 				c = true
 		return c
@@ -479,7 +490,7 @@ class StuckPool:
 
 	func pull_in() -> void:
 		if pull_in_cnt == 0:
-			for se in pool.actor:
+			for se in pool.active:
 				if se.exists and not se.is_my_ship:
 					se.set_top_bullets_deactivated(true)
 		if pull_in_cnt < PULLIN_CNT_MAX:
@@ -490,7 +501,7 @@ class StuckPool:
 		if pull_in_cnt > 0:
 			pull_in_cnt -= 1
 		if pull_in_cnt == 0:
-			for se in pool.actor:
+			for se in pool.active:
 				if se.exists and not se.is_my_ship:
 					se.set_top_bullets_deactivated(false)
 		pull_in_ratio = 1 - float(pull_in_cnt) / PULLIN_CNT_MAX
@@ -503,13 +514,13 @@ class StuckPool:
 		Game.I.set_rank(total_size * 0.02)
 
 	func draw(r: BlockRenderer) -> void:
-		for se in pool.actor:
+		for se in pool.active:
 			if se.exists:
 				se.draw(r)
 
 	func count() -> int:
 		var n := 0
-		for se in pool.actor:
+		for se in pool.active:
 			if se.exists and not se.is_my_ship:
 				n += 1
 		return n

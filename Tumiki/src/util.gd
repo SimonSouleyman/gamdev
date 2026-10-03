@@ -108,6 +108,11 @@ static func dtor(a: float) -> float:
 class Pool:
 	var actor: Array = []
 	var idx := 0
+	## Actors that existed at the last refresh_active(), plus the ones handed out since then
+	## when `track` is set. Hit checks loop over this short list instead of the whole pool;
+	## callers still check `exists`. Tracked pools must be refreshed every frame.
+	var active: Array = []
+	var track := false
 
 	func _init(n: int, maker: Callable) -> void:
 		for i in n:
@@ -122,6 +127,8 @@ class Pool:
 			if idx < 0:
 				idx = actor.size() - 1
 			if not actor[idx].exists:
+				if track and not active.has(actor[idx]):
+					active.append(actor[idx])
 				return actor[idx]
 		return null
 
@@ -129,6 +136,8 @@ class Pool:
 		idx -= 1
 		if idx < 0:
 			idx = actor.size() - 1
+		if track and not active.has(actor[idx]):
+			active.append(actor[idx])
 		return actor[idx]
 
 	func move() -> void:
@@ -144,3 +153,10 @@ class Pool:
 	func clear() -> void:
 		for a in actor:
 			a.exists = false
+		active.clear()
+
+	func refresh_active() -> void:
+		active.clear()
+		for a in actor:
+			if a.exists:
+				active.append(a)

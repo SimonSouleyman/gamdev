@@ -198,6 +198,11 @@ class TumikiSet:
 			t.draw_xy(r, x, y, z, shade, damaged, wounded, layer, sc)
 
 	func check_hit(p: Vector2, x: float, y: float) -> bool:
+		# Quick reject with the bounding box of all blocks (plus the 0.7 hit margin).
+		var ox := p.x - x
+		var oy := p.y - y
+		if ox < size_xm - 0.8 or ox > size_xp + 0.8 or oy < size_ym - 0.8 or oy > size_yp + 0.8:
+			return false
 		for t in tumiki:
 			if t.check_hit(p, x, y):
 				return true
