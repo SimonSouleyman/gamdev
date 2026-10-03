@@ -138,12 +138,15 @@ var _press_time: float = 0.0  # "", "orbit", "sun", "boost"
 ## by day starts it; it runs while the finger stays down. A tap stays the boost.
 const HOLD_START := 0.6
 ## The day's clock while held (tuning lever; 0.8.2.2: 8x, was 4x, Simon: "twice as fast";
-## 0.8.2.4: 16x, Simon: "doubled again").
-const FAST_FORWARD := 16.0
-## The sunset picture's (hourglass) speed: twice the hold (0.8.2.7, Simon: "twice as fast again:
-## 32x; holding stays 16x"). Same fixed sim steps and per-frame budget (main.FF_BUDGET_MS): a
-## phone that cannot keep it runs the day slower, not the frame.
-const SUNSET_RUN_SPEED := 32.0
+## 0.8.2.4: 16x, Simon: "doubled again"; 0.8.2.8: 32x, Simon: "still too slow, double it").
+## From 0.8.2.8 a phone that cannot keep the speed in fixed steps takes coarser ones
+## (main.gd, _ff_step), so the speed is the real speed.
+const FAST_FORWARD := 32.0
+## The sunset picture (hourglass) runs the rest of the day in this many real seconds, however much
+## of it is left (0.8.2.8, Simon: "the day should pass within 7 seconds"; it ran at 32x before).
+const SUNSET_RUN_SECONDS := 7.0
+## Real seconds the hourglass run has run (its speed aims at the end at SUNSET_RUN_SECONDS).
+var _run_time: float = 0.0
 ## Real seconds the speed takes to ease in from 1x to FAST_FORWARD (no hitch when it starts).
 const FAST_EASE := 0.5
 ## 0..1: how far the fast-forward has eased in (0 = the normal clock).
@@ -256,8 +259,10 @@ var _reveal_left: float = 0.0
 ## in again; and the moment shows (the flowers open, the visitor's line, the weather turns).
 func moment(m: String, note: String = "") -> void:
 	last_moment = m
-	_moment_left = Moments.SLOW_SECONDS
-	_ff_amount = 0.0
+	# The hourglass run keeps its seven seconds: the moment shows, but does not slow it (0.8.2.8).
+	if not _to_sunset:
+		_moment_left = Moments.SLOW_SECONDS
+		_ff_amount = 0.0
 	match m:
 		Moments.MORNING:
 			refresh_wish()
@@ -1645,15 +1650,17 @@ func _frame_camera(snap: bool, delta: float = 0.0) -> void:
 # --- hold to fast-forward ---------------------------------------------------
 
 ## How fast the day's clock runs now: 1, or up to FAST_FORWARD while a still finger is held by
-## day, up to SUNSET_RUN_SPEED while the sunset picture runs the day. main.gd multiplies the sim's real time by it; the sim itself still steps in fixed game
+## day, the rest of the day in SUNSET_RUN_SECONDS while the sunset picture runs it. main.gd multiplies the sim's real time by it; the sim itself still steps in fixed game
 ## time, so a held day grows exactly the tree a watched one does.
 func time_speed() -> float:
-	var speed := lerpf(1.0, SUNSET_RUN_SPEED if _to_sunset else FAST_FORWARD, _ff_amount)
 	if _to_sunset and state != null:
+		# The game seconds left over the real seconds left of the run: it lands on the sunset
+		# hold at SUNSET_RUN_SECONDS whatever was left, and makes up for a slow frame.
 		var clk := state.sim.clock
 		var left := (clk.daylight_fraction - clk.time_of_day) * clk.seconds_per_day
-		speed = minf(speed, maxf(2.0, left / SUNSET_EASE_OUT))
-	return speed
+		var real_left := maxf(SUNSET_EASE_OUT, SUNSET_RUN_SECONDS - _run_time)
+		return lerpf(1.0, maxf(2.0, left / real_left), _ff_amount)
+	return lerpf(1.0, FAST_FORWARD, _ff_amount)
 
 
 func fast_forwarding() -> bool:
@@ -1681,6 +1688,7 @@ func run_to_sunset(on: bool = true) -> bool:
 	if on and prune_mode:
 		return false
 	_to_sunset = on
+	_run_time = 0.0
 	if not on:
 		_ff_amount = 0.0
 	return _to_sunset
@@ -1694,6 +1702,8 @@ func _update_hold(delta: float) -> void:
 	# The sunset run ends at the sunset hold (or when the shears come out).
 	if _to_sunset and (state.phase != GameState.Phase.DAY or prune_mode):
 		run_to_sunset(false)
+	if _to_sunset:
+		_run_time += delta
 	if _moment_left > 0.0:
 		# A moment: normal speed for a little while, then the speed eases in again.
 		_moment_left = maxf(0.0, _moment_left - delta)
