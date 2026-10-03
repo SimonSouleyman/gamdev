@@ -105,8 +105,10 @@ func _points_move() -> void:
 		if cnt >= pattern.withdraw_cnt:
 			withdraw = true
 			on_route = false
+		# The original scales both by the field length (21). The portrait field is longer, so x
+		# follows it while y keeps the original scale to stay inside the field width.
 		ax = aim.x * Game.I.field.size.x
-		ay = aim.y * Game.I.field.size.x
+		ay = aim.y * 21.0
 	if withdraw:
 		ax = withdraw_pos.x
 		ay = withdraw_pos.y

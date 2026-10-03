@@ -16,6 +16,10 @@ const STAGE_MESSAGE := ["WE ARE TUMIKI FIGHTERS!", "JUST OVER THE HORIZON", "PAN
 const SAVE_PATH := "user://save.cfg"
 
 static var I: Game
+## Screen height / width, set by Main before the game is created.
+static var view_aspect := 16.0 / 9.0
+## World units at the top of the field covered by the HUD text, set by Main.
+var hud_top := 4.0
 
 var state := TITLE
 var stage := 0
@@ -58,14 +62,15 @@ func _ready() -> void:
 	r = BlockRenderer.new()
 	add_child(r)
 	camera = Camera3D.new()
-	camera.keep_aspect = Camera3D.KEEP_HEIGHT
-	camera.fov = 90
+	camera.keep_aspect = Camera3D.KEEP_WIDTH
 	camera.near = 0.1
 	camera.far = 1000
 	add_child(camera)
 	sound = Sound.new()
 	add_child(sound)
 	field = Field.new()
+	field.set_aspect(view_aspect)
+	camera.fov = rad_to_deg(2 * atan(Field.VIEW_HALF_W / field.eye_z))
 	particles = Particles.new(128)
 	fragments = U.Pool.new(128, func(): return Effects.Fragment.new())
 	bullets = Bullets.new(512)
@@ -84,7 +89,8 @@ func _ready() -> void:
 
 func _set_camera() -> void:
 	# The original looks at the field from z = eyeZ. The camera is rolled by -90 degrees so that
-	# the original "forward" (+x) points up on a portrait screen.
+	# the original "forward" (+x) points up on a portrait screen. The field is seen from above,
+	# with its full width (world y) filling the screen width.
 	camera.transform = Transform3D(Basis(Vector3(0, 0, 1), -PI / 2), Vector3(0, 0, field.eye_z))
 
 

@@ -22,6 +22,9 @@ class Splinter:
 	var cnt := 0
 	var is_boss := false
 	var flyin := false
+	## Side the splinter falls to: +1 = world +y (screen left), -1 = screen right. The field is
+	## seen from above, so pieces fall off the nearer side edge instead of to the ground.
+	var fall := 1.0
 
 	func _init() -> void:
 		for i in 16:
@@ -33,12 +36,13 @@ class Splinter:
 		barrage_ptn_idx = bpi
 		deg = 0
 		is_boss = boss
+		fall = Splinter.side_of(y)
 		if not boss:
-			md = MOVE_DEG_DEFAULT
+			md = MOVE_DEG_DEFAULT * fall
 			vel = Vector2(-MOVE_X_DEFAULT, 0)
 		else:
-			md = MOVE_DEG_DEFAULT / 3
-			vel = Vector2(-MOVE_X_DEFAULT / 2, -MOVE_X_DEFAULT / 3)
+			md = MOVE_DEG_DEFAULT / 3 * fall
+			vel = Vector2(-MOVE_X_DEFAULT / 2, MOVE_X_DEFAULT / 3 * fall)
 		if Splinter.sign_num > 0:
 			has_sign = true
 			Splinter.sign_num -= 1
@@ -55,11 +59,19 @@ class Splinter:
 		deg = d
 		is_boss = false
 		md = m
-		vel = Vector2(mx, my)
+		# Pieces knocked off the ship are flung outwards to their side, then fall that way.
+		fall = Splinter.side_of(p.y - Game.I.ship.pos.y)
+		vel = Vector2(mx, (absf(my - Ship.StuckEnemy.SPLINTER_FLYIN_MOVE_Y) + Ship.StuckEnemy.SPLINTER_FLYIN_MOVE_Y / 2) * fall)
 		has_sign = false
 		flyin = true
 		cnt = 0
 		exists = true
+
+	## Which side something at world y falls to (random near the middle).
+	static func side_of(y: float) -> float:
+		if absf(y) < 0.5:
+			return 1.0 if rand.next_int(2) == 0 else -1.0
+		return signf(y)
 
 	func move() -> void:
 		var g := Game.I
@@ -67,8 +79,8 @@ class Splinter:
 		deg += md
 		cnt += 1
 		if not is_boss:
-			vel.y -= GRAVITY
-			if pos.y < -g.field.size.y - tumiki_set.size:
+			vel.y += GRAVITY * fall
+			if absf(pos.y) > g.field.size.y + tumiki_set.size or pos.x < -g.field.size.x - tumiki_set.size:
 				exists = false
 				return
 			var sd := sin(deg) * COLLISION_RATIO
@@ -143,6 +155,7 @@ class Fragment:
 	var shape := 0
 	var color := 0
 	var cnt := 0
+	var fall := 1.0
 
 	func set_frag(sh: int, cl: int, x: float, y: float, s: Vector2) -> void:
 		shape = sh
@@ -150,6 +163,7 @@ class Fragment:
 		pos = Vector2(x, y)
 		size = s
 		vel = Vector2(rand.next_signed_float(0.2), rand.next_signed_float(0.1))
+		fall = signf(y) if absf(y) > 0.5 else signf(vel.y + 0.0001)
 		deg = 0
 		md = rand.next_signed_float(8)
 		cnt = 32 + rand.next_int(48)
@@ -161,7 +175,7 @@ class Fragment:
 			exists = false
 			return
 		pos += vel
-		vel.y -= GRAVITY
+		vel.y += GRAVITY * fall
 		deg += md
 
 	func draw(r: BlockRenderer) -> void:
@@ -179,7 +193,8 @@ class Fragment:
 
 
 class ScoreSign:
-	const FIELD_X := 14.5
+	## Distance kept from the top edge of the field.
+	const TOP_SPACE := 6.5
 	var exists := false
 	var pos := Vector2.ZERO
 	var my := 0.0
@@ -189,8 +204,9 @@ class ScoreSign:
 
 	func set_sign(p: Vector2, n: int, s: float) -> void:
 		pos = p
-		if pos.x > FIELD_X - s * 2:
-			pos.x = FIELD_X - s * 2
+		var top := Game.I.field.size.x - TOP_SPACE
+		if pos.x > top - s * 2:
+			pos.x = top - s * 2
 		num = n
 		size = s
 		my = 0.3
@@ -202,7 +218,7 @@ class ScoreSign:
 		if cnt < 0:
 			exists = false
 			return
-		pos.y += my
+		pos.x += my  # floats up the screen
 		my *= 0.92
 
 
@@ -238,22 +254,22 @@ class DamageGauge:
 				it[0] = null
 		cnt += 1
 
+	## Drawn at the top left below the score: enemy icon, then its shield bars to the right.
 	func draw(r: BlockRenderer) -> void:
-		var x := 18.0
-		var y := -13.0
+		var g := Game.I
+		var x := g.field.size.x - 2.5 - g.hud_top
+		var y := 13.0
 		for it in items:
 			if it[0] != null:
 				var ts: TData.TumikiSet = it[0].spec.tumiki_set
-				var s := 1.0 / ts.size * 3
+				var s := 1.0 / ts.size * 0.9
 				ts.draw_xy(r, x / s, y / s, 0.9, false, false, 0, BlockRenderer.Layer.OVER, s)
 				var sl: float = it[0].shield
 				var i := 0
 				while sl > 0:
-					var sx2 := 11.0
-					var slb := minf(sl, 100)
-					var sx1 := sx2 - slb / 10
-					r.block(0, (3 + i) % 12, 3, sx1 + sx2 / 2, y - 0.4, 1 + i * 0.1, 0, sx2 - sx1, 0.4, 1,
+					var hl := minf(sl, 100) / 20  # half length, 5 units for a full bar
+					r.block(0, (3 + i) % 12, 3, x + 0.35, 11.5 - hl, 1 + i * 0.1, 0, 0.2, hl, 1,
 						BlockRenderer.Layer.OVER)
 					i += 1
 					sl -= 100
-			y += 1.8
+			x -= 2.2

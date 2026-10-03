@@ -1,19 +1,24 @@
-## Stage field: background colors, mountains and scrolling scenery (port of field.d).
+## Stage field: background colors and scrolling scenery (port of field.d).
+## The original is a side view with mountains and a ground strip. In portrait the field is
+## seen from above: the ground is a plane far below that scrolls down the screen, ground
+## scenery lies on it and background aircraft fly between it and the play plane.
 class_name Field
 
-const GROUND_LEVEL := -17.0
 const FIELD_NUM := 5
-const GROUND_Y := 280.0
+## Half the visible field width (world y) on the play plane.
+const VIEW_HALF_W := 15.0
+## Depth of the ground plane below the play plane.
+const GROUND_Z := -105.0
 
 var size := Vector2(21, 16)
 var eye_z := 20.0
 var patterns: Array = []
 var pattern: TData.FieldPattern
 var rand := U.Rand.new()
-var mnx := 0.0
-var ground_y := 0.0
+var ground_scroll := 0.0
+var ground_y := 0.0  # kept for the ship's take-off code; unused in the top-down view
 var objs: U.Pool
-var back_mount_pos: Array = []
+var stage := 0
 
 
 class FieldObj:
@@ -32,13 +37,15 @@ class FieldObj:
 		speed = s
 		exists = true
 
-	func set_ground(f: Field, ts: TData.TumikiSet, zz: float, s: float) -> void:
-		_setup(f, ts, zz, s)
-		pos.y = Field.GROUND_LEVEL - ts.size_ym
+	## Ground scenery lies on the ground; taller rows (larger original depth) sit a bit lower.
+	func set_ground(f: Field, ts: TData.TumikiSet, zz: float, s: float, rand: U.Rand) -> void:
+		_setup(f, ts, -(40.0 - zz * 0.5), s)
+		pos.y = rand.next_signed_float(f.half_width_at(z) * 1.1)
 
+	## Background aircraft fly between the ground and the play plane.
 	func set_sky(f: Field, ts: TData.TumikiSet, zz: float, s: float, rand: U.Rand) -> void:
-		_setup(f, ts, zz, s)
-		pos.y = rand.next_float(f.size.y / f.eye_z * (f.eye_z - z) * 0.8)
+		_setup(f, ts, zz * 0.5, s)
+		pos.y = rand.next_signed_float(f.half_width_at(z) * 0.9)
 
 	func move() -> void:
 		pos.x -= speed
@@ -53,28 +60,26 @@ func _init() -> void:
 	for i in FIELD_NUM:
 		patterns.append(TData.FieldPattern.new("fld%d.fld" % (i + 1)))
 	objs = U.Pool.new(64, func(): return FieldObj.new())
-	for i in 17:
-		back_mount_pos.append(Vector2.ZERO)
+
+
+## Sets the field length so that it fills a screen whose height is `aspect` times its width.
+func set_aspect(aspect: float) -> void:
+	size.x = maxf(21.0, VIEW_HALF_W * aspect + 1)
+
+
+## Half the visible width (world y) at depth z.
+func half_width_at(z: float) -> float:
+	return VIEW_HALF_W / eye_z * (eye_z - z)
 
 
 func start(sn: int) -> void:
+	stage = sn
 	pattern = patterns[sn]
 	rand.set_seed(pattern.rand_seed)
 	for fl in pattern.line:
 		fl.cnt = fl.interval[rand.next_int(fl.interval.size())]
 	objs.clear()
-	var x := 0.0
-	for i in 4:
-		var tx := i * 160 + 80 + rand.next_signed_float(30)
-		var ty := GROUND_Y - 5 - rand.next_float(25)
-		var nx := 160 + i * 160 + rand.next_signed_float(30)
-		back_mount_pos[i * 2] = Vector2(x, GROUND_Y)
-		back_mount_pos[i * 2 + 1] = Vector2(tx, ty)
-		x = nx
-	for i in 8:
-		back_mount_pos[8 + i] = Vector2(back_mount_pos[i].x + 640, back_mount_pos[i].y)
-	back_mount_pos[16] = Vector2(1280, GROUND_Y)
-	mnx = 0
+	ground_scroll = 0
 
 
 func move() -> void:
@@ -86,13 +91,11 @@ func move() -> void:
 			if fo != null:
 				var ts: TData.TumikiSet = fl.tumiki_set[rand.next_int(fl.tumiki_set.size())]
 				if fl.on_ground:
-					fo.set_ground(self, ts, fl.z, pattern.scroll_speed)
+					fo.set_ground(self, ts, fl.z, pattern.scroll_speed, rand)
 				else:
 					fo.set_sky(self, ts, fl.z, pattern.scroll_speed / 3 * 2, rand)
 			fl.cnt = fl.interval[rand.next_int(fl.interval.size())]
-	mnx += pattern.scroll_speed
-	if mnx >= 640:
-		mnx -= 640
+	ground_scroll += pattern.scroll_speed
 
 
 func draw(r: BlockRenderer) -> void:
@@ -101,31 +104,55 @@ func draw(r: BlockRenderer) -> void:
 			o.draw(r)
 
 
-## Draws the background in the original 640x480 screen space. `xf` maps such a point
-## to the target canvas.
-func draw_back(ci: CanvasItem, xf: Transform2D) -> void:
-	var g := pattern.ground
-	var mr := pattern.mount_root
-	var mt := pattern.mount_top
-	var gy1 := 400 - ground_y
-	var gy2 := GROUND_Y - ground_y
-	ci.draw_colored_polygon(xf * PackedVector2Array([Vector2(0, 480), Vector2(640, 480), Vector2(640, gy1), Vector2(0, gy1)]), g)
-	ci.draw_polygon(xf * PackedVector2Array([Vector2(0, gy1), Vector2(640, gy1), Vector2(640, gy2), Vector2(0, gy2)]),
-		PackedColorArray([g, g, mr, mr]))
-	var idx := 0
-	for i in back_mount_pos.size() / 2:
-		var x1: float = back_mount_pos[idx].x - mnx
-		var x2: float = back_mount_pos[idx + 1].x - mnx
-		var x3: float = back_mount_pos[idx + 2].x - mnx
-		if x1 >= 640:
-			break
-		if x3 >= 0:
-			ci.draw_polygon(xf * PackedVector2Array([
-				Vector2(x1, back_mount_pos[idx].y - ground_y),
-				Vector2(x2, back_mount_pos[idx + 1].y - ground_y),
-				Vector2(x3, back_mount_pos[idx + 2].y - ground_y)]),
-				PackedColorArray([mr, mt, mr]))
-		idx += 2
+## Draws the ground seen from above onto a canvas of size `s`: a hazy ground color with
+## scrolling hills (mountain roots around green tops). Rows are generated from their index,
+## so the pattern is stable while it scrolls.
+func draw_ground(ci: CanvasItem, s: Vector2) -> void:
+	var haze := pattern.back
+	var base := pattern.ground.lerp(haze, 0.3)
+	ci.draw_rect(Rect2(Vector2.ZERO, s), base)
+	var k := s.x / 2 / half_width_at(GROUND_Z)  # pixels per world unit on the ground
+	var c := s / 2
+	var hw := half_width_at(GROUND_Z)
+	var hh := c.y / k
+	var row := hw * 0.36
+	var root := pattern.ground.lerp(pattern.mount_top, 0.4).lerp(haze, 0.25)
+	var top := pattern.mount_top.lerp(haze, 0.2)
+	var gr := pattern.ground.lerp(haze, 0.12)
+	var rng := RandomNumberGenerator.new()
+	var i0 := floori((-hh + ground_scroll) / row) - 2
+	var i1 := ceili((hh + ground_scroll) / row) + 2
+	for i in range(i0, i1 + 1):
+		rng.seed = hash(Vector2i(stage, i))
+		var n := rng.randi_range(0, 2)
+		for j in n:
+			var wx := i * row + rng.randf_range(-0.3, 0.3) * row - ground_scroll
+			var wy := rng.randf_range(-1.15, 1.15) * hw
+			var rad := rng.randf_range(0.1, 0.24) * hw
+			var kind := rng.randi_range(0, 2)
+			var seg := 14
+			var jit: Array = []
+			for v in seg:
+				jit.append(rng.randf_range(0.78, 1.12))
+			var ctr := Vector2(c.x - wy * k, c.y - wx * k)
+			if ctr.y + rad * k * 1.2 < 0 or ctr.y - rad * k * 1.2 > s.y:
+				continue
+			if kind == 0:
+				# A flat patch of bare ground.
+				ci.draw_colored_polygon(_blob(ctr, rad * k * 0.8, jit, 0.9), gr)
+			else:
+				# A hill: wide root, green top.
+				ci.draw_colored_polygon(_blob(ctr, rad * k, jit, 1.25), root)
+				ci.draw_colored_polygon(_blob(ctr + Vector2(rad * k * 0.08, -rad * k * 0.08), rad * k * 0.55, jit, 1.25), top)
+
+
+func _blob(ctr: Vector2, rad: float, jit: Array, stretch: float) -> PackedVector2Array:
+	var pts := PackedVector2Array()
+	var seg := jit.size()
+	for v in seg:
+		var a := TAU * v / seg
+		pts.append(ctr + Vector2(cos(a) * stretch, sin(a)) * rad * jit[v])
+	return pts
 
 
 func check_hit(p: Vector2) -> bool:

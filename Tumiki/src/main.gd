@@ -1,9 +1,11 @@
-## Portrait layout, touch controls and HUD around the game view.
+## Full-screen portrait view, touch controls and HUD.
+## Controls: drag anywhere to move, keep a second finger on the screen to fly slow (and pull
+## in the stuck pieces), tap the pause button at the top right to pause.
 extends Control
 
-const VIEW_ASPECT := 4.0 / 3.0  # game view height / width
-const TOUCH_SENS := 1.35         # world units moved per world unit of finger movement
+const TOUCH_SENS := 1.35  # world units moved per world unit of finger movement
 const KEY_SPEED := 0.4
+const PAUSE_SIZE := 64.0
 
 var game: Game
 var container: SubViewportContainer
@@ -13,7 +15,7 @@ var overlay: Overlay
 var font: Font
 
 var view_rect := Rect2()
-var slow_rect := Rect2()
+var top_inset := 0.0  # status bar / camera cutout, in canvas pixels
 var pause_rect := Rect2()
 var yes_rect := Rect2()
 var no_rect := Rect2()
@@ -46,6 +48,8 @@ func _ready() -> void:
 	sub.add_child(we)
 	bg = BG.new()
 	sub.add_child(bg)
+	var vs := get_viewport_rect().size
+	Game.view_aspect = vs.y / vs.x
 	game = Game.new()
 	sub.add_child(game)
 	var cl := CanvasLayer.new()
@@ -72,23 +76,21 @@ func _notification(what: int) -> void:
 
 func _layout() -> void:
 	var s := get_viewport_rect().size
-	var w := s.x
-	var h := w * VIEW_ASPECT
-	var panel_min := 220.0
-	if h + panel_min > s.y:
-		h = s.y - panel_min
-		w = h / VIEW_ASPECT
-	var top := clampf((s.y - h - panel_min) * 0.25, 0, 90)
-	view_rect = Rect2((s.x - w) / 2, top, w, h)
-	container.position = view_rect.position
-	container.size = view_rect.size
-	var py := view_rect.end.y
-	var ph := s.y - py
-	var bs := minf(ph * 0.62, 200)
-	slow_rect = Rect2(s.x - bs - 36, py + (ph - bs) / 2, bs, bs)
-	pause_rect = Rect2(28, py + (ph - 90) / 2, 90, 90)
-	yes_rect = Rect2(view_rect.position.x + w * 0.12, view_rect.position.y + h * 0.62, w * 0.34, 90)
-	no_rect = Rect2(view_rect.position.x + w * 0.54, view_rect.position.y + h * 0.62, w * 0.34, 90)
+	view_rect = Rect2(Vector2.ZERO, s)
+	container.position = Vector2.ZERO
+	container.size = s
+	top_inset = 0.0
+	if OS.has_feature("mobile"):
+		var ws := DisplayServer.screen_get_size()
+		var safe := DisplayServer.get_display_safe_area()
+		if ws.x > 0:
+			top_inset = safe.position.y * s.x / ws.x
+	var ty := top_inset + 14
+	pause_rect = Rect2(s.x - PAUSE_SIZE - 16, ty, PAUSE_SIZE, PAUSE_SIZE)
+	yes_rect = Rect2(s.x * 0.12, s.y * 0.62, s.x * 0.34, 90)
+	no_rect = Rect2(s.x * 0.54, s.y * 0.62, s.x * 0.34, 90)
+	if game != null:
+		game.hud_top = (ty + 95) / (s.x / (Field.VIEW_HALF_W * 2))
 	queue_redraw()
 
 
@@ -96,7 +98,7 @@ func _input(event: InputEvent) -> void:
 	if event is InputEventScreenTouch:
 		var p: Vector2 = event.position
 		if event.pressed:
-			if pause_rect.has_point(p) and (game.state == Game.IN_GAME or game.state == Game.PAUSE):
+			if pause_rect.grow(24).has_point(p) and (game.state == Game.IN_GAME or game.state == Game.PAUSE):
 				game.toggle_pause()
 				return
 			if game.state == Game.GAMEOVER and game.credit > 0 and game.cnt > 64:
@@ -109,15 +111,18 @@ func _input(event: InputEvent) -> void:
 			if game.state == Game.PAUSE:
 				game.toggle_pause()
 				return
-			if slow_rect.grow(30).has_point(p) and slow_finger < 0:
-				slow_finger = event.index
-			elif move_finger < 0:
+			# First finger moves, a second finger anywhere means slow.
+			if move_finger < 0:
 				move_finger = event.index
+			elif slow_finger < 0:
+				slow_finger = event.index
 		else:
 			if event.index == slow_finger:
 				slow_finger = -1
 			if event.index == move_finger:
-				move_finger = -1
+				# The remaining finger takes over the movement.
+				move_finger = slow_finger
+				slow_finger = -1
 	elif event is InputEventScreenDrag:
 		if event.index == move_finger:
 			move_acc += event.relative
@@ -128,7 +133,7 @@ func _input(event: InputEvent) -> void:
 
 func _physics_process(_delta: float) -> void:
 	# Convert finger movement into world movement. Screen up = world +x, screen left = world +y.
-	var k := 40.0 / view_rect.size.y * TOUCH_SENS
+	var k := Field.VIEW_HALF_W * 2 / view_rect.size.x * TOUCH_SENS
 	var mv := Vector2(-move_acc.y * k, -move_acc.x * k)
 	move_acc = Vector2.ZERO
 	var kv := Vector2.ZERO
@@ -165,7 +170,7 @@ func _autoplay() -> void:
 	var target := Vector2(-10 + sin(t * 0.7) * 6, sin(t) * 12)
 	game.in_move = (target - game.ship.pos) * 0.1
 	game.in_slow = (frame % 300) < 40
-	if shots_dir != "" and frame in [330, 900, 1500, 2100]:
+	if shots_dir != "" and frame in [150, 330, 900, 1500, 2100]:
 		await RenderingServer.frame_post_draw
 		get_viewport().get_texture().get_image().save_png(shots_dir.path_join("shot_%05d.png" % frame))
 	if frame % 600 == 0:
@@ -180,27 +185,6 @@ func _autoplay() -> void:
 		print("f=%d state=%d stage=%d score=%d left=%d enemies=%d bullets=%d stuck=%d fps=%d" % [
 			frame, game.state, game.stage, game.score, game.left, ne, nb, game.ship.stuck.count(),
 			Engine.get_frames_per_second()])
-
-
-func _draw() -> void:
-	var s := get_viewport_rect().size
-	draw_rect(Rect2(Vector2.ZERO, s), Color(0.06, 0.06, 0.08))
-	if game == null:
-		return
-	if game.state == Game.IN_GAME or game.state == Game.PAUSE or game.state == Game.START_GAME:
-		var on := slow_finger >= 0
-		var c := slow_rect.get_center()
-		var rad := slow_rect.size.x / 2
-		draw_circle(c, rad, Color(0.6, 0.8, 0.8, 0.35 if on else 0.15))
-		draw_arc(c, rad, 0, TAU, 64, Color(0.6, 0.8, 0.8, 0.9), 4, true)
-		_text("SLOW", c + Vector2(0, 12), 34, Color(0.85, 0.95, 0.95), HORIZONTAL_ALIGNMENT_CENTER)
-		var pc := pause_rect.get_center()
-		draw_arc(pc, 40, 0, TAU, 48, Color(0.8, 0.8, 0.6, 0.8), 3, true)
-		draw_rect(Rect2(pc + Vector2(-14, -16), Vector2(9, 32)), Color(0.8, 0.8, 0.6))
-		draw_rect(Rect2(pc + Vector2(5, -16), Vector2(9, 32)), Color(0.8, 0.8, 0.6))
-	var hint_y := view_rect.end.y + 34
-	if game.state == Game.IN_GAME:
-		_text("Drag anywhere to move", Vector2(s.x / 2 - 40, hint_y), 20, Color(1, 1, 1, 0.25), HORIZONTAL_ALIGNMENT_CENTER)
 
 
 func _text(t: String, p: Vector2, size: int, c: Color, align := HORIZONTAL_ALIGNMENT_LEFT) -> void:
@@ -220,11 +204,7 @@ class BG extends Node2D:
 	func _draw() -> void:
 		if game == null or game.field.pattern == null:
 			return
-		var s := get_viewport_rect().size
-		draw_rect(Rect2(Vector2.ZERO, s), game.field.pattern.back)
-		# Original 640x480 landscape screen -> portrait view (landscape right = portrait up).
-		var xf := Transform2D(Vector2(0, -s.y / 640.0), Vector2(s.x / 480.0, 0), Vector2(0, s.y))
-		game.field.draw_back(self, xf)
+		game.field.draw_ground(self, get_viewport_rect().size)
 
 
 ## Text drawn over the game view: score, letters, score signs, title and game over screens.
@@ -251,12 +231,13 @@ class Overlay extends Node2D:
 			return
 		var s := get_viewport_rect().size
 		var sc := s.x / 640.0
-		var wu := s.y / 40.0  # pixels per world unit
+		var wu := s.x / (Field.VIEW_HALF_W * 2)  # pixels per world unit
+		var ty: float = main.top_inset
 		# Bouncing letters (stage names, warnings).
 		for ml in g.letters.pool.actor:
 			if ml.exists:
 				var fs := int(ml.size * 2.6 * sc)
-				var p := Vector2(ml.pos.x * sc, ml.pos.y * sc + 40)
+				var p := Vector2(ml.pos.x * sc, ml.pos.y * sc + main.top_inset + s.y * 0.15)
 				draw_set_transform(p, deg_to_rad(ml.deg), Vector2.ONE)
 				_text(ml.ch, Vector2(0, fs * 0.35), fs, LETTER_COLORS[ml.color % 6], true, 4)
 				draw_set_transform(Vector2.ZERO, 0, Vector2.ONE)
@@ -272,14 +253,20 @@ class Overlay extends Node2D:
 		for sp in g.splinters.actor:
 			if sp.exists and sp.has_sign and (sp.cnt & 31) < 24:
 				_text("CATCH ME!", _w2s(sp.pos) + Vector2(0, -wu * 2.5), int(wu * 1.3), Color(0.8, 0.8, 0.6), true, 4)
-		# Score and boss timer.
-		_text("SCORE", Vector2(16, 34), 22, Color(0.9, 0.9, 0.7), false, 3)
-		_text(str(g.score), Vector2(100, 34), 30, Color(1, 1, 0.8), false, 4)
-		_text("HI " + str(maxi(g.hi_score, g.score)), Vector2(s.x - 16 - 200, 34), 20, Color(0.8, 0.8, 0.8, 0.8), false, 3)
+		# Score, hi-score, boss timer and the pause button.
+		_text("SCORE", Vector2(16, ty + 40), 22, Color(0.9, 0.9, 0.7), false, 3)
+		_text(str(g.score), Vector2(100, ty + 40), 30, Color(1, 1, 0.8), false, 4)
+		_text("HI " + str(maxi(g.hi_score, g.score)), Vector2(16, ty + 70), 20, Color(0.8, 0.8, 0.8, 0.8), false, 3)
 		if g.boss_timer < Game.BOSSTIMER_FREEZED and (g.boss_dst_cnt & 31) > 8:
 			var t := maxi(g.boss_timer, 0)
 			var tx := "%02d:%02d.%02d" % [t / 60000, (t / 1000) % 60, (t / 10) % 100]
-			_text(tx, Vector2(s.x - 16 - 200, 68), 26, Color(1, 0.7, 0.5), false, 3)
+			_text(tx, Vector2(s.x / 2 + 70, ty + 40), 28, Color(1, 0.7, 0.5), true, 3)
+		if g.state == Game.IN_GAME or g.state == Game.PAUSE:
+			_draw_pause_button(main.pause_rect, g.state == Game.PAUSE)
+		if g.state == Game.START_GAME and g.stage == 0 and g.ship.start_cnt < 240:
+			var a := clampf(minf(g.ship.start_cnt - 20, 240 - g.ship.start_cnt) / 30.0, 0, 1)
+			_text("DRAG TO MOVE", Vector2(s.x / 2, s.y * 0.72), 30, Color(1, 1, 0.85, a), true, 4)
+			_text("2ND FINGER DOWN: SLOW + PULL IN", Vector2(s.x / 2, s.y * 0.72 + 40), 22, Color(1, 1, 0.85, a * 0.9), true, 3)
 		match g.state:
 			Game.PAUSE:
 				if (g.pause_cnt % 60) < 40:
@@ -287,7 +274,7 @@ class Overlay extends Node2D:
 				_text("tap to resume", Vector2(s.x / 2, s.y * 0.45 + 50), 26, Color(1, 1, 1, 0.8), true, 3)
 			Game.GAMEOVER:
 				if g.credit > 0 and g.cnt > 64:
-					var o: Vector2 = main.view_rect.position
+					var o := Vector2.ZERO
 					_text("CONTINUE?", Vector2(s.x / 2, s.y * 0.58), 40, Color(0.9, 0.9, 0.7), true, 5)
 					for b in [[main.yes_rect, "YES"], [main.no_rect, "NO"]]:
 						var r: Rect2 = b[0]
@@ -298,6 +285,17 @@ class Overlay extends Node2D:
 					_text("CREDIT %d" % g.credit, Vector2(s.x / 2, s.y * 0.62 + 140), 24, Color(0.8, 0.8, 0.8), true, 3)
 				elif g.cnt > 64:
 					_text("tap to return", Vector2(s.x / 2, s.y * 0.62), 26, Color(1, 1, 1, 0.8), true, 3)
+
+	func _draw_pause_button(r: Rect2, paused: bool) -> void:
+		var c := r.get_center()
+		var col := Color(1, 1, 0.85, 0.75)
+		draw_circle(c, r.size.x / 2, Color(0, 0, 0, 0.25))
+		draw_arc(c, r.size.x / 2, 0, TAU, 40, col, 3, true)
+		if paused:
+			draw_colored_polygon(PackedVector2Array([c + Vector2(-9, -14), c + Vector2(-9, 14), c + Vector2(14, 0)]), col)
+		else:
+			draw_rect(Rect2(c + Vector2(-11, -13), Vector2(8, 26)), col)
+			draw_rect(Rect2(c + Vector2(3, -13), Vector2(8, 26)), col)
 
 	func _draw_title(g: Game, s: Vector2) -> void:
 		var t := "TUMIKI"
