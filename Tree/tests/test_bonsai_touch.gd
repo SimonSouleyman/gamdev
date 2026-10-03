@@ -258,7 +258,7 @@ func _tools_on(phys: Vector2i, canvas: Vector2i) -> void:
 		for r in [0.5, 0.9]:
 			rim.append(_view.camera.unproject_position(_view._base.to_global(Vector3(cos(a) * half.x * r, BonsaiView.soil_height(b.pot), sin(a) * half.y * r))))
 		rim.append(_view.camera.unproject_position(_view._base.to_global(Vector3(cos(a) * half.x, BonsaiView.soil_height(b.pot) * 0.5, sin(a) * half.y))))
-	for tool in ["", "shears", "pinch"]:
+	for tool in ["", "shears", "wire"]:
 		_view.set_tool(tool)
 		_settle()
 		for p in rim:
@@ -326,27 +326,8 @@ func _tools_on(phys: Vector2i, canvas: Vector2i) -> void:
 	t.check(b.moisture > 0.5 and _view.tool == "shears", where + " shears: a tap on the can waters, the shears stay in hand")
 	_put_down(where + " shears")
 
-	# The tweezers: touch a fresh tip (ringed), lift to pinch.
-	var tip := -1
-	var trunk := b.trunk_chain()
-	for id in b.living_tips():
-		var p := _view.plant_screen_position(id)
-		if b.is_fresh_tip(id) and not trunk.has(id) and p.y > 300.0 and p.x > 60.0 and p.x < canvas.x - 60.0:
-			tip = id
-			break
-	t.check(tip >= 0, where + " tweezers: a fresh tip on screen")
-	_pick_up("pinch", where + " tweezers")
-	if tip >= 0:
-		# A touch a little beside the tip still finds it (a fingertip's offset).
-		var at := _view.plant_screen_position(tip) + Vector2(12, 14)
-		if _aim(at, "tip", where + " tweezers"):
-			t.check(_view._tip_ring.visible, where + " tweezers: the tip is ringed")
-			t.check(not b.graph.get_flag(int(_view.aimed["id"]), "pinched", false), where + " tweezers: not pinched before the finger lifts")
-		var aimed_tip := int(_view.aimed.get("id", -1))
-		_release(at)
-		t.check(aimed_tip >= 0 and b.graph.get_flag(aimed_tip, "pinched", false) == true, where + " tweezers: lifting pinches the ringed tip")
-	counts["pinch"] = taps
-	_put_down(where + " tweezers")
+	# 0.8.2.8 (Simon): no tweezers on the sill.
+	t.check(not _view.object_screen_points().has("pinch"), where + ": no tweezers on the sill")
 
 	# The copper wire: touch a branch (traced), drag it into a new line.
 	var wid := _side_branch(b)
@@ -427,12 +408,12 @@ func _tools_on(phys: Vector2i, canvas: Vector2i) -> void:
 		t.check_eq(_view.tool, id, "%s: a tap on the %s swaps to it" % [where, id])
 	_put_down(where + " last")
 	# A finger's wobble (18 px) is still a tap.
-	var p0 := _thing("pinch")
+	var p0 := _thing("wire")
 	_touch(p0, true)
 	_slide(p0, p0 + Vector2(12, 13), 3)
 	_touch(p0 + Vector2(12, 13), false)
 	_settle()
-	t.check_eq(_view.tool, "pinch", where + ": a wobbling tap still picks the tweezers up")
+	t.check_eq(_view.tool, "wire", where + ": a wobbling tap still picks the wire up")
 	_put_down(where + " wobble")
 
 	# Back to the bench (0.8.2.2, Simon): a tap anywhere below the windowsill goes back; a drag
@@ -454,7 +435,7 @@ func _tools_on(phys: Vector2i, canvas: Vector2i) -> void:
 	t.check_eq(int(counts["water"]), 1, where + ": watering is one tap")
 	t.check(int(counts["fertiliser"]) <= 2, "%s: pellets take %d taps (one on the tin)" % [where, int(counts["fertiliser"])])
 	t.check(int(counts["repot"]) <= 3, "%s: repotting takes %d taps" % [where, int(counts["repot"])])
-	for k in ["shears", "pinch", "wire", "turn"]:
+	for k in ["shears", "wire", "turn"]:
 		t.check(int(counts[k]) <= 2, "%s: %s takes %d taps" % [where, k, int(counts[k])])
 	print("%s taps per action: %s" % [where, counts])
 	_free()

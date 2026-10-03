@@ -14,7 +14,9 @@ extends Node3D
 ## care kinds BonsaiView.tool knows ("pinch" are the tweezers). 0.8.2.2 (Simon: "ein Tippen auf
 ## die Gießkanne sollte direkt gießen"): the can, the pellet tin ("fertiliser") and the trowel
 ## work on one tap where they lie; only the tools that need a place on the tree are held.
-const HELD: Array[String] = ["shears", "pinch", "wire"]
+## 0.8.2.8 (Simon: "the tweezers I don't want, work only with the other things"): no tweezers
+## on the sill; the shears and the wire shape the tree.
+const HELD: Array[String] = ["shears", "wire"]
 const TAPPED: Array[String] = ["water", "fertiliser", "trowel", "turn_left", "turn_right", "styles", "album", "cuttings"]
 ## Their paper labels (first time, and with "clearer print").
 const LABELS := {
@@ -29,16 +31,16 @@ const LABELS := {
 ## on the phone; tests/test_bonsai.gd checks it at 720 x 1600 and 720 x 1280). 0.8.2.2 (Simon:
 ## the can and the tin stood "in der Wand"): both stand forward on the board, clear of the window
 ## frame and the wall (WALL_Z), the can's spout toward the room.
+## 0.8.2.8: without the tweezers the front row's four things spread over the same width.
 const FRONT_Z := -0.24
-const ROW_GAP := 0.06
+const ROW_GAP := 0.08
 const RESTS := {
 	"water": [Vector3(0.15, 0.0, -0.025), PI],
 	"fertiliser": [Vector3(-0.15, 0.0, -0.035), 0.3],
-	"trowel": [Vector3(2.0 * ROW_GAP, 0.0, FRONT_Z + 0.01), 0.3],
-	"shears": [Vector3(ROW_GAP, 0.0, FRONT_Z), -0.45],
-	"pinch": [Vector3(0.0, 0.0, FRONT_Z), 0.2],
-	"wire": [Vector3(-ROW_GAP, 0.0, FRONT_Z), 0.0],
-	"cuttings": [Vector3(-2.0 * ROW_GAP - 0.005, 0.0, FRONT_Z + 0.01), 1.5],
+	"trowel": [Vector3(1.5 * ROW_GAP, 0.0, FRONT_Z + 0.01), 0.3],
+	"shears": [Vector3(0.5 * ROW_GAP, 0.0, FRONT_Z), -0.45],
+	"wire": [Vector3(-0.5 * ROW_GAP, 0.0, FRONT_Z), 0.0],
+	"cuttings": [Vector3(-1.5 * ROW_GAP - 0.005, 0.0, FRONT_Z + 0.01), 1.5],
 	"album": [Vector3(0.15, 0.19, 0.03), 0.0],
 	"styles": [Vector3(-0.148, 0.19, 0.039), 0.0],
 }
@@ -87,7 +89,6 @@ func _ready() -> void:
 	_build_tin()
 	_build_trowel()
 	_build_shears()
-	_build_tweezers()
 	_build_wire()
 	_build_sketchbook()
 	_build_album()

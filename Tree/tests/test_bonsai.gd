@@ -485,7 +485,8 @@ func test_sill_tools_do_what_the_paper_menu_did() -> void:
 	var v: BonsaiView = made[1]
 	var soil := v.plant_screen_position(0) + Vector2(0, 10)
 	t.check(v.on_bonsai(soil), "the soil is on the bonsai")
-	t.check(not v.on_bonsai(v.object_screen_points()["pinch"]), "the front row is not")
+	t.check(not v.on_bonsai(v.object_screen_points()["wire"]), "the front row is not")
+	t.check(not v.object_screen_points().has("pinch"), "0.8.2.8: no tweezers on the sill (Simon)")
 	# One tap picks a held tool up, a tap on it (or its place) puts it down.
 	v.tap_object("shears")
 	t.check_eq(v.tool, "shears", "the shears are in hand")
@@ -525,18 +526,6 @@ func test_sill_tools_do_what_the_paper_menu_did() -> void:
 	t.check(b.soil[0] > low + 0.01, "two taps on N while it pours: two spoons")
 	v.tap_object("fertiliser")
 	t.check(not v.tin_open, "a second tap on the tin closes the slip")
-	# The tweezers pinch a fresh tip.
-	v.tap_object("pinch")
-	var trunk := b.trunk_chain()
-	var tip := -1
-	for id in b.living_tips():
-		if b.is_fresh_tip(id) and not trunk.has(id):
-			tip = id
-			break
-	t.check(tip >= 0, "a fresh tip to pinch")
-	if tip >= 0:
-		v.use_at(v.plant_screen_position(tip))
-		t.check(b.graph.get_flag(tip, "pinched", false) == true, "the tweezers pinch it")
 	# The carved arrows turn the pot.
 	v.set_tool("")
 	_finish(v)
@@ -727,3 +716,25 @@ func test_glazed_pots_face_outward() -> void:
 		t.check(out > 0 and inward == 0, "%s pot: the outer wall faces out (%d out, %d in)" % [id, out, inward])
 		n.free()
 	v.free()
+
+
+## 0.8.2.8 (Simon: taking a wire off again was hard): a touch anywhere on the coil finds the
+## wired branch, not only its first segment.
+func test_a_touch_on_the_coil_finds_the_wired_branch() -> void:
+	var g := GameState.new_game(41)
+	g.ensure_bonsai(true)
+	var b := g.bonsai
+	_care_days(b, 12)
+	var made := _sill_view(g)
+	var v: BonsaiView = made[1]
+	var id := _side_branch(b)
+	t.check(id >= 0, "a side branch")
+	if id >= 0:
+		t.check(b.wire(id, Vector3(0.3, 1.0, 0.2)), "wired")
+		var chain := b.wire_chain(id)
+		t.check(chain.size() >= 3, "the coil runs along several segments (%d)" % chain.size())
+		var far := chain[chain.size() - 1]
+		var p := v.camera.unproject_position(v._plant.to_global(b.graph.positions[far]))
+		t.check_eq(v.pick_branch(p), id, "a touch at the coil's far end finds the wired branch")
+		t.check_eq(v.pick_branch(p + Vector2(20, 16)), id, "also a fingertip beside it")
+	(made[0] as Node).free()

@@ -28,6 +28,8 @@ const PITCH := 0.45
 ## How near a tip or a branch a touch must land (canvas pixels; 0.8.1: 44 was a fingertip's own
 ## radius, so a touch just beside a tip missed it).
 const PICK_RADIUS := 56.0
+## A coiled branch is found this much more easily than bare wood (its distance counts this share).
+const WIRE_PICK_BIAS := 0.45
 ## The tap radius of the things on the sill: finger size on a phone (docs/notes/bonsai-tools-0.7.md).
 const TOOL_TAP := 52.0
 ## A held tool's place on the sill is a larger target to put it back (still the nearest thing wins).
@@ -1440,7 +1442,7 @@ func _move(pos: Vector2, rel: Vector2) -> void:
 			_show_aim(aim_target(pos))
 			return
 		"wire":
-			if pos.distance_to(_press) > TAP_SLOP:
+			if pos.distance_to(_press) > TAP_SLOP and not (sim().graph.get_flag(_wire_id, "wire") is Dictionary):
 				_wire_target = _drag_point(pos)
 				_draw_wire_preview()
 			return
@@ -1501,7 +1503,9 @@ func _end(pos: Vector2) -> void:
 			_drag = ""
 			_show_aim({})
 			var g := b.graph
-			if b.graph.get_flag(_wire_id, "wire") is Dictionary and not moved:
+			# 0.8.2.8: a touch on a coil takes it off, even with a finger's wobble (a wired
+			# branch cannot be wired again anyway).
+			if b.graph.get_flag(_wire_id, "wire") is Dictionary:
 				b.unwire(_wire_id)
 				uses += 1
 				_play("wire")
@@ -1681,6 +1685,14 @@ func pick_branch(screen: Vector2) -> int:
 	var g := b.graph
 	var best := -1
 	var best_d := PICK_RADIUS
+	# 0.8.2.8 (Simon: "taking the wire off again is hard, the branch is hard to pick"): the coil
+	# runs along the whole wired branch (wire_chain), but only its first segment answered. Now a
+	# touch anywhere on the coil finds the wired branch, and the coil wins over bare wood nearby.
+	var coil_of := {}
+	for w in b.wired():
+		coil_of[w] = w
+		for n in b.wire_chain(w):
+			coil_of[n] = w
 	for id in range(2, g.size()):
 		if b.is_dead(id) or b.is_jin(id):
 			continue
@@ -1689,12 +1701,13 @@ func pick_branch(screen: Vector2) -> int:
 		if camera.is_position_behind(a) or camera.is_position_behind(c):
 			continue
 		var d := Geometry2D.get_closest_point_to_segment(screen, camera.unproject_position(a), camera.unproject_position(c)).distance_to(screen)
-		# A wired branch is easy to find again (tap to take the wire off).
-		if g.get_flag(id, "wire") is Dictionary:
-			d *= 0.6
+		var hit := id
+		if coil_of.has(id):
+			hit = int(coil_of[id])
+			d *= WIRE_PICK_BIAS
 		if d < best_d:
 			best_d = d
-			best = id
+			best = hit
 	return best
 
 

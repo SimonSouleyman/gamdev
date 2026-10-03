@@ -23,7 +23,7 @@ const STYLE_TEXTS := {
 ## which one is in hand, then what to touch and how to put it back.
 ## 0.8.2.2: the can, the tin and the trowel work on one tap and are never in hand.
 const TOOL_HINTS := {
-	"": "Tap the can to water, the tin for pellets. Pick up shears, tweezers or wire. Drag to look round; tap below the sill to go back.",
+	"": "Tap the can to water, the tin for pellets. Pick up the shears or the wire. Drag to look round; tap below the sill to go back.",
 	"shears": "In hand: the shears. Touch a branch: the mark shows the cut. Lift to cut (a third at most).",
 	"pinch": "In hand: the tweezers. Touch a fresh tip (ringed), lift to pinch it.",
 	"wire": "In hand: the copper wire. Touch a branch and drag it into its new line; tap a wired one to free it.",
