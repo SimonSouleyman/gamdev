@@ -5,7 +5,9 @@ class_name Effects
 class Splinter:
 	const MOVE_DEG_DEFAULT := 0.05
 	const MOVE_X_DEFAULT := 0.16
-	const GRAVITY := 0.005
+	## Pieces fall towards the bottom corners: sideways plus a drift down towards the player.
+	const GRAVITY := 0.0042
+	const GRAVITY_DOWN := 0.003
 	const COLLISION_RATIO := 0.8
 	static var sign_num := 0
 	static var rand := U.Rand.new()
@@ -80,6 +82,7 @@ class Splinter:
 		cnt += 1
 		if not is_boss:
 			vel.y += GRAVITY * fall
+			vel.x -= GRAVITY_DOWN
 			if absf(pos.y) > g.field.size.y + tumiki_set.size or pos.x < -g.field.size.x - tumiki_set.size:
 				exists = false
 				return
@@ -176,6 +179,7 @@ class Fragment:
 			return
 		pos += vel
 		vel.y += GRAVITY * fall
+		vel.x -= GRAVITY * 0.6
 		deg += md
 
 	func draw(r: BlockRenderer) -> void:
