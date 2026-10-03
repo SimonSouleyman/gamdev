@@ -278,7 +278,7 @@ func test_explanation_pages_are_a_third_and_keep_what_the_player_needs() -> void
 	var sunset := Pages.body("first_sunset")
 	for need in ["Tap the ground", "rushes", "clover", "nettles", "comfrey", "stones"]:
 		t.check(sunset.contains(need), "the sunset page still says: " + need)
-	for need in ["Water", "pellets", "turn the pot", "shears", "tweezers", "wire"]:
+	for need in ["Water", "pellets", "turn the pot", "shears", "wire"]:
 		t.check(Pages.body("bonsai").contains(need), "the bonsai page still says: " + need)
 
 

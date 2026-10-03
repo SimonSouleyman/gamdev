@@ -15,7 +15,9 @@ final class LiveScene {
     static final double KEEP_CLEAR = 0.28;
     static final double WIND = 0.03;
     static final double WIND_MIN_TALL = 0.4;
-    static final double LEAF = 0.0035;
+    static final double LEAF = 0.0025;
+    static final double LAYER_ASPECT = 960.0 / 540.0;
+    static final double BOB = 0.03;
     static final double GRASS = 0.005;
     static final double LATITUDE = 51.0;
     static final double LONGITUDE = 10.0;
@@ -131,16 +133,17 @@ final class LiveScene {
         return m;
     }
 
-    /** LivePicture.wind_offset: {dx, dy} in layer units. */
+    /** LivePicture.wind_offset: {dx, dy} in layer units (0.8.2.8: the tree bends round its foot). */
     static void windOffset(double u, double v, double t, double groundY, double crownTop, float[] out) {
         double tall = Math.max(groundY - crownTop, 0.02);
         double k = Math.max(0.0, Math.min(1.0, (groundY - v) / tall));
-        double bend = Math.pow(k, 1.6);
-        double sway = WIND * Math.max(tall, WIND_MIN_TALL);
-        double gust = 0.6 * Math.sin(t * 0.9 + u * 1.3) + 0.4 * Math.sin(t * 0.37 + 1.7);
-        double branches = 0.35 * k * Math.sin(t * 1.6 - u * 6.0 + v * 4.0);
-        double dx = sway * bend * (gust + branches);
-        double dy = sway * 0.2 * bend * Math.sin(t * 1.1 + u * 3.0);
+        double swing = (0.7 + 0.3 * Math.sin(t * 0.37 + 1.7)) * Math.sin(t * 0.9) + 0.2 * Math.sin(t * 2.3 + 0.6);
+        double phi = WIND * Math.sqrt(Math.max(1.0, WIND_MIN_TALL / tall)) * swing * Math.pow(k, 0.8);
+        double rx = u - 0.5;
+        double ry = (v - groundY) * LAYER_ASPECT;
+        double dx = rx * (Math.cos(phi) - 1.0) - ry * Math.sin(phi);
+        double dy = (rx * Math.sin(phi) + ry * (Math.cos(phi) - 1.0)) / LAYER_ASPECT;
+        dy += BOB * Math.abs(rx) * k * Math.sin(t * 1.7 + (rx > 0.0 ? 0.0 : Math.PI));
         double leaf = LEAF * smoothstep(0.3, 0.6, k);
         dx += leaf * Math.sin(t * 5.1 + u * 31.0 + v * 23.0);
         dy += leaf * 0.8 * Math.sin(t * 4.3 + u * 17.0 - v * 29.0);

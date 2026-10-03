@@ -2,6 +2,18 @@
 
 ## Progress (for resuming work)
 
+State 2026-10-03 (cloud thread; Simon's PC stays quiet): 0.8.2.8 on branch s0828, from main
+(0.8.2.7 + splash 2 + live guards), short tests green, NOT built or installed. The PC thread
+merges s0828, rebuilds the TreeLive AAR (gradlew :treelive:copyAarToAddon; LiveScene.java and
+LiveData.java changed), bumps the version to 0.8.2.8 and installs when Simon says so.
+- 0.8.2.8 (Simon's test notes 2026-10-03): hold 32x; hourglass runs the rest of the day in 7 s
+  (moments no longer slow it); a fast day takes coarser sim steps when the fixed ones do not fit
+  the frame budget (main._ff_step), so the speed holds on the phone; shed ceiling lamp above the
+  eye (night only); gentler morning light in tree mode; reached deposits dim as the night settles
+  (side roots: half the reached ones were not drawn because the stock was full); bonsai without
+  tweezers, front row spread; a touch anywhere on a coil takes the wire off; live wallpaper tree
+  bends round its foot instead of the squeezing warp.
+
 State 2026-10-02 21:20 (Simon: no more heavy work on his PC for now; a cloud thread continues the
 code; builds/installs on the PC only when Simon says so). Phone has 0.8.2.6 (save backups in
 GameDev/tree-shots/savebackup/pre-*). Prototyping rule: short test run per version, Simon tests on

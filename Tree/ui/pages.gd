@@ -21,7 +21,7 @@ const TEXTS: Dictionary = {
 	"pick": ["A new root", "Tonight a root can start anywhere on the old roots: tap one."],
 	"shears": ["The shears", "Touch a branch to outline what would fall; slide to choose, lift to cut.\n\nCutting is free; the tree grows into your shape. Tap the shears to put them away."],
 	"finished": ["A grown tree", "Fully grown; it dropped a seed. The shed's seed bag holds the next kind. No hurry."],
-	"bonsai": ["A bonsai on the windowsill", "A juniper to keep as long as I like; forgetting it harms nothing.\n\nThe window side grows: turn the pot now and then. Water when the soil is pale, pellets when it hungers, a new pot weekly. Shape it with shears, tweezers and wire."],
+	"bonsai": ["A bonsai on the windowsill", "A juniper to keep as long as I like; forgetting it harms nothing.\n\nThe window side grows: turn the pot now and then. Water when the soil is pale, pellets when it hungers, a new pot weekly. Shape it with shears and wire."],
 	"bonsai_water": ["Watering", "Water when the soil looks pale. Dry, it droops; it never dies."],
 	"bonsai_fertiliser": ["Pellets", "The scarcest of N, P and K sets the pace. Too much browns tips."],
 	"bonsai_shears": ["Shaping", "Cuts make it denser, not bigger: a third at most. Cut branches stay as silver jin or shari."],

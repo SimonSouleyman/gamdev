@@ -14,6 +14,9 @@ var seed := 42
 var species := "linden"
 var screen := Vector2(540, 1200)
 var fallback := false
+## --wind=N[,step]: N wind frames (default 5) step seconds apart (default 1.3), e.g. for a GIF.
+var wind_frames := 5
+var wind_step := 1.3
 var view: TreeView
 var export: LiveExport
 var game: GameState
@@ -34,6 +37,11 @@ func _initialize() -> void:
 		elif a.begins_with("--size="):
 			var p := a.substr(7).split("x")
 			screen = Vector2(float(p[0]), float(p[1]))
+		elif a.begins_with("--wind="):
+			var w := a.substr(7).split(",")
+			wind_frames = int(w[0])
+			if w.size() > 1:
+				wind_step = float(w[1])
 		elif a == "--fallback":
 			fallback = true
 	Almanac.read_cmdline()
@@ -146,9 +154,9 @@ func _photograph(dir: String) -> void:
 		await RenderingServer.frame_post_draw
 		sv.get_texture().get_image().save_png(shots_dir.path_join("live_%s.png" % name))
 	# Wind: five frames a second apart at noon (the crown sways, the clouds drift).
-	for i in range(5):
+	for i in range(wind_frames):
 		p.hour = float(times["noon"])
-		p.t = 10.0 + i * 1.3
+		p.t = 10.0 + i * wind_step
 		p.queue_redraw()
 		await RenderingServer.frame_post_draw
 		await RenderingServer.frame_post_draw

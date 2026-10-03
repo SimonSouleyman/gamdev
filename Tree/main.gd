@@ -235,6 +235,17 @@ func _show_underground(on: bool) -> void:
 const SIM_STEP := 1.0 / 30.0
 ## The most sim time a fast-forwarded frame may take (ms); see _process.
 const FF_BUDGET_MS := 12
+## The coarsest step a fast day takes (game s): about a game minute and a half.
+const FF_MAX_STEP := 0.5
+## What a fast day's sim step has cost lately (µs, a running mean).
+var _tick_usec: float = 500.0
+
+
+## The step for a fast frame that owes `owed` game seconds: the fixed SIM_STEP while that many
+## fit the frame's budget, else as coarse as needed (at most FF_MAX_STEP).
+func _ff_step(owed: float) -> float:
+	var fit := clampf(FF_BUDGET_MS * 1000.0 / maxf(_tick_usec, 1.0), 1.0, 30.0)
+	return clampf(owed / fit, SIM_STEP, FF_MAX_STEP)
 ## Wish deposits the meadow shows plants for (it is rebuilt when a new one is placed).
 var _meadow_wishes: int = -1
 var _sim_accum: float = 0.0
@@ -263,24 +274,35 @@ func _process(delta: float) -> void:
 	if not paused or bonsai_live:
 		# Held to fast-forward (specs/fast-forward.md): more fixed game-time steps per frame, the
 		# same steps; the result does not depend on the speed.
-		_sim_accum += delta * time_scale * tree_view.time_speed()
+		var speed := tree_view.time_speed()
+		_sim_accum += delta * time_scale * speed
 		var steps := 0
 		# 0.8.2.2: held at 8x the sim runs twice the steps of 0.8.2; past FF_BUDGET_MS of them in
-		# a frame the day runs a little slower instead of the frame rate dropping (the steps stay
-		# the same fixed steps, so the tree is the same).
-		var budget := FF_BUDGET_MS * 1000 if tree_view.time_speed() > 1.0 else 1 << 40
+		# a frame the day runs a little slower instead of the frame rate dropping.
+		# 0.8.2.8 (Simon: "fast-forward still too slow", the phone kept a few x of the 32x): a fast
+		# day takes coarser steps when the fixed ones do not fit the frame's budget (_ff_step), so
+		# the speed is the real speed. A watched day keeps the fixed steps.
+		var fast := speed > 1.0
+		var budget := FF_BUDGET_MS * 1000 if fast else 1 << 40
+		var step := _ff_step(_sim_accum) if fast else SIM_STEP
 		var t0 := Time.get_ticks_usec()
-		while _sim_accum >= SIM_STEP and steps < 40:
-			state.tick(SIM_STEP)
-			_sim_accum -= SIM_STEP
+		while _sim_accum >= step and steps < 40:
+			var a := Time.get_ticks_usec()
+			state.tick(step)
+			if fast:
+				_tick_usec = lerpf(_tick_usec, float(Time.get_ticks_usec() - a), 0.2)
+			_sim_accum -= step
 			steps += 1
 			if Time.get_ticks_usec() - t0 > budget:
-				_sim_accum = minf(_sim_accum, SIM_STEP)
+				_sim_accum = minf(_sim_accum, step)
 				break
 			# 0.8.2.6: a moment of the day stops a fast-forwarded frame there; the view slows down
-			# from the next frame (the steps stay the same fixed steps).
-			if steps < 40 and state.moment_due() and tree_view.time_speed() > 1.0:
-				_sim_accum = minf(_sim_accum, SIM_STEP)
+			# from the next frame.
+			if steps < 40 and state.moment_due() and fast:
+				_sim_accum = minf(_sim_accum, step)
+				break
+			if state.phase != GameState.Phase.DAY and fast:
+				_sim_accum = 0.0
 				break
 		if steps == 40:
 			_sim_accum = 0.0  # a long hitch: drop the rest rather than spiral

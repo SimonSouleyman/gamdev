@@ -75,7 +75,7 @@ func test_a_tap_boosts_and_a_hold_fast_forwards() -> void:
 	t.check(tv.fast_arrows.visible, "the ink arrows show while held")
 	t.check(tv.time_speed() < TreeView.FAST_FORWARD, "it eases in, no jump (%.2f)" % tv.time_speed())
 	_frames(tv, 0.6)
-	t.check_eq(TreeView.FAST_FORWARD, 16.0, "0.8.2.4: 16x (Simon: twice as fast, twice)")
+	t.check_eq(TreeView.FAST_FORWARD, 32.0, "0.8.2.8: 32x (Simon: doubled again)")
 	t.check_eq(tv.time_speed(), TreeView.FAST_FORWARD, "then 16x")
 	var hour := clk.clock_hour()
 	_frames(tv, 1.0)

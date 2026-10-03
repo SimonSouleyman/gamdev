@@ -117,7 +117,11 @@ func test_fast_forward_slows_to_normal_at_each_moment_then_carries_on() -> void:
 				if tv.time_speed() <= 1.0001:
 					slow_frames += 1
 				else:
-					t.check(slow_frames * FRAME >= Moments.SLOW_SECONDS - 2.0 * FRAME, "%s (hold %s): normal speed for %.2f s" % [str(seen[-1][0]), str(hold), slow_frames * FRAME])
+					if hold:
+						t.check(slow_frames * FRAME >= Moments.SLOW_SECONDS - 2.0 * FRAME, "%s (hold): normal speed for %.2f s" % [str(seen[-1][0]), slow_frames * FRAME])
+					else:
+						# 0.8.2.8: the hourglass keeps its seven seconds; moments do not slow it.
+						t.check(slow_frames * FRAME < 0.2, "%s (hourglass): not slowed (%.2f s)" % [str(seen[-1][0]), slow_frames * FRAME])
 					after_moment = false
 					resumed += 1
 			guard += 1

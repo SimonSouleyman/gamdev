@@ -64,9 +64,8 @@ func test_the_sunset_picture_runs_to_the_sunset_hold_and_never_dives() -> void:
 		real += FRAME
 		guard += 1
 	t.check_eq(g.phase, GameState.Phase.SUNSET, "it ends at the sunset hold")
-	t.check_eq(TreeView.SUNSET_RUN_SPEED, 32.0, "0.8.2.7: the hourglass runs at 32x (Simon)")
-	t.check_eq(TreeView.FAST_FORWARD, 16.0, "holding stays 16x")
-	t.check_eq(fastest, TreeView.SUNSET_RUN_SPEED, "at the hourglass's speed, twice the hold")
+	t.check_eq(TreeView.FAST_FORWARD, 32.0, "0.8.2.8: holding runs 32x (Simon: doubled)")
+	t.check(absf(real - TreeView.SUNSET_RUN_SECONDS) < 1.0, "0.8.2.8: the rest of the day passes in about 7 s (%.1f s)" % real)
 	var clk := g.sim.clock
 	var day_left_calm := clk.daylight_fraction * 0.8 * clk.seconds_per_day
 	t.check(real < day_left_calm / 10.0, "quickly: %.1f s instead of %.0f s" % [real, day_left_calm])
@@ -99,7 +98,8 @@ func test_it_eases_into_the_sunset() -> void:
 		guard += 1
 	# The frames just before the sunset ran slower than full speed.
 	var tail: Array = last_speeds.slice(maxi(0, last_speeds.size() - 4))
-	t.check(float(tail[0]) < TreeView.SUNSET_RUN_SPEED * 0.5, "the last frames slow down (%s)" % str(tail))
+	var top: float = last_speeds.max()
+	t.check(float(tail[0]) < top * 0.5, "the last frames slow down (%s)" % str(tail))
 	t.check(clk.time_of_day >= clk.daylight_fraction - 1e-4, "and land on the sunset")
 	tv.free()
 
@@ -339,3 +339,15 @@ func test_ended_at_once_every_night_finishes_behind_steering() -> void:
 			break
 	t.check(g.finished and day <= 40, "ended at once every night: finished on day %d (by about 40)" % day)
 	t.check(day >= 34, "at least 4 days behind steering (day 30): day %d" % day)
+
+
+## 0.8.2.8: a phone too slow for the fixed steps takes coarser ones instead of a slower day.
+func test_a_slow_phone_takes_coarser_steps() -> void:
+	var main_script := load("res://main.gd")
+	var m: Node = main_script.new()
+	m._tick_usec = 300.0
+	t.check_eq(m._ff_step(0.5), main_script.SIM_STEP, "a fast phone keeps the fixed steps")
+	m._tick_usec = 6000.0
+	t.check(m._ff_step(1.0) > main_script.SIM_STEP * 10.0, "a slow one owes a second in two steps (%.3f)" % m._ff_step(1.0))
+	t.check_eq(m._ff_step(100.0), main_script.FF_MAX_STEP, "never coarser than FF_MAX_STEP")
+	m.free()

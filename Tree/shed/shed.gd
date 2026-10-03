@@ -83,6 +83,14 @@ var _window_sun: SpotLight3D
 ## 0.8.2.4 (Simon: "a small lamp over the bonsai so you can work on it at night"): a small enamel
 ## shade on a wall bracket above the window, its warm spot a pool on the bonsai by night only.
 var bonsai_lamp: SpotLight3D
+## 0.8.2.8 (Simon: "still too dark; over where you stand a bigger ceiling lamp that lights the
+## whole hut, weakly"): a wide soft light under the roof above the eye, out of the picture. It
+## evens out the night (no dark corners) while the lantern and the two small lamps keep their
+## warm pools. By night only; by day the window lights the room.
+var ceiling_lamp: OmniLight3D
+const CEILING_LAMP_AT := Vector3(-0.05, WALL_H - 0.08, -1.05)
+const CEILING_LAMP_ENERGY := 1.0
+const CEILING_LAMP_PHONE := 1.8
 var _bonsai_bulb: StandardMaterial3D
 ## The bonsai lamp's energy at full night (the phone's renderer is dimmer: BONSAI_LAMP_PHONE).
 const BONSAI_LAMP_ENERGY := 1.0
@@ -148,6 +156,7 @@ func _ready() -> void:
 	_build_window()
 	_build_bonsai_lamp()
 	_build_door_lamp()
+	_build_ceiling_lamp()
 	_build_bench()
 	_build_pinboard()
 	_build_camera()
@@ -453,10 +462,26 @@ func _build_door_lamp() -> void:
 	_set_bonsai_lamp(0.0)
 
 
+func _build_ceiling_lamp() -> void:
+	ceiling_lamp = OmniLight3D.new()
+	ceiling_lamp.light_color = Color(1.0, 0.85, 0.64)
+	# Reaches every wall from above the eye, falling off gently (a broad, even wash).
+	ceiling_lamp.omni_range = 5.5
+	ceiling_lamp.omni_attenuation = 0.55
+	ceiling_lamp.light_specular = 0.1
+	ceiling_lamp.shadow_enabled = false
+	ceiling_lamp.position = CEILING_LAMP_AT
+	add_child(ceiling_lamp)
+
+
 ## The bonsai lamp (and the lamp by the door) at `night` (0 by day .. 1 at full night).
 func _set_bonsai_lamp(night: float) -> void:
 	if bonsai_lamp == null:
 		return
+	if ceiling_lamp != null:
+		var cfull := CEILING_LAMP_PHONE if RenderingServer.get_current_rendering_method() == "gl_compatibility" else CEILING_LAMP_ENERGY
+		ceiling_lamp.light_energy = cfull * night
+		ceiling_lamp.visible = night > 0.01
 	if door_lamp != null:
 		var dfull := DOOR_LAMP_PHONE if RenderingServer.get_current_rendering_method() == "gl_compatibility" else DOOR_LAMP_ENERGY
 		door_lamp.light_energy = dfull * night

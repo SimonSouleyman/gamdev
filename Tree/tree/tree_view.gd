@@ -87,6 +87,10 @@ var _built_marks := ""
 var _shown_care := PackedFloat32Array([-1, -1, -1, -1])
 ## Tools may force a care look (a shot of a thirsty tree); empty: the game's own signals.
 var care_override := PackedFloat32Array()
+## 0.8.2.8: how much less the morning's low sun lifts the sky's glow and the exposure than the
+## evening's (Simon: the start of the day was overexposed). Fade out by midday.
+const MORNING_SKY_CUT := 0.35
+const MORNING_EXPOSURE_CUT := 0.22
 ## Night adaptation (0.8.1, notes/look-0.8.1.md): exposure and the moonlit fill lifted by these
 ## shares at full night, so the tree reads on the phone without the night looking like day.
 const NIGHT_EXPOSURE_LIFT := 0.45
@@ -138,12 +142,15 @@ var _press_time: float = 0.0  # "", "orbit", "sun", "boost"
 ## by day starts it; it runs while the finger stays down. A tap stays the boost.
 const HOLD_START := 0.6
 ## The day's clock while held (tuning lever; 0.8.2.2: 8x, was 4x, Simon: "twice as fast";
-## 0.8.2.4: 16x, Simon: "doubled again").
-const FAST_FORWARD := 16.0
-## The sunset picture's (hourglass) speed: twice the hold (0.8.2.7, Simon: "twice as fast again:
-## 32x; holding stays 16x"). Same fixed sim steps and per-frame budget (main.FF_BUDGET_MS): a
-## phone that cannot keep it runs the day slower, not the frame.
-const SUNSET_RUN_SPEED := 32.0
+## 0.8.2.4: 16x, Simon: "doubled again"; 0.8.2.8: 32x, Simon: "still too slow, double it").
+## From 0.8.2.8 a phone that cannot keep the speed in fixed steps takes coarser ones
+## (main.gd, _ff_step), so the speed is the real speed.
+const FAST_FORWARD := 32.0
+## The sunset picture (hourglass) runs the rest of the day in this many real seconds, however much
+## of it is left (0.8.2.8, Simon: "the day should pass within 7 seconds"; it ran at 32x before).
+const SUNSET_RUN_SECONDS := 7.0
+## Real seconds the hourglass run has run (its speed aims at the end at SUNSET_RUN_SECONDS).
+var _run_time: float = 0.0
 ## Real seconds the speed takes to ease in from 1x to FAST_FORWARD (no hitch when it starts).
 const FAST_EASE := 0.5
 ## 0..1: how far the fast-forward has eased in (0 = the normal clock).
@@ -256,8 +263,10 @@ var _reveal_left: float = 0.0
 ## in again; and the moment shows (the flowers open, the visitor's line, the weather turns).
 func moment(m: String, note: String = "") -> void:
 	last_moment = m
-	_moment_left = Moments.SLOW_SECONDS
-	_ff_amount = 0.0
+	# The hourglass run keeps its seven seconds: the moment shows, but does not slow it (0.8.2.8).
+	if not _to_sunset:
+		_moment_left = Moments.SLOW_SECONDS
+		_ff_amount = 0.0
 	match m:
 		Moments.MORNING:
 			refresh_wish()
@@ -1098,13 +1107,17 @@ func _update_sun() -> void:
 	wish_plant.set_daylight(clampf(h * 3.0, 0.0, 1.0))
 	# The sky glows brighter near the horizon hours, and the haze takes the sun's colour.
 	# A low sun: a bright golden sky and haze, the ground in raking light (the reference photos).
-	_sky_mat.energy_multiplier = 1.5 + 1.7 * (1.0 - k) + (0.35 if clock.boost_active else 0.0)
+	# 0.8.2.8 (Simon: "when the day begins in tree mode it is still a little overexposed"): the
+	# morning's low sun lifts the sky, the exposure and the golden sun less than the evening's
+	# (the evening stays as bright: it was too dark before, 0.8.1).
+	var morning := 1.0 - smoothstep(0.4, 0.6, clock.time_of_day / maxf(clock.daylight_fraction, 0.01))
+	_sky_mat.energy_multiplier = 1.5 + 1.7 * (1.0 - k) * (1.0 - MORNING_SKY_CUT * morning) + (0.35 if clock.boost_active else 0.0)
 	# After sunset the haze stays cool blue-grey; only while the sun is up does it warm.
 	var warm := 0.25 * (1.0 - k) * dw
 	_env.fog_light_color = Color(0.32, 0.38, 0.48).lerp(Color(0.45, 0.55, 0.5), dw).lerp(_sun_light.light_color * 0.9, warm)
 	_env.fog_sun_scatter = 0.08 * (1.0 - k)
 	# The eye adapts: a low sun and the dusk are exposed brighter, so the tree stays readable.
-	_env.tonemap_exposure = 1.1 + 0.3 * (1.0 - k)
+	_env.tonemap_exposure = (1.1 + 0.3 * (1.0 - k)) * (1.0 - MORNING_EXPOSURE_CUT * morning * (1.0 - k))
 	# Never too dark by day: the dawn burst must be seen.
 	# Brighter dusk (Simon: the start at sunset was too dark).
 	_env.ambient_light_energy = (1.2 + 0.3 * k) if state.phase == GameState.Phase.DAY else 1.2
@@ -1119,7 +1132,7 @@ func _update_sun() -> void:
 	_env.ambient_light_energy *= lerpf(1.0, lerpf(0.95, 0.6, smoothstep(0.0, 0.2, h)), dw)
 	var golden := 1.0 - smoothstep(0.03, 0.55, h)
 	_sun_light.light_color = _sun_light.light_color.lerp(Color(1.0, 0.95, 0.88).lerp(Color(1.0, 0.7, 0.4), golden), dw)
-	_sun_light.light_energy *= lerpf(1.0, 1.45 * (1.0 + 0.25 * golden), dw)
+	_sun_light.light_energy *= lerpf(1.0, 1.45 * (1.0 + 0.25 * golden * (1.0 - 0.6 * morning)), dw)
 	_env.fog_light_color = _env.fog_light_color.lerp(Color(0.85, 0.7, 0.5), golden * (0.2 if _compat else 0.5) * dw)
 	# The phone's simpler renderer lights more brightly: tone it down to match the PC.
 	if _compat:
@@ -1645,15 +1658,17 @@ func _frame_camera(snap: bool, delta: float = 0.0) -> void:
 # --- hold to fast-forward ---------------------------------------------------
 
 ## How fast the day's clock runs now: 1, or up to FAST_FORWARD while a still finger is held by
-## day, up to SUNSET_RUN_SPEED while the sunset picture runs the day. main.gd multiplies the sim's real time by it; the sim itself still steps in fixed game
+## day, the rest of the day in SUNSET_RUN_SECONDS while the sunset picture runs it. main.gd multiplies the sim's real time by it; the sim itself still steps in fixed game
 ## time, so a held day grows exactly the tree a watched one does.
 func time_speed() -> float:
-	var speed := lerpf(1.0, SUNSET_RUN_SPEED if _to_sunset else FAST_FORWARD, _ff_amount)
 	if _to_sunset and state != null:
+		# The game seconds left over the real seconds left of the run: it lands on the sunset
+		# hold at SUNSET_RUN_SECONDS whatever was left, and makes up for a slow frame.
 		var clk := state.sim.clock
 		var left := (clk.daylight_fraction - clk.time_of_day) * clk.seconds_per_day
-		speed = minf(speed, maxf(2.0, left / SUNSET_EASE_OUT))
-	return speed
+		var real_left := maxf(SUNSET_EASE_OUT, SUNSET_RUN_SECONDS - _run_time)
+		return lerpf(1.0, maxf(2.0, left / real_left), _ff_amount)
+	return lerpf(1.0, FAST_FORWARD, _ff_amount)
 
 
 func fast_forwarding() -> bool:
@@ -1681,6 +1696,7 @@ func run_to_sunset(on: bool = true) -> bool:
 	if on and prune_mode:
 		return false
 	_to_sunset = on
+	_run_time = 0.0
 	if not on:
 		_ff_amount = 0.0
 	return _to_sunset
@@ -1694,6 +1710,8 @@ func _update_hold(delta: float) -> void:
 	# The sunset run ends at the sunset hold (or when the shears come out).
 	if _to_sunset and (state.phase != GameState.Phase.DAY or prune_mode):
 		run_to_sunset(false)
+	if _to_sunset:
+		_run_time += delta
 	if _moment_left > 0.0:
 		# A moment: normal speed for a little while, then the speed eases in again.
 		_moment_left = maxf(0.0, _moment_left - delta)
